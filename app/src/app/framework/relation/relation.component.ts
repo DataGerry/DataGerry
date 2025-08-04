@@ -141,8 +141,8 @@ export class RelationComponent implements OnInit, OnDestroy {
      * Destroy subscriptions after closed.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

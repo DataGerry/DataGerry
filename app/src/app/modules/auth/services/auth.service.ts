@@ -227,7 +227,6 @@ export class AuthService<T = any> implements ApiServicePrefix {
                     }
                 },
                     (error) => {
-                        console.log(error);
                     });
             } else {
                 //display assistant not usable
@@ -254,7 +253,6 @@ export class AuthService<T = any> implements ApiServicePrefix {
             }
         },
             (error) => {
-                console.log(error);
             });
     }
 
@@ -295,7 +293,6 @@ export class AuthService<T = any> implements ApiServicePrefix {
             }
         },
             (error) => {
-                console.log(error);
             });
     }
 

@@ -62,8 +62,8 @@ export class UserSettingsDBService<T = UserSetting, P = UserSettingPayload> impl
      * Auto unsubscribe when service is destroyed.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -136,11 +136,11 @@ export class BuilderComponent implements OnDestroy, AfterViewChecked {
 
 
     ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
-        this.sectionIdentifierService.resetIdentifiers();
-        this.validationService.cleanup();
-        this.fieldIdentifierValidation.clearFieldNames();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.sectionIdentifierService?.resetIdentifiers();
+        this.validationService?.cleanup();
+        this.fieldIdentifierValidation?.clearFieldNames();
     }
 
 

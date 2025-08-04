@@ -65,8 +65,8 @@ export class GroupsAclTabsComponent implements OnDestroy {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

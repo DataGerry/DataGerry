@@ -97,9 +97,9 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
 
     public ngOnDestroy(): void {
         this.setDraggable("true");
-        this.subscriber.next();
-        this.subscriber.complete();
-        this.validationService.cleanup();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.validationService?.cleanup();
     }
 
 

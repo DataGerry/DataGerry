@@ -310,8 +310,8 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
      * Destroy component.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();

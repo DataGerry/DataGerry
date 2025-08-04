@@ -64,8 +64,8 @@ export class RelationFieldsStepComponent extends RelationBuilderStepComponent im
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
   /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

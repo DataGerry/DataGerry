@@ -168,8 +168,8 @@ export class RefSectionComponent extends RenderFieldComponent implements OnInit,
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 

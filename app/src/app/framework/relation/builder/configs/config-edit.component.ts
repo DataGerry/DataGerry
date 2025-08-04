@@ -96,9 +96,9 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
-        this.fieldChangesSubscription.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.fieldChangesSubscription?.unsubscribe();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

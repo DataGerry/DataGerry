@@ -137,8 +137,8 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
             this.modalRef.close();
         }
 
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
@@ -212,7 +212,6 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
                             this.loadLinksFromAPI();
                         },
                         error: (error) => {
-                            console.log("link error", error);
                             this.toast.error(`${error.error}`);
                         }
                     });
@@ -220,7 +219,6 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
             },
             (reason: any) => {
                 // Handle modal dismissal rejection
-                console.log('Modal dismissed with reason:', reason);
             }
         );
     }

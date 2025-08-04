@@ -147,8 +147,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy(): void {
-    this.unsubscribe.next();
-    this.unsubscribe.complete();
+    this.unsubscribe?.next();
+    this.unsubscribe?.complete();
   }
 
   @HostListener('window:scroll')

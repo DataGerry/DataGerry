@@ -46,8 +46,8 @@ export class TableService<C = TableState> implements OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* --------------------------------------------------- CRUD - READ -------------------------------------------------- */

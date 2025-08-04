@@ -527,7 +527,7 @@ export class ObjectReferencesTableComponent implements OnDestroy {
    * Unsubscribe all on component destroy.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

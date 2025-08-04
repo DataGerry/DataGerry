@@ -99,8 +99,8 @@ export class TextareaEditComponent extends ConfigEditBaseComponent implements On
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

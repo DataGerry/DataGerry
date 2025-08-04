@@ -85,9 +85,9 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
 
   ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-    this.fetchTrigger$.complete();
+    this.destroy$?.next();
+    this.destroy$?.complete();
+    this.fetchTrigger$?.complete();
 
     if (this.subscription) {
       this.subscription.unsubscribe();

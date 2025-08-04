@@ -213,8 +213,8 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
         if (this.subscription) {
             this.subscription?.unsubscribe();
         }

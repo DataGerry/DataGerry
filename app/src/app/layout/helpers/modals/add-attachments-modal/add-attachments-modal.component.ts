@@ -177,8 +177,8 @@ export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.unSubscribe.next();
-    this.unSubscribe.complete();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
   }
 
 }

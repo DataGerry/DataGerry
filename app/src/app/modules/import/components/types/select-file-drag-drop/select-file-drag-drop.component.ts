@@ -45,7 +45,6 @@ export class SelectFileDragDropComponent {
                 try {
                     this.formGroup.get('file').setValue(JSON.parse(fileReader.result));
                 } catch (err) {
-                    console.log(err);
                     this.syntaxError = true;
                     this.formGroup.get('file').setValue(null);
                 }
@@ -53,7 +52,6 @@ export class SelectFileDragDropComponent {
         };
 
         fileReader.onerror = (error) => {
-            console.log(error);
             this.syntaxError = true;
         };
     }

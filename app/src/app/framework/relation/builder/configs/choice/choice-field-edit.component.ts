@@ -110,8 +110,8 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

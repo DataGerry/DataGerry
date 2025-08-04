@@ -67,8 +67,8 @@ export class ObjectActionsComponent implements OnDestroy {
             this.modalRef.close();
         }
 
-        this.subscriber.unsubscribe();
-        this.locationSubscription.unsubscribe();
+        this.subscriber?.unsubscribe();
+        this.locationSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- MODAL FUNCTIONS ------------------------------------------------ */
@@ -121,7 +121,6 @@ export class ObjectActionsComponent implements OnDestroy {
                     },
                     error: (error) => {
                         this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } | Error: ${ error }`);
-                        console.log(error);
                     }
                 });
             }
@@ -149,7 +148,6 @@ export class ObjectActionsComponent implements OnDestroy {
                     },
                     error: (error) => {
                         this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } and child locations | Error: ${ error }`);
-                        console.log(error);
                     }
                 });
             }
@@ -165,7 +163,6 @@ export class ObjectActionsComponent implements OnDestroy {
                     },
                     error: (error) => {
                         this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } and child locations | Error: ${ error }`);
-                        console.log(error);
                     }
                 });
             }

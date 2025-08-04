@@ -162,9 +162,9 @@ export class TypeMappingComponent extends TypeMappingBaseComponent implements On
 
 
     public ngOnDestroy(): void {
-        this.typeListSubscription.unsubscribe();
-        this.valueChangeSubscription.unsubscribe();
-        this.typeIDSubscription.unsubscribe();
+        this.typeListSubscription?.unsubscribe();
+        this.valueChangeSubscription?.unsubscribe();
+        this.typeIDSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

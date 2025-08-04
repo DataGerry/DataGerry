@@ -132,9 +132,8 @@ export class DeleteTabComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
-        console.log('deleted destroy x#####')
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

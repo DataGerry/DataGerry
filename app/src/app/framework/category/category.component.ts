@@ -281,8 +281,8 @@ export class CategoryComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.unSubscribe.next();
-    this.unSubscribe.complete();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
   }
 
   public get mode(): CmdbMode {

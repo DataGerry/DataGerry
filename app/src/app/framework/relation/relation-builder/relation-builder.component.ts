@@ -107,9 +107,9 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
-    this.subscriptions.unsubscribe();
+    this.subscriber?.next();
+    this.subscriber?.complete();
+    this.subscriptions?.unsubscribe();
   }
 
 

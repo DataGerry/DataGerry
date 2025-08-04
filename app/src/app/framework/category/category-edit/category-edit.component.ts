@@ -69,10 +69,10 @@ export class CategoryEditComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.categoryServiceSubscription.unsubscribe();
-    this.typeUnAssignedSubscription.unsubscribe();
-    this.typeAssignedSubscription.unsubscribe();
-    this.categorySubmitSubscription.unsubscribe();
+    this.categoryServiceSubscription?.unsubscribe();
+    this.typeUnAssignedSubscription?.unsubscribe();
+    this.typeAssignedSubscription?.unsubscribe();
+    this.categorySubmitSubscription?.unsubscribe();
   }
 
   public onSave(category: CmdbCategory): void {

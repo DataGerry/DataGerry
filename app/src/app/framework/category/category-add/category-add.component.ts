@@ -70,8 +70,8 @@ export class CategoryAddComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.typeServiceSubscription.unsubscribe();
-    this.categorySubmitSubscription.unsubscribe();
+    this.typeServiceSubscription?.unsubscribe();
+    this.categorySubmitSubscription?.unsubscribe();
   }
 
   /**

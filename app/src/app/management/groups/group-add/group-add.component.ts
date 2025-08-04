@@ -70,8 +70,8 @@ export class GroupAddComponent implements OnDestroy {
    * Auto unsubscribe on component destroy.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

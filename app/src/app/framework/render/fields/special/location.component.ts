@@ -88,8 +88,8 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             this.modalRef.close();
         }
 
-        this.unsubscribe.next();
-        this.unsubscribe.complete();
+        this.unsubscribe?.next();
+        this.unsubscribe?.complete();
 
         this.locationService.locationTreeName = "";
     }
