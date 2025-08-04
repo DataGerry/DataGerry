@@ -47,7 +47,6 @@
     "jquery": "^3.7.1",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
-    "xlsx": "^0.18.5",
     "jszip": "^3.10.1",
     "moment-timezone": "^0.5.45",
     "ngx-color": "^9.0.0",
@@ -56,7 +55,6 @@
     "ngx-icon-picker": "^1.11.2",
     "ngx-indexed-db": "^18.0.0",
     "ngx-pagination": "^6.0.3",
-    "node-sass": "^9.0.0",
     "papaparse": "^5.4.1",
     "primeicons": "^5.0.0",
     "rxjs": "^7.8.1",
@@ -66,6 +64,7 @@
     "tinymce": "^7.2.0",
     "tslib": "^2.6.3",
     "uuid": "^10.0.0",
+    "xlsx": "^0.18.5",
     "zone.js": "^0.14.7",
     "zxcvbn": "^4.4.2"
   },
@@ -90,6 +89,7 @@
     "karma-coverage-istanbul-reporter": "^3.0.3",
     "karma-jasmine": "^5.1.0",
     "karma-jasmine-html-reporter": "^2.1.0",
+    "sass": "^1.89.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   },
