@@ -16,16 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
-import {
-    HttpClient,
-    HttpErrorResponse,
-    HttpEvent,
-    HttpHandler,
-    HttpHeaders,
-    HttpInterceptor,
-    HttpParams,
-    HttpRequest
-} from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpEvent, HttpHandler, HttpHeaders, HttpInterceptor, HttpParams, HttpRequest } from '@angular/common/http';
 
 import { Observable, throwError, catchError } from 'rxjs';
 
