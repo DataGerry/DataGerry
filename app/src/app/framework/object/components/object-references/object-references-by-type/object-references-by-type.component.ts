@@ -218,8 +218,8 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
      * Unsubscribe all on component destroy.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

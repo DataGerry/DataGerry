@@ -78,8 +78,8 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */

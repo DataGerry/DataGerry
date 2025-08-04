@@ -97,9 +97,9 @@ export class SelectFileComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.importerDefinitionSubscription.unsubscribe();
-        this.fileFormatChangeSubscription.unsubscribe();
-        this.fileChangeSubscription.unsubscribe();
+        this.importerDefinitionSubscription?.unsubscribe();
+        this.fileFormatChangeSubscription?.unsubscribe();
+        this.fileChangeSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

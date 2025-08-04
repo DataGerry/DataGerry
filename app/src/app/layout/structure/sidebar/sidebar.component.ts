@@ -110,10 +110,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.categoryTreeSubscription.unsubscribe();
-        this.unCategorizedTypesSubscription.unsubscribe();
-        this.filterTermSubscription.unsubscribe();
-        this.renderer.removeClass(document.body, 'sidebar-fixed');
+        this.categoryTreeSubscription?.unsubscribe();
+        this.unCategorizedTypesSubscription?.unsubscribe();
+        this.filterTermSubscription?.unsubscribe();
+        this.renderer?.removeClass(document?.body, 'sidebar-fixed');
     }
 
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */

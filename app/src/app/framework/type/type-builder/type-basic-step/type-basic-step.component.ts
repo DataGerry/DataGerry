@@ -88,8 +88,8 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
 
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 

@@ -41,7 +41,7 @@ export class SidebarTypeComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy() {
-    this.sidebarService.deleteCounter(this);
+    this.sidebarService?.deleteCounter(this);
   }
 
 }

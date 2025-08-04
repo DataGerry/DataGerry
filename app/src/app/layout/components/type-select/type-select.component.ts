@@ -262,8 +262,8 @@ export class TypeSelectComponent<T = CmdbType> implements OnInit, OnDestroy {
    * Un subscribe all subscriptions.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

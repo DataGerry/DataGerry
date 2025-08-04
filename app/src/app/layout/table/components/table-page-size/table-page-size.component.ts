@@ -141,8 +141,8 @@ export class TablePageSizeComponent implements OnInit, OnDestroy {
    * Sends complete call to the component subscriber.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

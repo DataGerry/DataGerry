@@ -95,7 +95,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     }
 
     public ngOnDestroy(): void {
-        this.objectServiceSubscription.unsubscribe();
+        this.objectServiceSubscription?.unsubscribe();
     }
 
 

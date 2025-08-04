@@ -195,7 +195,7 @@ export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

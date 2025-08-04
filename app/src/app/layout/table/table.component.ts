@@ -287,9 +287,9 @@ export class TableComponent<T> implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
-        this.routerSubscription.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.routerSubscription?.unsubscribe();
     }
 
 

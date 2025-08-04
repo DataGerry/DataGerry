@@ -138,8 +138,8 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
             this.data.reference = undefined;
         }
 
-        this.unsubscribe.next();
-        this.unsubscribe.complete();
+        this.unsubscribe?.next();
+        this.unsubscribe?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

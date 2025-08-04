@@ -95,8 +95,8 @@ export class ReferenceSectionComponent extends BaseSectionComponent implements O
 
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 

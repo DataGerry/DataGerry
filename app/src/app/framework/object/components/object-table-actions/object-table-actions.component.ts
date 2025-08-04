@@ -72,8 +72,8 @@ export class ObjectTableActionsComponent implements OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.modalRef) {
             this.modalRef.close();

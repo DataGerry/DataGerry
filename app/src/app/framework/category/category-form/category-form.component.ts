@@ -194,11 +194,11 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.valueChangeSubscription.unsubscribe();
-        this.categoryServiceSubscription.unsubscribe();
-        this.submitEmitter.unsubscribe();
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.valueChangeSubscription?.unsubscribe();
+        this.categoryServiceSubscription?.unsubscribe();
+        this.submitEmitter?.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- EVENT HANDLERS ------------------------------------------------- */

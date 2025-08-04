@@ -129,6 +129,5 @@ export class FolderTreeComponent implements OnInit, OnChanges {
   }
 
   public loadContextMenu() {
-   console.log('loadContextMenu TODO');
   }
 }

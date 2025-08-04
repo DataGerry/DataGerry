@@ -56,7 +56,7 @@ export class ConnectComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.domRender.removeClass(document.body, 'embedded');
+        this.domRender?.removeClass(document?.body, 'embedded');
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -50,7 +50,7 @@ export class ObjectLinkDeleteModalComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.deleteSubscription.unsubscribe();
+        this.deleteSubscription?.unsubscribe();
     }
 
 /* -------------------------------------------------- EVENT HANDLER ------------------------------------------------- */

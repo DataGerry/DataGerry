@@ -92,8 +92,8 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();

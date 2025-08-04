@@ -57,6 +57,6 @@ export class ImportConfigComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.configChangeSubscription.unsubscribe();
+        this.configChangeSubscription?.unsubscribe();
     }
 }

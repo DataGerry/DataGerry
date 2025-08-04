@@ -78,8 +78,8 @@ export class ImportObjectsComponent implements OnInit, OnDestroy {
             this.fileReader.abort();
         }
 
-        this.importerSubscription.unsubscribe();
-        this.parseDataSubscription.unsubscribe();
+        this.importerSubscription?.unsubscribe();
+        this.parseDataSubscription?.unsubscribe();
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

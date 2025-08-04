@@ -268,7 +268,7 @@ export class RelationBasicStepComponent
   }
 
   ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

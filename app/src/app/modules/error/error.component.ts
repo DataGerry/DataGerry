@@ -68,9 +68,9 @@ export class ErrorComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.errorContainer.clear();
-        this.componentRef.destroy();
-        this.statusCodeSubscription.unsubscribe();
+        this.errorContainer?.clear();
+        this.componentRef?.destroy();
+        this.statusCodeSubscription?.unsubscribe();
       }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -139,8 +139,8 @@ export class GroupFormComponent implements OnInit, OnChanges, OnDestroy {
    * Calls the auto unsubscriber.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
   /**

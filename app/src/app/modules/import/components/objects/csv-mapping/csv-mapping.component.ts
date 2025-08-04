@@ -91,6 +91,6 @@ export class CsvMappingComponent extends TypeMappingBaseComponent implements OnI
 
 
     public ngOnDestroy(): void {
-        this.previewSelectionSubscription.unsubscribe();
+        this.previewSelectionSubscription?.unsubscribe();
     }
 }

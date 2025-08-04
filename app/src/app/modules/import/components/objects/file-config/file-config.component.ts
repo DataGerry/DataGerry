@@ -108,7 +108,7 @@ export class FileConfigComponent extends FileConfig implements OnInit, OnChanges
 
 
     public ngOnDestroy(): void {
-        this.configChangeSubscription.unsubscribe();
+        this.configChangeSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

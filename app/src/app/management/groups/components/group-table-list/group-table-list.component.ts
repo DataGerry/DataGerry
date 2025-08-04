@@ -159,8 +159,8 @@ export class GroupTableListComponent implements OnInit, OnDestroy {
    * auto unsubscribe the api subscriptions.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

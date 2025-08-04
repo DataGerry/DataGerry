@@ -174,8 +174,8 @@ export class UserFormComponent implements OnInit, OnChanges, OnDestroy {
    * Auto un-subscribe by component destroy.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

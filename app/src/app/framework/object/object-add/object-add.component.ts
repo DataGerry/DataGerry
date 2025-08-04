@@ -122,9 +122,9 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.typeIDSubject.unsubscribe();
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.typeIDSubject?.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -200,7 +200,6 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                         this.getAllSectionTemplates();
                     },
                     error: error => {
-                        console.log("error in clone section template response");
                         this.toastService.error(error);
                     }
                 });

@@ -162,8 +162,8 @@ export class RightsComponent implements OnInit, OnDestroy {
    * Un-subscribe on component close.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }
