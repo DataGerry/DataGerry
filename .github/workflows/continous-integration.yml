@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11' ]
+        python-version: ['3.12' ]
         mongodb-version: ['4.4', '5.0', '6.0', '7.0']
 
     steps:
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [ '3.11' ]
+        python-version: [ '3.12' ]
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
@@ -95,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [ '3.11' ]
+        python-version: [ '3.12' ]
 
     steps:
       - uses: actions/checkout@v3

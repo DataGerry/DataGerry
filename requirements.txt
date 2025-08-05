@@ -44,7 +44,7 @@ Pygments==2.19.2
 pyinstaller==6.15.0
 pyinstaller-hooks-contrib==2025.8
 pylint==3.3.7
-pymongo==4.7.3
+pymongo==4.13.2
 pyOpenSSL==25.1.0
 pytest==8.4.1
 pytest-cov==6.2.1
