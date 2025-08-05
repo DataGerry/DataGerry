@@ -93,10 +93,10 @@
     "ts-node": "^10.9.2",
     "typescript": "5.5.4"
   },
-  "overrides": {
-    "ngx-icon-picker": {
-      "@angular/common": "18.2.13",
-      "@angular/core": "18.2.13"
-    }
+"overrides": {
+  "ngx-icon-picker": {
+    "@angular/common": "19.2.14",
+    "@angular/core": "19.2.14"
   }
+}
 }
