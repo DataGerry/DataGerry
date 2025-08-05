@@ -2,8 +2,9 @@
     "compileOnSave": false,
     "compilerOptions": {
         "baseUrl": "./",
-        "downlevelIteration": true,
         "outDir": "./dist/out-tsc",
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
         "sourceMap": true,
         "declaration": false,
         "module": "esnext",

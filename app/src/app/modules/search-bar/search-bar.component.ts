@@ -29,8 +29,7 @@ import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { ReplaySubject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
 
-import * as $ from 'jquery';
-
+import $ from 'jquery';
 import { ValidatorService } from '../../services/validator.service';
 import { TypeService } from '../../framework/services/type.service';
 import { CategoryService } from '../../framework/services/category.service';

@@ -19,7 +19,7 @@
 import { Injectable } from '@angular/core';
 import { Observable, timer } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
-import {HttpHeaders, HttpParams, HttpResponse} from '@angular/common/http';
+import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { FileMetadata } from '../model/metadata';
 import { UntypedFormControl } from '@angular/forms';
 import { FileElement } from '../model/file-element';

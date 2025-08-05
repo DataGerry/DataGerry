@@ -15,7 +15,7 @@
             },
             "architect": {
                 "build": {
-                    "builder": "@angular-devkit/build-angular:browser",
+                    "builder": "@angular-devkit/build-angular:application",
                     "options": {
                         "allowedCommonJsDependencies": [
                             "lodash",
@@ -28,10 +28,13 @@
                             "zxcvbn",
                             "moment-timezone"
                         ],
-                        "outputPath": "dist/datagerry-app",
+                        "outputPath": {
+                          "base": "dist/datagerry-app"
+                        },
                         "index": "src/index.html",
-                        "main": "src/main.ts",
-                        "polyfills": "src/polyfills.ts",
+                        "polyfills": [
+                          "src/polyfills.ts"
+                        ],
                         "tsConfig": "src/tsconfig.app.json",
                         "assets": [
                             {
@@ -72,12 +75,16 @@
                             "./node_modules/jszip/dist/jszip.js",
                             "./node_modules/tinymce/tinymce.min.js"
                         ],
-                        "vendorChunk": true,
                         "extractLicenses": false,
-                        "buildOptimizer": false,
                         "sourceMap": true,
                         "optimization": false,
-                        "namedChunks": true
+                        "namedChunks": true,
+                        "browser": "src/main.ts",
+                        "stylePreprocessorOptions": {
+                          "includePaths": [
+                            "."
+                          ]
+                        }
                     },
                     "configurations": {
                         "production": {
@@ -92,8 +99,6 @@
                             "sourceMap": false,
                             "namedChunks": false,
                             "extractLicenses": true,
-                            "vendorChunk": false,
-                            "buildOptimizer": true,
                             "budgets": [
                                 {
                                     "type": "initial",
@@ -117,9 +122,7 @@
                             "outputHashing": "all",
                             "sourceMap": false,
                             "namedChunks": false,
-                            "extractLicenses": true,
-                            "vendorChunk": false,
-                            "buildOptimizer": true
+                            "extractLicenses": true
                           }
                     },
                     "defaultConfiguration": ""
