@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the PersonGroupsManager
 """
+from typing import Any
+
 from .person_groups_manager_errors import (
     PersonGroupsManagerError,
     PersonGroupsManagerInitError,
@@ -27,7 +29,7 @@ from .person_groups_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'PersonGroupsManagerError',
     'PersonGroupsManagerInitError',
     'PersonGroupsManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-PERSON_GROUPS_MANAGER_ERRORS = {
+PERSON_GROUPS_MANAGER_ERRORS: dict[str, Any] = {
     "init": PersonGroupsManagerInitError,
     "insert": PersonGroupsManagerInsertError,
     "get": PersonGroupsManagerGetError,

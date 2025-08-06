@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,13 +22,13 @@ class TypesManagerError(Exception):
     """
     Raised to catch all TypesManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all TypesManager related errors
         """
         super().__init__(err)
 
-# ------------------------------------------------ TypesManager Errors ----------------------------------------------- #
+# ----------------------------------------------- TypesManager - ERRORS ---------------------------------------------- #
 
 class TypesManagerGetError(TypesManagerError):
     """
