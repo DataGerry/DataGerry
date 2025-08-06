@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the CiExplorerProfileManager
 """
+from typing import Any
+
 from .ci_explorer_profile_manager_errors import (
     CiExplorerProfileManagerError,
     CiExplorerProfileManagerInitError,
@@ -27,7 +29,7 @@ from .ci_explorer_profile_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CiExplorerProfileManagerError',
     'CiExplorerProfileManagerInitError',
     'CiExplorerProfileManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-CI_EXPLORER_PROFILE_MANAGER_ERRORS = {
+CI_EXPLORER_PROFILE_MANAGER_ERRORS: dict[str, Any] = {
     "init": CiExplorerProfileManagerInitError,
     "insert": CiExplorerProfileManagerInsertError,
     "get": CiExplorerProfileManagerGetError,

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Contains all Importer Error Classes
+Contains all Importer error classes
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -22,7 +22,7 @@ class ImporterError(Exception):
     """
     Raised to catch all Importer related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all Importer related errors
         """

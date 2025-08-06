@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@ class ImpactCategoryManagerError(Exception):
     """
     Raised to catch all ImpactCategoryManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all ImpactCategoryManager related errors
         """
@@ -34,6 +34,7 @@ class ImpactCategoryManagerInitError(ImpactCategoryManagerError):
     """
     Raised when ImpactCategoryManager could not be initialised
     """
+
 
 class ImpactCategoryManagerInsertError(ImpactCategoryManagerError):
     """

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@ class RiskMatrixManagerError(Exception):
     """
     Raised to catch all RiskMatrixManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all RiskMatrixManager related errors
         """
@@ -34,6 +34,7 @@ class RiskMatrixManagerInitError(RiskMatrixManagerError):
     """
     Raised when RiskMatrixManager could not be initialised
     """
+
 
 class RiskMatrixManagerInsertError(RiskMatrixManagerError):
     """

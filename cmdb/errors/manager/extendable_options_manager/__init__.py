@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the ExtendableOptionsManager
 """
+from typing import Any
+
 from .extendable_options_manager_errors import (
     ExtendableOptionsManagerError,
     ExtendableOptionsManagerInitError,
@@ -27,7 +29,7 @@ from .extendable_options_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ExtendableOptionsManagerError',
     'ExtendableOptionsManagerInitError',
     'ExtendableOptionsManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-EXTENDABLE_OPTIONS_MANAGER_ERRORS = {
+EXTENDABLE_OPTIONS_MANAGER_ERRORS: dict[str, Any] = {
     "init": ExtendableOptionsManagerInitError,
     "insert": ExtendableOptionsManagerInsertError,
     "get": ExtendableOptionsManagerGetError,

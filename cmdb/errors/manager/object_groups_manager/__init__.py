@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the ObjectGroupsManager
 """
+from typing import Any
+
 from .object_groups_manager_errors import (
     ObjectGroupsManagerError,
     ObjectGroupsManagerInitError,
@@ -27,7 +29,7 @@ from .object_groups_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ObjectGroupsManagerError',
     'ObjectGroupsManagerInitError',
     'ObjectGroupsManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-OBJECT_GROUPS_MANAGER_ERRORS = {
+OBJECT_GROUPS_MANAGER_ERRORS: dict[str, Any] = {
     "init": ObjectGroupsManagerInitError,
     "insert": ObjectGroupsManagerInsertError,
     "get": ObjectGroupsManagerGetError,

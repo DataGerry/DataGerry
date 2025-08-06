@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Contains general BaseManager Error Classes
+Contains all BaseManager error classes
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -22,45 +22,45 @@ class BaseManagerError(Exception):
     """
     Raised to catch all BaseManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all BaseManager related errors
         """
         super().__init__(err)
 
-# -------------------------------------------------- MANAGER ERRORS -------------------------------------------------- #
+# ------------------------------------------------ BaseManager ERRORS ------------------------------------------------ #
 
 class BaseManagerInitError(BaseManagerError):
     """
-    When the BaseManager could not be initialised
+    Raised when the BaseManager could not be initialised
     """
 
 
 class BaseManagerGetError(BaseManagerError):
     """
-    When the BaseManager could not retrieve a document
+    Raised when the BaseManager could not retrieve a document
     """
 
 
 class BaseManagerIterationError(BaseManagerError):
     """
-    When the BaseManager iteration fails
+    Raised when the BaseManager iteration fails
     """
 
 
 class BaseManagerInsertError(BaseManagerError):
     """
-    When the BaseManager could not insert a document
+    Raised when the BaseManager could not insert a document into the database
     """
 
 
 class BaseManagerUpdateError(BaseManagerError):
     """
-    When the BaseManager could not update a document
+    Raised when the BaseManager could not update a document in the database
     """
 
 
 class BaseManagerDeleteError(BaseManagerError):
     """
-    When the BaseManager could not delete a document
+    Raised when the BaseManager could not delete a document from the database
     """

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package contains general errors for the managers of DATAGERRY
+This package contains all errors of the BaseManager
 """
 from .manager_errors import (
     BaseManagerError,
@@ -27,7 +27,7 @@ from .manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'BaseManagerError',
     'BaseManagerInitError',
     'BaseManagerGetError',
