@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,7 @@ from .collection_validator import CollectionValidator
 from .database_updater import DatabaseUpdater
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'get_db_names_from_service_portal',
     'CollectionValidator',
     'DatabaseUpdater',

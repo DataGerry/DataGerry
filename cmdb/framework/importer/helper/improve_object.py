@@ -18,7 +18,6 @@ Implementation of ImproveObject
 """
 import logging
 import datetime
-from typing import Union
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -100,16 +99,16 @@ class ImproveObject:
 
 
     @staticmethod
-    def improve_date(value: Union[str, dict]) -> Union[datetime.datetime, str, dict]:
+    def improve_date(value: str | dict) -> datetime.datetime | str | dict:
         """
         Converts various date formats into a standardized datetime object.
 
         Args:
-            value (Union[str, dict]): The date value to be converted.
+            value (str | dict): The date value to be converted.
                                       It can be a string or a dictionary containing a timestamp
 
         Returns:
-            Union[datetime.datetime, str, dict]: Parsed datetime object if successful,
+            datetime.datetime | str | dict: Parsed datetime object if successful,
                                                  otherwise returns the original value.
         """
         try:

@@ -52,7 +52,7 @@ class XlsxExportFormat(BaseExporterFormat):
 
         Args:
             data (list[RenderResult]): A list of `RenderResult` objects to be exported
-            *args: Optional arguments, including 'metadata' and 'view', that can customize the export
+            *args: arguments including 'metadata' and 'view', that can customize the export
 
         Returns:
             bytes: The content of the XLSX file as a byte string.

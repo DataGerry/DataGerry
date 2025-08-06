@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 This module contains the implementation of the ObjectRelationsManager
 """
 import logging
-from typing import Optional
 
 from cmdb.database import MongoDatabaseManager
 
@@ -102,7 +101,7 @@ class ObjectRelationsManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_object_relation(self, public_id: int) -> Optional[dict]:
+    def get_object_relation(self, public_id: int) -> dict | None:
         """
         Retrieves a CmdbObjectRelation from the database
 
@@ -113,7 +112,7 @@ class ObjectRelationsManager(BaseManager):
             ObjectRelationsManagerGetError: When a CmdbObjectRelation could not be retrieved
 
         Returns:
-            Optional[dict]: Dict representation of the CmdbObjectRelation attributes if it exists else None
+            dict | None: Dict representation of the CmdbObjectRelation attributes if it exists else None
         """
         try:
             return self.get_one(public_id)

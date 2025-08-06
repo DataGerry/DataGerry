@@ -82,8 +82,6 @@ class CmdbWebhook(CmdbDAO):
             url (str): URL endpoint where the webhook will send events
             event_types (list): List of WebhookEventType values that the webhook listens for
             active (bool): Whether the webhook is currently active and should receive events
-
-        Optional Args:
             **kwargs: Additional fields to pass to the superclass initializer
         """
         self.name = name

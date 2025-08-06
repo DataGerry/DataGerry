@@ -17,7 +17,6 @@
 Implementation of APIProjection
 """
 import logging
-from typing import Union
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -29,8 +28,7 @@ class APIProjection:
     """
     ApiProjection is a wrapper for the api http parameters under `projection`.
     """
-
-    def __init__(self, projection: Union[dict, list] = None):
+    def __init__(self, projection: dict | list = None):
         if isinstance(projection, list):
             projection = dict.fromkeys(projection, 1)
         self.projection = projection or {}

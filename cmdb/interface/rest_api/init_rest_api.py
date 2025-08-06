@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -95,7 +95,7 @@ def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
 
     #     logging.info(f"Response for route: {route} ({rule}). Status: {response.status}")
 
-        # # (Optional) log response body
+        # # log response body
         # if not response.direct_passthrough:
         #     try:
         #         body = response.get_data(as_text=True)

@@ -18,7 +18,7 @@ Implementation of MediaFile API Route utility methods
 """
 import json
 import logging
-from typing import Optional
+
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
@@ -53,7 +53,7 @@ def get_file_in_request(file_name: str) -> FileStorage:
         abort(400, f"File with name: {file_name} was not provided!")
 
 
-def get_element_from_data_request(element: str, _request: Request) -> Optional[dict]:
+def get_element_from_data_request(element: str, _request: Request) -> dict | None:
     """
     Retrieves and parses a specific element (field) from a form-data request into a dictionary
 
@@ -62,7 +62,7 @@ def get_element_from_data_request(element: str, _request: Request) -> Optional[d
         _request (Request): The Flask Request object
 
     Returns:
-        Optional[dict]: Parsed dictionary if successful; otherwise, None
+        dict | None: Parsed dictionary if successful; otherwise, None
     """
     try:
         metadata = json.loads(_request.form.to_dict()[element])
@@ -78,8 +78,8 @@ def generate_metadata_filter(element, _request: Request = None, params:dict = No
 
     Args:
         element (str): The metadata key in the request or parameters
-        _request (Optional[Request]): Flask request containing the metadata in query/form
-        params (Optional[dict]): Direct dictionary containing metadata
+        _request (Request | None): Flask request containing the metadata in query/form
+        params (dict | None): Direct dictionary containing metadata
 
     Raises:
         HTTPException: 400 if metadata cannot be generated
@@ -174,7 +174,7 @@ def create_attachment_name(name: str, index: int, metadata: dict, media_files_ma
         raise Exception(err) from err
 
 
-def recursive_delete_filter(public_id: int, media_files_manager: MediaFilesManager, _ids=None) -> list:
+def recursive_delete_filter(public_id: int, media_files_manager: MediaFilesManager, _ids: list[int] = None) -> list:
     """
     Recursively collects and returns the list of public IDs for files to be deleted,
     including their child files in a parent-child file structure
@@ -182,7 +182,7 @@ def recursive_delete_filter(public_id: int, media_files_manager: MediaFilesManag
     Args:
         public_id (int): The public ID of the root file
         media_files_manager (MediaFilesManager): Media file manager to fetch and manage files
-        _ids (Optional[list]): List of already collected IDs, used for recursion
+        _ids (list[int] | None): List of already collected IDs, used for recursion
 
     Returns:
         list: A list of public IDs of the files to delete

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,6 @@ Implementation of all API routes for Isms Imports
 import io
 from csv import DictReader, Sniffer, Error
 import logging
-from typing import Optional
 from flask import request, abort
 from werkzeug.exceptions import HTTPException
 from werkzeug.datastructures import FileStorage
@@ -501,7 +500,7 @@ def read_csv_file(csv_file: FileStorage, expected_headers: set) -> DictReader:
 def handle_extendable_option(
         option: str,
         extendable_options_manager: ExtendableOptionsManager,
-        option_type: OptionType) -> Optional[int]:
+        option_type: OptionType) -> int | None:
     """
     Retrieves the public_id of CmdbExtendableOptions based on the value.
 
@@ -513,7 +512,7 @@ def handle_extendable_option(
         option_type (OptionType): _description_
 
     Returns:
-        Optional[int]: The public_id of the corresponding CmdbExtendableOption, if an option was provided
+        int | None: The public_id of the corresponding CmdbExtendableOption, if an option was provided
     """
     if not option:
         return None
@@ -638,7 +637,6 @@ def parse_list_of_strings(field: str, row: dict) -> list[str]:
     Args:
         field (str): The CSV field name
         row (dict): The CSV row as a dict
-        line_num (int, optional): Line number for better error messages
 
     Returns:
         list[str]: Parsed list of strings
@@ -659,7 +657,7 @@ def parse_bool(value: str = None) -> bool:
     Parses a flexible boolean value from a string
 
     Args:
-        value (str, optional): The raw value (string or something convertible to string)
+        value (str | None): The raw value (string or something convertible to string)
 
     Returns:
         bool: True or False, based on common truthy/falsy representations

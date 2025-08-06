@@ -18,7 +18,6 @@ Implementation of CollectionParameters
 """
 import logging
 from json import loads
-from typing import Union
 
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -34,7 +33,7 @@ class CollectionParameters(APIParameters):
     """
     #TODO: REFACTOR-FIX (replace filter with criteria)
     def __init__(self, query_string: str = None, limit: int = None, sort: str = None,
-                 order: int = None, page: int = None, filter: Union[list[dict], dict] = None, **kwargs):
+                 order: int = None, page: int = None, filter: list[dict] | dict = None, **kwargs):
         """
         Constructor of the CollectionParameters.
 
@@ -57,7 +56,7 @@ class CollectionParameters(APIParameters):
         else:
             self.skip: int = (self.page - 1) * self.limit
 
-        self.filter: Union[list[dict], dict] = filter or {}
+        self.filter: list[dict] | dict = filter or {}
 
         super().__init__(query_string=query_string, **kwargs)
 
@@ -111,7 +110,7 @@ class CollectionParameters(APIParameters):
             'skip': params.skip,
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"""
                 Parameters: Query({self.query_string}),
                 Filter({self.filter}),

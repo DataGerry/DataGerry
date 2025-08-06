@@ -18,7 +18,6 @@ This module contains the implementation of CmdbObject, which is representing
 an object in DataGerry
 """
 import logging
-from typing import Optional
 from datetime import datetime
 from dateutil.parser import parse
 
@@ -215,7 +214,7 @@ class CmdbObject(CmdbDAO):
         return self.fields
 
 
-    def get_value(self, field: dict) -> Optional[str]:
+    def get_value(self, field: dict) -> str | None:
         """
         Retrieves the value of a field by its name
 
@@ -228,7 +227,7 @@ class CmdbObject(CmdbDAO):
             ValueError: If no field with the specified name is found
 
         Returns:
-            Optional[str]: The value of the field if found
+            str | None: The value of the field if found
         """
         f: dict
         for f in self.fields:

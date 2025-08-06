@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,8 +16,6 @@
 """
 Implementation of DocapiTemplate
 """
-from typing import Optional
-
 from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
 from cmdb.models.docapi_model import DocapiTemplateType
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -182,12 +180,12 @@ class DocapiTemplate(TemplateManagementBase):
         return self.active is True
 
 
-    def get_author_id(self) -> Optional[int]:
+    def get_author_id(self) -> int | None:
         """
         Get the author ID of the template
         
         Returns:
-            Optional[int]: Author ID or None if not set
+            int | None: Author ID or None if not set
         """
         return self.author_id
 

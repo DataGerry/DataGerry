@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -206,12 +206,16 @@ def retry_operation(func):
                     # Exponential backoff with some random jitter
                     backoff_delay = retry_delay + random.uniform(0, 1)  # Add jitter to prevent thundering herd problem
                     LOGGER.warning(
-                        f"Attempt {retries} failed for {func.__name__}: {str(e)}. Retrying in {backoff_delay:.2f}s..."
+                        "Attempt %d failed for %s: %s. Retrying in %.2fs...",
+                        retries,
+                        func.__name__,
+                        e,
+                        backoff_delay,
                     )
                     time.sleep(backoff_delay)
                     retry_delay *= 2  # Exponentially increase the delay
                 else:
-                    LOGGER.error(f"All {MAX_RETRIES} attempts failed for {func.__name__}: {str(e)}")
+                    LOGGER.error("All %d attempts failed for %s: %s", MAX_RETRIES, func.__name__, e)
                     raise
             except HttpResponseError as e:
                 # Handle Cosmos DB specific error codes
@@ -220,8 +224,12 @@ def retry_operation(func):
                     error_message = COSMOS_DB_ERROR_CODES[e.status_code]
                     backoff_delay = retry_delay + random.uniform(0, 1)  # Add jitter to prevent thundering herd problem
                     LOGGER.warning(
-                        f"Attempt {retries} failed for {func.__name__} with Cosmos DB error {error_message}:"
-                        f" {e.message}. Retrying in {backoff_delay:.2f}s..."
+                        "Attempt %d failed for %s with Cosmos DB error %s: %s. Retrying in %.2fs...",
+                        retries,
+                        func.__name__,
+                        error_message,
+                        e.message,
+                        backoff_delay,
                     )
 
                     if retries < MAX_RETRIES:
@@ -229,13 +237,16 @@ def retry_operation(func):
                         retry_delay *= 2  # Exponentially increase the delay
                     else:
                         LOGGER.error(
-                            f"All {MAX_RETRIES} attempts failed for {func.__name__} with Cosmos DB error {error_message}:"
-                            f" {e.message}"
+                            "All %d attempts failed for %s with Cosmos DB error %s: %s",
+                            MAX_RETRIES,
+                            func.__name__,
+                            error_message,
+                            str(e)
                         )
                         raise
                 else:
                     # If the error is not recognized, log and raise it
-                    LOGGER.error(f"Unrecognized error for {func.__name__}: {str(e)}")
+                    LOGGER.error("Unrecognized error for %s: %s", func.__name__, e)
                     raise
 
     return wrapper

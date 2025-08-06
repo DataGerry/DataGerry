@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 This module contains the implementation of the GroupsManager
 """
 import logging
-from typing import Union
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -28,10 +27,8 @@ from cmdb.models.group_model import CmdbUserGroup
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
     BaseManagerInsertError,
-    BaseManagerGetError,
     BaseManagerIterationError,
 )
 from cmdb.errors.manager.groups_manager import (
@@ -44,7 +41,6 @@ from cmdb.errors.manager.groups_manager import (
 )
 from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupToJsonError,
-    CmdbUserGroupInitFromDataError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -79,12 +75,12 @@ class GroupsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_group(self, group: Union[CmdbUserGroup, dict]) -> int:
+    def insert_group(self, group: CmdbUserGroup | dict) -> int:
         """
         Insert a single CmdbUserGroup into the database
 
         Args:
-            group (CmdbUserGroup / dict): data of the CmdbUserGroup which should be created
+            group (CmdbUserGroup | dict): data of the CmdbUserGroup which should be created
 
         Raises:
             GroupsManagerInsertError: When the CmdbUserGroup could not be inserted
@@ -122,8 +118,6 @@ class GroupsManager(BaseManager):
             requested_group = self.get_one(public_id)
 
             return CmdbUserGroup.from_data(requested_group, self.rights)
-        except (BaseManagerGetError, CmdbUserGroupInitFromDataError) as err:
-            raise GroupsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[insert_group] Exception: %s. Type: %s", err, type(err))
             raise GroupsManagerGetError(err) from err
@@ -158,13 +152,13 @@ class GroupsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_group(self, public_id: int, group: Union[CmdbUserGroup, dict]) -> None:
+    def update_group(self, public_id: int, group: CmdbUserGroup | dict) -> None:
         """
         Update an existing CmdbUserGroup in the database
 
         Args:
             public_id (int): public_id of the CmdbUserGroup which should be updated
-            group (CmdbUserGroup / dict): New data for the CmdbUserGroup
+            group (CmdbUserGroup | dict): New data for the CmdbUserGroup
 
         Raises:
             GroupsManagerUpdateError: When the update operation failed
@@ -174,8 +168,6 @@ class GroupsManager(BaseManager):
                 group = CmdbUserGroup.to_json(group)
 
             self.update({'public_id': public_id}, group)
-        except (BaseManagerUpdateError, CmdbUserGroupToJsonError) as err:
-            raise GroupsManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_group] Exception: %s. Type: %s", err, type(err))
             raise GroupsManagerUpdateError(err) from err

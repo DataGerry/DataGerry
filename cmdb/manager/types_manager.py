@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,6 @@ Handles interaction between the database and CmdbTypes
 """
 import json
 import logging
-from typing import Union, Optional
 from bson import json_util
 
 from cmdb.database import MongoDatabaseManager
@@ -34,8 +33,6 @@ from cmdb.framework.results import IterationResult, ListResult
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
-    BaseManagerInsertError,
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
 )
 from cmdb.errors.manager.types_manager import (
@@ -49,7 +46,6 @@ from cmdb.errors.manager.types_manager import (
 )
 from cmdb.errors.models.cmdb_type import (
     CmdbTypeInitFromDataError,
-    CmdbTypeToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -82,12 +78,12 @@ class TypesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_type(self, new_type: Union[CmdbType, dict]) -> int:
+    def insert_type(self, new_type: CmdbType | dict) -> int:
         """
         Insert a CmdbType into the database
 
         Args:
-            new_type (dict): Raw data of the CmdbType
+            new_type (CmdbType | dict): Raw data of the CmdbType
 
         Raises:
             TypesManagerInsertError: When a CmdbType could not be inserted into the database
@@ -102,8 +98,6 @@ class TypesManager(BaseManager):
                 type_to_add = json.loads(json.dumps(new_type, default=json_util.default), object_hook=object_hook)
 
             return self.insert(type_to_add)
-        except (BaseManagerInsertError, CmdbTypeToJsonError) as err:
-            raise TypesManagerInsertError(err) from err
         except Exception as err:
             LOGGER.error("[insert_type] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerInsertError(err) from err
@@ -126,7 +120,7 @@ class TypesManager(BaseManager):
             raise TypesManagerGetError(err) from err
 
 
-    def get_type(self, public_id: int) -> Optional[dict]:
+    def get_type(self, public_id: int) -> dict | None:
         """
         Get a single CmdbType by its public_id
 
@@ -137,7 +131,7 @@ class TypesManager(BaseManager):
             TypesManagerGetError: If CmdbType could not be retrieved
 
         Returns:
-            Optional[dict]: Instance of CmdbType with data
+            dict | None: Instance of CmdbType with data
         """
         try:
             return self.get_one(public_id)
@@ -254,8 +248,6 @@ class TypesManager(BaseManager):
             raw_data = self.get_many(sort=sort, **requirements)
 
             return [CmdbType.from_data(data) for data in raw_data]
-        except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise TypesManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_types_by] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerGetError(err) from err
@@ -292,14 +284,14 @@ class TypesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_type(self, public_id: int, update_type: Union[CmdbType, dict]) -> None:
+    def update_type(self, public_id: int, update_type: CmdbType | dict) -> None:
         """
         Update an existing CmdbType in the database
 
 
         Args:
             public_id (int): The public_id of the CmdbType which should be updated
-            update_type (CmdbType or dict): The new type data
+            update_type (CmdbType | dict): The new type data
 
         Raises:
             TypesManagerUpdateError: If there is an error during the update process
@@ -313,8 +305,6 @@ class TypesManager(BaseManager):
                                                          object_hook=object_hook)
 
             self.update(criteria={'public_id': public_id}, data=new_version_type)
-        except (CmdbTypeToJsonError, BaseManagerUpdateError) as err:
-            raise TypesManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerUpdateError(err) from err
