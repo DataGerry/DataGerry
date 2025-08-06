@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,7 @@ class DatabaseUpdater:
     """
     The DatabaseUpdater applies required changes to the database
     """
-    __UPDATE_VERSIONS__ = [
+    __UPDATE_VERSIONS__: list[int] = [
         20200512,
         20200513,
         20240603,
@@ -44,7 +44,7 @@ class DatabaseUpdater:
     ]
 
 
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str = None) -> None:
         """
         Initialises the DatabaseUpdater
         """

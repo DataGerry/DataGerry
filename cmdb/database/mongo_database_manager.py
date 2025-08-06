@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 This module provides the MongoDatabaseManager
 """
 import logging
-from typing import Union, Any
+from typing import Any
 from collections.abc import MutableMapping
 from pymongo.database import Database
 from pymongo.errors import CollectionInvalid
@@ -168,7 +168,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def drop_database(self, database: Union[str, Database]) -> None:
+    def drop_database(self, database: str | Database) -> None:
         """
         Deletes an existing database
 
@@ -414,7 +414,7 @@ class MongoDatabaseManager:
             collection (str): The name of the database collection.
             criteria (dict): The filter used to match the document to be updated
             data (dict): The update data to apply
-            add_to_set (bool, optional): If True, wraps `data` in '$set' unless it already contains update operators. 
+            add_to_set (bool): If True, wraps `data` in '$set' unless it already contains update operators. 
                                          Defaults to True.
             *args: Additional positional arguments for the update operation
             **kwargs: Additional keyword arguments for the update operation
@@ -525,7 +525,7 @@ class MongoDatabaseManager:
             collection: str,
             db_name: str,
             criteria: dict,
-            update: Union[dict, list],
+            update: dict | list,
             add_to_set: bool = False,
             plain: bool = False) -> UpdateResult:
         """
@@ -534,7 +534,7 @@ class MongoDatabaseManager:
         Args:
             collection (str): Name of database collection
             criteria (dict): The filter used to match the documents for updating
-            update (Union[dict, list]): The modifications to apply
+            update (dict | list): The modifications to apply
             add_to_set(bool): If True, uses '$addToSet' to add values to an array without duplicates.
                               If False, uses '$set' to update fields. Defaults to False.
 
@@ -598,8 +598,8 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the collection
-            value (int, optional): The new value to set for the counter. Ignored if `increment` is True.
-            increment (bool, optional): If True, increments the counter by 1. Defaults to False.
+            value (int | None): The new value to set for the counter. Ignored if `increment` is True.
+            increment (bool): If True, increments the counter by 1. Defaults to False.
 
         Raises:
             DocumentUpdateError: If the counter update operation fails or no valid operation is provided

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -25,12 +25,12 @@ def get_root_location_data() -> dict:
         (dict): Returns valid data for the Root of CmdbLocations
     """
     return {
-        "public_id":1,
-        "name":"Root",
-        "parent":0,
-        "object_id":0,
-        "type_id":0,
-        "type_label":"Root",
-        "type_icon":"fas fa-globe",
-        "type_selectable":True
+        "public_id": 1,
+        "name": "Root",
+        "parent": 0,
+        "object_id": 0,
+        "type_id": 0,
+        "type_label": "Root",
+        "type_icon": "fas fa-globe",
+        "type_selectable": True,
     }

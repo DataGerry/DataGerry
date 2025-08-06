@@ -16,8 +16,7 @@
 """
 Implementation of RenderList
 """
-import logging
-from typing import Union
+from logging import getLogger
 
 from cmdb.manager import ObjectsManager
 
@@ -27,7 +26,7 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  RenderList - CLASS                                                  #
@@ -56,7 +55,7 @@ class RenderList:
         self.objects_manager = objects_manager
 
 
-    def render_result_list(self, raw: bool = False) -> list[Union[RenderResult, dict]]:
+    def render_result_list(self, raw: bool = False) -> list[RenderResult | dict]:
         """
         Renders the list of CmdbObjects and returns the processed results
 
@@ -64,7 +63,7 @@ class RenderList:
             raw (bool, optional): If True, returns raw dictionary representations. Defaults to False
 
         Returns:
-            list[Union[RenderResult, dict]]: A list of rendered results, either as RenderResult objects or dictionaries
+            list[RenderResult | dict]: A list of rendered results, either as RenderResult objects or dictionaries
         """
         preparation_objects: list[RenderResult] = []
 

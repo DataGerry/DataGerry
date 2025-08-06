@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 The module builds a MongoDB query for a dict of conditions
 """
 import logging
-from typing import Union
 from datetime import datetime
 
 from cmdb.models.type_model import CmdbType
@@ -121,14 +120,14 @@ class MongoDBQueryBuilder:
             raise MongoQueryBuilderBuildRulesetError(f"Error building MongoDB ruleset: {err}") from err
 
 
-    def __build_rule(self, field_name: str, operator: str, value: Union[int, str, list[str]] = None) -> dict:
+    def __build_rule(self, field_name: str, operator: str, value: int | str | list[str] = None) -> dict:
         """
         Builds a query rule for MongoDB based on the provided field name, operator, and value
 
         Args:
             field_name (str): The name of the field to filter by
             operator (str): The comparison operator (e.g., "$eq", "$gt", "$in")
-            value (Union[int, str, list[str]], optional): The value(s) to compare against
+            value (int | str | list[str], optional): The value(s) to compare against
 
         Raises:
             MongoQueryBuilderInvalidOperatorError: If the provided operator is invalid
@@ -167,7 +166,7 @@ class MongoDBQueryBuilder:
             target_field: str,
             operator: str,
             field_name: str,
-            value: Union[int, str, list[int], list[str]] = None) -> dict:
+            value: int | str | list[int] | list[str] = None) -> dict:
         """
         Transforms a rule to a MongoDB compatible query part
         
@@ -175,7 +174,7 @@ class MongoDBQueryBuilder:
             target_field (str): defines where to search for the value (fields or MDS)
             operator (str): operator of the rule
             field_name (str): name of field
-            value (Union[int, str, list[int], list[str]], optional): value of the rule
+            value (int | str | list[int] | list[str], optional): value of the rule
 
         Raises:
             MongoQueryBuilderInvalidOperatorError: When an unsupported operator was provided
@@ -194,14 +193,14 @@ class MongoDBQueryBuilder:
     def get_operator_fragment(self,
                               operator: str,
                               field_name: str,
-                              value: Union[int, str, list[int], list[str]] = None) -> dict:
+                              value: int | str | list[int] | list[str] = None) -> dict:
         """
         Creates the operator part of a condition for a MongoDB query
 
         Args:
             operator (str): operator of the condition like '<, =, !='
             field_name (str): field name of the condition
-            value (Union[int, str, list[int], list[str]], optional): value of the condition
+            value (int | str | list[int] | list[str], optional): value of the condition
 
         Raises:
             MongoQueryBuilderInvalidOperatorError: When an unsupported operator was provided
@@ -226,19 +225,19 @@ class MongoDBQueryBuilder:
     def get_value_fragment(
             self,
             operator: str,
-            value: Union[int, str, list[int], list[str]] = None) -> Union[dict, str, None]:
+            value: int | str | list[int] | list[str] = None) -> dict | str | None:
         """
         Creates the value part of a condition for a MongoDB query
 
         Args:
             operator (str): operator of the condition like '<, =, !='
-            value (Union[int, str, list[int], list[str]], optional): value of the condition
+            value (int | str | list[int] | list[str], optional): value of the condition
 
         Raises:
             MongoQueryBuilderInvalidOperatorError: When an unsupported operator is provided
 
         Returns:
-            Union[dict, str, None]: Value part of a condition
+            dict | str | None: Value part of a condition
         """
 
         allowed_operators = {

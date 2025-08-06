@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 Implementation of SettingsManager
 """
 import logging
-from typing import Union
+
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
@@ -50,7 +50,7 @@ class SettingsManager(SystemReader):
         super().__init__()
 
 
-    def get_value(self, name, section) -> Union[dict, list]:
+    def get_value(self, name, section) -> dict:
         """
         Retrieve a value from a given section
         Args:
@@ -99,13 +99,13 @@ class SettingsManager(SystemReader):
                         )
 
 
-    def get_all_values_from_section(self, section, default=None) -> dict:
+    def get_all_values_from_section(self, section: str, default=None) -> dict:
         """
         Retrieve all key-value pairs from a specific configuration section
 
         Args:
             section (str): The name of the section to retrieve
-            default (dict, optional): The default dictionary to return if the section does not exist
+            default (dict | None): The default dictionary to return if the section does not exist
 
         Raises:
             SectionError: If the section does not exist and no default is provided

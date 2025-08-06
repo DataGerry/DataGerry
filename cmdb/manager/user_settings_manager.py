@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 Implementation of UserSettingsManager
 """
 import logging
-from typing import Optional, Union
 
 from cmdb.database import MongoDatabaseManager
 
@@ -53,7 +52,7 @@ class UserSettingsManager(GenericManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_user_setting(self, user_id: int, resource: str) -> Optional[dict]:
+    def get_user_setting(self, user_id: int, resource: str) -> dict | None:
         """
         Get a single CmdbUserSetting from a user by the identifier
 
@@ -65,7 +64,7 @@ class UserSettingsManager(GenericManager):
             UserSettingsManagerGetError: If an CmdbUserSetting could not be retrieved
 
         Returns:
-            Optional[dict]: A dictionary representation of the CmdbUserSetting if successful, otherwise None
+            dict | None: A dictionary representation of the CmdbUserSetting if successful, otherwise None
         """
         try:
             return self.get_one_by(criteria={'user_id': user_id, 'resource': resource})
@@ -103,12 +102,12 @@ class UserSettingsManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_user_setting(self, user_id: int, resource: str, setting: Union[dict, CmdbUserSetting]) -> None:
+    def update_user_setting(self, user_id: int, resource: str, setting: dict | CmdbUserSetting) -> None:
         """
         Updates an existing CmdbUserSetting in the database
 
         Args:
-            setting (Union[dict, CmdbUserSetting]): Settings data
+            setting (dict | CmdbUserSetting): Settings data
             user_id (int): User of this setting
             resource (str): Identifier of the setting
 

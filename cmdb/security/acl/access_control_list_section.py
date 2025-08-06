@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -36,8 +36,8 @@ class AccessControlListSection(ABC, Generic[T]):
         Initializes an AccessControlListSection with a given dictionary of included permissions
 
         Args:
-            includes (Optional[AccessControlSectionDict]): A dictionary mapping keys to sets of permissions.
-                                                           Defaults to an empty dictionary if not provided
+            includes (AccessControlSectionDict | None): A dictionary mapping keys to sets of permissions.
+                                                        Defaults to an empty dictionary if not provided
         """
         self.includes = includes or AccessControlSectionDict()
 

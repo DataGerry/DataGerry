@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,7 @@ from .isms_extendable_options import get_default_isms_extendable_options
 from .isms_protection_goals import get_default_protection_goals
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'get_default_risk_matrix',
     'get_default_isms_extendable_options',
     'get_default_protection_goals',

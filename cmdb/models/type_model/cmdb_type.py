@@ -17,7 +17,6 @@
 Implementation of CmdbType
 """
 import logging
-from typing import Optional, Union
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
@@ -86,20 +85,20 @@ class CmdbType(CmdbDAO):
             name (str): The name of the CmdbType
             author_id (int): The public_id of the CmdbUser who created the CmdbType
             render_meta (TypeRenderMeta): Metadata related to rendering
-            creation_time (datetime, optional): The time when the CmdbType was created.
+            creation_time (datetime | None): The time when the CmdbType was created.
                                                 Defaults to the current UTC time if not provided
-            last_edit_time (datetime, optional): The last time the CmdbType was edited
-            editor_id (int, optional): The public_id of the CmdbUser who last edited the CmdbType
+            last_edit_time (datetime | None): The last time the CmdbType was edited
+            editor_id (int | None): The public_id of the CmdbUser who last edited the CmdbType
             active (bool): Indicates whether the object is active. Defaults to True
             selectable_as_parent (bool): Whether this CmdbType can be a parent Location. Defaults to True
             global_template_ids (list[int]): A list of global template public_ids used by this CmdbType
             fields (list): A list of fields associated with the CmdbType
             version (str): The version of the CmdbType. Defaults to 1.0.0
             label (str): A user-friendly label for the CmdbType. Defaults to a title-cased version of the name
-            description (str, optional): A description of the CmdbType
+            description (str | None): A description of the CmdbType
             ci_explorer_label (str): Label displayed in the CI Explorer
             ci_explorer_color (str): Color of the CmdbType in the CI Explorer
-            acl (AccessControlList, optional): AccessControlList for the CmdbType. Defaults to none
+            acl (AccessControlList | None): AccessControlList for the CmdbType. Defaults to none
 
         Raises:
             CmdbTypeInitError: If initialization fails due to an error
@@ -258,7 +257,7 @@ class CmdbType(CmdbDAO):
         return bool(self.get_externals())
 
 
-    def get_external(self, name: str) -> Optional[TypeExternalLink]:
+    def get_external(self, name: str) -> TypeExternalLink | None:
         """
         Retrieves a TypeExternalLink by name
 
@@ -266,7 +265,7 @@ class CmdbType(CmdbDAO):
             name (str): The name of the TypeExternalLink to retrieve
 
         Returns:
-            Optional[TypeExternalLink]: The matching TypeExternalLink if found, otherwise None
+            TypeExternalLink | None: The matching TypeExternalLink if found, otherwise None
         """
         return next((external for external in self.get_externals() if external.name == name), None)
 
@@ -295,7 +294,7 @@ class CmdbType(CmdbDAO):
         return next((x['summaries'] for x in self.get_fields() if x['type'] == 'ref' and 'summaries' in x), [])
 
 
-    def has_nested_prefix(self, nested_summaries: list[dict]) -> Union[str, bool]:
+    def has_nested_prefix(self, nested_summaries: list[dict]) -> str | bool:
         """
         Checks if any of the nested summaries have a matching prefix for this instance
 
@@ -303,11 +302,11 @@ class CmdbType(CmdbDAO):
         and returns the associated `prefix`. If no matching summary is found, it returns `False`
 
         Args:
-            nested_summaries (List[dict]): A list of nested summary dictionaries that may contain a `type_id`
+            nested_summaries (list[dict]): A list of nested summary dictionaries that may contain a `type_id`
                                             and `prefix` key
 
         Returns:
-            Union[str, bool]: The `prefix` of the matching nested summary if found, otherwise `False`
+            str | bool: The `prefix` of the matching nested summary if found, otherwise `False`
         """
         return next((x['prefix'] for x in nested_summaries if x['type_id'] == self.public_id), False)
 
@@ -337,7 +336,7 @@ class CmdbType(CmdbDAO):
         return TypeSummary(complete_field_list).fields
 
 
-    def get_nested_summary_line(self, nested_summaries: list[dict]) -> Optional[str]:
+    def get_nested_summary_line(self, nested_summaries: list[dict]) -> str | None:
         """
         Retrieves the 'line' value from the nested summaries that match the current CmdbType's public_id
 
@@ -349,7 +348,7 @@ class CmdbType(CmdbDAO):
             nested_summaries (list[dict]): A list of nested summary dictionaries containing `type_id` and `line`
 
         Returns:
-            Optional[str]: The `line` value from the matching nested summary if found, otherwise `None`
+            str | None: The `line` value from the matching nested summary if found, otherwise `None`
         """
         return next((x['line'] for x in nested_summaries if x['type_id'] == self.public_id), None)
 
@@ -380,7 +379,7 @@ class CmdbType(CmdbDAO):
         return self.render_meta.sections
 
 
-    def get_section(self, name: str) -> Optional[TypeSection]:
+    def get_section(self, name: str) -> TypeSection | None:
         """
         Retrieves a section with the given name
 
@@ -388,13 +387,13 @@ class CmdbType(CmdbDAO):
             name (str): Name of the section
 
         Returns:
-            Optional[TypeSection]: The Typesection with the given name else None
+            TypeSection | None: The Typesection with the given name else None
         """
         return next((section for section in self.get_sections() if section.name == name), None)
 
 
 
-    def get_icon(self) -> Optional[str]:
+    def get_icon(self) -> str | None:
         """
         Retrieves the icon of the current CmdbType
 
@@ -402,7 +401,7 @@ class CmdbType(CmdbDAO):
         it returns `None`
 
         Returns:
-            Optional[str]: The icon as a string if available, otherwise `None`
+            str | None: The icon as a string if available, otherwise `None`
         """
         return getattr(self.render_meta, 'icon', None)
 

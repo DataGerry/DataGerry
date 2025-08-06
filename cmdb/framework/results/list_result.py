@@ -16,7 +16,7 @@
 """
 Implementation of ListResult
 """
-from typing import TypeVar, Generic, Union
+from typing import TypeVar, Generic
 
 from cmdb.models.cmdb_dao import CmdbDAO
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -30,12 +30,12 @@ class ListResult(Generic[C]):
     """
     A class to represent the result of a list query over a collection
     """
-    def __init__(self, results: list[Union[C, dict]]):
+    def __init__(self, results: list[C | dict]):
         """
         Initialises a ListResult
 
         Args:
-            results (list[Union[C, dict]]): A list of results, either `CmdbDAO` objects
+            results (list[C | dict]): A list of results, either `CmdbDAO` objects
                                              or dictionaries representing the results
         """
         self.results = results

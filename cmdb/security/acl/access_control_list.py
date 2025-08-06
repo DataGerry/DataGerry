@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -91,7 +91,7 @@ class AccessControlList:
         Args:
             key (T): The key (e.g., user, group, role) to which the permission is being granted
             permission (AccessControlPermission): The permission to be granted
-            section (Optional[str]): The section of the ACL in which to grant the permission. Defaults to None
+            section (str | None): The section of the ACL in which to grant the permission. Defaults to None
 
         Raises:
             ValueError: If the section is not recognized or if the ACL section does not support the action
@@ -112,7 +112,7 @@ class AccessControlList:
         Args:
             key (T): The key (e.g., user, group, role) from which the permission is being revoked
             permission (AccessControlPermission): The permission to be revoked
-            section (Optional[str]): The section of the ACL in which to revoke the permission. Defaults to None
+            section (str | None): The section of the ACL in which to revoke the permission. Defaults to None
 
         Raises:
             ValueError: If the section is not recognized or if the ACL section does not support the action

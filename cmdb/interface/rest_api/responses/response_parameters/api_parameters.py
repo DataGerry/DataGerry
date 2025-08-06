@@ -35,17 +35,17 @@ class APIParameters:
         Initializes the API parameters with the provided values
 
         Args:
-            query_string (str, optional): The query string for filtering or searching data (default is empty string)
-            projection (dict, optional): A dictionary representing the projection for the response (default is None)
-            optional (dict, optional): Additional optional parameters that can be passed as keyword arguments
+            query_string (str | None): The query string for filtering or searching data (default is empty string)
+            projection (dict | None): A dictionary representing the projection for the response (default is None)
+            optional (dict | None): Additional optional parameters that can be passed as keyword arguments
         """
         self.query_string = query_string or ''
         self.projection = projection or {}
         self.optional = optional
 
 
-    def __repr__(self):
-        return f'Parameters: Query({self.query_string}) | Projection({self.projection}) |Optional({self.optional})'
+    def __repr__(self) -> str:
+        return f"Parameters: query_string:{self.query_string}, projection:{self.projection}, optional:{self.optional}"
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
@@ -56,7 +56,7 @@ class APIParameters:
 
         Args:
             query_string (str): The query string to filter or search data in the API request
-            **optional (dict, optional): Any additional parameters, including an optional `projection`
+            **optional (dict | None): Any additional parameters, including an optional `projection`
                                          key which will be parsed
 
         Returns:

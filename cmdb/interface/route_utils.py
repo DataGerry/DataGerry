@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,6 @@ import functools
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 import time
 import requests
 from flask import request, abort, current_app
@@ -78,7 +77,7 @@ def user_has_right(required_right: str, request_user: CmdbUser = None) -> bool:
 
     Args:
         required_right (str): The permission/right to verify
-        request_user (CmdbUser, optional): The user object (if already available). If not provided,
+        request_user (CmdbUser | None): The user object (if already available). If not provided,
                                            the user will be determined via the Authorization token
 
     Returns:
@@ -194,7 +193,7 @@ def verify_api_access(*, required_api_level: ApiLevel = None):
     Decorator to verify API access based on authentication method and required API level
 
     Args:
-        required_api_level (ApiLevel, optional): Minimum API access level required to execute the decorated function
+        required_api_level (ApiLevel | None): Minimum API access level required to execute the decorated function
     
     Behavior:
     - If the user does not meet the required API level, the request is aborted with a 403 status
@@ -241,26 +240,27 @@ def verify_api_access(*, required_api_level: ApiLevel = None):
     return decorator
 
 
-def __get_x_api_key() -> Optional[str]:
+def __get_x_api_key() -> str | None:
     """
     Retrieve the 'x-api-key' from the request headers
 
     Returns:
-        Optional[str]: The value of the 'x-api-key' header if present, otherwise None
+        str | None: The value of the 'x-api-key' header if present, otherwise None
     """
     x_api_key = request.headers.get('x-api-key')
 
     return x_api_key
 
 
-def __get_request_api_user() -> Optional[dict[str, str]]:
+def __get_request_api_user() -> dict[str, str] | None:
     """Retrieve the API user credentials from the 'Authorization' request header
 
     Extracts and decodes the 'Authorization' header to obtain Basic Authentication credentials
 
     Returns:
-        Optional[dict[str, str]]: A dictionary containing 'email' and 'password' if authentication is Basic
-        Returns None if the header is missing, improperly formatted, or uses an unsupported authentication type
+        dict[str, str] | None: A dictionary containing 'email' and 'password' if authentication is Basic.
+                               Returns None if the header is missing, improperly formatted, or uses an
+                               unsupported authentication type
     """
     try:
         value = _wsgi_decoding_dance(request.headers['Authorization'])
@@ -284,7 +284,7 @@ def __get_request_api_user() -> Optional[dict[str, str]]:
         return None
 
 
-def __get_request_auth_method() -> Optional["AuthMethod"]:
+def __get_request_auth_method() -> AuthMethod | None:
     """
     Determine the authentication method from the request headers
 
@@ -292,7 +292,7 @@ def __get_request_auth_method() -> Optional["AuthMethod"]:
     Basic Authentication or JWT-based authentication
 
     Returns:
-        Optional[AuthMethod]: 
+        AuthMethod | None: 
             - `AuthMethod.BASIC` if the 'Authorization' header starts with 'Basic '
             - `AuthMethod.JWT` if the header starts with 'Bearer '
             - Aborts the request with a 400 error if the auth method is invalid or missing
@@ -309,7 +309,7 @@ def __get_request_auth_method() -> Optional["AuthMethod"]:
 
         abort(400, "Invalid auth method!")
     except Exception as err:
-        LOGGER.debug("[__get_request_auth_method] Exception: %s, Type: %s", err, type(err))
+        LOGGER.error("[__get_request_auth_method] Exception: %s, Type: %s", err, type(err))
         abort(400, "Invalid auth method!")
 
 
@@ -321,7 +321,7 @@ def __check_api_level(user_instance: dict = None, required_api_level: ApiLevel =
     The check is only performed in cloud mode
 
     Args:
-        user_instance (dict, optional): A dictionary containing user details, including API level
+        user_instance (dict | None): A dictionary containing user details, including API level
         required_api_level (ApiLevel): The minimum API level required for access
 
     Returns:
@@ -508,7 +508,7 @@ def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> boo
         return False
 
 
-def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None) -> Optional[dict]:
+def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None) -> dict | None:
     """Check if a user exists in the service portal
 
     This function verifies user credentials in two modes:
@@ -518,7 +518,7 @@ def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None
     Args:
         mail (str): The user's email address
         password (str): The user's password
-        x_api_key (Optional[str], optional): An optional API key for authentication. Defaults to None
+        x_api_key (dict | None): API key for authentication. Defaults to None
 
     Raises:
         NoAccessTokenError: If the service portal authentication fails due to a missing access token
@@ -528,7 +528,7 @@ def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None
         Exception: For any other unexpected errors
 
     Returns:
-        Optional[Dict]: A dictionary representing the user if authentication is successful, otherwise None
+        dict | None: A dictionary representing the user if authentication is successful, otherwise None
     """
     if current_app.local_mode:
         try:
@@ -630,7 +630,7 @@ def set_admin_user(user_data: dict, subscription: dict):
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict, database: str) -> Optional[dict]:
+def retrive_user(user_data: dict, database: str) -> dict | None:
     """
     Retrieve a user from the database by email
 
@@ -641,7 +641,7 @@ def retrive_user(user_data: dict, database: str) -> Optional[dict]:
         database (str): The name of the database to query
 
     Returns:
-        Optional[dict]: A dictionary representing the user if found, or None if an error occurs
+        dict | None: A dictionary representing the user if found, or None if an error occurs
     """
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, database)

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -50,7 +50,7 @@ class JsonExportFormat(BaseExporterFormat):
 
         Args:
             data (List[RenderResult]): List of `RenderResult` objects to export
-            *args: Optional arguments, including:
+            *args: arguments including:
                 - 'metadata' (dict or str): Customizes the export (e.g., columns, header)
                 - 'view' (str): Specifies the view format. Defaults to 'native'.
                                 Affects data processing if set to 'RENDER'.

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,6 @@ Implementation of TokenValidator
 """
 import logging
 import time
-from typing import Union
 from authlib.jose import jwt, JsonWebToken
 from authlib.jose.errors import BadSignatureError, InvalidClaimError
 
@@ -48,12 +47,12 @@ class TokenValidator:
         self.key_holder = KeyHolder(dbm)
 
 
-    def decode_token(self, token: Union[JsonWebToken, str, dict]) -> dict:
+    def decode_token(self, token: JsonWebToken | str | dict) -> dict:
         """
         Decodes a given JWT token
 
         Args:
-            token (Union[JsonWebToken, str, dict]): The JWT token to be decoded
+            token (JsonWebToken | str | dict): The JWT token to be decoded
 
         Returns:
             dict: The decoded JWT claims
@@ -71,12 +70,12 @@ class TokenValidator:
             raise TokenValidationError(err) from err
 
 
-    def validate_token(self, token: Union[JsonWebToken, str, dict]):
+    def validate_token(self, token: JsonWebToken | str | dict):
         """
         Validates a given token regarding its expiration
 
         Params:
-            token(JsonWebToken, str, dict): the given token
+            token(JsonWebToken | str | dict): the given token
 
         Returns:
             JWTClaims: decoded token

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 This module contains the implementation of the ObjectLinksManager
 """
 import logging
-from typing import Union, Optional
 from datetime import datetime, timezone
 
 from cmdb.database import MongoDatabaseManager
@@ -74,12 +73,12 @@ class ObjectLinksManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_object_link(self, link: Union[dict, CmdbObjectLink]) -> int:
+    def insert_object_link(self, link: dict | CmdbObjectLink) -> int:
         """
         Insert a single CmdbObjectLink into the database
 
         Args:
-            link (dict/CmdbObjectLink): Data of the CmdbObjectLink as object or dictionary
+            link (dict | CmdbObjectLink): Data of the CmdbObjectLink as object or dictionary
 
         Raises:
             ObjectLinksManagerInsertError: If the CmdbObjectLink could not be inserted in the database
@@ -153,7 +152,7 @@ class ObjectLinksManager(BaseManager):
             raise ObjectLinksManagerIterationError(err) from err
 
 
-    def get_object_link(self, public_id: int) -> Optional[CmdbObjectLink]:
+    def get_object_link(self, public_id: int) -> CmdbObjectLink | None:
         """
         Retrieve a single CmdbObjectLink by its public_id
 
@@ -164,7 +163,7 @@ class ObjectLinksManager(BaseManager):
             ObjectLinksManagerGetError: When the CmdbObjectLink could not be retrieved
 
         Returns:
-            Optional[CmdbObjectLink]: The requested CmdbObjectLink if it exists
+            CmdbObjectLink | None: The requested CmdbObjectLink if it exists
         """
         try:
             link_instance = self.get_one(public_id)

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 Implementation of the BaseManager for all Managers requiring a database connection
 """
 import logging
-from typing import Optional
+
 from pymongo.results import DeleteResult, UpdateResult
 from pymongo.cursor import Cursor
 from pymongo.command_cursor import CommandCursor
@@ -72,7 +72,7 @@ class BaseManager:
             self.dbm = dbm
             self.db_name = db_name if db_name else dbm.db_name
         except Exception as err:
-            raise BaseManagerInitError(err) from err
+            raise BaseManagerInitError(str(err)) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -93,21 +93,21 @@ class BaseManager:
         try:
             return self.dbm.insert(self.collection, self.db_name, data, skip_public)
         except DocumentInsertError as err:
-            raise BaseManagerInsertError(err) from err
+            raise BaseManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     def iterate_query(self,
                       builder_params: BuilderParameters,
-                      user: CmdbUser = None,
-                      permission: AccessControlPermission = None) -> tuple[list, int]:
+                      user: CmdbUser | None = None,
+                      permission: AccessControlPermission | None = None) -> tuple[list, int]:
         """
         Performs an aggregation on the database
 
         Args:
             builder_params (BuilderParameters): Parameters to define the query
-            user (CmdbUser, optional): The user making the request. Defaults to None
-            permission (AccessControlPermission, optional): Permission to check. Defaults to None
+            user (CmdbUser | None): The user making the request. Defaults to None
+            permission (AccessControlPermission | None): Permission to check. Defaults to None
 
         Raises:
             BaseManagerIterationError: If the aggregation process fails
@@ -126,10 +126,10 @@ class BaseManager:
 
             return aggregation_result , total
         except Exception as err:
-            raise BaseManagerIterationError(err) from err
+            raise BaseManagerIterationError(str(err)) from err
 
 
-    def get_one(self, *args, **kwargs) -> Optional[dict]:
+    def get_one(self, *args, **kwargs) -> dict | None:
         """
         Retrieves a single document from MongoDB
 
@@ -141,7 +141,7 @@ class BaseManager:
             BaseManagerGetError: If the document could not be retrieved
 
         Returns:
-            Optional[dict]: The found document or None if no document matches the query
+            dict | None: The found document or None if no document matches the query
         """
         try:
             return self.dbm.find_one(self.collection, self.db_name, *args, **kwargs)
@@ -149,7 +149,7 @@ class BaseManager:
             raise BaseManagerGetError(err) from err
 
 
-    def get_one_from_other_collection(self, collection: str, public_id: int) -> Optional[dict]:
+    def get_one_from_other_collection(self, collection: str, public_id: int) -> dict | None:
         """
         Retrieves a single document from another MongoDB collection
 
@@ -161,7 +161,7 @@ class BaseManager:
             BaseManagerGetError: When the find_one operation fails
         
         Returns:
-            Optional[dict]: The found document as a dictionary or None if no document matches the query
+            dict | None: The found document as a dictionary or None if no document matches the query
         """
         try:
             return self.dbm.find_one(collection, self.db_name, public_id)
@@ -250,13 +250,13 @@ class BaseManager:
             raise err
 
 
-    def find(self, *args, criteria: Optional[dict] = None, **kwargs) -> Cursor:
+    def find(self, *args, criteria: dict = None, **kwargs) -> Cursor:
         """
         Retrieves documents from the specified collection that match the given criteria.
 
         Args:
             *args: Additional positional arguments for the 'find' operation
-            criteria Optional[dict]: The filter criteria for the find query. Defaults to Nones
+            criteria (dict | None): The filter criteria for the find query. Defaults to Nones
             **kwargs: Additional keyword arguments for the 'find' operation
 
         Raises:
@@ -274,7 +274,7 @@ class BaseManager:
             raise BaseManagerGetError(err) from err
 
 
-    def get_one_by(self, criteria: dict, collection: str = None) -> Optional[dict]:
+    def get_one_by(self, criteria: dict, collection: str = None) -> dict | None:
         """
         Retrieves a single document defined by the given criteria
 
@@ -285,7 +285,7 @@ class BaseManager:
             BaseManagerGetError: If an error occurs during the 'find_one_by' operation
 
         Returns:
-            Optional[dict]: The found document, or None if no document matches the criteria
+            dict | None: The found document, or None if no document matches the criteria
         """
         try:
             target_collection = collection or self.collection
@@ -423,9 +423,9 @@ class BaseManager:
             criteria (dict): The filter used to match the document(s) to be updated
             data (dict): The update data to apply to the matched document(s)
             *args: Additional positional arguments passed to the update operation
-            add_to_set (bool, optional): If True, wraps `data` in `$set` unless the `data` already contains update
+            add_to_set (bool): If True, wraps `data` in `$set` unless the `data` already contains update
                                          operators. Defaults to True
-            plain (bool, optional): If true, then no modification of data
+            plain (bool): If true, then no modification of data
             **kwargs: Additional keyword arguments passed to the update operation
 
 
@@ -456,7 +456,7 @@ class BaseManager:
             data (dict): A dictionary containing the data to be inserted or updated.
                         The dictionary should contain at least the 'public_id' field
                         to identify the document.
-            collection (str, optional): The name of the MongoDB collection where the upsert
+            collection (str | None): The name of the MongoDB collection where the upsert
                                         operation will be performed. If not provided, the
                                         method will use the default collection.
 
@@ -488,9 +488,9 @@ class BaseManager:
         Args:
             criteria (dict): A dictionary specifying the filter criteria for selecting documents to update
             update (dict): A dictionary containing the update operations to be applied
-            add_to_set (bool, optional): If True, wraps `update` in '$set' unless it already contains update
+            add_to_set (bool): If True, wraps `update` in '$set' unless it already contains update
                                          operators. Defaults to False
-            plain (bool, optional): If True, sends the update dict as-is without wrapping it in an operator.
+            plain (bool): If True, sends the update dict as-is without wrapping it in an operator.
                                     Defaults to False
 
         Raises:
@@ -512,8 +512,6 @@ class BaseManager:
         Args:
             criteria (dict): A dictionary specifying the filter criteria for selecting documents to update
             update (dict): A dictionary containing the update operations to be applied
-            add_to_set (bool, optional): If True, wraps `update` in '$set' unless it already contains update
-                                         operators. Defaults to False
 
         Raises:
             BaseManagerUpdateError: If the update operation fails
@@ -550,7 +548,7 @@ class BaseManager:
             result = self.dbm.delete(target_collection, self.db_name, criteria)
 
             return result.acknowledged and result.deleted_count > 0
-        except (DocumentDeleteError, Exception) as err:
+        except Exception as err:
             raise BaseManagerDeleteError(err) from err
 
 

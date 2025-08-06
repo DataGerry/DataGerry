@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -58,7 +58,7 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
         Initializes the CsvObjectParser with an optional parser configuration
 
         Args:
-            parser_config (Optional[dict]): Configuration dictionary for the parser
+            parser_config (dict | None): Configuration dictionary for the parser
         """
         super().__init__(parser_config)
 

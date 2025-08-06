@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -74,4 +74,4 @@ class Update20200513(BaseDatabaseUpdate):
 
             self.increase_updater_version(self.creation_date())
         except Exception as err:
-            raise UpdaterException(err) from err
+            raise UpdaterException(str(err)) from err

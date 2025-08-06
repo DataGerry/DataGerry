@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 Implementation of Builder
 """
 import logging
-from typing import Any, Union
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -215,20 +215,24 @@ class Builder:
 
     @classmethod
     def lookup_sub_(cls, from_: str, let_: dict, pipeline_: list, as_: str) -> dict:
-        """ Performs uncorrelated subqueries between two collections as well as allow other join conditions besides a
-            single equality match, the $lookup stage has the following syntax.
-            Args:
-                from_:      Specifies the collection in the same database to perform the join with.
-                let_:       Optional. Specifies variables to use in the pipeline field stages.
-                pipeline_:  The pipeline determines the resulting documents from the joined collection.
-                as_:        Specifies the name of the new array field to add to the input documents.
-            """
+        """
+        Performs uncorrelated subqueries between two collections as well as allow other join conditions besides a
+        single equality match, the $lookup stage has the following syntax.
+
+        Args:
+            from_:      Specifies the collection in the same database to perform the join with
+            let_:       Specifies variables to use in the pipeline field stages
+            pipeline_:  The pipeline determines the resulting documents from the joined collection
+            as_:        Specifies the name of the new array field to add to the input documents
+        """
         return {'$lookup': {'from': from_, 'let': let_, 'pipeline': pipeline_, 'as': as_}}
 
 
     @classmethod
-    def unwind_(cls, path: Union[str, dict]):
-        """Duplicates each document in the pipeline, once per array element."""
+    def unwind_(cls, path: str | dict):
+        """
+        Duplicates each document in the pipeline, once per array element
+        """
         return {'$unwind': path}
 
 

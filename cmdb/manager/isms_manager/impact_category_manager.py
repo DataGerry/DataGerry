@@ -17,7 +17,7 @@
 This module contains the implementation of the ImpactCategoryManager
 """
 import logging
-from typing import Optional
+
 from pymongo import UpdateOne
 from pymongo.cursor import Cursor
 
@@ -148,7 +148,7 @@ class ImpactCategoryManager(GenericManager):
         self.update_many(criteria={}, update=update_operation, plain=True)
 
 
-    def calculate_max_impact_value(self, impacts: list) -> tuple[Optional[float], Optional[int]]:
+    def calculate_max_impact_value(self, impacts: list) -> tuple[float | None, int | None]:
         """
         Calculates the maximum impact value and corresponding impact_id from a list of impacts
 
@@ -156,7 +156,7 @@ class ImpactCategoryManager(GenericManager):
             impacts (list): List of impact dictionaries.
 
         Returns:
-            tuple[Optional[float], Optional[int]]: (max_value, max_impact_id) or (None, None) if no impacts
+            tuple[float | None, int | None]: (max_value, max_impact_id) or (None, None) if no impacts
         """
         max_value = -1
         max_impact_id = None

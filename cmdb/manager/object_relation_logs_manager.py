@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 This module contains the implementation of the ObjectRelationLogsManager
 """
 import logging
-from typing import Optional
 from datetime import datetime, timezone
 
 from cmdb.database import MongoDatabaseManager
@@ -97,7 +96,7 @@ class ObjectRelationLogsManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_object_relation_log(self, public_id: int) -> Optional[dict]:
+    def get_object_relation_log(self, public_id: int) -> dict | None:
         """
         Retrieves a CmdbObjectRelationLog from the database
 
@@ -108,7 +107,7 @@ class ObjectRelationLogsManager(BaseManager):
             ObjectRelationLogsManagerGetError: When a CmdbObjectRelationLog could not be retrieved
 
         Returns:
-            Optional[dict]: Raw data of the CmdbObjectRelationLog if it exists
+            dict | None: Raw data of the CmdbObjectRelationLog if it exists
         """
         try:
             return self.get_one(public_id)
@@ -125,8 +124,8 @@ class ObjectRelationLogsManager(BaseManager):
 
         Args:
             builder_params (BuilderParameters): Filter for which CmdbObjectRelationLogs should be retrieved
-            user (CmdbUser, optional): CmdbUser requestion this operation. Defaults to None
-            permission (AccessControlPermission, optional): Required permission for the operation. Defaults to None
+            user (CmdbUser | None): CmdbUser requestion this operation. Defaults to None
+            permission (AccessControlPermission | None): Required permission for the operation. Defaults to None
 
         Raises:
             ObjectRelationLogsManagerIterationError: When the iteration or creating the IterationResult failed
@@ -178,8 +177,8 @@ class ObjectRelationLogsManager(BaseManager):
 
         Args:
             action (LogInteraction): The action (CREATE / EDIT / DELETE)
-            old_object_relation (dict, optional): The previous version of the CmdbObjectRelation. Defaults to None
-            new_object_relation (dict, optional): The new version of the CmdbObjectRelation. Defaults to None
+            old_object_relation (dict | None): The previous version of the CmdbObjectRelation
+            new_object_relation (dict | None): The new version of the CmdbObjectRelation
 
         Raises:
             ObjectRelationLogsManagerBuildError: If bulding the log dict failed
