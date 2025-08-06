@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,7 @@ from .xml_export_format import XmlExportFormat
 from .zip_export_format import ZipExportFormat
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CsvExportFormat',
     'JsonExportFormat',
     'XlsxExportFormat',

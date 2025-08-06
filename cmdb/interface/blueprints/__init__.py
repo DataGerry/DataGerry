@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,7 @@ from cmdb.interface.blueprints.root_blueprint import RootBlueprint
 from cmdb.interface.blueprints.nested_blueprint import NestedBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'APIBlueprint',
     'RootBlueprint',
     'NestedBlueprint',
