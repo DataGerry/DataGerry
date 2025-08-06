@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module is the base class for the profiles of DATAGERRY assistant
+This module is the base class for the profiles of DataGerry assistant
 """
-import logging
+from logging import Logger, getLogger
 from flask import current_app
 
 from cmdb.manager import TypesManager, SectionTemplatesManager
@@ -25,7 +25,7 @@ from cmdb.models.type_model import CmdbType
 from .profile_type_constructor import ProfileTypeConstructor
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ProfileBase - CLASS                                                 #

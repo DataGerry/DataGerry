@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the "ProfileAssistant" class
+This module contains the ProfileAssistant class
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 
 from cmdb.manager import CategoriesManager
@@ -34,21 +35,24 @@ from .profile_server_management import ServerManagementProfile
 from .profile_network_infrastructure import NetworkInfrastructureProfile
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
-
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               ProfileAssistant - CLASS                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
 class ProfileAssistant:
     """
-    This class creates all types and categories selected in the DATAGERRY assistant
+    This class creates all CmdbTypes and CmdbCategories selected in the DataGerry assistant
     """
     def __init__(
-            self,
-            categories_manager: CategoriesManager,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.categories_manager = categories_manager
-        self.types_manager = types_manager
-        self.section_templates_manager = section_templates_manager
+        self,
+        categories_manager: CategoriesManager,
+        types_manager: TypesManager,
+        section_templates_manager: SectionTemplatesManager
+    ) -> None:
+        self.categories_manager: CategoriesManager = categories_manager
+        self.types_manager:TypesManager = types_manager
+        self.section_templates_manager: SectionTemplatesManager = section_templates_manager
 
     def create_profiles(self, profile_list):
         """
@@ -58,28 +62,28 @@ class ProfileAssistant:
             profile_list: List of profiles which should be created
         """
         # This is passed along the creation process
-        created_type_ids: dict = {
-            'company_id': None,
-            'user_id': None,
-            'customer_user_id': None,
-            'country_id': None,
-            'city_id': None,
-            'building_id': None,
-            'room_id': None,
-            'rack_id': None,
-            'network_id': None,
-            'vlan_id': None,
-            'operating_system_id': None,
-            'client_id': None,
-            'monitor_id': None,
-            'printer_id': None,
-            'server_id': None,
-            'appliance_id': None,
-            'virtual_server_id': None,
-            'switch_id': None,
-            'router_id': None,
-            'patch_panel_id': None,
-            'wireless_access_point_id': None,
+        created_type_ids: dict[str, int | None] = {
+            "company_id": None,
+            "user_id": None,
+            "customer_user_id": None,
+            "country_id": None,
+            "city_id": None,
+            "building_id": None,
+            "room_id": None,
+            "rack_id": None,
+            "network_id": None,
+            "vlan_id": None,
+            "operating_system_id": None,
+            "client_id": None,
+            "monitor_id": None,
+            "printer_id": None,
+            "server_id": None,
+            "appliance_id": None,
+            "virtual_server_id": None,
+            "switch_id": None,
+            "router_id": None,
+            "patch_panel_id": None,
+            "wireless_access_point_id": None,
         }
 
         try:
@@ -130,7 +134,7 @@ class ProfileAssistant:
 
         except Exception as err:
             LOGGER.debug("[create_profiles] Error: %s",err)
-            raise ProfileCreationError(err) from err
+            raise ProfileCreationError(str(err)) from err
 
         created_ids = []
 
@@ -232,17 +236,18 @@ class ProfileAssistant:
         return found_type_ids
 
 
-    def get_category_body(self, cat_name: str, cat_label: str, cat_icon: str, cat_types: list) -> dict:
+    def get_category_body(self, cat_name: str, cat_label: str, cat_icon: str, cat_types: list[int]) -> dict[str, Any]:
         """
-        Generates a category model which can be used to create a category
+        Generates a CmdbCategory dict representation which can be used to create a CmdbCategory
 
         Args:
-            cat_name (str): Name for category
-            cat_label (str): Label for category
-            cat_icon (str): Icon for category
+            cat_name (str): Name for CmdbCategory
+            cat_label (str): Label for CmdbCategory
+            cat_icon (str): Icon for CmdbCategory
+            cat_types (list[int]): public_ids of CmdbTypes assigned to this CmdbCategory
 
         Returns:
-            dict: Category model with given params
+            dict[str, Any]: CmdbCategory dict representation
         """
         return {
             "name": cat_name,
