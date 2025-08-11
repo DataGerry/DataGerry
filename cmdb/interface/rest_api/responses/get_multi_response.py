@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -42,8 +42,8 @@ class GetMultiResponse(BaseAPIResponse):
                  results: list[dict],
                  total: int,
                  params: CollectionParameters,
-                 url: str = None,
-                 body: bool = None):
+                 url: str | None = None,
+                 body: bool = None) -> None:
         """
         Constructor of GetMultiResponse
 
@@ -54,7 +54,7 @@ class GetMultiResponse(BaseAPIResponse):
             url: Requested url
             body: If http response should not have a body
         """
-        self.parameters = params
+        self.parameters: CollectionParameters = params
 
         if self.parameters.projection:
             project = APIProjection(self.parameters.projection)

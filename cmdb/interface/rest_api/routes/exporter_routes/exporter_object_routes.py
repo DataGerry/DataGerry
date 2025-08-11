@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -86,7 +86,7 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser):
 
         db_name = None
         if current_app.cloud_mode:
-            db_name = request_user.database
+            db_name: str = request_user.database
 
         exporter = BaseExportWriter(exporter_class, _config)
 

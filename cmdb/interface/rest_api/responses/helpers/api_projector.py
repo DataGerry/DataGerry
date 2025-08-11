@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,14 +16,14 @@
 """
 Implementation of APIProjector
 """
-from logging import getLogger
+from logging import Logger, getLogger
 
 from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
 
 from cmdb.errors.api_projection import APIProjectionInclusionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIProjector - CLASS                                                 #
@@ -33,10 +33,10 @@ class APIProjector:
     Converts the API Responses based on the ApiProjection mapping.
     """
 
-    def __init__(self, data: dict | list[dict], projection: APIProjection = None):
+    def __init__(self, data: dict | list[dict], projection: APIProjection | None = None) -> None:
         self._output = None
         self.__data = data
-        self.__projection = projection
+        self.__projection: APIProjection | None = projection
 
 
     @property

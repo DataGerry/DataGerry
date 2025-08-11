@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@ Blueprint for handling routes in the datagerry-app.
 This module defines a Flask Blueprint for serving static files and handling 404 errors
 """
 import logging
-from flask import Blueprint
+from flask import Blueprint, Response
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ app_pages = Blueprint("app_pages", __name__, static_folder="datagerry-app", stat
 
 # -------------------------------------------------------------------------------------------------------------------- #
 @app_pages.route('/')
-def default_page():
+def default_page() -> Response:
     """
     Serves the default static index page
     
@@ -37,8 +37,9 @@ def default_page():
     return app_pages.send_static_file("index.html")
 
 
+#pylint: disable=W0613
 @app_pages.errorhandler(404)
-def redirect_index(error):
+def redirect_index(error) -> Response:
     """
     Handles 404 errors by redirecting to the index page
     
@@ -48,5 +49,4 @@ def redirect_index(error):
     Returns:
         Response: The static index.html file
     """
-    LOGGER.error("[redirect_index] 404 Error: %s", error)
     return app_pages.send_static_file("index.html")

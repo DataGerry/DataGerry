@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -40,7 +40,7 @@ class CsvObjectImporterConfig(ObjectImporterConfig, CSVContent):
                  type_id: int,
                  start_element: int = 0,
                  max_elements: int = 0,
-                 mapping: list = None,
+                 mapping: list | None = None,
                  overwrite_public: bool = True):
         """
         Initializes a CsvObjectImporterConfig

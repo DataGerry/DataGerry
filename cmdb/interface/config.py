@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,7 @@
 """
 Implementation of different configuration classes for the Flask App
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class Config:
@@ -54,7 +55,7 @@ class TestingConfig(Config):
     ENV = 'testing'
 
 
-app_config = {
+app_config: dict[str, Any] = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
     'testing': TestingConfig

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -30,7 +30,7 @@ class ListResult(Generic[C]):
     """
     A class to represent the result of a list query over a collection
     """
-    def __init__(self, results: list[C | dict]):
+    def __init__(self, results: list[C | dict]) -> None:
         """
         Initialises a ListResult
 

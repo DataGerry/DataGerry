@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -51,8 +51,8 @@ class  BaseExportWriter:
             export_format (BaseExporterFormat): The format in which data will be exported (CSV, JSON, XLSX, XML)
             export_config (ExporterConfig): Configuration parameters such as filters or zip settings
         """
-        self.export_format = export_format
-        self.export_config = export_config
+        self.export_format: BaseExporterFormat = export_format
+        self.export_config: ExporterConfig = export_config
         self.data: list[RenderResult] = [] #Storage for exportable data
 
 
@@ -61,7 +61,7 @@ class  BaseExportWriter:
             dbm: MongoDatabaseManager,
             user: CmdbUser,
             permission: AccessControlPermission,
-            db_name: str = None
+            db_name: str | None = None
         ) -> None:
         """
         Retrieves all objects from the collection and processes them for export

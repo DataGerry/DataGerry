@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 Implementation of BaseMediaFile
 """
 import logging
+from typing import Any
 from pymongo import IndexModel
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -36,7 +37,7 @@ class BaseMediaFile:
     DESCENDING = -1
     COLLECTION = 'media.*'
 
-    SUPER_INDEX_KEYS = [
+    SUPER_INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('public_id', ASCENDING)], 'name': 'public_id', 'unique': True}
     ]
 
@@ -45,7 +46,7 @@ class BaseMediaFile:
     INDEX_KEYS = []
 
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         """
         Initialize a BaseMediaFile instance with dynamic attributes
 

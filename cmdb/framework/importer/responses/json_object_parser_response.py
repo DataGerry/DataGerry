@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ class JsonObjectParserResponse(ObjectParserResponse):
     Extends: ObjectParserResponse
     """
 
-    def __init__(self, count: int, entries: list):
+    def __init__(self, count: int, entries: list) -> None:
         """
         Initializes the JsonObjectParserResponse instance with the provided count and entries
 

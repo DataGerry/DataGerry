@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -37,7 +37,7 @@ API_VERSION = '1.0'
 # -------------------------------------------------------------------------------------------------------------------- #
 class BaseAPIResponse:
     """Basic `abstract` response class"""
-    def __init__(self, operation_type: OperationType, url: str = None, body: bool = None):
+    def __init__(self, operation_type: OperationType, url: str | None = None, body: bool = None) -> None:
         """
         Constructor of a basic api response.
 

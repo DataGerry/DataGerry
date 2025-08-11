@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@ from cmdb.framework.importer.messages.import_message import ImportMessage
 class ImportFailedMessage(ImportMessage):
     """Message wrapper for failed imported objects"""
 
-    def __init__(self, error_message: str, obj: dict = None):
+    def __init__(self, error_message: str, obj: dict | None = None):
         """Init message
         Args:
             error_message: reason why it failed - exception error or something
