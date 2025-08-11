@@ -24,9 +24,10 @@ import { checkFolderExistsValidator, FileService } from '../../service/file.serv
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-rename-dialog',
-  templateUrl: './rename-dialog.component.html',
-  styleUrls: ['./rename-dialog.component.scss']
+    selector: 'cmdb-rename-dialog',
+    templateUrl: './rename-dialog.component.html',
+    styleUrls: ['./rename-dialog.component.scss'],
+    standalone: false
 })
 export class RenameDialogComponent implements OnInit {
 

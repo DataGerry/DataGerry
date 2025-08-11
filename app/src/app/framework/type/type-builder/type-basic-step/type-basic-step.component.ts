@@ -31,9 +31,10 @@ import { alphanumericValidator } from './alphanumeric-validator';
  * Type builder step for basic type information.
  */
 @Component({
-  selector: 'cmdb-type-basic-step',
-  templateUrl: './type-basic-step.component.html',
-  styleUrls: ['./type-basic-step.component.scss'],
+    selector: 'cmdb-type-basic-step',
+    templateUrl: './type-basic-step.component.html',
+    styleUrls: ['./type-basic-step.component.scss'],
+    standalone: false
 })
 export class TypeBasicStepComponent extends TypeBuilderStepComponent implements OnInit, OnDestroy {
 

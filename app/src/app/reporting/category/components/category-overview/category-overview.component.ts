@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'app-category-overview',
     templateUrl: './category-overview.component.html',
-    styleUrls: ['./category-overview.component.scss']
+    styleUrls: ['./category-overview.component.scss'],
+    standalone: false
 })
 export class CategoryOverviewComponent implements OnInit, OnDestroy {
     private unsubscribe$ = new ReplaySubject<void>(1);

@@ -26,9 +26,10 @@ import { takeUntil } from 'rxjs/operators';
 import { ToastService } from '../../../../layout/toast/toast.service';
 
 @Component({
-  selector: 'cmdb-reference-section',
-  templateUrl: './reference-section.component.html',
-  styleUrls: ['./reference-section.component.scss']
+    selector: 'cmdb-reference-section',
+    templateUrl: './reference-section.component.html',
+    styleUrls: ['./reference-section.component.scss'],
+    standalone: false
 })
 export class ReferenceSectionComponent extends BaseSectionComponent implements OnDestroy {
 

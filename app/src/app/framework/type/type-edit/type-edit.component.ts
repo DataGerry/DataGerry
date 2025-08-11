@@ -23,9 +23,10 @@ import { CmdbMode } from '../../modes.enum';
 import { TypeService } from '../../services/type.service';
 
 @Component({
-  selector: 'cmdb-type-edit',
-  templateUrl: './type-edit.component.html',
-  styleUrls: ['./type-edit.component.scss']
+    selector: 'cmdb-type-edit',
+    templateUrl: './type-edit.component.html',
+    styleUrls: ['./type-edit.component.scss'],
+    standalone: false
 })
 export class TypeEditComponent {
 

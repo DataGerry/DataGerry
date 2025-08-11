@@ -3,8 +3,9 @@ import { Router } from '@angular/router';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'core-warning-modal',
-  templateUrl: './core-warning-modal.component.html'
+    selector: 'core-warning-modal',
+    templateUrl: './core-warning-modal.component.html',
+    standalone: false
 })
 export class CoreWarningModalComponent {
   @Input() title: string = 'Attention';

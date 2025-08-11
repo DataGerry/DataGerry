@@ -19,7 +19,8 @@
 import { Directive } from '@angular/core';
 
 @Directive({
-  selector: 'tfoot[table-foot]'
+    selector: 'tfoot[table-foot]',
+    standalone: false
 })
 export class TableFootDirective {
 

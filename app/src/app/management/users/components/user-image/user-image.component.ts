@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { User } from '../../../models/user';
 
 @Component({
-  selector: 'cmdb-user-image',
-  templateUrl: './user-image.component.html',
-  styleUrls: ['./user-image.component.scss']
+    selector: 'cmdb-user-image',
+    templateUrl: './user-image.component.html',
+    styleUrls: ['./user-image.component.scss'],
+    standalone: false
 })
 export class UserImageComponent {
   public defaultURL = '/assets/img/avatar.png';

@@ -32,7 +32,8 @@ import { SectionIdentifierService } from '../../../services/SectionIdentifierSer
 
 @Component({
     selector: 'cmdb-section-ref-field-edit',
-    templateUrl: './section-ref-field-edit.component.html'
+    templateUrl: './section-ref-field-edit.component.html',
+    standalone: false
 })
 export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

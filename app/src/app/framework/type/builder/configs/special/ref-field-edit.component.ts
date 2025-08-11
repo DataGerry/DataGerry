@@ -39,6 +39,7 @@ import { nameConvention } from '../../../../../layout/directives/name.directive'
     selector: 'cmdb-ref-field-edit',
     templateUrl: './ref-field-edit.component.html',
     styleUrls: ['./ref-field-edit.component.scss'],
+    standalone: false
 })
 export class RefFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

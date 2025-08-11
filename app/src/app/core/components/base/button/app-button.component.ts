@@ -1,9 +1,10 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'app-button',
-  templateUrl: './app-button.component.html',
-  styleUrls: ['./app-button.component.scss']
+    selector: 'app-button',
+    templateUrl: './app-button.component.html',
+    styleUrls: ['./app-button.component.scss'],
+    standalone: false
 })
 export class ButtonComponent implements OnInit {
   /**
@@ -18,7 +19,7 @@ export class ButtonComponent implements OnInit {
   @Input() type: 'button' | 'submit' | 'reset' = 'button';
 
   /**
-   * Pass in any Bootstrap class(es) you like, e.g. 'btn-success', 'btn-secondary mr-2'.
+   * Pass in any Bootstrap class(es) you like, e.g. 'btn-success', 'btn-secondary me-2'.
    * This will be applied along with the default 'btn' class.
    */
   @Input() bootstrapClass: string = 'btn-secondary';

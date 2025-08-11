@@ -31,9 +31,10 @@ import { UserSettingsDBService } from '../user-settings/services/user-settings-d
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 @Component({
-  selector: 'cmdb-groups',
-  templateUrl: './groups.component.html',
-  styleUrls: ['./groups.component.scss']
+    selector: 'cmdb-groups',
+    templateUrl: './groups.component.html',
+    styleUrls: ['./groups.component.scss'],
+    standalone: false
 })
 export class GroupsComponent implements OnInit, OnDestroy {
 

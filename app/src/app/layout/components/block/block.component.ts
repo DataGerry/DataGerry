@@ -21,7 +21,8 @@ import { Component, HostBinding, Input } from '@angular/core';
 @Component({
     selector: 'div[ui-block], span[ui-block]',
     templateUrl: './block.component.html',
-    styleUrls: ['./block.component.scss']
+    styleUrls: ['./block.component.scss'],
+    standalone: false
 })
 export class BlockComponent {
     @HostBinding('class.content-block') content: boolean = true;

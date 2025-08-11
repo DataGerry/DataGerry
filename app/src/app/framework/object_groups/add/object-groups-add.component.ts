@@ -20,9 +20,10 @@ interface SelectOption {
 }
 
 @Component({
-  selector: 'app-object-groups-add',
-  templateUrl: './object-groups-add.component.html',
-  styleUrls: ['./object-groups-add.component.scss']
+    selector: 'app-object-groups-add',
+    templateUrl: './object-groups-add.component.html',
+    styleUrls: ['./object-groups-add.component.scss'],
+    standalone: false
 })
 export class ObjectGroupsAddComponent implements OnInit {
   public isEditMode = false;

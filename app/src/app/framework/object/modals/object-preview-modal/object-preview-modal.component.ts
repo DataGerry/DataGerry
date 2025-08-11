@@ -25,9 +25,10 @@ import { CmdbMode } from '../../../modes.enum';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-preview-modal',
-  templateUrl: './object-preview-modal.component.html',
-  styleUrls: ['./object-preview-modal.component.scss']
+    selector: 'cmdb-object-preview-modal',
+    templateUrl: './object-preview-modal.component.html',
+    styleUrls: ['./object-preview-modal.component.scss'],
+    standalone: false
 })
 export class ObjectPreviewModalComponent {
 

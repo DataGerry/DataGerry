@@ -29,9 +29,10 @@ import { IsmsConfig } from '../../../models/isms-config.model';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-isms-likelihood',
-  templateUrl: './likelihood.component.html',
-  styleUrls: ['./likelihood.component.scss']
+    selector: 'app-isms-likelihood',
+    templateUrl: './likelihood.component.html',
+    styleUrls: ['./likelihood.component.scss'],
+    standalone: false
 })
 export class LikelihoodsComponent implements OnInit {
   public likelihoods: Likelihood[] = [];

@@ -29,9 +29,10 @@ import { ToastService } from '../../layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-object',
-  templateUrl: './object.component.html',
-  styleUrls: ['./object.component.scss']
+    selector: 'cmdb-object',
+    templateUrl: './object.component.html',
+    styleUrls: ['./object.component.scss'],
+    standalone: false
 })
 export class ObjectComponent implements OnInit, OnDestroy {
 

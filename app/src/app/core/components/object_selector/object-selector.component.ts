@@ -148,9 +148,10 @@ import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 @Component({
-  selector: 'app-object-selector',
-  templateUrl: './object-selector.component.html',
-  styleUrls: ['./object-selector.component.scss']
+    selector: 'app-object-selector',
+    templateUrl: './object-selector.component.html',
+    styleUrls: ['./object-selector.component.scss'],
+    standalone: false
 })
 export class ObjectSelectorComponent implements OnInit {
   @Input() typeIds: number[] = [];

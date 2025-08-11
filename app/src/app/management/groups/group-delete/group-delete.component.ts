@@ -27,9 +27,10 @@ import { ToastService } from '../../../layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-group-delete',
-  templateUrl: './group-delete.component.html',
-  styleUrls: ['./group-delete.component.scss']
+    selector: 'cmdb-group-delete',
+    templateUrl: './group-delete.component.html',
+    styleUrls: ['./group-delete.component.scss'],
+    standalone: false
 })
 export class GroupDeleteComponent implements OnDestroy {
 

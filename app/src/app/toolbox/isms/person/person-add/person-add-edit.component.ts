@@ -33,9 +33,10 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-person-add-edit',
-  templateUrl: './person-add-edit.component.html',
-  styleUrls: ['./person-add-edit.component.scss']
+    selector: 'app-person-add-edit',
+    templateUrl: './person-add-edit.component.html',
+    styleUrls: ['./person-add-edit.component.scss'],
+    standalone: false
 })
 export class PersonAddEditComponent implements OnInit {
   public isEditMode = false;

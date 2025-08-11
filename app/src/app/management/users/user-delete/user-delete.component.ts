@@ -25,9 +25,10 @@ import { takeUntil } from 'rxjs/operators';
 import { ToastService } from '../../../layout/toast/toast.service';
 
 @Component({
-  selector: 'cmdb-user-delete',
-  templateUrl: './user-delete.component.html',
-  styleUrls: ['./user-delete.component.scss']
+    selector: 'cmdb-user-delete',
+    templateUrl: './user-delete.component.html',
+    styleUrls: ['./user-delete.component.scss'],
+    standalone: false
 })
 export class UserDeleteComponent implements OnDestroy {
 

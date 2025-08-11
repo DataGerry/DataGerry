@@ -19,7 +19,8 @@
 import { Directive, HostBinding } from '@angular/core';
 
 @Directive({
-  selector: 'table[layout-table]'
+    selector: 'table[layout-table]',
+    standalone: false
 })
 export class TableDirective {
 

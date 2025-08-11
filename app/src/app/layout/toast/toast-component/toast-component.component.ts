@@ -20,9 +20,10 @@ import {Component, Input} from '@angular/core';
 import {ToastService} from '../toast.service';
 
 @Component({
-  selector: 'cmdb-toast-component',
-  templateUrl: './toast-component.component.html',
-  styleUrls: ['./toast-component.component.scss'],
+    selector: 'cmdb-toast-component',
+    templateUrl: './toast-component.component.html',
+    styleUrls: ['./toast-component.component.scss'],
+    standalone: false
 })
 export class ToastComponentComponent {
 

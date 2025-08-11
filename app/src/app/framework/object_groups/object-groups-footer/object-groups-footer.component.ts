@@ -21,7 +21,8 @@ import { Component, Input, OnInit} from '@angular/core';
 @Component({
     selector: 'cmdb-object-groups-footer',
     templateUrl: './object-groups-footer.component.html',
-    styleUrls: ['./object-groups-footer.component.scss']
+    styleUrls: ['./object-groups-footer.component.scss'],
+    standalone: false
 })
 export class ObjectGroupsFooterComponent implements OnInit {
 

@@ -35,7 +35,8 @@ import { CollectionParameters } from '../../services/models/api-parameter';
 @Component({
     selector: 'cmdb-auth-settings',
     templateUrl: './auth-settings.component.html',
-    styleUrls: ['./auth-settings.component.scss']
+    styleUrls: ['./auth-settings.component.scss'],
+    standalone: false
 })
 export class AuthSettingsComponent implements OnInit, OnDestroy {
 

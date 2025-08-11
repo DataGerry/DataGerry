@@ -23,9 +23,10 @@ import { FormGroup } from '@angular/forms';
 import { RaCmAssignmentInlineComponent } from './ control-measure-assignment-inline/ra-cm-assignment-inline.component';
 
 @Component({
-  selector   : 'app-risk-assessment-treatment',
-  templateUrl: './risk-assessment-treatment.component.html',
-  styleUrls  : ['./risk-assessment-treatment.component.scss']
+    selector: 'app-risk-assessment-treatment',
+    templateUrl: './risk-assessment-treatment.component.html',
+    styleUrls: ['./risk-assessment-treatment.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentTreatmentComponent implements OnInit, OnChanges {
 

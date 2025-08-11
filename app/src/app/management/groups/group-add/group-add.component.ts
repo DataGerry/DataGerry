@@ -27,9 +27,10 @@ import { ToastService } from '../../../layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-group-add',
-  templateUrl: './group-add.component.html',
-  styleUrls: ['./group-add.component.scss']
+    selector: 'cmdb-group-add',
+    templateUrl: './group-add.component.html',
+    styleUrls: ['./group-add.component.scss'],
+    standalone: false
 })
 export class GroupAddComponent implements OnDestroy {
 

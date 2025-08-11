@@ -13,9 +13,10 @@ import { CoreDeleteConfirmationModalComponent } from '../dialog/delete-dialog/co
 const DEFAULT_MODAL_TITLE = 'Manage Options';
 
 @Component({
-  selector: 'app-extendable-option-manager',
-  templateUrl: './extendable-option-manager.component.html',
-  styleUrls: ['./extendable-option-manager.component.scss']
+    selector: 'app-extendable-option-manager',
+    templateUrl: './extendable-option-manager.component.html',
+    styleUrls: ['./extendable-option-manager.component.scss'],
+    standalone: false
 })
 export class ExtendableOptionManagerComponent implements OnInit {
   /**

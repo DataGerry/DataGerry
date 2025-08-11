@@ -36,7 +36,8 @@ import { errorComponents } from './error.list';
 
 @Component({
     templateUrl: './error.component.html',
-    styleUrls: ['./error.component.scss']
+    styleUrls: ['./error.component.scss'],
+    standalone: false
 })
 export class ErrorComponent implements OnInit, OnDestroy {
 

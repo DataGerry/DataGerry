@@ -35,6 +35,7 @@ function normalise(v: unknown): unknown {
     templateUrl: './node-details-modal.component.html',
     styleUrls: ['./node-details-modal.component.scss'],
     changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class NodeDetailsModalComponent implements AfterViewInit {
     @Input() nodeTypeConfigs:

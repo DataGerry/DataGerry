@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../../fields/components.fields';
 
 @Component({
-  selector: 'cmdb-input-appends',
-  templateUrl: './input-appends.component.html',
-  styleUrls: ['./input-appends.component.scss']
+    selector: 'cmdb-input-appends',
+    templateUrl: './input-appends.component.html',
+    styleUrls: ['./input-appends.component.scss'],
+    standalone: false
 })
 export class InputAppendsComponent extends RenderFieldComponent {
 

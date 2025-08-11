@@ -38,7 +38,8 @@ import { finalize } from 'rxjs';
 @Component({
     selector: 'cmdb-object-copy',
     templateUrl: './object-copy.component.html',
-    styleUrls: ['./object-copy.component.scss']
+    styleUrls: ['./object-copy.component.scss'],
+    standalone: false
 })
 export class ObjectCopyComponent implements OnInit, OnDestroy {
 

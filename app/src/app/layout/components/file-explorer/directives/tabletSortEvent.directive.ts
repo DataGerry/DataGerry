@@ -28,7 +28,8 @@ enum SortType {
 }
 
 @Directive({
-  selector: '[tableSortEvent]'
+    selector: '[tableSortEvent]',
+    standalone: false
 })
 export class TableSortEventDirective {
 

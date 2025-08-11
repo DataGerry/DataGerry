@@ -19,9 +19,10 @@
 import { Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-qrcode',
-  templateUrl: './qr-code.component.html',
-  styleUrls: ['./qr-code.component.scss']
+    selector: 'cmdb-qrcode',
+    templateUrl: './qr-code.component.html',
+    styleUrls: ['./qr-code.component.scss'],
+    standalone: false
 })
 export class QrCodeComponent {
 

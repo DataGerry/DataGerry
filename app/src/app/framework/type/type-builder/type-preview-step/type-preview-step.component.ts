@@ -22,9 +22,10 @@ import { CmdbMode } from '../../../modes.enum';
 import { UntypedFormGroup } from '@angular/forms';
 
 @Component({
-  selector: 'cmdb-type-preview-step',
-  templateUrl: './type-preview-step.component.html',
-  styleUrls: ['./type-preview-step.component.scss']
+    selector: 'cmdb-type-preview-step',
+    templateUrl: './type-preview-step.component.html',
+    styleUrls: ['./type-preview-step.component.scss'],
+    standalone: false
 })
 export class TypePreviewStepComponent extends TypeBuilderStepComponent {
 

@@ -30,7 +30,7 @@ import { fab } from '@fortawesome/free-brands-svg-icons';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { IconPickerModule } from 'ngx-icon-picker';
 import { NgbActiveModal, NgbModule } from '@ng-bootstrap/ng-bootstrap';
-import { QRCodeModule } from 'angularx-qrcode';
+import { QRCodeComponent } from 'angularx-qrcode';
 import { NgxPaginationModule } from 'ngx-pagination';
 
 import { SearchBarModule } from '../modules/search-bar/search-bar.module';
@@ -182,7 +182,7 @@ import { AiAssistantModule } from '../ai-assistant/ai-assistant.module';
         AuthModule,
         RenderModule,
         FileexplorerModule,
-        QRCodeModule,
+        QRCodeComponent,
         NgxPaginationModule,
         MatTreeModule,
         MatButtonModule,

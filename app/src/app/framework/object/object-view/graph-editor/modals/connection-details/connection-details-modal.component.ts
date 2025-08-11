@@ -43,9 +43,10 @@ export interface NodeDetailsData {
 }
 
 @Component({
-  selector: 'app-connection-details-modal',
-  templateUrl: './connection-details-modal.component.html',
-  styleUrls: ['./connection-details-modal.component.scss']
+    selector: 'app-connection-details-modal',
+    templateUrl: './connection-details-modal.component.html',
+    styleUrls: ['./connection-details-modal.component.scss'],
+    standalone: false
 })
 export class ConnectionDetailsModalComponent implements OnInit {
   sourceNode!: NodeDetailsData;

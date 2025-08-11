@@ -19,9 +19,10 @@
 import { Component } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-log-settings',
-  templateUrl: './log-settings.component.html',
-  providers: []
+    selector: 'cmdb-log-settings',
+    templateUrl: './log-settings.component.html',
+    providers: [],
+    standalone: false
 })
 export class LogSettingsComponent {
 }

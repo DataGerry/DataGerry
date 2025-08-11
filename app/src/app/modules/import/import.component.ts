@@ -23,7 +23,8 @@ import { environment } from 'src/environments/environment';
 @Component({
     selector: 'cmdb-import',
     templateUrl: './import.component.html',
-    styleUrls: ['./import.component.scss']
+    styleUrls: ['./import.component.scss'],
+    standalone: false
 })
 export class ImportComponent {
 

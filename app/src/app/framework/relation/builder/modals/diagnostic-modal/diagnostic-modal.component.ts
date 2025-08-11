@@ -23,7 +23,8 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'cmdb-diagnostic-modal',
     templateUrl: './diagnostic-modal.component.html',
-    styleUrls: ['./diagnostic-modal.component.scss']
+    styleUrls: ['./diagnostic-modal.component.scss'],
+    standalone: false
 })
 export class DiagnosticModalComponent {
     @Input() data: any;

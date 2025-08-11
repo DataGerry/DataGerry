@@ -23,9 +23,10 @@ const slug = (s: string) =>
 /* ---------------------------------------------------------------- */
 
 @Component({
-  selector: 'app-assesments',
-  templateUrl: './risk-assesments.component.html',
-  styleUrls: ['./risk-assesments.component.scss'],
+    selector: 'app-assesments',
+    templateUrl: './risk-assesments.component.html',
+    styleUrls: ['./risk-assesments.component.scss'],
+    standalone: false
 })
 export class RiskAssesmentsComponent implements OnInit {
 

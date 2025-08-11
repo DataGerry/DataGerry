@@ -29,7 +29,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
 @Component({
     selector: 'cmdb-choice-field-edit',
     templateUrl: './choice-field-edit.component.html',
-    styleUrls: ['./choice-field-edit.component.scss']
+    styleUrls: ['./choice-field-edit.component.scss'],
+    standalone: false
 })
 export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements OnInit {
 

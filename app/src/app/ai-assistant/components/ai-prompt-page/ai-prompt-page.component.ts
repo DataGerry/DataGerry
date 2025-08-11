@@ -5,8 +5,9 @@ import { AiAssistantMessage } from '../../models/ai-suggestion.model';
 import { Router } from '@angular/router';
 
 @Component({
-  selector: 'cmdb-ai-prompt-page',
-  templateUrl: './ai-prompt-page.component.html'
+    selector: 'cmdb-ai-prompt-page',
+    templateUrl: './ai-prompt-page.component.html',
+    standalone: false
 })
 export class AiPromptPageComponent implements OnInit {
   public promptForm!: FormGroup;

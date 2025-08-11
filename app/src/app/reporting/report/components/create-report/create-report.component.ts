@@ -29,7 +29,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'app-create-report',
     templateUrl: './create-report.component.html',
-    styleUrls: ['./create-report.component.scss']
+    styleUrls: ['./create-report.component.scss'],
+    standalone: false
 })
 export class CreateReportComponent implements OnInit, OnDestroy {
     public createReportForm: FormGroup;

@@ -60,10 +60,10 @@ import { ObjectRelationService } from '../../services/object-relation.service';
                     Type in the name of the relation to confirm the deletion.
                 </small>
                 <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="float-right" *ngIf="name.errors.required">
+                    <div class="float-end" *ngIf="name.errors.required">
                         Name is required
                     </div>
-                    <div class="float-right" *ngIf="name.errors.notequal">
+                    <div class="float-end" *ngIf="name.errors.notequal">
                         Your answer is not equal!
                     </div>
                 </div>
@@ -80,7 +80,8 @@ import { ObjectRelationService } from '../../services/object-relation.service';
             (click)="modal.close('delete')"
         >Delete</button>
     </div>
-    `
+    `,
+    standalone: false
 })
 export class RelationDeleteConfirmModalComponent {
     @Input() typeID: number = 0;
@@ -115,7 +116,8 @@ export class RelationDeleteConfirmModalComponent {
 @Component({
     selector: 'cmdb-relation-delete',
     templateUrl: './relation-delete.component.html',
-    styleUrls: ['./relation-delete.component.scss']
+    styleUrls: ['./relation-delete.component.scss'],
+    standalone: false
 })
 export class RelationDeleteComponent implements OnInit {
     public relationID: number;

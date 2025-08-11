@@ -36,6 +36,7 @@ import { nameConvention } from '../../../../../layout/directives/name.directive'
     selector: 'cmdb-location-field-edit',
     templateUrl: './location-field-edit.component.html',
     styleUrls: ['./location-field-edit.component.scss'],
+    standalone: false
 })
 export class LocationFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

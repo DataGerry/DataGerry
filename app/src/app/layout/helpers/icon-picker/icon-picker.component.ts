@@ -21,9 +21,10 @@ import { UntypedFormGroup } from '@angular/forms';
 
 
 @Component({
-  selector: 'cmdb-icon-picker',
-  templateUrl: './icon-picker.component.html',
-  styleUrls: ['./icon-picker.component.scss']
+    selector: 'cmdb-icon-picker',
+    templateUrl: './icon-picker.component.html',
+    styleUrls: ['./icon-picker.component.scss'],
+    standalone: false
 })
 export class IconPickerComponent {
 

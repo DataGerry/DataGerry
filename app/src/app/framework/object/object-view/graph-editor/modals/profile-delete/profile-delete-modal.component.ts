@@ -20,9 +20,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { FilterProfile } from '../../interfaces/graph.interfaces';
 
 @Component({
-  selector: 'app-profile-delete-modal',
-  templateUrl: './profile-delete-modal.component.html',
-  styleUrls: ['./profile-delete-modal.component.scss']
+    selector: 'app-profile-delete-modal',
+    templateUrl: './profile-delete-modal.component.html',
+    styleUrls: ['./profile-delete-modal.component.scss'],
+    standalone: false
 })
 export class ProfileDeleteModalComponent {
   @Input() public profile: FilterProfile;

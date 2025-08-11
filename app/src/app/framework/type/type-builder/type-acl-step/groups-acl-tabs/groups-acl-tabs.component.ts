@@ -27,7 +27,8 @@ import { Group } from '../../../../../management/models/group';
 @Component({
     selector: 'cmdb-groups-acl-tabs',
     templateUrl: './groups-acl-tabs.component.html',
-    styleUrls: ['./groups-acl-tabs.component.scss']
+    styleUrls: ['./groups-acl-tabs.component.scss'],
+    standalone: false
 })
 export class GroupsAclTabsComponent implements OnDestroy {
 

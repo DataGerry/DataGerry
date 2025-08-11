@@ -28,9 +28,10 @@ import { GraphProfileService } from '../../services/graph-profile.service';
 import { ProfileDeleteModalComponent } from '../profile-delete/profile-delete-modal.component';
 
 @Component({
-  selector: 'app-profile-manager-modal',
-  templateUrl: './profile-manager-modal.component.html',
-  styleUrls: ['./profile-manager-modal.component.scss']
+    selector: 'app-profile-manager-modal',
+    templateUrl: './profile-manager-modal.component.html',
+    styleUrls: ['./profile-manager-modal.component.scss'],
+    standalone: false
 })
 export class ProfileManagerModalComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();

@@ -22,9 +22,10 @@ import { RiskClass } from '../../models/risk-class.model';
 const FALLBACK_GREY = '#f5f5f5';
 
 @Component({
-  selector: 'app-risk-assessment-after',
-  templateUrl: './risk-assessment-after.component.html',
-  styleUrls: ['./risk-assessment-after.component.scss']
+    selector: 'app-risk-assessment-after',
+    templateUrl: './risk-assessment-after.component.html',
+    styleUrls: ['./risk-assessment-after.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentAfterComponent implements OnInit {
   @Input() parentForm!: FormGroup;

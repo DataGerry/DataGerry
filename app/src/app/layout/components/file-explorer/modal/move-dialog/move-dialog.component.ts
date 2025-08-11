@@ -26,9 +26,10 @@ import { APIGetMultiResponse } from '../../../../../services/models/api-response
 import {CollectionParameters} from "../../../../../services/models/api-parameter";
 
 @Component({
-  selector: 'cmdb-move-dialog',
-  templateUrl: './move-dialog.component.html',
-  styleUrls: ['./move-dialog.component.scss']
+    selector: 'cmdb-move-dialog',
+    templateUrl: './move-dialog.component.html',
+    styleUrls: ['./move-dialog.component.scss'],
+    standalone: false
 })
 export class MoveDialogComponent implements OnInit {
 

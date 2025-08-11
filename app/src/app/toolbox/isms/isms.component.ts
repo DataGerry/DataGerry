@@ -18,9 +18,10 @@
 import { Component, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'app-isms',
-  templateUrl: './isms.component.html',
-  styleUrls: ['./isms.component.scss']
+    selector: 'app-isms',
+    templateUrl: './isms.component.html',
+    styleUrls: ['./isms.component.scss'],
+    standalone: false
 })
 export class IsmsComponent implements OnInit {
 

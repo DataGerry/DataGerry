@@ -29,7 +29,8 @@ import { Router } from '@angular/router';
 @Component({
     selector: 'td[table-cell]',
     templateUrl: './table-cell.component.html',
-    styleUrls: ['./table-cell.component.scss']
+    styleUrls: ['./table-cell.component.scss'],
+    standalone: false
 })
 export class TableCellComponent<T> {
 

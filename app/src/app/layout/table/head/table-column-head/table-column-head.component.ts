@@ -29,11 +29,12 @@ import {
 import { Column, Sort, SortDirection } from '../../table.types';
 
 @Component({
-  selector: 'th[table-column-head]',
-  templateUrl: './table-column-head.component.html',
-  styleUrls: ['./table-column-head.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  encapsulation: ViewEncapsulation.Emulated
+    selector: 'th[table-column-head]',
+    templateUrl: './table-column-head.component.html',
+    styleUrls: ['./table-column-head.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    encapsulation: ViewEncapsulation.Emulated,
+    standalone: false
 })
 export class TableColumnHeadComponent {
 

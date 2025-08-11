@@ -26,7 +26,8 @@ import { SearchResult } from '../../models/search-result';
 @Component({
     selector: 'cmdb-search-result',
     templateUrl: './search-result.component.html',
-    styleUrls: ['./search-result.component.scss']
+    styleUrls: ['./search-result.component.scss'],
+    standalone: false
 })
 export class SearchResultComponent implements OnDestroy {
 

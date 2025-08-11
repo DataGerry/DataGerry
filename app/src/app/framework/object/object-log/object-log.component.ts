@@ -28,7 +28,8 @@ import { UntypedFormGroup } from '@angular/forms';
 @Component({
     selector: 'cmdb-object-log',
     templateUrl: './object-log.component.html',
-    styleUrls: ['./object-log.component.scss']
+    styleUrls: ['./object-log.component.scss'],
+    standalone: false
 })
 export class ObjectLogComponent implements OnInit {
 

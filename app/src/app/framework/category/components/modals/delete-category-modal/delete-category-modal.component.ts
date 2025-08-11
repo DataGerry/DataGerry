@@ -22,8 +22,8 @@ import { CmdbCategory } from '../../../../models/cmdb-category';
 import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Validators } from '@angular/forms';
 
 @Component({
-  selector: 'cmdb-category-delete',
-  template: `
+    selector: 'cmdb-category-delete',
+    template: `
     <div class="modal-header">
       <h4 class="modal-title" id="modal-title">Category deletion</h4>
       <button type="button" class="close" (click)="modal.dismiss('')">
@@ -48,10 +48,10 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
             deletion.</small>
           <div *ngIf="name.invalid && (name.dirty || name.touched)"
                class="invalid-feedback">
-            <div class="float-right" *ngIf="name.errors.required">
+            <div class="float-end" *ngIf="name.errors.required">
               Name is required
             </div>
-            <div class="float-right" *ngIf="name.errors.notequal">
+            <div class="float-end" *ngIf="name.errors.notequal">
               Your answer is not equal!
             </div>
           </div>
@@ -65,7 +65,8 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
               (click)="modal.close('delete')">Delete
       </button>
     </div>
-  `
+  `,
+    standalone: false
 })
 export class DeleteCategoryModalComponent implements OnDestroy {
 

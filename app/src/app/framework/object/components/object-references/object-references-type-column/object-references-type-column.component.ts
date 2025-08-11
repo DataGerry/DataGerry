@@ -23,7 +23,8 @@ import { RenderResult } from '../../../../models/cmdb-render';
 @Component({
     selector: 'cmdb-object-references-type-column',
     templateUrl: './object-references-type-column.component.html',
-    styleUrls: ['./object-references-type-column.component.scss']
+    styleUrls: ['./object-references-type-column.component.scss'],
+    standalone: false
 })
 export class ObjectReferencesTypeColumnComponent {
     public isSectionRef: boolean = false;

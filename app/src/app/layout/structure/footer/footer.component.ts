@@ -26,7 +26,8 @@ import { SessionTimeoutService } from '../../../modules/auth/services/session-ti
 @Component({
     selector: 'cmdb-footer',
     templateUrl: './footer.component.html',
-    styleUrls: ['./footer.component.scss']
+    styleUrls: ['./footer.component.scss'],
+    standalone: false
 })
 export class FooterComponent implements OnInit, OnDestroy {
 

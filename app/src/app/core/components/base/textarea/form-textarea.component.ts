@@ -2,16 +2,17 @@ import { Component, Input, forwardRef } from '@angular/core';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
 @Component({
-  selector: 'app-form-textarea',
-  templateUrl: './form-textarea.component.html',
-  styleUrls: ['./form-textarea.component.scss'],
-  providers: [
-    {
-      provide: NG_VALUE_ACCESSOR,
-      useExisting: forwardRef(() => FormTextareaComponent),
-      multi: true
-    }
-  ]
+    selector: 'app-form-textarea',
+    templateUrl: './form-textarea.component.html',
+    styleUrls: ['./form-textarea.component.scss'],
+    providers: [
+        {
+            provide: NG_VALUE_ACCESSOR,
+            useExisting: forwardRef(() => FormTextareaComponent),
+            multi: true
+        }
+    ],
+    standalone: false
 })
 export class FormTextareaComponent implements ControlValueAccessor {
   @Input() label: string;

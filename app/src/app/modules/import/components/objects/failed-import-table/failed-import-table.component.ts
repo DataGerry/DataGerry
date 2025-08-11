@@ -23,7 +23,8 @@ import { Column } from '../../../../../layout/table/table.types';
 @Component({
     selector: 'cmdb-failed-import-table',
     templateUrl: './failed-import-table.component.html',
-    styleUrls: ['./failed-import-table.component.scss']
+    styleUrls: ['./failed-import-table.component.scss'],
+    standalone: false
 })
 export class FailedImportTableComponent implements OnInit {
 

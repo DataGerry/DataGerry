@@ -33,7 +33,8 @@ import { CmdbMode } from '../../../modes.enum';
 
 @Component({
     templateUrl: './ref.component.html',
-    styleUrls: ['./ref.component.scss']
+    styleUrls: ['./ref.component.scss'],
+    standalone: false
 })
 export class RefComponent extends RenderFieldComponent implements OnInit, OnDestroy {
 

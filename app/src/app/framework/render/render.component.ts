@@ -27,7 +27,8 @@ import { RenderResult } from '../models/cmdb-render';
 @Component({
     selector: 'cmdb-render',
     templateUrl: './render.component.html',
-    styleUrls: ['./render.component.scss']
+    styleUrls: ['./render.component.scss'],
+    standalone: false
 })
 export class RenderComponent implements OnInit {
     private typeInstanceBack: CmdbType;

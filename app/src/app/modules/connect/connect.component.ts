@@ -24,7 +24,8 @@ import { ConnectionService } from './services/connection.service';
 
 @Component({
     templateUrl: './connect.component.html',
-    styleUrls: ['./connect.component.scss']
+    styleUrls: ['./connect.component.scss'],
+    standalone: false
 })
 export class ConnectComponent implements OnInit, OnDestroy {
 

@@ -25,7 +25,8 @@ import { CmdbMode } from '../../../modes.enum';
 @Component({
     selector: 'cmdb-base-section',
     templateUrl: './base-section.component.html',
-    styleUrls: ['./base-section.component.scss']
+    styleUrls: ['./base-section.component.scss'],
+    standalone: false
 })
 export class BaseSectionComponent {
     public MODES = CmdbMode;

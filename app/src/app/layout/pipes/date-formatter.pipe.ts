@@ -21,7 +21,8 @@ import { Pipe, PipeTransform } from '@angular/core';
 import { DateSettingsService} from '../../settings/services/date-settings.service';
 
 @Pipe({
-  name: 'dateFormatter'
+    name: 'dateFormatter',
+    standalone: false
 })
 export class DateFormatterPipe implements PipeTransform {
 

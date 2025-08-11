@@ -35,7 +35,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-docapi-template-list',
     templateUrl: './docapi-list.component.html',
-    styleUrls: ['./docapi-list.component.scss']
+    styleUrls: ['./docapi-list.component.scss'],
+    standalone: false
 })
 export class DocapiListComponent implements OnInit, OnDestroy {
 

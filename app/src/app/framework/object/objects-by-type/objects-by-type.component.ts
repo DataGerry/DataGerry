@@ -49,7 +49,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-objects-by-type',
     templateUrl: './objects-by-type.component.html',
-    styleUrls: ['./objects-by-type.component.scss']
+    styleUrls: ['./objects-by-type.component.scss'],
+    standalone: false
 })
 export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 

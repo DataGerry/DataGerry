@@ -24,7 +24,8 @@ import { Subscription } from 'rxjs';
 @Component({
     selector: 'cmdb-import-config',
     templateUrl: './import-config.component.html',
-    styleUrls: ['./import-config.component.scss']
+    styleUrls: ['./import-config.component.scss'],
+    standalone: false
 })
 export class ImportConfigComponent implements OnInit, OnDestroy {
 

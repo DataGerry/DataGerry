@@ -51,10 +51,11 @@ interface FlatOptionItem {
  * Supports creating, editing, and viewing relationships based on user selection.
  */
 @Component({
-  selector: 'relation-role-dialog',
-  templateUrl: './relation-role-dialog.component.html',
-  styleUrls: ['./relation-role-dialog.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'relation-role-dialog',
+    templateUrl: './relation-role-dialog.component.html',
+    styleUrls: ['./relation-role-dialog.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   @Input() chosenRole!: 'parent' | 'child' | 'both';

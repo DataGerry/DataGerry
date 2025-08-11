@@ -23,9 +23,10 @@ import { IsmsConfigValidation } from '../models/isms-config-validation.model';
 import { RiskCalculationComponent } from './steps/risk-calculation/risk-calculation.component';
 
 @Component({
-  selector: 'app-isms-configure',
-  templateUrl: './configure.component.html',
-  styleUrls: ['./configure.component.scss']
+    selector: 'app-isms-configure',
+    templateUrl: './configure.component.html',
+    styleUrls: ['./configure.component.scss'],
+    standalone: false
 })
 export class ConfigureComponent implements OnInit, AfterViewInit {
   @ViewChild('wizard') wizard: WizardComponent;

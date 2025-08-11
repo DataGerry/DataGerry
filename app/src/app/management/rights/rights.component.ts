@@ -28,9 +28,10 @@ import { CollectionParameters } from '../../services/models/api-parameter';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-rights',
-  templateUrl: './rights.component.html',
-  styleUrls: ['./rights.component.scss']
+    selector: 'cmdb-rights',
+    templateUrl: './rights.component.html',
+    styleUrls: ['./rights.component.scss'],
+    standalone: false
 })
 export class RightsComponent implements OnInit, OnDestroy {
 

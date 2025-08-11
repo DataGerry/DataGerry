@@ -32,9 +32,10 @@ import { alphanumericValidator } from 'src/app/framework/type/type-builder/type-
 import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
-  selector: 'cmdb-relation-basic-step',
-  templateUrl: './relation-basic-step.component.html',
-  styleUrls: ['./relation-basic-step.component.scss']
+    selector: 'cmdb-relation-basic-step',
+    templateUrl: './relation-basic-step.component.html',
+    styleUrls: ['./relation-basic-step.component.scss'],
+    standalone: false
 })
 export class RelationBasicStepComponent
   extends RelationBuilderStepComponent

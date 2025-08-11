@@ -16,13 +16,14 @@ import {
     templateUrl: './select.component.html',
     styleUrls: ['./select.component.scss'],
     providers: [
-      {
-        provide: NG_VALUE_ACCESSOR,
-        useExisting: forwardRef(() => SelectComponent),
-        multi: true
-      }
-    ]
-  })
+        {
+            provide: NG_VALUE_ACCESSOR,
+            useExisting: forwardRef(() => SelectComponent),
+            multi: true
+        }
+    ],
+    standalone: false
+})
   export class SelectComponent implements ControlValueAccessor, OnInit {
     /**
      * The label to be displayed above or alongside the select component

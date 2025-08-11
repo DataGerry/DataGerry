@@ -54,7 +54,7 @@ import { ReportService } from 'src/app/reporting/services/report.service';
         </div>
     
         <form id="deleteTypeModalForm" [formGroup]="deleteTypeModalForm" class="needs-validation" novalidate autocomplete="off">
-            <div class="form-group">
+            <div class="mb-3">
                 <label for="typeNameInput">Type the name: {{typeName}} <span class="required">*</span></label>
                 <input
                     type="text"
@@ -71,10 +71,10 @@ import { ReportService } from 'src/app/reporting/services/report.service';
                     Type in the name of the type to confirm the deletion.
                 </small>
                 <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="float-right" *ngIf="name.errors?.required">
+                    <div class="float-end" *ngIf="name.errors?.required">
                         Name is required
                     </div>
-                    <div class="float-right" *ngIf="name.errors?.notequal">
+                    <div class="float-end" *ngIf="name.errors?.notequal">
                         Your answer is not equal!
                     </div>
                 </div>
@@ -91,7 +91,8 @@ import { ReportService } from 'src/app/reporting/services/report.service';
             (click)="modal.close('delete')"
         >Delete</button>
     </div>
-    `
+    `,
+    standalone: false
 })
 export class TypeDeleteConfirmModalComponent {
     @Input() typeID: number = 0;
@@ -126,7 +127,8 @@ export class TypeDeleteConfirmModalComponent {
 @Component({
     selector: 'cmdb-type-delete',
     templateUrl: './type-delete.component.html',
-    styleUrls: ['./type-delete.component.scss']
+    styleUrls: ['./type-delete.component.scss'],
+    standalone: false
 })
 export class TypeDeleteComponent implements OnInit {
     public typeID: number;

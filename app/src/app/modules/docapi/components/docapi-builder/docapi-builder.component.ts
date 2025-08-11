@@ -31,7 +31,8 @@ import { DocTemplate } from '../../models/cmdb-doctemplate';
 @Component({
     selector: 'cmdb-docapi-builder',
     templateUrl: './docapi-builder.component.html',
-    styleUrls: ['./docapi-builder.component.scss']
+    styleUrls: ['./docapi-builder.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderComponent {
 

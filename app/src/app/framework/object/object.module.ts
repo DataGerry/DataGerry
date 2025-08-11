@@ -25,7 +25,7 @@ import { NgSelectModule } from '@ng-select/ng-select';
 import { NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { ArchwizardModule } from '@rg-software/angular-archwizard';
-import { QRCodeModule } from 'angularx-qrcode';
+import { QRCodeComponent } from 'angularx-qrcode';
 import { NgxPaginationModule } from 'ngx-pagination';
 
 import { ObjectRoutingModule } from './object-routing.module';
@@ -142,7 +142,6 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectRoutingModule,
         AuthModule,
         LayoutModule,
-        QRCodeModule,
         FormsModule,
         ReactiveFormsModule,
         NgSelectModule,
@@ -156,7 +155,8 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         MatMenuModule,
         MatIconModule,
         CoreModule,
-        RiskAssessmentModule],
+        RiskAssessmentModule,
+        QRCodeComponent],
     exports: [
         ObjectViewRenderComponent,
         ObjectTableActionsComponent,

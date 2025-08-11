@@ -31,7 +31,8 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 @Component({
     selector: 'cmdb-number-field-edit',
     templateUrl: './number-field-edit.component.html',
-    styleUrls: ['./number-field-edit.component.scss']
+    styleUrls: ['./number-field-edit.component.scss'],
+    standalone: false
 })
 export class NumberFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

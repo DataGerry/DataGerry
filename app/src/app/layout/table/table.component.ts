@@ -48,6 +48,7 @@ import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
     styleUrls: ['./table.component.scss'],
     encapsulation: ViewEncapsulation.None,
     changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class TableComponent<T> implements OnInit, OnDestroy {
     // `ViewChild` for accessing the complete table container

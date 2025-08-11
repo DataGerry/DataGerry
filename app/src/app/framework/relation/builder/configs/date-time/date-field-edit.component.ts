@@ -37,7 +37,8 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
     providers: [
         { provide: NgbDateAdapter, useClass: NgbStringAdapter },
         { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-    ]
+    ],
+    standalone: false
 })
 export class DateFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

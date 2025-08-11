@@ -45,10 +45,11 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 
 
 @Component({
-  selector: 'cmdb-object-view',
-  templateUrl: './object-view.component.html',
-  styleUrls: ['./object-view.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'cmdb-object-view',
+    templateUrl: './object-view.component.html',
+    styleUrls: ['./object-view.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 

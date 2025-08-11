@@ -29,7 +29,8 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 
 @Component({
     selector: 'cmdb-section-field-edit',
-    templateUrl: './section-field-edit.component.html'
+    templateUrl: './section-field-edit.component.html',
+    standalone: false
 })
 export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();

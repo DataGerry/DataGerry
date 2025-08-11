@@ -23,7 +23,8 @@ import { UntypedFormGroup} from '@angular/forms';
 @Component({
     selector: 'cmdb-select-file-drag-drop',
     templateUrl: './select-file-drag-drop.component.html',
-    styleUrls: ['./select-file-drag-drop.component.scss']
+    styleUrls: ['./select-file-drag-drop.component.scss'],
+    standalone: false
 })
 export class SelectFileDragDropComponent {
     @Input() formGroup: UntypedFormGroup;

@@ -2,10 +2,11 @@ import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from
 import { PasswordStrengthMeterService } from './password-strength-meter.service';
 
 @Component({
-  selector: 'password-strength-meter',
-  templateUrl: './password-strength-meter.component.html',
-  styleUrls: ['./password-strength-meter.component.scss'],
-  providers: [PasswordStrengthMeterService]
+    selector: 'password-strength-meter',
+    templateUrl: './password-strength-meter.component.html',
+    styleUrls: ['./password-strength-meter.component.scss'],
+    providers: [PasswordStrengthMeterService],
+    standalone: false
 })
 export class PasswordStrengthMeterComponent implements OnChanges {
 

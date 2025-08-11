@@ -45,7 +45,8 @@ import { NumberSearchResults } from '../search/models/search-result';
 @Component({
     selector: 'cmdb-search-bar',
     templateUrl: './search-bar.component.html',
-    styleUrls: ['./search-bar.component.scss']
+    styleUrls: ['./search-bar.component.scss'],
+    standalone: false
 })
 export class SearchBarComponent implements OnInit, OnDestroy {
 

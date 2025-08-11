@@ -20,9 +20,10 @@ import { Component, Input, OnInit } from '@angular/core';
 import { CmdbType } from '../../../framework/models/cmdb-type';
 
 @Component({
-  selector: 'cmdb-type-label',
-  templateUrl: './type-label.component.html',
-  styleUrls: ['./type-label.component.scss']
+    selector: 'cmdb-type-label',
+    templateUrl: './type-label.component.html',
+    styleUrls: ['./type-label.component.scss'],
+    standalone: false
 })
 export class TypeLabelComponent {
 

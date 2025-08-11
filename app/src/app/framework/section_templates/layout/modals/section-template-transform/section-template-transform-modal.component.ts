@@ -21,9 +21,10 @@ import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-templ
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-section-template-transform-modal',
-  templateUrl: './section-template-transform-modal.component.html',
-  styleUrls: ['./section-template-transform-modal.component.scss']
+    selector: 'cmdb-section-template-transform-modal',
+    templateUrl: './section-template-transform-modal.component.html',
+    styleUrls: ['./section-template-transform-modal.component.scss'],
+    standalone: false
 })
 export class SectionTemplateTransformModalComponent {
 

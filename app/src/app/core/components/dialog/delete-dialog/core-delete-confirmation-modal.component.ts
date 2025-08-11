@@ -2,8 +2,9 @@ import { Component, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'core-delete-confirmation-modal',
-  templateUrl: './core-delete-confirmation-modal.component.html'
+    selector: 'core-delete-confirmation-modal',
+    templateUrl: './core-delete-confirmation-modal.component.html',
+    standalone: false
 })
 export class CoreDeleteConfirmationModalComponent {
   @Input() title: string;

@@ -41,7 +41,8 @@ window.ATL_JQ_PAGE_PROPS = window.ATL_JQ_PAGE_PROPS || {};
 @Component({
     selector: 'cmdb-navigation',
     templateUrl: './navigation.component.html',
-    styleUrls: ['./navigation.component.scss']
+    styleUrls: ['./navigation.component.scss'],
+    standalone: false
 })
 export class NavigationComponent implements OnInit {
 

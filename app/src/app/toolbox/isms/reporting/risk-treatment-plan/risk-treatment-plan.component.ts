@@ -22,8 +22,9 @@ type ApiRow = any;             // raw row from the API
 type ViewRow = Record<string, any>; // flattened for table / export
 
 @Component({
-  selector: 'app-risk-treatment-plan',
-  templateUrl: './risk-treatment-plan.component.html',
+    selector: 'app-risk-treatment-plan',
+    templateUrl: './risk-treatment-plan.component.html',
+    standalone: false
 })
 export class RiskTreatmentPlanComponent implements OnInit {
 

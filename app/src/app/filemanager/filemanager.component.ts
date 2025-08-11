@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { FileMetadata } from '../layout/components/file-explorer/model/metadata';
 
 @Component({
-  selector: 'cmdb-filemanager',
-  templateUrl: './filemanager.component.html',
-  styleUrls: ['./filemanager.component.scss']
+    selector: 'cmdb-filemanager',
+    templateUrl: './filemanager.component.html',
+    styleUrls: ['./filemanager.component.scss'],
+    standalone: false
 })
 export class FilemanagerComponent {
 

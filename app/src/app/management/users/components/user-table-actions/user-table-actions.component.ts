@@ -21,9 +21,10 @@ import { User } from '../../../models/user';
 import { environment } from 'src/environments/environment';
 
 @Component({
-  selector: 'cmdb-user-table-actions',
-  templateUrl: './user-table-actions.component.html',
-  styleUrls: ['./user-table-actions.component.scss']
+    selector: 'cmdb-user-table-actions',
+    templateUrl: './user-table-actions.component.html',
+    styleUrls: ['./user-table-actions.component.scss'],
+    standalone: false
 })
 export class UserTableActionsComponent {
   isCloudMode = environment.cloudMode;

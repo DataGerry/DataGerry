@@ -31,9 +31,10 @@ import { PersonService } from '../../services/person.service';
 import { CmdbPerson } from '../../models/person.model';
 
 @Component({
-  selector: 'app-person-list',
-  templateUrl: './person-list.component.html',
-  styleUrls: ['./person-list.component.scss']
+    selector: 'app-person-list',
+    templateUrl: './person-list.component.html',
+    styleUrls: ['./person-list.component.scss'],
+    standalone: false
 })
 export class PersonListComponent implements OnInit {
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;

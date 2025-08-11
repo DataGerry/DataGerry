@@ -27,7 +27,8 @@ import { CmdbType } from '../../../../framework/models/cmdb-type';
 @Component({
     selector: 'cmdb-docapi-builder-type-step-object',
     templateUrl: './docapi-builder-type-step-object.component.html',
-    styleUrls: ['./docapi-builder-type-step-object.component.scss']
+    styleUrls: ['./docapi-builder-type-step-object.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderTypeStepObjectComponent extends DocapiBuilderTypeStepBaseComponent implements OnInit {
     public objectTypeList: Array<CmdbType> = [];

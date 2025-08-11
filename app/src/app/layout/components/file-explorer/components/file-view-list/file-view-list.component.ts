@@ -28,9 +28,10 @@ import { CollectionParameters } from '../../../../../services/models/api-paramet
 
 
 @Component({
-  selector: 'cmdb-file-view-list',
-  templateUrl: './file-view-list.component.html',
-  styleUrls: ['./file-view-list.component.scss']
+    selector: 'cmdb-file-view-list',
+    templateUrl: './file-view-list.component.html',
+    styleUrls: ['./file-view-list.component.scss'],
+    standalone: false
 })
 export class FileViewListComponent implements OnChanges {
 

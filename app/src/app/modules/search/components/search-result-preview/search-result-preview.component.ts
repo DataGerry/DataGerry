@@ -26,7 +26,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 
 @Component({
     templateUrl: './search-result-preview.component.html',
-    styleUrls: ['./search-result-preview.component.scss']
+    styleUrls: ['./search-result-preview.component.scss'],
+    standalone: false
 })
 export class SearchResultPreviewComponent {
 

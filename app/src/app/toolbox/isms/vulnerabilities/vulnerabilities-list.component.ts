@@ -38,7 +38,8 @@ import { VulnerabilityService } from '../services/vulnerability.service';
 @Component({
     selector: 'app-vulnerabilities-list',
     templateUrl: './vulnerabilities-list.component.html',
-    styleUrls: ['./vulnerabilities-list.component.scss']
+    styleUrls: ['./vulnerabilities-list.component.scss'],
+    standalone: false
 })
 export class VulnerabilitiesListComponent implements OnInit {
 

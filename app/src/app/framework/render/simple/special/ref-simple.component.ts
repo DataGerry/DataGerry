@@ -28,9 +28,10 @@ type TypeReferenceTemplate = {
 };
 
 @Component({
-  selector: 'cmdb-ref-simple',
-  templateUrl: './ref-simple.component.html',
-  styleUrls: ['./ref-simple.component.scss']
+    selector: 'cmdb-ref-simple',
+    templateUrl: './ref-simple.component.html',
+    styleUrls: ['./ref-simple.component.scss'],
+    standalone: false
 })
 export class RefSimpleComponent extends RenderFieldComponent implements OnInit {
 

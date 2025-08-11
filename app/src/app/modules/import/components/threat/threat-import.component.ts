@@ -10,6 +10,7 @@ import { ImportSummaryModalComponent } from '../import-summary-dialog/import-sum
 @Component({
     selector: 'cmdb-threat-import',
     templateUrl: './threat-import.component.html',
+    standalone: false
 })
 export class ImportThreatComponent {
     public fileForm: UntypedFormGroup;

@@ -21,9 +21,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { Right } from '../../../models/right';
 
 @Component({
-  selector: 'cmdb-right-groups-modal',
-  templateUrl: './right-groups-modal.component.html',
-  styleUrls: ['./right-groups-modal.component.scss']
+    selector: 'cmdb-right-groups-modal',
+    templateUrl: './right-groups-modal.component.html',
+    styleUrls: ['./right-groups-modal.component.scss'],
+    standalone: false
 })
 export class RightGroupsModalComponent {
 

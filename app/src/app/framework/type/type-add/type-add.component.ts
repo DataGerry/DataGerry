@@ -27,9 +27,10 @@ import { CmdbType } from '../../models/cmdb-type';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-type-add',
-  templateUrl: './type-add.component.html',
-  styleUrls: ['./type-add.component.scss']
+    selector: 'cmdb-type-add',
+    templateUrl: './type-add.component.html',
+    styleUrls: ['./type-add.component.scss'],
+    standalone: false
 })
 export class TypeAddComponent {
   public typeInstance: CmdbType;

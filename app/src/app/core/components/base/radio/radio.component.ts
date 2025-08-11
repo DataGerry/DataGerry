@@ -10,13 +10,14 @@ import {
     templateUrl: './radio.component.html',
     styleUrls: ['./radio.component.scss'],
     providers: [
-      {
-        provide: NG_VALUE_ACCESSOR,
-        useExisting: forwardRef(() => RadioComponent),
-        multi: true
-      }
-    ]
-  })
+        {
+            provide: NG_VALUE_ACCESSOR,
+            useExisting: forwardRef(() => RadioComponent),
+            multi: true
+        }
+    ],
+    standalone: false
+})
   export class RadioComponent implements ControlValueAccessor {
     @Input() label: string;
     @Input() value: any;

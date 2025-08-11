@@ -3,15 +3,16 @@ import { Component, Input } from '@angular/core';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
 @Component({
-  selector: 'app-form-date',
-  templateUrl: './form-date.component.html',
-  providers: [
-    {
-      provide: NG_VALUE_ACCESSOR,
-      useExisting: FormDateComponent,
-      multi: true
-    }
-  ]
+    selector: 'app-form-date',
+    templateUrl: './form-date.component.html',
+    providers: [
+        {
+            provide: NG_VALUE_ACCESSOR,
+            useExisting: FormDateComponent,
+            multi: true
+        }
+    ],
+    standalone: false
 })
 export class FormDateComponent implements ControlValueAccessor {
   @Input() disabled = false;

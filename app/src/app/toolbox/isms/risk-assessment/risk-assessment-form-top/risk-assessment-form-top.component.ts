@@ -30,9 +30,10 @@ interface CmdbType   { public_id: number; }
 interface CmdbObject { public_id: number; type_id: number; name: string; }
 
 @Component({
-  selector: 'app-risk-assessment-form-top',
-  templateUrl: './risk-assessment-form-top.component.html',
-  styleUrls: ['./risk-assessment-form-top.component.scss']
+    selector: 'app-risk-assessment-form-top',
+    templateUrl: './risk-assessment-form-top.component.html',
+    styleUrls: ['./risk-assessment-form-top.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentFormTopComponent implements OnInit {
 

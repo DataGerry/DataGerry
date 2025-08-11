@@ -38,10 +38,11 @@ export interface PageLengthEntry {
 }
 
 @Component({
-  selector: 'table-page-size',
-  templateUrl: './table-page-size.component.html',
-  styleUrls: ['./table-page-size.component.scss'],
-  changeDetection: ChangeDetectionStrategy.Default,
+    selector: 'table-page-size',
+    templateUrl: './table-page-size.component.html',
+    styleUrls: ['./table-page-size.component.scss'],
+    changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class TablePageSizeComponent implements OnInit, OnDestroy {
 

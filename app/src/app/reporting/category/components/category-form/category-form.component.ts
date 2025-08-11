@@ -20,7 +20,8 @@ import { Component } from '@angular/core';
 @Component({
     selector: 'app-report-category-form',
     templateUrl: './category-form.component.html',
-    styleUrls: ['./category-form.component.scss']
+    styleUrls: ['./category-form.component.scss'],
+    standalone: false
 })
 export class CategoryFormComponent {
     // Component logic goes here

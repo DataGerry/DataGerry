@@ -32,7 +32,8 @@ import { AccessControlList } from 'src/app/modules/acl/acl.types';
 @Component({
     selector: 'cmdb-object-table-actions',
     templateUrl: './object-table-actions.component.html',
-    styleUrls: ['./object-table-actions.component.scss']
+    styleUrls: ['./object-table-actions.component.scss'],
+    standalone: false
 })
 export class ObjectTableActionsComponent implements OnDestroy {
 

@@ -20,9 +20,10 @@ import { Component, OnInit } from '@angular/core';
 import { RenderFieldComponent } from '../../fields/components.fields';
 
 @Component({
-  selector: 'cmdb-date-simple',
-  templateUrl: './date-simple.component.html',
-  styleUrls: ['./date-simple.component.scss']
+    selector: 'cmdb-date-simple',
+    templateUrl: './date-simple.component.html',
+    styleUrls: ['./date-simple.component.scss'],
+    standalone: false
 })
 export class DateSimpleComponent extends RenderFieldComponent implements OnInit {
 

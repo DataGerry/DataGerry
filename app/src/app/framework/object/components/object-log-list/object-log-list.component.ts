@@ -24,9 +24,10 @@ import { CollectionParameters } from '../../../../services/models/api-parameter'
 import { LogService } from 'src/app/framework/services/log.service';
 
 @Component({
-  selector: 'cmdb-object-log-list',
-  templateUrl: './object-log-list.component.html',
-  styleUrls: ['./object-log-list.component.scss']
+    selector: 'cmdb-object-log-list',
+    templateUrl: './object-log-list.component.html',
+    styleUrls: ['./object-log-list.component.scss'],
+    standalone: false
 })
 export class ObjectLogListComponent implements OnInit {
 

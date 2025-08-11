@@ -36,6 +36,7 @@ import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
     selector: 'cmdb-sidebar',
     templateUrl: './sidebar.component.html',
     styleUrls: ['./sidebar.component.scss'],
+    standalone: false
 })
 export class SidebarComponent implements OnInit, OnDestroy {
 

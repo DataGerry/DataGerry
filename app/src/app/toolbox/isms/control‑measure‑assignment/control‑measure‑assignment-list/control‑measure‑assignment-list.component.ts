@@ -40,9 +40,10 @@ import { PersonGroupService }       from '../../services/person-group.service';
 import { ControlMeasureAssignmentService } from '../../services/control‑measure‑assignment.service';
 
 @Component({
-  selector   : 'app-control-measure-assignment-list',
-  templateUrl: './control-measure-assignment-list.component.html',
-  styleUrls  : ['./control-measure-assignment-list.component.scss']
+    selector: 'app-control-measure-assignment-list',
+    templateUrl: './control-measure-assignment-list.component.html',
+    styleUrls: ['./control-measure-assignment-list.component.scss'],
+    standalone: false
 })
 export class ControlMeasureAssignmentListComponent
         implements OnInit, OnChanges {

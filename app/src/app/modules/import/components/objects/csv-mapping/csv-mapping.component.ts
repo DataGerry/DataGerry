@@ -33,7 +33,8 @@ import { TypeMappingBaseComponent } from '../type-mapping/type-mapping-base.comp
     selector: 'cmdb-csv-mapping',
     templateUrl: './csv-mapping.component.html',
     styleUrls: ['./csv-mapping.component.scss'],
-  providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => CsvMappingComponent) }]
+    providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => CsvMappingComponent) }],
+    standalone: false
 })
 export class CsvMappingComponent extends TypeMappingBaseComponent implements OnInit, AfterViewInit, OnDestroy {
     public previewIndex: number = 0;

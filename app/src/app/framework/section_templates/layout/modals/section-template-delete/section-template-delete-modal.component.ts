@@ -22,9 +22,10 @@ import { GlobalTemplateCounts } from '../../../section-template.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-section-template-delete-modal',
-  templateUrl: './section-template-delete-modal.component.html',
-  styleUrls: ['./section-template-delete-modal.component.scss']
+    selector: 'cmdb-section-template-delete-modal',
+    templateUrl: './section-template-delete-modal.component.html',
+    styleUrls: ['./section-template-delete-modal.component.scss'],
+    standalone: false
 })
 export class SectionTemplateDeleteModalComponent {
 
