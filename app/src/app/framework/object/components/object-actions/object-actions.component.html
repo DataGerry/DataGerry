@@ -4,7 +4,7 @@
     <strong class="text-uppercase">{{renderResult?.type_information?.type_label}}</strong>
     <span class="d-flex justify-content-between align-items-start">
       <button routerLink="/framework/object/type/{{renderResult?.type_information?.type_id}}"
-              class="btn btn-sm btn-link pl-0"
+              class="btn btn-sm btn-link ps-0"
               title="object list">
             <i class="fas fa-list"></i>
       </button>
@@ -28,7 +28,7 @@
       </button>
       <button type="button" *permissionLink="'base.framework.object.add';requirements:'CREATE';acl:acl"
               routerLink="/framework/object/add/{{renderResult?.type_information?.type_id}}"
-              class="btn btn-sm btn-link pr-2"
+              class="btn btn-sm btn-link pe-2"
               title="add new object">
         <i class="fas fa-file"></i>
       </button>

@@ -1,4 +1,4 @@
-<div class="form-group row" [formGroup]="parentFormGroup">
+<div class="mb-3 row" [formGroup]="parentFormGroup">
   <label class="col-sm-3 col-check-label">
     {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
   </label>
@@ -35,7 +35,7 @@
       </div>
     </ng-container>
     <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-      <div class="float-right" *ngIf="controller.errors.required">
+      <div class="float-end" *ngIf="controller.errors.required">
         {{data.label}} is a required field.
       </div>
       <div class="clearfix"></div>

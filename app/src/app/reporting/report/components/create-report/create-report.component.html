@@ -3,7 +3,7 @@
     <hr/>
     <form [formGroup]="createReportForm" (ngSubmit)="onSubmit()">
         <!-- Name Input -->
-        <div class="form-group">
+        <div class="mb-3">
             <label for="name">Report Name <span class="required">*</span>:</label>
             <input
                 type="text"
@@ -15,7 +15,7 @@
         </div>
 
         <!-- Category Dropdown -->
-        <div class="form-group">
+        <div class="mb-3">
             <label for="category">Category <span class="required">*</span>:</label>
             <ng-select
                 [items]="categories"
@@ -28,7 +28,7 @@
         </div>
 
         <!-- Type Dropdown -->
-        <div class="form-group">
+        <div class="mb-3">
             <label for="type">Type <span class="required">*</span>:</label>
             <ng-select
                 [items]="types"
@@ -41,7 +41,7 @@
         </div>
 
         <!-- Fields Dropdown -->
-        <div class="form-group">
+        <div class="mb-3">
             <label for="fields">Fields <span class="required">*</span>:</label>
             <ng-select
                 [items]="fields"
@@ -55,7 +55,7 @@
         </div>
 
         <!-- Multivalue Dropdown -->
-        <div class="form-group">
+        <div class="mb-3">
             <label for="mds_mode">MultiValue:</label>
             <ng-select
                 [items]="mdsModeOptions"
@@ -79,13 +79,13 @@
         </div>
 
         <div class="d-flex justify-content-between align-items-center" style="height: 50px;">
-            <div class="btn-group float-left">
+            <div class="btn-group float-start">
                 <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
                     <i class="fas fa-arrow-left icon-margin"></i> Go Back
                 </button>                       
             </div>
 
-            <div class="btn-group float-right">
+            <div class="btn-group float-end">
                 <button type="submit" 
                     class="btn btn-success btn-sm submit-report d-flex align-items-center" 
                     [disabled]="createReportForm.invalid || !filterBuilderValidation">

@@ -20,7 +20,7 @@ $navbar-dropdown-top: 6px;
 $navbar-dropdown-menu-padding: 0;
 $navbar-dropdown-padding: 0.3rem 0.8rem;
 $navbar-dropdown-header-color: $white;
-$navbar-dropdown-header-background: theme-color('primary');
+$navbar-dropdown-header-background: $primary;
 
 #navbar-search-bar {
   padding-right: 1rem;
@@ -29,7 +29,7 @@ $navbar-dropdown-header-background: theme-color('primary');
 #navbar-cmdb {
   height: $navbar-height;
   background: $navbar-bg-color;
-  border-bottom: $navbar-border-width $navbar-border-style theme-color('primary');
+  border-bottom: $navbar-border-width $navbar-border-style $primary;
 
   .container-content {
     margin: 0.5rem 0;
@@ -54,7 +54,7 @@ $navbar-dropdown-header-background: theme-color('primary');
 
     small {
       font-weight: $navbar-brand-small-font-width;
-      color: theme-color('primary');
+      color: $primary;
       position: relative;
       top: $navbar-brand-small-font-top;
       margin-right: $navbar-brand-small-font-right;
@@ -62,6 +62,8 @@ $navbar-dropdown-header-background: theme-color('primary');
 
     .brand-logo {
       vertical-align: sub;
+      height: 40px;
+      max-height: 40px;
     }
   }
 

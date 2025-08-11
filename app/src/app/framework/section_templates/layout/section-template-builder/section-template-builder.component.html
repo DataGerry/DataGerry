@@ -1,11 +1,11 @@
 <div class="actions-div">
     <button
         id="add-section-template-button"
-        class="btn btn-light btn-sm mr-1"
+        class="btn btn-light btn-sm me-1"
         [routerLink]="['/framework/section_templates']">Cancel</button>
 
     <button id="add-section-template-button"
-        class="btn btn-success btn-sm mr-1"
+        class="btn btn-success btn-sm me-1"
         (click)="handleSectionTemplate()"
         [disabled]="initialSection.fields.length == 0 || !(isValid$ | async)" >Save</button>
 </div>
@@ -39,7 +39,7 @@
                                     <span>
                                         <i class="{{control.typeController.icon}}"></i> {{ control.typeController.label }}
                                     </span>
-                                    <button type="button" class="btn btn-primary btn-sm float-right">
+                                    <button type="button" class="btn btn-primary btn-sm float-end">
                                         <fa-icon icon="bars"></fa-icon>
                                     </button>
                                     <div class="clearfix"></div>
@@ -66,7 +66,7 @@
                                     <span>
                                         <i class="{{control.typeController.icon}}"></i> {{ control.typeController.label }}
                                     </span>
-                                    <button type="button" class="btn btn-primary btn-sm float-right">
+                                    <button type="button" class="btn btn-primary btn-sm float-end">
                                         <fa-icon icon="bars"></fa-icon>
                                     </button>
                                     <div class="clearfix"></div>
@@ -122,14 +122,14 @@
                                             </span>
                                             <span>
                                                 <button
-                                                    class="btn btn-link mr-1"
+                                                    class="btn btn-link me-1"
                                                     type="button"
                                                     data-toggle="collapse"
                                                     [attr.data-target]="'#field-'+ y + field.name"
                                                 >
                                                     <fa-icon [icon]="['far', 'edit']"></fa-icon>
                                                 </button>
-                                                <button class="btn btn-link mr-1" type="button" dndHandle>
+                                                <button class="btn btn-link me-1" type="button" dndHandle>
                                                     <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                                                 </button>
                                                 <button class="btn btn-link" type="button" (click)="removeField(field)">
@@ -160,11 +160,11 @@
 <div class="actions-div">
     <button
         id="add-section-template-button"
-        class="btn btn-light btn-sm mr-1"
+        class="btn btn-light btn-sm me-1"
         [routerLink]="['/framework/section_templates']">Cancel</button>
 
     <button id="add-section-template-button"
-        class="btn btn-success btn-sm mr-1"
+        class="btn btn-success btn-sm me-1"
         (click)="handleSectionTemplate()"
         [disabled]="initialSection.fields.length == 0 || !(isValid$ | async)">Save</button>
 </div>

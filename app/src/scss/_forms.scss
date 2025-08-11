@@ -40,7 +40,7 @@
 }
 
 /* NG-SELECT THEME*/
-$ng-select-highlight: theme-color('primary') !default;
+$ng-select-highlight: $primary !default;
 $ng-select-primary-text: #333 !default;
 $ng-select-disabled-text: #f9f9f9 !default;
 $ng-select-border: #ccc !default;

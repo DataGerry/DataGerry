@@ -14,7 +14,7 @@
       <div class="d-flex align-items-center mb-3">
         <input type="text" class="form-control" [(ngModel)]="newItemValue" name="newItemValue"
           placeholder="New {{ itemLabel.toLowerCase() }} name..." />
-        <button class="btn btn-success ml-2" (click)="onAddNewItem()">
+        <button class="btn btn-success ms-2" (click)="onAddNewItem()">
           Add
         </button>
       </div>
@@ -44,7 +44,7 @@
                 </ng-container>
                 <ng-template #normalActions>
                   <ng-container *ngIf="editingItemId === opt.public_id; else actionButtons">
-                    <button class="btn btn-link btn-sm text-success p-0 mr-2" (click)="saveEditItem(opt)">
+                    <button class="btn btn-link btn-sm text-success p-0 me-2" (click)="saveEditItem(opt)">
                       <i class="fas fa-check"></i>
                     </button>
                     <button class="btn btn-link btn-sm text-secondary p-0" (click)="cancelEditItem()">
@@ -52,7 +52,7 @@
                     </button>
                   </ng-container>
                   <ng-template #actionButtons>
-                    <button class="btn btn-link btn-sm text-primary p-0 mr-2" (click)="onEditItem(opt)">
+                    <button class="btn btn-link btn-sm text-primary p-0 me-2" (click)="onEditItem(opt)">
                       <i class="far fa-edit"></i>
                     </button>
                     <button class="btn btn-link btn-sm text-danger p-0" (click)="onDeleteItem(opt)">

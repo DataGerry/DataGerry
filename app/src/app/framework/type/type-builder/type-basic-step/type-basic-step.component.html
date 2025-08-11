@@ -1,17 +1,13 @@
 <div id="type-basic-step">
   <form [formGroup]="form" id="basic-type-information-form" class="needs-validation" novalidate autocomplete="off">
-    <div class="form-row">
-      <div class="form-group col-md-12">
-        <label for="typeNameInput">Active / Name: <span class="required">*</span></label>
+    <div class="row">
+      <div class="col-md-12 mb-3">
+        <label for="typeNameInput" class="form-label">Active / Name: <span class="required">*</span></label>
         <div class="input-group">
-          <div class="input-group-prepend">
-            <span class="input-group-text pr-1">
-              <div class="custom-control custom-checkbox">
-                <input type="checkbox" formControlName="active" class="custom-control-input"
-                  id="typeActiveInput" /><label class="custom-control-label" for="typeActiveInput"></label>
-              </div>
-            </span>
-          </div>
+          <span class="input-group-text pe-1">
+            <input type="checkbox" formControlName="active" class="form-check-input m-0"
+              id="typeActiveInput" />
+          </span>
           <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched) }" id="typeNameInput" name-guideline
             required>
@@ -27,51 +23,46 @@
             </div>
           </div>
         </div>
-
       </div>
     </div>
-    <div class="form-row">
-      <div class="form-group col-md-6">
-        <label for="typeLabelInput">Label: <span class="required">*</span></label>
+    
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label for="typeLabelInput" class="form-label">Label: <span class="required">*</span></label>
         <input type="text" formControlName="label" class="form-control" [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
                  'is-invalid': label.invalid && (label.dirty || label.touched)}" id="typeLabelInput"
           aria-describedby="typeLabelInputHelp" required>
-        <small id="typeLabelInputHelp" class="form-text text-muted float-left">Displayed name</small>
+        <div id="typeLabelInputHelp" class="form-text text-muted float-start">Displayed name</div>
         <div *ngIf="label.invalid && (label.dirty || label.touched)" class="invalid-feedback">
-          <div class="float-right" *ngIf="label.errors.required">
+          <div class="float-end" *ngIf="label.errors.required">
             Label is required.
           </div>
         </div>
       </div>
-      <!-- <div class="form-group col-md-6">
-        <cmdb-icon-picker [iconFormGroup]="form"
-                          [fallbackIcon]="form.get('icon').value"></cmdb-icon-picker>
-      </div> -->
 
-      <!-- Icon + Color Picker -->
-      <div class="form-group col-md-6 d-flex">
-        <div class="form-group col-md-6">
-          <cmdb-icon-picker [iconFormGroup]="form" [fallbackIcon]="form.get('icon').value"></cmdb-icon-picker>
-        </div>
-        <div class="form-group col-md-6">
-          <label for="ciExplorerColor">Color:</label>
-          <div class="input-group">
-            <input type="color" class="form-control" id="ciExplorerColor" formControlName="ci_explorer_color" />
-            <div class="input-group-append">
-              <button type="button" class="btn btn-outline-secondary" (click)="setRandomColor()"
-                title="Generate random color">
-                <i class="fas fa-random"></i>
-              </button>
-            </div>
-          </div>
+      <!-- Icon Picker -->
+      <div class="col-md-3 mb-3">
+        <cmdb-icon-picker [iconFormGroup]="form" [fallbackIcon]="form.get('icon').value"></cmdb-icon-picker>
+      </div>
+      
+      <!-- Color Picker -->
+      <div class="col-md-3 mb-3">
+        <label for="ciExplorerColor" class="form-label">Color:</label>
+        <div class="input-group">
+          <input type="color" class="form-control" id="ciExplorerColor" formControlName="ci_explorer_color" />
+          <button type="button" class="btn btn-outline-secondary" (click)="setRandomColor()"
+            title="Generate random color">
+            <i class="fas fa-random"></i>
+          </button>
         </div>
       </div>
-      <div class="form-group col-md-12">
-        <label for="typeDescriptionInput">Description:</label>
+      
+      <div class="col-md-12 mb-3">
+        <label for="typeDescriptionInput" class="form-label">Description:</label>
         <textarea class="form-control" formControlName="description" id="typeDescriptionInput" rows="3"
           aria-describedby="typeDescriptionInputHelp" [ngClass]="{ 'is-valid': description.valid && (description.dirty || description.touched),
                  'is-invalid': description.invalid && (description.dirty || description.touched) }"></textarea>
-        <small id="typeDescriptionInputHelp" class="form-text text-muted">Small description of the type</small>
+        <div id="typeDescriptionInputHelp" class="form-text text-muted">Small description of the type</div>
       </div>
     </div>
   </form>

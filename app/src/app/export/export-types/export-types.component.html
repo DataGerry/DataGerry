@@ -5,7 +5,7 @@
 <form [formGroup]="formExport" (ngSubmit)="export()">
   <div class="card">
     <div class="card-body">
-      <div class="form-group">
+      <div class="mb-3">
         <label for="typeChooser">Select Type <span class="required">*</span></label>
         <ng-select id="typeChooser"
                    [items]="typeList"
@@ -31,7 +31,7 @@
         </div>
       </div>
 
-      <div class="form-group">
+      <div class="mb-3">
         <label for="formatChooser">Output format <span class="required">*</span></label>
         <ng-select id="formatChooser"
                    [items]="formatList"
@@ -54,7 +54,7 @@
         </div>
       </div>
 
-      <button type="button" class="btn btn-primary float-right"
+      <button type="button" class="btn btn-primary float-end"
               (click)="this.export()"
               [disabled]="!formExport.valid">Go!</button>
     </div>

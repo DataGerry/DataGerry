@@ -4,6 +4,7 @@
 @import 'mixins';
 
 $navbar-height: calc(80px + #{$navbar-padding-y});
+$primary: #e94d18;
 
 $content-min-width: 0;
 $content-padding-x: 16px !default;
@@ -16,7 +17,7 @@ $sidebar-width: 230px !default;
 $scrollbar-button-background: darken($white, 15%);
 $scrollbar-button-background-hover: darken($white, 15%);
 $scrollbar-thumb-radius: 3px;
-$scrollbar-thumb-background: theme-color('primary');
+$scrollbar-thumb-background: $primary;
 $scrollbar-thumb-background-hover: darken($scrollbar-thumb-background, 10%);
 $scrollbar-track-background: darken($white, 5%);
 $scrollbar-track-background-hover: darken($white, 10%);
@@ -26,7 +27,7 @@ $footer-height: 50px !default;
 $footer-bg: darken($white, 5%) !default;
 $footer-color: $body-color !default;
 $footer-borders: (
-  top: (size: 2px, style: solid, color: theme-color('primary'))
+  top: (size: 2px, style: solid, color: $primary)
 ) !default;
 
 

@@ -55,12 +55,12 @@
                                 [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                                         'is-invalid': name.invalid && (name.dirty || name.touched)}"
                             >
-                            <small class="form-text text-muted float-left">Unique identifier for the category</small>
+                            <small class="form-text text-muted float-start">Unique identifier for the category</small>
                             <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                                <div class="float-right" *ngIf="name.errors.required">
+                                <div class="float-end" *ngIf="name.errors.required">
                                     This field is required
                                 </div>
-                                <div class="float-right" *ngIf="name.errors.categoryExists">
+                                <div class="float-end" *ngIf="name.errors.categoryExists">
                                     A category with this name already exists
                                 </div>
                             </div>
@@ -88,14 +88,12 @@
                         <div class="form-group">
                             <label for="category-meta-icon">Icon:</label>
                             <div class="input-group" formGroupName="meta">
-                                <div class="input-group-prepend">
                                     <span
                                         class="input-group-text"
                                         id="category-meta-icon-addon"
                                     >
                                         <i [ngClass]="icon.value"></i>
                                     </span>
-                                </div>
                                 <input
                                     [iconPicker]
                                     [ipPosition]="'bottom'"
@@ -165,12 +163,12 @@
                                 >
                                     <div class="container">
                                         <div class="row">
-                                            <div class="col-auto mr-auto">
+                                            <div class="col-auto me-auto">
                                                 {{type?.label}} # {{type?.public_id}}
                                             </div>
                                             <div class="col-auto">
                                                 <i class="fa fa-arrows-alt dnd-handle" dndHandle></i>
-                                                <i class="fa fa-trash-alt ml-2 pointer" (click)="clickRemoveAssignedType(type)"></i>
+                                                <i class="fa fa-trash-alt ms-2 pointer" (click)="clickRemoveAssignedType(type)"></i>
                                             </div>
                                         </div>
                                     </div>
@@ -181,9 +179,9 @@
                 </div>
             </div>
             <div class="card-footer">
-                <div class="btn-group float-right" role="group">
+                <div class="btn-group float-end" role="group">
                     <button
-                        class="btn btn-outline-danger mr-2"
+                        class="btn btn-outline-danger me-2"
                         type="button"
                         routerLink="/framework/category"
                     >

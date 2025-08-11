@@ -1,5 +1,5 @@
 <div *ngIf="mode != MODES.Bulk">
-    <div class="form-group row" [formGroup]="parentFormGroup">
+    <div class="mb-3 row" [formGroup]="parentFormGroup">
         <label class="col-sm-3 col-form-label">
             {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
         </label>
@@ -7,7 +7,7 @@
             <ng-container [ngSwitch]="true">
                 <ng-container *ngSwitchCase="mode == MODES.View">
                     <div class="input-group input-group-sm">
-                        <div class="form-control text-left overflow-auto" readonly>
+                        <div class="form-control text-start overflow-auto" readonly>
                             <ng-container *ngIf="objectLocation; else noRef;">
                                 <ng-container *ngIf="!protect">
                                     <ng-container *ngIf="!data?.reference?.line; else refLine">
@@ -73,7 +73,7 @@
                             </ng-template>
                         </ng-select>
                     </cmdb-input-appends>
-                    <small class="form-text text-muted float-left warning" [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
+                    <small class="form-text text-muted float-start warning" [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
                         <span class="warning">Only deletable if this object is not a parent of a location</span>
                     </small>
                 </ng-container> <!-- edit, create, bulk - container -->
@@ -82,7 +82,7 @@
                 </div>
             </ng-container> <!-- switch=true - container -->
             <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-                <div class="float-right" *ngIf="controller.errors.required">
+                <div class="float-end" *ngIf="controller.errors.required">
                     {{data.label}} is a required field.
                 </div>
                 <div class="clearfix"></div>
@@ -93,7 +93,7 @@
     </div> <!-- main div -->
 </div>
 <div *ngIf="mode != MODES.Bulk">
-    <div class="form-group row">
+    <div class="mb-3 row">
         <label class="col-sm-3 col-form-label">
             <span> Label in location tree: </span>
         </label>
@@ -109,7 +109,7 @@
                         (input)="onTreeNameChanged($event.target.value)"
                         />
                 </div>
-                <small class="form-text text-muted float-left" [style.visibility]="mode == MODES.View ? 'hidden' : 'visible'">
+                <small class="form-text text-muted float-start" [style.visibility]="mode == MODES.View ? 'hidden' : 'visible'">
                     <span >This is only saved if a parent location is selected in Field "{{data.label}}" above</span>
                 </small>
             </ng-container>

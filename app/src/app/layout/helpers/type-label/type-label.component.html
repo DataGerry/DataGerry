@@ -1,5 +1,5 @@
-<i *ngIf="faIcon" class="{{faIcon}} mr-1" aria-hidden="true"></i>
+<i *ngIf="faIcon" class="{{faIcon}} me-1" aria-hidden="true"></i>
 <a *ngIf="publicID && useURL; else onlyDisplay"
    [routerLink]="['/', 'framework', 'object', 'type', publicID]">{{label}}</a>
 <ng-template #onlyDisplay>{{label}}</ng-template>
-<i *ngIf="description" class="fas fa-exclamation-circle float-right" placement="right" [ngbTooltip]="description"></i>
+<i *ngIf="description" class="fas fa-exclamation-circle float-end" placement="right" [ngbTooltip]="description"></i>

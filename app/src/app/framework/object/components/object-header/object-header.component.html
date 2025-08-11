@@ -1,10 +1,10 @@
 <div id="object-header" class="card">
   <div class="card-header d-flex justify-content-between">
     <div>
-      <div *permissionLink="'base.framework.object.edit'" class="custom-control custom-switch">
-        <input type="checkbox" class="custom-control-input active-control" id="object-view-active"
+      <div *permissionLink="'base.framework.object.edit'" class="form-check form-switch">
+        <input type="checkbox" class="form-check-input active-control" id="object-view-active"
                (change)="toggleChange()" [checked]="activeState">
-        <label class="custom-control-label" for="object-view-active"></label>
+        <label class="form-check-label" for="object-view-active"></label>
       </div>
     </div>
     <div id="object-view-title">

@@ -1,5 +1,5 @@
 <nav id="navbar-cmdb" class="navbar navbar-light navbar-expand-lg fixed-top px-0">
-  <div class="container-fluid no-gutters px-0">
+  <div class="container-fluid g-0 px-0">
     <ul class="nav navbar-nav flex-row">
       <li class="nav-item d-lg-none">
         <span (click)="visibilitySidebar()" style="padding: 1.5rem 1.5rem">
@@ -16,7 +16,7 @@
 
     <ul class="nav navbar-nav flex-row">
       <li class="nav-item d-lg-none">
-        <a class="nav-link collapsed" data-toggle="collapse" data-target="#navbar-content" aria-expanded="false"
+        <a class="nav-link collapsed" data-toggle="collapse" data-bs-target="#navbar-content" aria-expanded="false"
           style="padding: 1.5rem 1.5rem">
           <fa-icon icon="ellipsis-v"></fa-icon>
         </a>
@@ -59,7 +59,7 @@
                   'base.framework.type.view',
                   'base.framework.category.view',
                 ]" class="nav-item dropdown">
-                <a class="nav-link" href="#" role="button" data-toggle="dropdown" aria-haspopup="true"
+                <a class="nav-link" href="#" role="button" data-bs-toggle="dropdown" aria-haspopup="true"
                   aria-expanded="false">
                   <i class="fas fa-map hover-trigger"></i>
                 </a>
@@ -110,13 +110,13 @@
             <!-- toolbox -->
             <div class="nav-2">
               <li class="nav-item dropdown nav-item-toolbox">
-                <a class="nav-link" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                <a class="nav-link" href="#" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                   <i class="fas fa-th hover-trigger"></i>
                 </a>
-                <div class="dropdown-menu dropdown-menu-right dropdown-lg">
+                <div class="dropdown-menu dropdown-menu-end dropdown-lg">
                   <div class="dropdown-header">Toolbox</div>
                   <div class="p-2">
-                    <div class="row no-gutters">
+                    <div class="row g-0">
                       <div class="col">
                         <a class="dropdown-icon-item" *permissionLink="['base.docapi.template.view']"
                           [routerLink]="['/docapi']">
@@ -165,7 +165,7 @@
                         </a>
                       </div>
                       <div class="col">
-                        <a class="dropdown-icon-item" data-toggle="modal" data-target="#feedback-modal"
+                        <a class="dropdown-icon-item" data-bs-toggle="modal" data-bs-target="#feedback-modal"
                           (click)="feedback()">
                           <i class="far fa-smile"></i> <span>Feedback</span>
                         </a>
@@ -185,11 +185,11 @@
             <!-- nav System -->
             <div class="nav-3">
               <li class="nav-item dropdown">
-                <a class="nav-link" href="#" role="button" data-toggle="dropdown" aria-haspopup="true"
+                <a class="nav-link" href="#" role="button" data-bs-toggle="dropdown" aria-haspopup="true"
                   aria-expanded="false">
                   <i class="fas fa-cog hover-trigger"></i>
                 </a>
-                <div class="dropdown-menu dropdown-menu-right">
+                <div class="dropdown-menu dropdown-menu-end">
                   <div class="dropdown-header" *permissionLink="[
                       'base.system.view',
                       'base.system.edit',
@@ -259,8 +259,8 @@
             </div>
 
             <!-- nav user -->
-            <li class="nav-item dropdown ml-0">
-              <a class="nav-link nav-user mr-0" data-toggle="dropdown" id="topbar-userdrop" href="#" role="button"
+            <li class="nav-item dropdown ms-0">
+              <a class="nav-link nav-user me-0" data-bs-toggle="dropdown" id="topbar-userdrop" href="#" role="button"
                 aria-haspopup="true" aria-expanded="true">
                 <span class="account-user-avatar">
                   <img [src]="
@@ -276,7 +276,7 @@
                   </span>
                 </span>
               </a>
-              <div class="dropdown-menu dropdown-menu-right" aria-labelledby="topbar-userdrop">
+              <div class="dropdown-menu dropdown-menu-end" aria-labelledby="topbar-userdrop">
                 <div class="dropdown-header" *ngIf="!isCloudMode">
                   My Account
                 </div>

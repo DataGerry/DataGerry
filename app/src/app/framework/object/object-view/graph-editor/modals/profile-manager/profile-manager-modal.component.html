@@ -19,7 +19,7 @@
                     </h5>
                     <div class="config-content">
                         <form [formGroup]="profileForm" (ngSubmit)="saveProfile()" class="profile-form">
-                            <div class="form-group">
+                            <div class="mb-3">
                                 <label class="input-label">Profile Name *</label>
                                 <input 
                                     type="text" 
@@ -32,7 +32,7 @@
                                 </div>
                             </div>
 
-                            <div class="form-group">
+                            <div class="mb-3">
                                 <label class="input-label">CI Types</label>
                                 <app-form-select 
                                     formControlName="types_filter" 
@@ -44,7 +44,7 @@
                                 </app-form-select>
                             </div>
 
-                            <div class="form-group">
+                            <div class="mb-3">
                                 <label class="input-label">Relations</label>
                                 <app-form-select 
                                     formControlName="relations_filter" 
@@ -98,11 +98,11 @@
                         Profile Summary
                     </h5>
                     <div class="config-content">
-                        <div class="form-group">
+                        <div class="mb-3">
                             <label class="input-label">Total Profiles</label>
                             <input class="form-control" type="text" [disabled]="true" [value]="profiles.length" />
                         </div>
-                        <div class="form-group" *ngIf="editingProfile">
+                        <div class="mb-3" *ngIf="editingProfile">
                             <label class="input-label">Editing</label>
                             <input class="form-control" type="text" [disabled]="true" [value]="editingProfile.name" />
                         </div>

@@ -1,9 +1,9 @@
 @import 'variables';
 
 // color definitions
-$wz-color-default:  theme-color('primary') !default;
-$wz-color-current: lighten(theme-color('primary'), 10%) !default;
-$wz-color-done: darken(theme-color('primary'), 20%) !default;
+$wz-color-default:  $primary !default;
+$wz-color-current: lighten($primary, 10%) !default;
+$wz-color-done: darken($primary, 20%) !default;
 $wz-color-optional: $wz-color-default !default;
 $wz-color-editing: $wz-color-default !default;
 

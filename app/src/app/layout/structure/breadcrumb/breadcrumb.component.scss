@@ -12,13 +12,58 @@ $breadcrumb-height: 46px;
   @include border-radius($breadcrumb-border-radius);
   @include borders($breadcrumb-borders);
 
+  // Bootstrap 5 compatibility fixes
+  padding: 0.75rem 1rem; // Restore Bootstrap 4 padding
+  margin-bottom: 1rem; // Restore Bootstrap 4 margin
+  list-style: none; // Ensure list styling is removed
+  background-color: $breadcrumb-bg; // Ensure background color is applied
+  
   li {
     line-height: 1.8;
+    
+    // Restore Bootstrap 4 breadcrumb item styling
+    &.breadcrumb-item {
+      display: inline-flex;
+      align-items: center;
+      
+      + .breadcrumb-item {
+        padding-left: 0.5rem;
+        
+        &::before {
+          content: "/";
+          padding-right: 0.5rem;
+          color: #6c757d;
+        }
+      }
+      
+      &.active {
+        color: #6c757d;
+      }
+      
+      a {
+        color: $primary;
+        text-decoration: none;
+        
+        &:hover {
+          color: darken($primary, 10%);
+          text-decoration: underline;
+        }
+      }
+    }
   }
 
   #active-switch {
     overflow: hidden;
     margin-left: auto;
-    padding-left: 3.25rem
+    padding-left: 3.25rem;
   }
+}
+
+// Additional Bootstrap 5 breadcrumb reset
+ol.breadcrumb {
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  list-style: none;
+  background-color: $breadcrumb-bg;
 }

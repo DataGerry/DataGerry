@@ -3,7 +3,7 @@
         <label>Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
             <div class="input-group-prepend">
-                <span class="input-group-text pr-1">
+                <span class="input-group-text pe-1">
                     <div class="custom-control custom-checkbox">
                         <input
                             type="checkbox"
@@ -25,14 +25,14 @@
                 (ngModelChange)="onInputChange($event, 'name')"
             />
             <div *ngIf="isDuplicate$" class="invalid-feedback">
-                <div class="float-right">
+                <div class="float-end">
                     Field name must be unique
                 </div>
             </div>
         </div>
-        <small class="form-text text-muted float-left">Use a unique field identifier</small>
+        <small class="form-text text-muted float-start">Use a unique field identifier</small>
         <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="nameControl.errors?.required">
+            <div class="float-end" *ngIf="nameControl.errors?.required">
                 Identifier is a required field
             </div>
         </div>
@@ -49,9 +49,9 @@
                  'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
             (ngModelChange)="onInputChange($event, 'label')"
         />
-        <small class="form-text text-muted float-left">A static display name</small>
+        <small class="form-text text-muted float-start">A static display name</small>
         <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="labelControl.errors?.required">
+            <div class="float-end" *ngIf="labelControl.errors?.required">
                 Label is a required field
             </div>
         </div>

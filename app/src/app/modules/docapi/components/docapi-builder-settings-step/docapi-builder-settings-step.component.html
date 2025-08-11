@@ -8,7 +8,7 @@
                 novalidate
                 autocomplete="off"
             >
-                <div class="form-group">
+                <div class="mb-3">
                     <label>Active by default: <span class="required">*</span></label>
                     <div class="custom-control custom-switch">
                         <input type="checkbox" formControlName="active" class="custom-control-input" id="docActiveInput"/>
@@ -16,7 +16,7 @@
                     </div>
                 </div>
 
-                <div class="form-group">
+                <div class="mb-3">
                     <label for="docLabelInput">Label: <span class="required">*</span></label>
                     <input
                         type="text"
@@ -32,7 +32,7 @@
                         *ngIf="label.invalid && (label.dirty || label.touched)"
                         class="invalid-feedback"
                     >
-                        <div class="float-right" *ngIf="label.errors.required">
+                        <div class="float-end" *ngIf="label.errors.required">
                             Label is required
                         </div>
                     </div>
@@ -40,7 +40,7 @@
                     <div class="clearfix"></div>
                 </div>
 
-                <div class="form-group">
+                <div class="mb-3">
                     <label for="docNameInput">Name: <span class="required">*</span></label>
                     <input
                         type="text"
@@ -57,17 +57,17 @@
                         Document name must be lowercase unique
                     </small>
                     <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                        <div class="float-right" *ngIf="name.errors.required">
+                        <div class="float-end" *ngIf="name.errors.required">
                             Name is required
                         </div>
-                        <div class="float-right" *ngIf="name.errors.nameAlreadyTaken">
+                        <div class="float-end" *ngIf="name.errors.nameAlreadyTaken">
                             A type with this name already exists
                         </div>
                     </div>
                     <div class="clearfix"></div>
                 </div>
 
-                <div class="form-group">
+                <div class="mb-3">
                     <label for="docDescriptionInput">Description:</label>
                     <textarea
                         class="form-control"

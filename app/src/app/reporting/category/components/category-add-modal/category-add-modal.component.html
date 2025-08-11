@@ -7,7 +7,7 @@
 <div class="modal-body">
   <ng-container *ngIf="mode !== 'delete'; else deleteTemplate">
       <form [formGroup]="addCategoryForm">
-          <div class="form-group">
+          <div class="mb-3">
               <label for="categoryName">Category Name</label>
               <input id="categoryName" type="text" class="form-control" formControlName="name">
           </div>

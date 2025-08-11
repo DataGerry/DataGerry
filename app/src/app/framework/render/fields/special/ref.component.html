@@ -7,7 +7,7 @@
         <ng-container [ngSwitch]="true">
             <ng-container *ngSwitchCase="mode == MODES.View">
                 <div class="input-group input-group-sm">
-                    <div class="form-control text-left overflow-auto" readonly>
+                    <div class="form-control text-start overflow-auto" readonly>
                         <ng-container *ngIf="data.reference && data.reference?.object_id !== 0; else noRef;">
                             <ng-container *ngIf="!protect">
                                 <ng-container *ngIf="!data?.reference.line; else refLine">
@@ -66,7 +66,7 @@
                         [formControlName]="data.name">
                         <ng-template ng-optgroup-tmp let-item="item">
                             <span style="vertical-align: middle;">{{item.name}}</span>
-                            <span class="ml-1 badge badge-secondary">{{item.total}}</span>
+                            <span class="ms-1 badge badge-secondary">{{item.total}}</span>
                         </ng-template>
 
                         <ng-template ng-label-tmp let-item="item">
@@ -121,7 +121,7 @@
         </ng-container>
 
         <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="controller.errors.required">
+            <div class="float-end" *ngIf="controller.errors.required">
                 {{data.label}} is a required field.
             </div>
             <div class="clearfix"></div>

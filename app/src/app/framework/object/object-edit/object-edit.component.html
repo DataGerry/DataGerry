@@ -5,7 +5,7 @@
                 Edit of {{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}
             </h1>
         </div>
-        <div class="col-sm-2 text-right">
+        <div class="col-sm-2 text-end">
             <div class="btn-group p-1" role="group">
                 <button
                     type="button"
@@ -15,7 +15,7 @@
                 <button
                     id ="myBtn"
                     type="submit"
-                    class="btn btn-success mr-2"
+                    class="btn btn-success me-2"
                     (click)="editObject()"
                     [disabled]="!renderForm.dirty"
                 >Save</button>
@@ -88,7 +88,7 @@
                         >
                             Cancel
                         </button>
-                        <button type="submit" class="btn btn-success mr-2" [disabled]="!renderForm.dirty">
+                        <button type="submit" class="btn btn-success me-2" [disabled]="!renderForm.dirty">
                             Save
                         </button>
                     </div>

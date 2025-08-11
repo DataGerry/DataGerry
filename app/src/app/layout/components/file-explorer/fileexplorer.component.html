@@ -5,25 +5,25 @@
         <div class="row">
           <div class="col-3 m-0 p-0">
             <!-- Folder Settings -->
-            <button type="button" class="btn btn-sm btn-success mr-2" (click)="addFolder()">
+            <button type="button" class="btn btn-sm btn-success me-2" (click)="addFolder()">
               <i class="fas fa-folder"></i> New Folder
             </button>
-            <button type="button" class="btn btn-sm btn-secondary mr-2" (click)="uploadFile()">
+            <button type="button" class="btn btn-sm btn-secondary me-2" (click)="uploadFile()">
               <i class="fas fa-upload"></i> Upload
             </button>
           </div>
           <div class="col-6 m-0 p-0">
             <!-- File Settings -->
-            <button type="button" class="btn btn-sm btn-secondary mr-2"
+            <button type="button" class="btn btn-sm btn-secondary me-2"
                     (click)="renameFile(selectedFileElements.files[0])"
                     [disabled]="selectedFileElements.files.length != 1">
-              <i class="fa fa-edit mr-1" title="move to"></i>
+              <i class="fa fa-edit me-1" title="move to"></i>
               Rename ({{this.selectedFileElements.files.length}})
             </button>
-            <button type="button" class="btn btn-sm btn-secondary mr-2"
+            <button type="button" class="btn btn-sm btn-secondary me-2"
                     (click)="moveFiles(selectedFileElements.files)"
                     [disabled]="selectedFileElements.files.length == 0">
-              <i class="fas fa-expand-arrows-alt mr-1" title="move to"></i>
+              <i class="fas fa-expand-arrows-alt me-1" title="move to"></i>
               Move ({{this.selectedFileElements.files.length}})
             </button>
             <button type="button" class="btn btn-sm btn-danger"
@@ -33,9 +33,9 @@
               Delete ({{this.selectedFileElements.files.length}})
             </button>
           </div>
-          <div class="col-3 text-right">
+          <div class="col-3 text-end">
             <div class="btn-group">
-              <button type="button" class="btn btn-sm btn-light mr-2" (click)="listView = !listView">
+              <button type="button" class="btn btn-sm btn-light me-2" (click)="listView = !listView">
                 <i [className]="listView ? 'fas fa-th-large' : 'fas fa-th-list'"></i>
               </button>
               <button type="button" class="btn btn-sm btn-light"
@@ -48,7 +48,7 @@
         </div>
       </div>
     </div>
-    <div class="col-3 border-right p-3 pre-scrollable" style="min-height: 437px" (scroll)="onScrollTreeListHost($event)">
+    <div class="col-3 border-end p-3 pre-scrollable" style="min-height: 437px" (scroll)="onScrollTreeListHost($event)">
       <cmdb-folder-tree [fileTree]="fileTree"
                         [selectedFileFolder]="selectedFolderElement"
                         (createFileElementEvent)="addFolder()"
