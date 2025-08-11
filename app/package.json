@@ -3,6 +3,7 @@
   "version": "3.0.0",
   "author": "becon GmbH",
   "license": "AGPLv3",
+  "private": true,
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
@@ -12,19 +13,18 @@
     "lint": "ng lint",
     "e2e": "ng e2e"
   },
-  "private": true,
   "dependencies": {
-    "@angular/animations": "^18.2.13",
-    "@angular/cdk": "^18.2.7",
-    "@angular/common": "^18.2.13",
-    "@angular/compiler": "^18.2.13",
-    "@angular/core": "^18.2.13",
-    "@angular/forms": "^18.2.13",
-    "@angular/localize": "^18.2.13",
-    "@angular/material": "^18.2.7",
-    "@angular/platform-browser": "^18.2.13",
-    "@angular/platform-browser-dynamic": "^18.2.13",
-    "@angular/router": "^18.2.13",
+    "@angular/animations": "~19.2.14",
+    "@angular/cdk": "~19.2.14",
+    "@angular/common": "~19.2.14",
+    "@angular/compiler": "~19.2.14",
+    "@angular/core": "~19.2.14",
+    "@angular/forms": "~19.2.14",
+    "@angular/localize": "~19.2.14",
+    "@angular/material": "~19.2.14",
+    "@angular/platform-browser": "~19.2.14",
+    "@angular/platform-browser-dynamic": "~19.2.14",
+    "@angular/router": "~19.2.14",
     "@fortawesome/angular-fontawesome": "^0.15.0",
     "@fortawesome/fontawesome-common-types": "^6.5.2",
     "@fortawesome/fontawesome-free": "^6.5.2",
@@ -32,13 +32,13 @@
     "@fortawesome/free-brands-svg-icons": "^6.5.2",
     "@fortawesome/free-regular-svg-icons": "^6.5.2",
     "@fortawesome/free-solid-svg-icons": "^6.5.2",
-    "@ng-bootstrap/ng-bootstrap": "^17.0.0",
-    "@ng-select/ng-select": "^13.9.1",
+    "@ng-bootstrap/ng-bootstrap": "^18.0.0",
+    "@ng-select/ng-select": "^14.9.0",
     "@popperjs/core": "^2.11.8",
     "@rg-software/angular-archwizard": "^17.0.0",
     "@tinymce/tinymce-angular": "^8.0.0",
-    "angularx-qrcode": "^18.0.2",
-    "bootstrap": "^4.6.2",
+    "angularx-qrcode": "^19.0.0",
+    "bootstrap": "^5.3.1",
     "chart.js": "^4.4.3",
     "chartjs-plugin-datalabels": "^2.2.0",
     "core-js": "^3.37.1",
@@ -50,7 +50,7 @@
     "jszip": "^3.10.1",
     "moment-timezone": "^0.5.45",
     "ngx-color": "^9.0.0",
-    "ngx-drag-drop": "^18.0.2",
+    "ngx-drag-drop": "^19.0.0",
     "ngx-filesaver": "^18.0.0",
     "ngx-icon-picker": "^1.11.2",
     "ngx-indexed-db": "^18.0.0",
@@ -65,14 +65,14 @@
     "tslib": "^2.6.3",
     "uuid": "^10.0.0",
     "xlsx": "^0.18.5",
-    "zone.js": "^0.14.10",
+    "zone.js": "~0.15.1",
     "zxcvbn": "^4.4.2"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "^18.2.20",
-    "@angular/cli": "^18.2.20",
-    "@angular/compiler-cli": "^18.2.13",
-    "@angular/language-service": "^18.2.13",
+    "@angular-devkit/build-angular": "~19.2.15",
+    "@angular/cli": "~19.2.15",
+    "@angular/compiler-cli": "~19.2.14",
+    "@angular/language-service": "~19.2.14",
     "@babel/traverse": "^7.24.7",
     "@types/bootstrap": "^5.2.10",
     "@types/chart.js": "^2.9.41",
@@ -91,12 +91,16 @@
     "karma-jasmine-html-reporter": "^2.1.0",
     "sass": "^1.89.2",
     "ts-node": "^10.9.2",
-    "typescript": "5.5.4"
+    "typescript": "5.8.3"
   },
-"overrides": {
-  "ngx-icon-picker": {
-    "@angular/common": "19.2.14",
-    "@angular/core": "19.2.14"
+  "overrides": {
+    "@fortawesome/angular-fontawesome": {
+      "@angular/core": "19.2.14",
+      "@angular/common": "19.2.14"
+    },
+    "ngx-icon-picker": {
+      "@angular/common": "19.2.14",
+      "@angular/core": "19.2.14"
+    }
   }
-}
 }
