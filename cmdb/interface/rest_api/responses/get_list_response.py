@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -35,7 +35,7 @@ class GetListResponse(BaseAPIResponse):
     """
     API Response for a simple list without iteration
     """
-    def __init__(self, results: list[dict], body: bool = None, params: APIParameters = None):
+    def __init__(self, results: list[dict], body: bool = None, params: APIParameters = None) -> None:
         self.params = params
 
         if self.params and self.params.projection:

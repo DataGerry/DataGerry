@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 Implementation of SupportedExporterExtension
 """
 import logging
+from typing import Any
 
 from cmdb.utils.helpers import load_class
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -29,14 +30,14 @@ LOGGER = logging.getLogger(__name__)
 class SupportedExporterExtension:
     """Maintains a list of supported export formats (CSV, JSON, XLSX, XML)."""
 
-    DEFAULT_EXTENSIONS = [
+    DEFAULT_EXTENSIONS: list[str] = [
         "CsvExportFormat",
         "JsonExportFormat",
         "XlsxExportFormat",
         "XmlExportFormat"
     ]
 
-    def __init__(self, extensions: list = None):
+    def __init__(self, extensions: list | None = None):
         """
         Initializes the SupportedExporterExtension with a default or custom list of extensions.
 
@@ -56,13 +57,13 @@ class SupportedExporterExtension:
         return self.extensions
 
 
-    def convert_to(self) -> list[dict]:
+    def convert_to(self) -> list[dict[str, Any]]:
         """
         Converts the supported export extensions into a list of dictionaries 
         that includes relevant information about each format
 
         Returns:
-            list: A list of dictionaries representing supported export formats
+            list[dict[str, Any]]: A list of dictionaries representing supported export formats
         """
         extension_list = []
 

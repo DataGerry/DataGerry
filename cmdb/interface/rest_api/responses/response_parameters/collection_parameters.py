@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ class CollectionParameters(APIParameters):
     """
     #TODO: REFACTOR-FIX (replace filter with criteria)
     def __init__(self, query_string: str = None, limit: int = None, sort: str = None,
-                 order: int = None, page: int = None, filter: list[dict] | dict = None, **kwargs):
+                 order: int = None, page: int = None, filter: list[dict] | dict = None, **kwargs) -> None:
         """
         Constructor of the CollectionParameters.
 

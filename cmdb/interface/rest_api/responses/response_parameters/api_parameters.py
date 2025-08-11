@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,11 +16,11 @@
 """
 Implementation of APIParameters
 """
-import logging
+from logging import Logger, getLogger
 from json import loads
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIParameters - CLASS                                                #
@@ -30,7 +30,7 @@ class APIParameters:
     A base class for representing parameters used in REST API calls
     """
 
-    def __init__(self, query_string: str = None, projection: dict = None, **optional):
+    def __init__(self, query_string: str = None, projection: dict = None, **optional) -> None:
         """
         Initializes the API parameters with the provided values
 

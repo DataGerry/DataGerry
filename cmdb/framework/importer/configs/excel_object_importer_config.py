@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -39,13 +39,13 @@ class ExcelObjectImporterConfig(ObjectImporterConfig, XLSXContent):
     MANUALLY_MAPPING = True
 
     def __init__(
-            self,
-            type_id: int,
-            mapping: list = None,
-            start_element: int = 0,
-            max_elements: int = 0,
-            overwrite_public: bool = True,
-            *args, **kwargs):
+        self,
+        type_id: int,
+        mapping: list | None = None,
+        start_element: int = 0,
+        max_elements: int = 0,
+        overwrite_public: bool = True
+    ) -> None:
         """
         Initializes the ExcelObjectImporterConfig with the given parameters
 

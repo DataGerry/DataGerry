@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,12 +24,12 @@ class ExporterConfig:
     """
     Base class for exporter configurations
     """
-    def __init__(self, parameters: CollectionParameters, options: dict = None):
+    def __init__(self, parameters: CollectionParameters, options: dict = None) -> None:
         """
         Args:
             parameters (CollectionParameters): Filter and sort options for a collection
             options: dict of optional parameters
         """
-        self.parameters = parameters
-        self.options = options or None
+        self.parameters: CollectionParameters = parameters
+        self.options: dict | None = options
         self.config_type = ExporterConfigType.NATIVE

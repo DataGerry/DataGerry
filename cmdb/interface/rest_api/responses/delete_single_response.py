@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ class DeleteSingleResponse(BaseAPIResponse):
     API Response for delete call of a single resource.
     """
 
-    def __init__(self, raw: dict = None):
+    def __init__(self, raw: dict = None) -> None:
         """
         Constructor of DeleteSingleResponse
 

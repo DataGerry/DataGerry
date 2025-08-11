@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -51,11 +51,12 @@ class ExcelObjectImporter(ObjectImporter, XLSXContent):
     """
     #pylint: disable=R0917
     def __init__(self,
-                 file=None,
-                 config: ExcelObjectImporterConfig = None,
-                 parser: JsonObjectParser = None,
-                 objects_manager: ObjectsManager = None,
-                 request_user: CmdbUser = None):
+        file = None,
+        config: ExcelObjectImporterConfig = None,
+        parser: JsonObjectParser | None = None,
+        objects_manager: ObjectsManager | None = None,
+        request_user: CmdbUser | None = None
+    ) -> None:
         """
         Initialize the ExcelObjectImporter
 

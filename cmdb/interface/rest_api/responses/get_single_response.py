@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -35,7 +35,7 @@ class GetSingleResponse(BaseAPIResponse):
     API Response for get calls with a single resource.
     """
 
-    def __init__(self, result: dict, body: bool = None, projection: dict = None):
+    def __init__(self, result: dict, body: bool = None, projection: dict = None) -> None:
         """
         Constructor of GetSingleResponse
         """

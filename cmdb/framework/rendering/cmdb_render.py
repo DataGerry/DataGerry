@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,7 +20,6 @@ import logging
 from dateutil.parser import parse
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.database import MongoDatabaseManager
 from cmdb.manager import (
     ObjectsManager,
     UsersManager,
@@ -64,11 +63,13 @@ class CmdbRender:
     AUTHOR_ANONYMOUS_NAME = 'unknown'
 
     # pylint: disable=R0917
-    def __init__(self,
-                 object_instance: CmdbObject,
-                 type_instance: CmdbType,
-                 render_user: CmdbUser,
-                 ref_render=False):
+    def __init__(
+        self,
+        object_instance: CmdbObject,
+        type_instance: CmdbType,
+        render_user: CmdbUser,
+        ref_render: bool = False
+    ) -> None:
         """
         Initializes CmdbRender
 
@@ -79,16 +80,16 @@ class CmdbRender:
             ref_render (bool, optional): Flag to enable reference rendering. Defaults to False
             dbm (MongoDatabaseManager, optional): Database manager. Defaults to None
         """
-        self.database = render_user.database
-        self.object_instance = object_instance
-        self.type_instance = type_instance
-        self.render_user = render_user
+        self.database: str = render_user.database
+        self.object_instance: CmdbObject = object_instance
+        self.type_instance: CmdbType = type_instance
+        self.render_user: CmdbUser = render_user
 
         self.objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, self.render_user)
         self.types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, self.render_user)
         self.users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, self.render_user)
 
-        self.ref_render = ref_render
+        self.ref_render: bool = ref_render
 
 
     @property
@@ -100,7 +101,7 @@ class CmdbRender:
 
 
     @object_instance.setter
-    def object_instance(self, object_instance: CmdbObject):
+    def object_instance(self, object_instance: CmdbObject) -> None:
         """
         Set the object_instance property after validation
 
@@ -125,7 +126,7 @@ class CmdbRender:
 
 
     @type_instance.setter
-    def type_instance(self, type_instance: CmdbType):
+    def type_instance(self, type_instance: CmdbType) -> None:
         """
         Set the type_instance property after validation
 
@@ -138,7 +139,7 @@ class CmdbRender:
         if not isinstance(type_instance, CmdbType):
             raise TypeInstanceError("The passed type is not a CmdbType!")
 
-        self._type_instance = type_instance
+        self._type_instance: CmdbType = type_instance
 
 
     def result(self, level: int = 3) -> RenderResult:
@@ -195,7 +196,7 @@ class CmdbRender:
             RenderResult: The rendered result
         """
         try:
-            render_result = RenderResult()
+            render_result: RenderResult = RenderResult()
 
             render_result = self.__generate_object_information(render_result)
             render_result = self.__generate_type_information(render_result)
@@ -236,11 +237,11 @@ class CmdbRender:
             RenderResult: The updated render result with object-specific information
         """
         try:
-            author_name = None
-            author = self.users_manager.get_user(self.object_instance.author_id)
+            author_name: str | None = None
+            author: CmdbUser | None = self.users_manager.get_user(self.object_instance.author_id)
 
             if author:
-                author_name = author = author.get_display_name()
+                author_name = author.get_display_name()
             else:
                 author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
         except Exception:

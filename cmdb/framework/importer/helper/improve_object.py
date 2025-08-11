@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of ImproveObject
 """
 import logging
 import datetime
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class ImproveObject:
 
 
     @staticmethod
-    def improve_boolean(value: str) -> bool:
+    def improve_boolean(value: Any) -> bool | Any:
         """
         Converts a string representation of a boolean into a boolean type.
 
@@ -86,8 +87,8 @@ class ImproveObject:
         Returns:
             bool: True if the value represents a truthy string, False otherwise.
         """
-        truthy_values = {'True', 'true', 'TRUE', '1'}
-        falsy_values = {'False', 'false', 'FALSE', '0', 'no'}
+        truthy_values: set[str] = {'True', 'true', 'TRUE', '1'}
+        falsy_values: set[str] = {'False', 'false', 'FALSE', '0', 'no'}
 
         if isinstance(value, str):
             if value in falsy_values:

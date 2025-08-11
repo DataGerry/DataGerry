@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -32,21 +32,21 @@ class APIPager:
     page size, and total number of pages.
     """
 
-    def __init__(self, page: int, page_size: int, total_pages: int = None):
+    def __init__(self, page: int, page_size: int, total_pages: int | None = None) -> None:
         """
         Initialises the APIPager
 
         Args:
             page (int): The current page number
             page_size (int): The number of items per page
-            total_pages (int, optional): The total number of pages. Defaults to None
+            total_pages (int | None): The total number of pages
         """
-        self.page = page
-        self.page_size = page_size
-        self.total_pages = total_pages
+        self.page: int = page
+        self.page_size: int = page_size
+        self.total_pages: int | None = total_pages
 
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | None]:
         """
         Converts the APIPager properties to a dictionary
 
@@ -54,7 +54,7 @@ class APIPager:
             dict: A dictionary containing APIPager properties
         """
         return {
-            'page': self.page,
-            'page_size': self.page_size,
-            'total_pages': self.total_pages,
+            "page": self.page,
+            "page_size": self.page_size,
+            "total_pages": self.total_pages,
         }

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -28,12 +28,12 @@ LOGGER = logging.getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class RootBlueprint(Blueprint):
     """Wrapper class for Blueprints with nested elements"""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.nested_blueprints = []
 
 
-    def register_nested_blueprint(self, nested_blueprint):
+    def register_nested_blueprint(self, nested_blueprint) -> None:
         """Add a 'sub' blueprint to root element
         Args:
             nested_blueprint (NestedBlueprint): Blueprint for sub routes

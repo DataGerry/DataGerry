@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -42,7 +42,7 @@ class WebCmdbService(AbstractCmdbService):
     Implementation of WebCmdbService
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._name = "webapp"
         self._threaded_service = False
@@ -82,5 +82,7 @@ class WebCmdbService(AbstractCmdbService):
         self.stop()
 
 
-    def _handle_event(self, event):
-        """ignore incomming events"""
+    def _handle_event(self, event) -> None:
+        """
+        Ignore incomming events
+        """

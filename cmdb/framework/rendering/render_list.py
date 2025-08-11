@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -39,7 +39,7 @@ class RenderList:
                  object_list: list[CmdbObject],
                  request_user: CmdbUser,
                  ref_render: bool = False,
-                 objects_manager: ObjectsManager = None):
+                 objects_manager: ObjectsManager | None = None) -> None:
         """
         Initializes a RenderList
 
@@ -49,10 +49,10 @@ class RenderList:
             ref_render (bool, optional): Enables reference rendering. Defaults to False
             objects_manager (ObjectsManager | None, optional): Manager for handling CmdbObjects. Defaults to None
         """
-        self.object_list = object_list
-        self.request_user = request_user
-        self.ref_render = ref_render
-        self.objects_manager = objects_manager
+        self.object_list: list[CmdbObject] = object_list
+        self.request_user: CmdbUser = request_user
+        self.ref_render: bool = ref_render
+        self.objects_manager: ObjectsManager | None = objects_manager
 
 
     def render_result_list(self, raw: bool = False) -> list[RenderResult | dict]:
@@ -73,7 +73,7 @@ class RenderList:
                                     self.request_user,
                                     self.ref_render)
 
-            current_render_result = tmp_render.result()
+            current_render_result: RenderResult = tmp_render.result()
             preparation_objects.append(current_render_result.__dict__ if raw else current_render_result)
 
         return preparation_objects

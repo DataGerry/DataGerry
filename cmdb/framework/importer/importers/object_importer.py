@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -50,10 +50,10 @@ class ObjectImporter(BaseImporter):
     def __init__(self,
                  file,
                  file_type,
-                 config: ObjectImporterConfig = None,
-                 parser: BaseObjectParser = None,
-                 objects_manager: ObjectsManager = None,
-                 request_user: CmdbUser = None):
+                 config: ObjectImporterConfig | None = None,
+                 parser: BaseObjectParser | None = None,
+                 objects_manager: ObjectsManager | None = None,
+                 request_user: CmdbUser | None = None) -> None:
         """
         Basic importer super class for object imports
         Normally should be started by start_import
@@ -64,9 +64,9 @@ class ObjectImporter(BaseImporter):
             parser: the parser instance based on content-type
             request_user: the instance of the started user
         """
-        self.parser = parser
-        self.objects_manager = objects_manager
-        self.request_user = request_user
+        self.parser: BaseObjectParser | None = parser
+        self.objects_manager: ObjectsManager | None = objects_manager
+        self.request_user: CmdbUser | None = request_user
 
         super().__init__(file=file, file_type=file_type, config=config)
 
@@ -221,6 +221,6 @@ class ObjectImporter(BaseImporter):
         Returns:
             bool: True if the limit has been reached, else False
         """
-        objects_count = self.objects_manager.count_objects()
+        objects_count: int = self.objects_manager.count_objects()
 
         return objects_count >= request_user.config_items_limit

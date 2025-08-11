@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ LOGGER = logging.getLogger(__name__)
 class HTTPServer(BaseApplication):
     """Basic server main_application"""
 
-    def __init__(self, app, options=None):
+    def __init__(self, app, options=None) -> None:
         self.options = options or {}
 
         if 'host' in self.options and 'port' in self.options:
@@ -62,7 +62,7 @@ class HTTPServer(BaseApplication):
         super().__init__()
 
 
-    def load_config(self):
+    def load_config(self) -> None:
         config = {key: value for key, value in self.options.items() if key in self.cfg.settings and value is not None}
 
         for key, value in config.items():

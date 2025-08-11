@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -32,7 +32,7 @@ class InsertSingleResponse(BaseAPIResponse):
     """
     API Response for insert call of a single resource
     """
-    def __init__(self, raw: dict, result_id: str | int = None):
+    def __init__(self, raw: dict, result_id: str | int = None) -> None:
         """
         Constructor of InsertSingleResponse
 

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -41,7 +41,7 @@ class RenderResult:
         multi_data_sections (list): Sections containing multiple data entries
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.current_render_time = datetime.now(timezone.utc)
         self.object_information: dict = {}
         self.type_information: dict = {}

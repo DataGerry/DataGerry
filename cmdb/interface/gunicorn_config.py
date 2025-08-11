@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@ LOGGER = logging.getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def post_fork(server, worker):
+def post_fork(server, worker) -> None:
     """
     Ensures MongoDB connections are properly reinitialized after forking
     """
