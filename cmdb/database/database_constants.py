@@ -18,5 +18,11 @@ This package provide all constants for the Database section
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Collection storing the public_id counters
 PUBLIC_ID_COUNTER_COLLECTION = "datastorage.counter"
+
+# Minimal Update Version since Cloud-Version
 MIN_CLOUD_UPDATER_VERSION = 20240603
+
+# Retry up to x times if duplicate key occurs while creating a document in the database
+MAX_DUPLICATE_KEY_RETRIES = 10

@@ -16,9 +16,10 @@
 """
 The schema of a CmdbObject
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
-def get_cmdb_object_schema() -> dict:
+def get_cmdb_object_schema() -> dict[str, Any]:
     """
     Returns the CmdbObject schema
 

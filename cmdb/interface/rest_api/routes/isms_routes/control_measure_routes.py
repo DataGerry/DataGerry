@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for the IsmsControlMeasures
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ControlMeasureManager
@@ -60,7 +61,7 @@ control_measure_blueprint = APIBlueprint('control_measure', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
 @control_measure_blueprint.validate(IsmsControlMeasure.SCHEMA)
-def insert_isms_control_measure(data: dict, request_user: CmdbUser):
+def insert_isms_control_measure(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasure into the database
 
@@ -102,7 +103,7 @@ def insert_isms_control_measure(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
 @control_measure_blueprint.parse_collection_parameters()
-def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsControlMeasures
 
@@ -114,7 +115,7 @@ def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUs
         GetMultiResponse: All the IsmsControlMeasures matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body: bool = request.method == 'HEAD'
 
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                        request_user)
@@ -144,7 +145,7 @@ def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
-def get_isms_control_measure(public_id: int, request_user: CmdbUser):
+def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsControlMeasure
 
@@ -181,7 +182,7 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.edit')
 @control_measure_blueprint.validate(IsmsControlMeasure.SCHEMA)
-def update_isms_control_measure(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_control_measure(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasure
 

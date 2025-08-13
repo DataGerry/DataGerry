@@ -66,7 +66,7 @@ def create_webhook(params: dict, request_user: CmdbUser):
     try:
         webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
-        params['public_id'] = webhooks_manager.get_next_public_id()
+        params['public_id'] = webhooks_manager.get_next_public_id(inc_id=True)
         params['event_types'] = literal_eval(params['event_types'])
         params['active'] = params['active'] in ["True", "true"]
 

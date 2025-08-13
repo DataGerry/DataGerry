@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,7 +20,7 @@ from .extendable_option_routes import extendable_option_blueprint
 from .object_groups_routes import object_group_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'extendable_option_blueprint',
     'object_group_blueprint',
 ]

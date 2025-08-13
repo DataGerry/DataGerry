@@ -63,6 +63,8 @@ from cmdb.manager import (
 )
 
 from cmdb.models.user_model import CmdbUser
+
+from cmdb.errors.manager import BaseManagerInitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -76,7 +78,7 @@ class ManagerProvider:
     """
 
     @classmethod
-    def get_manager(cls, manager_type: ManagerType, request_user: CmdbUser) -> None | Any:
+    def get_manager(cls, manager_type: ManagerType, request_user: CmdbUser) -> Any:
         """Retrieves a manager based on the provided ManagerType and 'cloud_mode' app flag
 
         Args:
@@ -84,13 +86,13 @@ class ManagerProvider:
             request_user (CmdbUser): The user which is requesting the manager
 
         Returns:
-            Any | None : Returns the manager of the provided ManagerType
+            Any: Returns the manager of the provided ManagerType
         """
         manager_class: Any | None = cls.__get_manager_class(manager_type)
 
         if not manager_class:
             LOGGER.error("[get_manager] No manager found for ManagerType: %s", manager_type)
-            return None
+            raise BaseManagerInitError(f"Invalid ManagerType {manager_type}")
 
         manager_args = cls.__get_manager_args(request_user)
 

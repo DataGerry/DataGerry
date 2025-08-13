@@ -17,6 +17,7 @@
 Implementation of the BaseManager for all Managers requiring a database connection
 """
 import logging
+from typing import Any
 
 from pymongo.results import DeleteResult, UpdateResult
 from pymongo.cursor import Cursor
@@ -55,7 +56,7 @@ class BaseManager:
     This is the base class for every FrameworkManager
     """
 
-    def __init__(self, collection: str, dbm: MongoDatabaseManager, db_name: str):
+    def __init__(self, collection: str, dbm: MongoDatabaseManager, db_name: str | None) -> None:
         """
         Initializes the class with a collection name and database manager
 
@@ -67,16 +68,16 @@ class BaseManager:
             BaseManagerInitError: If the initialisation fails
         """
         try:
-            self.collection = collection
+            self.collection: str = collection
             self.query_builder = BaseQueryBuilder()
-            self.dbm = dbm
-            self.db_name = db_name if db_name else dbm.db_name
+            self.dbm: MongoDatabaseManager = dbm
+            self.db_name: str = db_name if db_name else dbm.db_name
         except Exception as err:
             raise BaseManagerInitError(str(err)) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert(self, data: dict, skip_public: bool = False) -> int:
+    def insert(self, data: dict[str, Any], skip_public: bool = False) -> int:
         """
         Insert document into database
 
@@ -129,7 +130,7 @@ class BaseManager:
             raise BaseManagerIterationError(str(err)) from err
 
 
-    def get_one(self, *args, **kwargs) -> dict | None:
+    def get_one(self, *args, **kwargs) -> dict[str, Any] | None:
         """
         Retrieves a single document from MongoDB
 
@@ -146,7 +147,7 @@ class BaseManager:
         try:
             return self.dbm.find_one(self.collection, self.db_name, *args, **kwargs)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
     def get_one_from_other_collection(self, collection: str, public_id: int) -> dict | None:
@@ -383,10 +384,10 @@ class BaseManager:
         try:
             return self.dbm.get_next_public_id(self.collection, self.db_name, inc_id)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
-    def count_documents(self, collection: str, *args, **kwargs) -> int:
+    def count_documents(self, collection: str, *args: Any, **kwargs: Any) -> int:
         """
         Counts the number of documents in a collection based on the given filter
 
@@ -404,18 +405,18 @@ class BaseManager:
         try:
             return self.dbm.count(collection, self.db_name, *args, **kwargs)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update(self,
                criteria: dict,
-               data: dict,
-               *args,
+               data: dict[str, Any],
+               *args: Any,
                add_to_set: bool = True,
                plain: bool = False,
-               col: str = None,
-               **kwargs) -> UpdateResult:
+               col: str | None = None,
+               **kwargs: Any) -> UpdateResult:
         """
         Updates a document in the database with the specified criteria and new data
 
@@ -526,7 +527,7 @@ class BaseManager:
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-    def delete(self, criteria: dict, collection: str = None) -> bool:
+    def delete(self, criteria: dict, collection: str | None = None) -> bool:
         """
         Deletes a document from the collection that matches the given criteria
 
@@ -549,7 +550,7 @@ class BaseManager:
 
             return result.acknowledged and result.deleted_count > 0
         except Exception as err:
-            raise BaseManagerDeleteError(err) from err
+            raise BaseManagerDeleteError(str(err)) from err
 
 
     def delete_many(self, filter_query: dict) -> DeleteResult:

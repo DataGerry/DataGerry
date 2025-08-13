@@ -23,6 +23,7 @@ import json
 import logging
 from datetime import datetime, timezone
 import time
+from typing import Any, Callable
 import requests
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
@@ -64,7 +65,7 @@ DEFAULT_MIME_TYPE = 'application/json'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def user_has_right(required_right: str, request_user: CmdbUser = None) -> bool:
+def user_has_right(required_right: str, request_user: CmdbUser | None = None) -> bool:
     """
     Determine whether a user has the specified access right
 
@@ -124,7 +125,7 @@ def user_has_right(required_right: str, request_user: CmdbUser = None) -> bool:
         return False
 
 
-def insert_request_user(func):
+def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that injects the authenticated user into a route handler as `request_user`
 
@@ -146,9 +147,9 @@ def insert_request_user(func):
                                            or the user cannot be resolved.
     """
     @functools.wraps(func)
-    def get_request_user(*args, **kwargs):
+    def get_request_user(*args: Any, **kwargs: Any) -> Any:
         with current_app.app_context():
-            users_manager = UsersManager(current_app.database_manager)
+            users_manager: UsersManager = UsersManager(current_app.database_manager)
         try:
             # If the request comes from API then the request_user will be set in verify_api_access - method
             if current_app.cloud_mode and "x-api-key" in request.headers:
@@ -180,7 +181,7 @@ def insert_request_user(func):
         except ValueError:
             abort(401)
         except Exception as err:
-            LOGGER.debug("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
             abort(401)
 
         return func(*args, **kwargs)
@@ -188,7 +189,7 @@ def insert_request_user(func):
     return get_request_user
 
 
-def verify_api_access(*, required_api_level: ApiLevel = None):
+def verify_api_access(*, required_api_level: ApiLevel | None = None):
     """
     Decorator to verify API access based on authentication method and required API level
 
@@ -603,7 +604,7 @@ def set_admin_user(user_data: dict, subscription: dict):
 
         if not admin_user_from_db:
             admin_user = CmdbUser(
-                public_id = users_manager.get_next_public_id(),
+                public_id = users_manager.get_next_public_id(inc_id=True),
                 user_name = user_data['user_name'],
                 email = user_data['email'],
                 database = subscription['database'],

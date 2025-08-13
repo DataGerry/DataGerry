@@ -60,7 +60,7 @@ class TypesManager(BaseManager):
 
     Extends: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection for the TypesManager
 
@@ -115,7 +115,7 @@ class TypesManager(BaseManager):
             int: The next public_id for CmdbType
         """
         try:
-            return self.get_next_public_id()
+            return self.get_next_public_id(inc_id=True)
         except BaseManagerGetError as err:
             raise TypesManagerGetError(err) from err
 

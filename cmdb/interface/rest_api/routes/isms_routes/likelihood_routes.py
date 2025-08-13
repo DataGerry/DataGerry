@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for IsmsLikelihoods
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import LikelihoodManager
@@ -61,7 +63,7 @@ likelihood_blueprint = APIBlueprint('likelihoods', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.add')
 @likelihood_blueprint.validate(IsmsLikelihood.SCHEMA)
-def insert_isms_likelihood(data: dict, request_user: CmdbUser):
+def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsLikelihood into the database
 

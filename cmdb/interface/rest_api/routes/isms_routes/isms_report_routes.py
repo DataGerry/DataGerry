@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,7 @@ Implementation of all API routes for Isms Reports
 import logging
 import re
 from flask import abort
+from werkzeug import Response
 
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
@@ -50,7 +51,7 @@ isms_report_blueprint = APIBlueprint('isms_report', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_matrix_report(request_user: CmdbUser):
+def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix report
 
@@ -89,7 +90,7 @@ def get_isms_risk_matrix_report(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
+def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Risk Treatment Plan report
 
@@ -391,7 +392,7 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_soa_report(request_user: CmdbUser):
+def get_isms_soa_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Statement of Applicability(SOA) report
 
@@ -459,7 +460,7 @@ def get_isms_soa_report(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_assessments_report(request_user: CmdbUser):
+def get_isms_risk_assessments_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Statement of Applicability(SOA) report
 

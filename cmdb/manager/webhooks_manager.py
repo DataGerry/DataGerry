@@ -174,7 +174,7 @@ class WebhooksManager(BaseManager):
                 )
 
                 payload.update({
-                    'public_id': self.webhooks_event_manager.get_next_public_id(),
+                    'public_id': self.webhooks_event_manager.get_next_public_id(inc_id=True),
                     'webhook_id': webhook.public_id,
                     'response_code': response.status_code,
                     'status': response.status_code == 200

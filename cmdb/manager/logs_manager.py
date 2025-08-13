@@ -71,7 +71,7 @@ class LogsManager(BaseManager):
         log_init = {}
 
         # set static values
-        log_init['public_id'] = self.get_next_public_id()
+        log_init['public_id'] = self.get_next_public_id(inc_id=True)
         log_init['action'] = action.value
         log_init['action_name'] = action.name
         log_init['log_type'] = log_type
