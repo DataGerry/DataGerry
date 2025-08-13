@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,10 @@
 Implementation of all API routes for CmdbObjectRelations
 """
 import logging
+from typing import Any
 from datetime import datetime, timezone
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager, RelationsManager
@@ -67,7 +69,7 @@ object_relations_blueprint = APIBlueprint('object_relations', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.add')
 @object_relations_blueprint.validate(CmdbObjectRelation.SCHEMA)
-def insert_cmdb_object_relation(data: dict, request_user: CmdbUser):
+def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObjectRelation into the database
 
@@ -138,7 +140,7 @@ def insert_cmdb_object_relation(data: dict, request_user: CmdbUser):
         abort(400, "Failed to retrieve the created ObjectRelation from the database!")
     except Exception as err:
         LOGGER.error("[insert_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while creating the ObjectRelation!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -147,7 +149,7 @@ def insert_cmdb_object_relation(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.view')
 @object_relations_blueprint.parse_collection_parameters()
-def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectRelations
 
@@ -185,14 +187,14 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
         abort(400, "Failed to retrieve the ObjectRelations from database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_object_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while iterating the ObjectRelations!")
 
 
 @object_relations_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.view')
-def get_cmdb_object_relation(public_id: int, request_user: CmdbUser):
+def get_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbObjectRelation
 
@@ -224,7 +226,7 @@ def get_cmdb_object_relation(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the requested ObjectRelation with ID:{public_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while retrieving the ObjectRelation with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -233,7 +235,7 @@ def get_cmdb_object_relation(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.edit')
 @object_relations_blueprint.validate(CmdbObjectRelation.SCHEMA)
-def update_cmdb_object_relation(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectRelation
 
@@ -303,10 +305,7 @@ def update_cmdb_object_relation(public_id: int, data: dict, request_user: CmdbUs
 
             object_relations_manager.update_object_relation(public_id, updated_object_relation)
 
-            api_response = UpdateSingleResponse(result=data)
-
-            return api_response.make_response()
-
+            return UpdateSingleResponse(result=data).make_response()
         abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
     except HTTPException as http_err:
         raise http_err
@@ -318,7 +317,7 @@ def update_cmdb_object_relation(public_id: int, data: dict, request_user: CmdbUs
         abort(400, f"Failed to update the ObjectRelation with ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[update_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while updating ObjectRelation with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -326,7 +325,7 @@ def update_cmdb_object_relation(public_id: int, data: dict, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.delete')
-def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser):
+def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbObjectRelation
 
@@ -362,10 +361,7 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser):
                 LOGGER.error("[insert_cmdb_object_relation] Failed to create an ObjectRelationLog: %s",error,
                                                                                                        exc_info=True)
 
-            api_response = DeleteSingleResponse(raw=to_delete_object_relation)
-
-            return api_response.make_response()
-
+            return DeleteSingleResponse(to_delete_object_relation).make_response()
         abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
     except HTTPException as http_err:
         raise http_err
@@ -377,4 +373,4 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the ObjectRelation with ID:{public_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting the ObjectRelation with ID:{public_id}!")

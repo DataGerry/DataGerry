@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for the IsmsRisks
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RiskManager
@@ -60,7 +62,7 @@ risk_blueprint = APIBlueprint('risk', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.add')
 @risk_blueprint.validate(IsmsRisk.SCHEMA)
-def insert_isms_risk(data: dict, request_user: CmdbUser):
+def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRisk into the database
 
@@ -108,7 +110,7 @@ def insert_isms_risk(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
 @risk_blueprint.parse_collection_parameters()
-def get_isms_risks(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_risks(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRisks
 
@@ -148,7 +150,7 @@ def get_isms_risks(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
-def get_isms_risk(public_id: int, request_user: CmdbUser):
+def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRisk
 
@@ -184,7 +186,7 @@ def get_isms_risk(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.edit')
 @risk_blueprint.validate(IsmsRisk.SCHEMA)
-def update_isms_risk(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRisk
 
@@ -232,7 +234,7 @@ def update_isms_risk(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
-def delete_isms_risk(public_id: int, request_user: CmdbUser):
+def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRisk
 
@@ -268,7 +270,7 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser):
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-def is_risk_data_valid(data: dict) -> bool:
+def is_risk_data_valid(data: dict[str, Any]) -> bool:
     """
     Validates the risk data dictionary based on the specified risk type
 
@@ -278,7 +280,7 @@ def is_risk_data_valid(data: dict) -> bool:
       - For EVENT: 'consequences' and 'description' must be provided
 
     Args:
-        data (dict): The risk data to validate
+        data (dict[str, Any]): The risk data to validate
 
     Returns:
         bool: True if the risk data is valid, False otherwise

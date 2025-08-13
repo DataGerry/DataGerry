@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,10 @@
 Implementation of all API routes for CmdbWebhooks
 """
 import logging
+from typing import Any
 from ast import literal_eval
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.query_builder import BuilderParameters
@@ -54,7 +56,7 @@ webhook_blueprint = APIBlueprint('webhooks', __name__)
 @webhook_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def create_webhook(params: dict, request_user: CmdbUser):
+def create_webhook(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates a CmdbWebhook in the database
 
@@ -75,7 +77,7 @@ def create_webhook(params: dict, request_user: CmdbUser):
         return DefaultResponse(new_webhook_id).make_response()
     except BaseManagerInsertError as err:
         #TODO: ERROR-FIX
-        LOGGER.debug("[create_webhook] %s", err, exc_info=True)
+        LOGGER.debug("[create_webhook] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to create the Webhook in the database!")
     except Exception as err:
         LOGGER.debug("[create_webhook] Exception: %s, Type: %s", err, type(err), exc_info=True)
@@ -86,7 +88,7 @@ def create_webhook(params: dict, request_user: CmdbUser):
 @webhook_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_webhook(public_id: int, request_user: CmdbUser):
+def get_webhook(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the CmdbWebhook with the given public_id
     
@@ -97,13 +99,13 @@ def get_webhook(public_id: int, request_user: CmdbUser):
     try:
         webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
-        requested_webhook = webhooks_manager.get_webhook(public_id)
+        requested_webhook: CmdbWebhook = webhooks_manager.get_webhook(public_id)
 
         return DefaultResponse(requested_webhook).make_response()
     except BaseManagerGetError as err:
         #TODO: ERROR-FIX
         LOGGER.debug("[get_webhook] %s", err, exc_info=True)
-        abort(400, f"Could not retrieve Webhook with ID: {public_id}!")
+        abort(400, f"Failed to retrieve Webhook with ID: {public_id}!")
     except Exception as err:
         LOGGER.debug("[get_webhook] Exception: %s, Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal error occured while retrieving the Webhook with ID:{public_id}!")
@@ -113,7 +115,7 @@ def get_webhook(public_id: int, request_user: CmdbUser):
 @webhook_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_webhooks(params: CollectionParameters, request_user: CmdbUser):
+def get_webhooks(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Returns all CmdbWebhooks based on the params
 
@@ -128,7 +130,7 @@ def get_webhooks(params: CollectionParameters, request_user: CmdbUser):
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
         iteration_result: IterationResult[CmdbWebhook] = webhooks_manager.iterate(builder_params)
-        webhook_list: list[dict] = [webhook_.__dict__ for webhook_ in iteration_result.results]
+        webhook_list: list[dict[str, Any]] = [webhook_.__dict__ for webhook_ in iteration_result.results]
 
         api_response = GetMultiResponse(webhook_list,
                                         iteration_result.total,
@@ -150,7 +152,7 @@ def get_webhooks(params: CollectionParameters, request_user: CmdbUser):
 @webhook_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def update_webhook(params: dict, request_user: CmdbUser):
+def update_webhook(params: dict, request_user: CmdbUser) -> Response:
     """
     Updates a CmdbWebhook
 
@@ -199,7 +201,7 @@ def update_webhook(params: dict, request_user: CmdbUser):
 @webhook_blueprint.route('/<int:public_id>/', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def delete_webhook(public_id: int, request_user: CmdbUser):
+def delete_webhook(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes the CmdbWebhook with the given public_id
     

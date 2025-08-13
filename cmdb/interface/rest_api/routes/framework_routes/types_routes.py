@@ -17,6 +17,7 @@
 Implementation of all API routes for CmdbTypes
 """
 import logging
+from typing import Any
 from datetime import datetime, timezone
 from flask import abort, request
 from werkzeug import Response
@@ -84,7 +85,7 @@ types_blueprint = APIBlueprint('types', __name__)
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.add')
 @types_blueprint.validate(CmdbType.SCHEMA)
-def insert_cmdb_type(data: dict, request_user: CmdbUser) -> Response:
+def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbType into the database
 
@@ -241,9 +242,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[count_objects_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
-
-
+        abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -252,7 +251,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.edit')
 @types_blueprint.validate(CmdbType.SCHEMA)
-def update_cmdb_type(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbType
 
@@ -415,7 +414,7 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to delete the Type with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting Type with ID: {public_id}!")
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

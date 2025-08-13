@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,10 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-These routes are used to setup databases and the correspondig user in DATAGerry
+These routes are used to setup databases and the correspondig user in DataGerry
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -40,7 +41,7 @@ setup_blueprint = APIBlueprint('setup', __name__)
 #TODO: REFACTOR-FIX (create specific errors)
 @setup_blueprint.route('/subscriptions', methods=['DELETE'])
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-def delete_subscription():
+def delete_subscription() -> Response:
     """
     Deletes a subscription
 

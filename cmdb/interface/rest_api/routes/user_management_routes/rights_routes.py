@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for DataGerry Rights
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RightsManager
@@ -44,7 +45,7 @@ rights_blueprint = APIBlueprint('rights', __name__)
 @rights_blueprint.route('/', methods=['GET', 'HEAD'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rights_blueprint.parse_collection_parameters(sort='name', view='list')
-def get_rights(params: CollectionParameters):
+def get_rights(params: CollectionParameters) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting a iterable collection of resources.
 
@@ -90,7 +91,7 @@ def get_rights(params: CollectionParameters):
 
 @rights_blueprint.route('/<string:name>', methods=['GET', 'HEAD'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_right(name: str):
+def get_right(name: str) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single right resource
 
@@ -121,7 +122,7 @@ def get_right(name: str):
 
 @rights_blueprint.route('/levels', methods=['GET', 'HEAD'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_levels():
+def get_levels() -> Response:
     """
     HTTP `GET`/`HEAD` route for a static collection of levels
 

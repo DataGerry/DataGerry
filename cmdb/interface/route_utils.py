@@ -27,6 +27,7 @@ from typing import Any, Callable
 import requests
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
+from werkzeug.exceptions import HTTPException
 
 from pymongo.errors import NetworkTimeout, AutoReconnect
 
@@ -159,6 +160,8 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
             with current_app.app_context():
                 decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
+        except HTTPException as http_err:
+            raise http_err
         except TokenValidationError:
             abort(401, "Invalid Token!")
         except Exception as err:
@@ -231,6 +234,8 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
 
                     if not __check_api_level(user_instance, required_api_level):
                         abort(403, "No permission for this action!")
+            except HTTPException as http_err:
+                raise http_err
             except Exception as err:
                 LOGGER.error("[verify_api_access] Exception: %s. Type: %s", err, type(err), exc_info=True)
                 abort(400, "Failed to verify API access!")

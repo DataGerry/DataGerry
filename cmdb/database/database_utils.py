@@ -23,6 +23,7 @@ import calendar
 import time
 import datetime
 import random
+from typing import Any
 from functools import wraps
 from bson.dbref import DBRef
 from bson.max_key import MaxKey
@@ -89,7 +90,7 @@ def object_hook(dct: dict):
     return dct
 
 #pylint: disable=too-many-return-statements, too-many-branches
-def default(obj):
+def default(obj: Any) -> Any:
     """Helper function for converting bson to json
     Args:
         obj: bson data
@@ -97,18 +98,6 @@ def default(obj):
     Returns:
         json format
     """
-    # if isinstance(obj,
-    #               (CmdbDAO,
-    #                 RenderResult,
-    #                 TemplateManagementBase,
-    #                 # CmdbAuthSettings,
-    #                 BaseMediaFile,
-    #                 BaseAuthProviderConfig,
-    #                 # BaseRight,
-    #                 DateSettingsDAO)
-    #             ):
-    #     return obj.__dict__
-
     if isinstance(obj, (SearchResult,SearchResultMap)):
         return obj.to_json()
 
@@ -134,7 +123,10 @@ def default(obj):
             flags += "i"
         if obj.flags & re.MULTILINE:
             flags += "m"
-        return {"$regex": obj.pattern, "$options": flags}
+        return {
+            "$regex": obj.pattern,
+            "$options": flags
+        }
 
     if isinstance(obj, MinKey):
         return {"$minKey": 1}
@@ -165,7 +157,7 @@ MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1  # in seconds
 
 # Azure Cosmos DB error codes
-COSMOS_DB_ERROR_CODES = {
+COSMOS_DB_ERROR_CODES: dict[int, str] = {
     429: "Too Many Requests",
     91: "Timeout",
     500: "Internal Server Error",

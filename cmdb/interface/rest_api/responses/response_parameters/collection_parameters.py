@@ -17,6 +17,7 @@
 Implementation of CollectionParameters
 """
 import logging
+from typing import Any
 from json import loads
 
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
@@ -32,8 +33,16 @@ class CollectionParameters(APIParameters):
     Rest API class for parameters passed by a http request on a collection route
     """
     #TODO: REFACTOR-FIX (replace filter with criteria)
-    def __init__(self, query_string: str = None, limit: int = None, sort: str = None,
-                 order: int = None, page: int = None, filter: list[dict] | dict = None, **kwargs) -> None:
+    def __init__(
+        self,
+        query_string: str = None,
+        limit: int = None,
+        sort: str = "public_id",
+        order: int = 1,
+        page: int = None,
+        filter: list[dict] | dict = None,
+        **kwargs: Any
+    ) -> None:
         """
         Constructor of the CollectionParameters.
 
@@ -47,7 +56,7 @@ class CollectionParameters(APIParameters):
             **kwargs:
         """
         self.limit: int = int(limit or 10)
-        self.sort: str = sort or 'public_id'
+        self.sort: str = sort or "public_id"
         self.order: int = int(order or 1)
         self.page: int = int((page or 1) or page < 1)
 
@@ -62,7 +71,7 @@ class CollectionParameters(APIParameters):
 
 
     @classmethod
-    def from_data(cls, query_string: str, **optional) -> "CollectionParameters":
+    def from_data(cls, query_string: str, **optional: Any) -> "CollectionParameters":
         """
         Create a collection parameter instance from a http query string
 
@@ -82,11 +91,11 @@ class CollectionParameters(APIParameters):
 
 
     @classmethod
-    def to_dict(cls, parameters: "CollectionParameters") -> dict:
+    def to_dict(cls, parameters: "CollectionParameters") -> dict[str, Any]:
         """
         Get the object as a dict
         """
-        params: dict = {
+        params: dict[str, Any] = {
             'limit': parameters.limit,
             'sort': parameters.sort,
             'order': parameters.order,
@@ -94,13 +103,15 @@ class CollectionParameters(APIParameters):
             'filter': parameters.filter,
             'optional': parameters.optional,
         }
+
         if parameters.projection:
             params.update({'projection': parameters.projection})
+
         return params
 
 
     @classmethod
-    def get_builder_params(cls, params: "CollectionParameters") -> dict:
+    def get_builder_params(cls, params: "CollectionParameters") -> dict[str, Any]:
         """Extracts the attributes required for BuilderParameters"""
         return {
             'criteria': params.filter,

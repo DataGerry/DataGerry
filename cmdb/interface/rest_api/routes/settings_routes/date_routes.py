@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for DateSettings
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -39,7 +40,7 @@ LOGGER = logging.getLogger(__name__)
 @date_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_date_settings(request_user: CmdbUser):
+def get_date_settings(request_user: CmdbUser) -> Response:
     """
     Retrieves the date-related settings for the current user
 
@@ -69,7 +70,7 @@ def get_date_settings(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @date_blueprint.protect(auth=True, right='base.system.edit')
-def update_date_settings(request_user: CmdbUser):
+def update_date_settings(request_user: CmdbUser) -> Response:
     """
     Updates the date-related settings for the current user
 

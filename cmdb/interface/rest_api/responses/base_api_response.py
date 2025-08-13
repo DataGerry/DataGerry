@@ -17,9 +17,10 @@
 Implementation of BaseAPIResponse
 """
 import logging
-# import html
+from typing import Any
 from json import dumps
 from datetime import datetime, timezone
+
 from flask import abort, make_response as flask_response
 from werkzeug.wrappers import Response
 
@@ -36,8 +37,10 @@ API_VERSION = '1.0'
 #                                                BaseAPIResponse - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class BaseAPIResponse:
-    """Basic `abstract` response class"""
-    def __init__(self, operation_type: OperationType, url: str | None = None, body: bool = None) -> None:
+    """
+    Base class for API responsess
+    """
+    def __init__(self, operation_type: OperationType, url: str | None = None, body: bool = True) -> None:
         """
         Constructor of a basic api response.
 
@@ -51,7 +54,7 @@ class BaseAPIResponse:
             raise TypeError(f'{operation_type} is not a valid response operation')
 
         self.operation_type: OperationType = operation_type
-        self.url = url or ''
+        self.url: str = url or ''
         self.body = body or True
         self.time: str = datetime.now(timezone.utc).isoformat()
 
@@ -66,7 +69,7 @@ class BaseAPIResponse:
         raise NotImplementedError
 
 
-    def export(self) -> dict:
+    def export(self) -> dict[str, Any]:
         """
         Get the raw information about this response.
 
@@ -79,7 +82,13 @@ class BaseAPIResponse:
         }
 
 
-    def make_api_response(self, body, status: int = 200, mime: str = None, indent: int = 2) -> Response:
+    def make_api_response(
+        self,
+        body: Any,
+        status: int = 200,
+        mime: str = DEFAULT_MIME_TYPE,
+        indent: int = 2
+    ) -> Response:
         """
         Make a valid http response.
 
@@ -98,10 +107,10 @@ class BaseAPIResponse:
             #     body = {key: html.escape(str(value)) for key, value in body.items()}
 
             response = flask_response(dumps(body, default=default, indent=indent), status)
-            response.mimetype = mime or DEFAULT_MIME_TYPE
+            response.mimetype = mime
             response.headers['X-API-Version'] = API_VERSION
 
             return response
         except Exception as err:
             LOGGER.debug("[make_response] Exception: %s, Type: %s", err, type(err))
-            abort(500, "Could not create response from data!")
+            abort(500, "Failed to create a response from the given data!")

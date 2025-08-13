@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all Bluerpint types for DATAGerry
+This module provides all Bluerpint types for DataGerry
 """
 from cmdb.interface.blueprints.api_blueprint import APIBlueprint
 from cmdb.interface.blueprints.root_blueprint import RootBlueprint

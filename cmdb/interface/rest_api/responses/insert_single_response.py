@@ -17,6 +17,7 @@
 Implementation of InsertSingleResponse
 """
 import logging
+from typing import Any
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -32,7 +33,7 @@ class InsertSingleResponse(BaseAPIResponse):
     """
     API Response for insert call of a single resource
     """
-    def __init__(self, raw: dict, result_id: str | int = None) -> None:
+    def __init__(self, raw: dict[str, Any], result_id: str | int | None = None) -> None:
         """
         Constructor of InsertSingleResponse
 
@@ -40,12 +41,12 @@ class InsertSingleResponse(BaseAPIResponse):
             raw: The raw document
             result_id: The new public id or a identifier of the inserted resource
         """
-        self.raw: dict = raw
+        self.raw: dict[str, Any] = raw
         self.result_id: int = int(result_id)
         super().__init__(operation_type=OperationType.INSERT)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a vaid http response.
 
@@ -57,12 +58,10 @@ class InsertSingleResponse(BaseAPIResponse):
         Returns:
             Instance of Response with http status code 201.
         """
-        response = self.make_api_response(self.export(), 201)
-
-        return response
+        return self.make_api_response(self.export(), 201)
 
 
-    def export(self, *args, **kwargs) -> dict:
+    def export(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
         Get the data response payload as dict
         """

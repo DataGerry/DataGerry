@@ -24,7 +24,7 @@ class RiskType(str, Enum):
 
 
     @classmethod
-    def is_valid(cls, value: str) -> bool:
+    def is_valid(cls, value: str | None) -> bool:
         """
         Checks if a given string is a valid RiskType
 

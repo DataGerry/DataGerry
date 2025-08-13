@@ -19,8 +19,9 @@ Implementation of APIBlueprint
 from functools import wraps
 import logging
 from typing import Any
-from cerberus import Validator
+from cerberus import Validator #type: ignore
 from flask import Blueprint, abort, request, current_app
+from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import UsersManager
 
@@ -29,7 +30,6 @@ from cmdb.interface.route_utils import user_has_right, parse_authorization_heade
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.token.validator import TokenValidator
 
-from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -107,7 +107,9 @@ class APIBlueprint(Blueprint):
 
                                         if user_dict[exe_key] == route_parameter:
                                             return f(*args, **kwargs)
-                                except (UsersManagerGetError, Exception):
+                                except HTTPException as http_err:
+                                    raise http_err
+                                except Exception:
                                     abort(403, "Could not retrieve user!")
 
                         abort(403, f'User has not the required right {right}')
