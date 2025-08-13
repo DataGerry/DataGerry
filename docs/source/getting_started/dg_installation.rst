@@ -73,7 +73,19 @@ This approach is especially useful when running DataGerry in Docker environments
 Setup via Docker Image
 ======================
 
-The quickest way to get started with DataGerry is using Docker. We provide a docker-compose file that sets up the
+The quickest way to get started with DATAGerry is using Docker.
+
+Docker is a container-based software framework for automating deployment of 
+applications. Compose is a tool for defining and running multi-container Docker 
+applications.
+
+The DATAGerry-docker repo is meant to be the starting point for somebody, who likes to use 
+dockerized multi-container DATAGerry in production. The DATAGerry Docker image uses 
+the stable branch of DATAGerry's Git repo.
+
+The Docker images are hosted on `Dockerhub <https://hub.docker.com/u/becongmbh>`_.
+
+We provide a docker-compose file that sets up the
 following containers:
 
     - **DataGerry**
@@ -82,63 +94,48 @@ following containers:
 
 All data is persisted using Docker volumes on the host machine.
 
-Start by copying the following ``docker-compose.yml`` into a new directory:
+**Install Docker Environment:**
 
-.. include:: ../../../contrib/docker/compose/ssl/docker-compose.yml
-    :literal:
+1. Install Docker:
 
-Create a subdirectory named ``cert`` containing your SSL certificate and key:
+Use default Docker installation guide.
 
-.. code-block:: console
+   * `Docker Engine <https://docs.docker.com/engine/installation/>`_
+   * `Docker Compose <https://docs.docker.com/compose/install/>`_ (opt. Docker Engine installation already includes Docker Compose Plugin)
 
-    ./docker-compose.yml
-    ./cert/cert.pem
-    ./cert/key.pem
+2. Getting started with DATAGerry-docker-compose:
 
-If SSL is not required, you can use the following simplified docker-compose file for a quick start:
+.. code-block:: sh
+	:linenos:
 
-.. include:: ../../../contrib/docker/compose/nossl/docker-compose.yml
-    :literal:
+	git clone https://github.com/DATAGerry/DATAGerry-docker.git 
+	cd DATAGerry-docker
 
-To start the stack, run:
+.. note::
+	We recommend to use always the latest tag version.
 
-.. code-block:: console
-
-    $ docker-compose up -d
-
-You can now access the DataGerry frontend:
+3. SSL (optional)
+   
+If you like to use SSL, copy your SSL certificate and key to:
 
 .. code-block:: console
 
-    http://<host> or https://<host>
-    user: admin
-    password: admin
+    ./conf/ssl/certs/datagerry.pem
+    ./conf/ssl/certs/datagerry.key
 
-| 
+4. Start DATAGerry using DockerHub images:
 
-Docker Images and Tags
------------------------
+.. code-block:: sh
+	:linenos:
 
-DataGerry Docker images are available on `Docker Hub <https://hub.docker.com/r/becongmbh/datagerry>`_.
+	docker compose up -d
 
-You can use the following tags:
-
-- ``latest``  
-  Points to the most recent stable release. Good for testing or quick setup, but it will upgrade to new major  
-  versions automatically.
-
-- ``<release>`` (e.g. ``2.2.0``)  
-  Use a specific version tag for predictable behavior in production environments.
-
-To specify a tag in your ``docker-compose.yml``:
-
-.. code-block:: yaml
-
-    # Replace this line
-    image: becongmbh/datagerry:latest
-
-    # With a specific release version
-    image: becongmbh/datagerry:2.2.0
+.. note::
+	| Now you can access the DataGerry frontend:	
+	| 'http://localhost' or 'https://localhost'
+	
+	| Default User: admin
+	| Default Password: admin
 
 | 
 
