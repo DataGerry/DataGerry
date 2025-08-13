@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,9 +19,11 @@ Implementation of all CmdbReport API routes
 import re
 import logging
 import json
+from typing import Any
 from datetime import datetime
 from ast import literal_eval
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDBQueryBuilder
@@ -64,7 +66,7 @@ DATETIME_PATTERN = r"datetime\.datetime\((.*?)\)"
 @reports_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def create_cmdb_report(params: dict, request_user: CmdbUser):
+def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates a CmdbReport in the database
 
@@ -104,7 +106,7 @@ def create_cmdb_report(params: dict, request_user: CmdbUser):
 @reports_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_cmdb_report(public_id: int, request_user: CmdbUser):
+def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the CmdbReport with the given public_id
     
@@ -135,7 +137,7 @@ def get_cmdb_report(public_id: int, request_user: CmdbUser):
 @reports_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Returns all CmdbReports based on the params
 

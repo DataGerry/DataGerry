@@ -17,6 +17,7 @@
 Implementation of DeleteSingleResponse
 """
 import logging
+from typing import Any
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -33,18 +34,18 @@ class DeleteSingleResponse(BaseAPIResponse):
     API Response for delete call of a single resource.
     """
 
-    def __init__(self, raw: dict = None) -> None:
+    def __init__(self, raw: dict[str, Any] | None = None) -> None:
         """
         Constructor of DeleteSingleResponse
 
         Args:
             raw: Content of deleted resource
         """
-        self.raw = raw
+        self.raw: dict[str, Any] | None = raw
         super().__init__(operation_type=OperationType.DELETE)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response
 

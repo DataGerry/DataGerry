@@ -17,6 +17,7 @@
 Implementation of GetMultiResponse
 """
 import logging
+from typing import Any
 from math import ceil
 from werkzeug.wrappers import Response
 
@@ -76,7 +77,7 @@ class GetMultiResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.GET, url=url, body=body)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response.
 
@@ -97,7 +98,7 @@ class GetMultiResponse(BaseAPIResponse):
         return response
 
 
-    def export(self, pagination: bool = True) -> dict:
+    def export(self, pagination: bool = True) -> dict[str, Any]:
         """
         Get the response data as dict
 

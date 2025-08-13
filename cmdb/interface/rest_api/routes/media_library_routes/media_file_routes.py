@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,6 +20,7 @@ import json
 import logging
 from bson import json_util
 from flask import abort, request, Response
+from werkzeug.wrappers.response import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
@@ -66,7 +67,7 @@ media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix
 @insert_request_user
 @media_file_blueprint.protect(auth=True, right='base.framework.object.view')
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_file_list(params: CollectionParameters, request_user: CmdbUser):
+def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Get all objects in database
 
@@ -99,7 +100,7 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.framework.object.edit')
-def add_new_file(request_user: CmdbUser):
+def add_new_file(request_user: CmdbUser) -> Response:
     """
     This method saves a file to the specified section of the document for storing workflow data.
     Any existing value that matches filename and the metadata is deleted. Before saving a value.
@@ -242,7 +243,7 @@ def update_file(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_file(filename: str, request_user: CmdbUser):
+def get_file(filename: str, request_user: CmdbUser) -> Response:
     """
     This method fetch a file to the specified section of the document.
     Any existing value that matches the file name and metadata will be considered.
@@ -277,7 +278,7 @@ def get_file(filename: str, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right='base.framework.object.view')
-def download_file(filename: str, request_user: CmdbUser):
+def download_file(filename: str, request_user: CmdbUser) -> Response:
     """
     This method download a file to the specified section of the document.
     Any existing value that matches the file name and metadata will be considered.
@@ -315,7 +316,7 @@ def download_file(filename: str, request_user: CmdbUser):
 @media_file_blueprint.route('<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @media_file_blueprint.protect(auth=True, right='base.framework.object.edit')
-def delete_file(public_id: int, request_user: CmdbUser):
+def delete_file(public_id: int, request_user: CmdbUser) -> Response:
     """
     This method deletes a file in the specified section of the document for storing workflow data.
     Any existing value that matches the file name and metadata is deleted. Before saving a value.

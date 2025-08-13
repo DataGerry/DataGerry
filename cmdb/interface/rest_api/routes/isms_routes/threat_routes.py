@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for the IsmsThreats
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ThreatManager
@@ -61,7 +63,7 @@ threat_blueprint = APIBlueprint('threat', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.add')
 @threat_blueprint.validate(IsmsThreat.SCHEMA)
-def insert_isms_threat(data: dict, request_user: CmdbUser):
+def insert_isms_threat(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsThreat into the database
 
@@ -102,7 +104,7 @@ def insert_isms_threat(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.view')
 @threat_blueprint.parse_collection_parameters()
-def get_isms_threats(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_threats(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsThreats
 
@@ -142,7 +144,7 @@ def get_isms_threats(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.view')
-def get_isms_threat(public_id: int, request_user: CmdbUser):
+def get_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsThreat
 
@@ -178,7 +180,7 @@ def get_isms_threat(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.edit')
 @threat_blueprint.validate(IsmsThreat.SCHEMA)
-def update_isms_threat(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_threat(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsThreat
 
@@ -219,7 +221,7 @@ def update_isms_threat(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.delete')
-def delete_isms_threat(public_id: int, request_user: CmdbUser):
+def delete_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsThreat
 

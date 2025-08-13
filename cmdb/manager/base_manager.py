@@ -130,7 +130,7 @@ class BaseManager:
             raise BaseManagerIterationError(str(err)) from err
 
 
-    def get_one(self, *args, **kwargs) -> dict[str, Any] | None:
+    def get_one(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
         """
         Retrieves a single document from MongoDB
 

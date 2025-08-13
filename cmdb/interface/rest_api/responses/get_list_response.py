@@ -17,6 +17,7 @@
 Implementation of GetListResponse
 """
 import logging
+from typing import Any
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -47,7 +48,7 @@ class GetListResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.GET, body=body)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response.
 
@@ -68,7 +69,7 @@ class GetListResponse(BaseAPIResponse):
         return response
 
 
-    def export(self) -> dict:
+    def export(self) -> dict[str, Any]:
         """
         Get the list response
         """
