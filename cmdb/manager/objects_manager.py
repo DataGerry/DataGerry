@@ -18,6 +18,7 @@ This module contains the implementation of the ObjectsManager
 """
 import logging
 import json
+from typing import Any
 from bson import Regex, json_util
 from pymongo.command_cursor import CommandCursor
 
@@ -38,7 +39,6 @@ from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
-    BaseManagerInsertError,
     BaseManagerIterationError,
     BaseManagerUpdateError,
     BaseManagerDeleteError,
@@ -57,7 +57,6 @@ from cmdb.errors.manager.objects_manager import (
 from cmdb.errors.models.cmdb_object import (
     CmdbObjectInitFromDataError,
 )
-from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -73,13 +72,13 @@ class ObjectsManager(BaseManager):
 
     Extends: BaseMaanger
     """
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection for the ObjectsManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
 
         Raises:
             ObjectsManagerInitError: If the ObjectsManager could not be initialised
@@ -87,14 +86,16 @@ class ObjectsManager(BaseManager):
         try:
             super().__init__(CmdbObject.COLLECTION, dbm, database)
         except Exception as err:
-            raise ObjectsManagerInitError(err) from err
+            raise ObjectsManagerInitError(str(err)) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_object(self,
-                      data: dict,
-                      user: CmdbUser = None,
-                      permission: AccessControlPermission = None) -> int:
+    def insert_object(
+        self,
+        data: dict[str, Any],
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> int:
         """
         Insert a CmdbObject into the database
 
@@ -111,9 +112,12 @@ class ObjectsManager(BaseManager):
             int: The public_id of the created CmdbObject
         """
         try:
-            new_object = CmdbObject.from_data(data)
+            new_object: CmdbObject = CmdbObject.from_data(data)
 
             object_type = self.get_object_type(new_object.type_id)
+
+            if not object_type:
+                raise ObjectsManagerInsertError("CmdbType of CmdbObject not found in database!")
 
             if not object_type.active:
                 raise AccessDeniedError(
@@ -131,9 +135,12 @@ class ObjectsManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_object(self, public_id: int,
-            user: CmdbUser = None,
-            permission: AccessControlPermission = None) -> dict | None:
+    def get_object(
+        self,
+        public_id: int,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> dict[str, Any] | None:
         """
         Retrieves a CmdbObject from the database
 
@@ -341,7 +348,7 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(err) from err
 
 
-    def count_objects(self, criteria: dict = None):
+    def count_objects(self, criteria: dict[str, Any] | None = None) -> int:
         """
         Returns the number of objects with the given criteria
 
@@ -374,9 +381,9 @@ class ObjectsManager(BaseManager):
             int: The next public_id for a CmdbObject
         """
         try:
-            return self.get_next_public_id()
+            return self.get_next_public_id(inc_id=True)
         except BaseManagerGetError as err:
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetError(str(err)) from err
 
 
     def aggregate_objects(self, pipeline: list[dict], **kwargs) -> CommandCursor:

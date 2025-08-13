@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for the CmdbObjectGroups
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectGroupsManager
@@ -60,7 +61,7 @@ object_group_blueprint = APIBlueprint('object_group', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.add')
 @object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
-def insert_cmdb_object_group(data: dict, request_user: CmdbUser):
+def insert_cmdb_object_group(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbObjectGroup into the database
 
@@ -104,7 +105,7 @@ def insert_cmdb_object_group(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.view')
 @object_group_blueprint.parse_collection_parameters()
-def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectGroups
 
@@ -148,7 +149,7 @@ def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.view')
-def get_cmdb_object_group(public_id: int, request_user: CmdbUser):
+def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbObjectGroup
 
@@ -187,7 +188,7 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.edit')
 @object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
-def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectGroup
 
@@ -231,7 +232,7 @@ def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.delete')
-def delete_cmdb_object_group(public_id: int, request_user: CmdbUser):
+def delete_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbObjectGroup
 

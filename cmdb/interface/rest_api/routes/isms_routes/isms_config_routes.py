@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for ISMS Configuration
 """
 import logging
+from typing import Any
 from flask import abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
@@ -50,7 +52,7 @@ isms_config_blueprint = APIBlueprint('isms_config', __name__)
 @isms_config_blueprint.route('/status', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_isms_config_status(request_user: CmdbUser):
+def get_isms_config_status(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the status of the ISMS configuration
 
@@ -68,27 +70,27 @@ def get_isms_config_status(request_user: CmdbUser):
                                                                                      request_user)
         risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
-        risk_class_amount = risk_class_manager.count_items()
-        likelihood_amount = likelihood_manager.count_items()
-        impact_amount = impact_manager.count_items()
-        impact_category_amount = impact_category_manager.count_items()
+        risk_class_amount: int = risk_class_manager.count_items()
+        likelihood_amount: int = likelihood_manager.count_items()
+        impact_amount: int = impact_manager.count_items()
+        impact_category_amount: int = impact_category_manager.count_items()
 
-        current_risk_matrix = risk_matrix_manager.get_item(1, as_dict=True)
+        current_risk_matrix: dict[str, Any] | None = risk_matrix_manager.get_item(1, as_dict=True)
 
         if not current_risk_matrix:
             abort(404, "The RiskMatrix with was not found in the database!")
 
-        risk_matrix_risk_class_status = check_risk_classes_set_in_matrix(current_risk_matrix)
+        risk_matrix_risk_class_status: bool = check_risk_classes_set_in_matrix(current_risk_matrix)
 
-        config_status = {
+        config_status: dict[str, bool] = {
             'risk_classes': risk_class_amount >= 3,
             'likelihoods': likelihood_amount >= 3,
             'impacts': impact_amount >= 3,
             'impact_categories': impact_category_amount >= 1,
-            'risk_matrix': risk_matrix_risk_class_status and\
-                           risk_class_amount >= 3 and\
-                           likelihood_amount >= 3 and\
-                           impact_amount >= 3,
+            'risk_matrix': risk_matrix_risk_class_status\
+                           and risk_class_amount >= 3\
+                           and likelihood_amount >= 3\
+                           and impact_amount >= 3,
         }
 
         return DefaultResponse(config_status).make_response()
@@ -96,4 +98,4 @@ def get_isms_config_status(request_user: CmdbUser):
         raise http_err
     except Exception as err:
         LOGGER.error("[get_isms_config_status] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while retrieving the ISMS configuration status!")

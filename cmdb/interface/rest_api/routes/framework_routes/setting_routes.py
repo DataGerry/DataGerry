@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -29,5 +29,3 @@ settings_blueprint = RootBlueprint('settings_rest', __name__, url_prefix='/setti
 with current_app.app_context():
     from cmdb.interface.rest_api.routes.settings_routes.system_routes import system_blueprint
     settings_blueprint.register_nested_blueprint(system_blueprint)
-
-# -------------------------------------------------------------------------------------------------------------------- #

@@ -34,14 +34,6 @@ from bson.tz_util import utc
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure
 from azure.core.exceptions import HttpResponseError
 
-# from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
-# from cmdb.framework.rendering.render_result import RenderResult
-# from cmdb.framework.media_library.base_media_file import BaseMediaFile
-# from cmdb.models.cmdb_dao import CmdbDAO
-# from cmdb.models.right_model.base_right import BaseRight
-# from cmdb.models.security_models.auth_settings import CmdbAuthSettings
-# from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
-# from cmdb.settings.date_settings import DateSettingsDAO
 from cmdb.framework.search.search_result import SearchResult
 from cmdb.framework.search.search_result_map import SearchResultMap
 

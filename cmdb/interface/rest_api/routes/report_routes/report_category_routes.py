@@ -71,7 +71,7 @@ def create_cmdb_report_category(params: dict, request_user: CmdbUser):
 
         # It is not possible to create a predefined CmdbReportCategory
         #TODO: FIX in Frontend (do not send the public_id)
-        params['public_id'] = report_categories_manager.get_next_public_id()
+        params['public_id'] = report_categories_manager.get_next_public_id(inc_id=True)
         params['predefined'] = False
 
         new_report_category_id = report_categories_manager.insert_item(params)

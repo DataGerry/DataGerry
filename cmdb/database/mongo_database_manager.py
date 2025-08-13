@@ -20,14 +20,14 @@ import logging
 from typing import Any
 from collections.abc import MutableMapping
 from pymongo.database import Database
-from pymongo.errors import CollectionInvalid
+from pymongo.errors import CollectionInvalid, DuplicateKeyError
 from pymongo import IndexModel
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.results import DeleteResult, UpdateResult
 
 from cmdb.database.mongo_connector import MongoConnector
-from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION
+from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION, MAX_DUPLICATE_KEY_RETRIES
 from cmdb.database.database_utils import retry_operation
 
 from cmdb.errors.database import (
@@ -57,13 +57,13 @@ class MongoDatabaseManager:
     """
     PyMongo (MongoDB) implementation of the Database Manager
     """
-    def __init__(self, host: str, port: int, database_name: str, mode: str = 'local'):
+    def __init__(self, host: str, port: int, database_name: str, mode: str = 'local') -> None:
         self.host = host
         self.port = int(port)
         self.db_name = database_name
         self.mode = mode  # Define the mode ('local' or 'cloud')
 
-        self.client_options = {
+        self.client_options: dict[str, Any] = {
             # 'ssl': True,  # Enable SSL connection by default (for Azure Cosmos DB, for example)
             # 'connectTimeoutMS': 30000,  # Timeout after 30 seconds if no connection is made
             # 'socketTimeoutMS': 30000,  # Socket timeout (set to 30 seconds)
@@ -89,7 +89,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def reset_connection(self):
+    def reset_connection(self) -> None:
         """
         Reset the MongoConnector to create a fresh MongoDB connection
         """
@@ -142,7 +142,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def create_database(self, name: str) -> Database:
+    def create_database(self, name: str) -> Database[Any]:
         """
         Create a new empty database if it does not already exist
 
@@ -168,7 +168,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def drop_database(self, database: str | Database) -> None:
+    def drop_database(self, database: str | Database[Any]) -> None:
         """
         Deletes an existing database
 
@@ -209,7 +209,9 @@ class MongoDatabaseManager:
             str: The name of the created collection
         """
         try:
-            all_collections = self.connector.get_database(self.target_database(db_name)).list_collection_names()
+            all_collections: list[str] = self.connector.get_database(
+                self.target_database(db_name)
+            ).list_collection_names()
 
             if collection_name not in all_collections:
                 self.connector.get_database(self.target_database(db_name)).create_collection(collection_name)
@@ -217,13 +219,13 @@ class MongoDatabaseManager:
             return collection_name
         except Exception as err:
             if isinstance(err, CollectionInvalid):
-                raise CollectionAlreadyExistsError(err) from err
+                raise CollectionAlreadyExistsError(str(err)) from err
 
             raise DatabaseConnectionError(f"Failed to create collection '{collection_name}': {err}") from err
 
 
     @retry_operation
-    def get_collection(self, name: str, db_name: str) -> Collection:
+    def get_collection(self, name: str, db_name: str) -> Collection[Any]:
         """
         Get a collection from the database
 
@@ -237,10 +239,10 @@ class MongoDatabaseManager:
             (Collection): The requested collection
         """
         try:
-            return  self.connector.get_database(self.target_database(db_name))[name]
+            return self.connector.get_database(self.target_database(db_name))[name]
         except Exception as err:
             LOGGER.error("[get_collection] '%s' Exception: %s. Type: %s", name, err, type(err))
-            raise GetCollectionError(err) from err
+            raise GetCollectionError(str(err)) from err
 
 
     @retry_operation
@@ -319,7 +321,7 @@ class MongoDatabaseManager:
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     @retry_operation
-    def insert(self, collection: str, db_name: str, data: dict, skip_public: bool = False) -> int:
+    def insert(self, collection: str, db_name: str, data: dict[str, Any], skip_public: bool = False) -> int:
         """
         Adds a document to a collection
 
@@ -336,16 +338,29 @@ class MongoDatabaseManager:
         """
         try:
             if skip_public:
-                return self.get_collection(collection, db_name).insert_one(data)
+                self.get_collection(collection, db_name).insert_one(data)
+                return data['public_id']
 
-            if 'public_id' not in data:
-                data['public_id'] = self.get_next_public_id(collection, db_name)
+            for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
+                if 'public_id' not in data:
+                    data['public_id'] = self.get_next_public_id(collection, db_name, inc_id=True)
 
-            self.get_collection(collection, db_name).insert_one(data)
-            self.update_public_id_counter(collection, db_name, data['public_id'], increment=True)
+                try:
+                    self.get_collection(collection, db_name).insert_one(data)
+                    return data['public_id']
+                except DuplicateKeyError:
+                    LOGGER.debug(
+                        "Duplicate public_id %s detected on attempt %d, retrying...",
+                        data['public_id'], attempt + 1
+                    )
+                    # Force getting a new public_id on next iteration
+                    data.pop('public_id', None)
 
-            return data['public_id']
+            raise DocumentInsertError(
+                f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
+            )
         except Exception as err:
+            LOGGER.debug("Insert Exception: %s. Type: %s", err, type(err), exc_info=True)
             raise DocumentInsertError(f"Failed to insert document into collection '{collection}': {err}") from err
 
 
@@ -475,6 +490,7 @@ class MongoDatabaseManager:
             if result.upserted_id:
                 self.update_public_id_counter(collection, db_name, data['public_id'], increment=True)
 
+            return result
         except Exception as err:
             LOGGER.error("[upsert_set] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update/create document in '{collection}': {err}") from err
@@ -588,57 +604,60 @@ class MongoDatabaseManager:
 
     @retry_operation
     def update_public_id_counter(
-            self,
-            collection: str,
-            db_name: str,
-            value: int = None,
-            increment: bool = False) -> None:
+        self,
+        collection: str,
+        db_name: str,
+        value: int | None = None,
+        increment: bool = False
+    ) -> None:
         """
-        Updates or increments the public_id counter for the given collection
+        Updates or increments the public_id counter for the given collection.
 
         Args:
-            collection (str): Name of the collection
-            value (int | None): The new value to set for the counter. Ignored if `increment` is True.
-            increment (bool): If True, increments the counter by 1. Defaults to False.
+            collection (str): Name of the collection.
+            value (int | None): The new value to set for the counter.
+                Ignored if `increment` is True.
+            increment (bool): If True, increments the counter by 1.
 
         Raises:
-            DocumentUpdateError: If the counter update operation fails or no valid operation is provided
+            DocumentUpdateError: If the update operation fails.
         """
         try:
             working_collection = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name)
-            query = {'_id': collection}
-
-            # Fetch the current counter document
-            counter_doc = working_collection.find_one(query)
-
-            if not counter_doc:
-                # If the counter document does not exist, initialize it
-                self.init_public_id_counter(collection, db_name)
-                counter_doc = working_collection.find_one(query)
+            query = {"_id": collection}
 
             if increment:
-                # If increment flag is True, increment by 1
-                update_query = {'$inc': {'counter': 1}}
-            elif value is not None and value > counter_doc['counter']:
-                # If a specific value is provided and it is greater than the current counter, update it
-                counter_doc['counter'] = value
-                update_query = {'$set': {'counter': counter_doc['counter']}}
-            else:
+                # Try to increment existing counter
+                result = working_collection.update_one(query, {"$inc": {"counter": 1}})
+                if result.matched_count == 0:
+                    # No counter doc yet — create it starting at 1
+                    working_collection.insert_one({"_id": collection, "counter": 1})
+
                 return
 
-            # Perform the update operation
-            result = working_collection.update_one(query, update_query)
+            if value is not None:
+                counter_doc = working_collection.find_one(query)
 
-            if result.modified_count == 0:
-                raise DocumentUpdateError(f"Failed to update PublicID counter for '{collection}'.")
+                if not counter_doc:
+                    # Create counter doc starting at given value (min 1)
+                    working_collection.insert_one({"_id": collection, "counter": max(1, value)})
+                    return
+
+                if value > counter_doc["counter"]:
+                    working_collection.update_one(query, {"$set": {"counter": value}})
+                return
+
+            raise DocumentUpdateError("No valid update operation specified.")
 
         except Exception as err:
-            raise DocumentUpdateError(f"Failed to update PublicID counter for '{collection}': {err}") from err
+            raise DocumentUpdateError(
+                f"Failed to update PublicID counter for '{collection}': {err}"
+            ) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     @retry_operation
-    def find_all(self, collection: str, db_name: str, *args, **kwargs) -> list:
+    def find_all(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Retrives documents from the specified collection
 
@@ -715,7 +734,14 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find_one(self, collection: str, db_name: str, public_id: int, *args, **kwargs) -> dict:
+    def find_one(
+        self,
+        collection: str,
+        db_name: str,
+        public_id: int,
+        *args: Any,
+        **kwargs: Any
+    ) -> dict[str, Any] | None:
         """
         Retrieves a single document with the given public_id from the specified collection
 
@@ -743,7 +769,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def count(self, collection: str, db_name: str, *args, criteria: dict = None, **kwargs) -> int:
+    def count(self, collection: str, db_name: str, *args: Any, criteria: dict | None = None, **kwargs: Any) -> int:
         """
         Count documents based on criteria parameters
 
@@ -838,13 +864,12 @@ class MongoDatabaseManager:
             int: The next available public_id for the collection
         """
         try:
-            found_counter = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
-            if found_counter:
-                new_id = found_counter['counter'] + 1
+            cur_count = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
+            if cur_count:
+                new_id = cur_count['counter'] + 1
             else:
-                docs_count = self.init_public_id_counter(collection, db_name)
-                new_id = docs_count + 1
-
+                docs_count: int = self.init_public_id_counter(collection, db_name)
+                new_id: int = docs_count + 1
 
             self.update_public_id_counter(collection, db_name, increment=inc_id)
 

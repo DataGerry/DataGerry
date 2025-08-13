@@ -89,7 +89,7 @@ class DocapiTemplatesManager(BaseManager):
         Returns:
             int: The next public_id for DocapiTemplate
         """
-        return self.get_next_public_id()
+        return self.get_next_public_id(inc_id=True)
 
 
     def get_template(self, public_id: int) -> DocapiTemplate:

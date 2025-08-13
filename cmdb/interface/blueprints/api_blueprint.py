@@ -18,6 +18,7 @@ Implementation of APIBlueprint
 """
 from functools import wraps
 import logging
+from typing import Any
 from cerberus import Validator
 from flask import Blueprint, abort, request, current_app
 
@@ -119,7 +120,7 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def validate(cls, schema=None):
+    def validate(cls, schema: dict[str, Any]):
         """
         Decorator to validate incoming JSON request data against a provided schema
 
