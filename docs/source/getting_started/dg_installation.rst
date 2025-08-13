@@ -70,18 +70,22 @@ This approach is especially useful when running DataGerry in Docker environments
 
 | 
 
+=======================================================================================================================
+
+| 
+
 Setup via Docker Image
 ======================
 
-The quickest way to get started with DATAGerry is using Docker.
+The quickest way to get started with DataGerry is using Docker.
 
 Docker is a container-based software framework for automating deployment of 
 applications. Compose is a tool for defining and running multi-container Docker 
 applications.
 
-The DATAGerry-docker repo is meant to be the starting point for somebody, who likes to use 
-dockerized multi-container DATAGerry in production. The DATAGerry Docker image uses 
-the stable branch of DATAGerry's Git repo.
+The DataGerry-docker repo is meant to be the starting point for somebody, who likes to use 
+dockerized multi-container DataGerry in production. The DataGerry Docker image uses 
+the stable branch of DataGerry's Git repo.
 
 The Docker images are hosted on `Dockerhub <https://hub.docker.com/u/becongmbh>`_.
 
@@ -103,13 +107,13 @@ Use default Docker installation guide.
    * `Docker Engine <https://docs.docker.com/engine/installation/>`_
    * `Docker Compose <https://docs.docker.com/compose/install/>`_ (opt. Docker Engine installation already includes Docker Compose Plugin)
 
-2. Getting started with DATAGerry-docker:
+2. Getting started with DataGerry-docker:
 
 .. code-block:: sh
 	:linenos:
 
-	git clone https://github.com/DATAGerry/DATAGerry-docker.git 
-	cd DATAGerry-docker
+	git clone https://github.com/DataGerry/DataGerry-docker.git  
+	cd DataGerry-docker
 
 .. note::
 	We recommend always to use the latest tag version.
@@ -123,7 +127,7 @@ If you like to use SSL, copy your SSL certificate and key to:
     ./conf/ssl/certs/datagerry.pem
     ./conf/ssl/certs/datagerry.key
 
-4. Start DATAGerry using DockerHub images:
+4. Start DataGerry using DockerHub images:
 
 .. code-block:: sh
 	:linenos:
