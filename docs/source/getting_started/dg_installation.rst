@@ -103,7 +103,7 @@ Use default Docker installation guide.
    * `Docker Engine <https://docs.docker.com/engine/installation/>`_
    * `Docker Compose <https://docs.docker.com/compose/install/>`_ (opt. Docker Engine installation already includes Docker Compose Plugin)
 
-2. Getting started with DATAGerry-docker-compose:
+2. Getting started with DATAGerry-docker:
 
 .. code-block:: sh
 	:linenos:
@@ -112,9 +112,9 @@ Use default Docker installation guide.
 	cd DATAGerry-docker
 
 .. note::
-	We recommend to use always the latest tag version.
+	We recommend always to use the latest tag version.
 
-3. SSL (optional)
+3. Configure SSL (optional)
    
 If you like to use SSL, copy your SSL certificate and key to:
 
