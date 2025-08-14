@@ -118,16 +118,7 @@ Use default Docker installation guide.
 .. note::
 	We recommend always to use the latest tag version.
 
-3. Configure SSL (optional)
-   
-If you like to use SSL, copy your SSL certificate and key to:
-
-.. code-block:: console
-
-    ./conf/ssl/certs/datagerry.pem
-    ./conf/ssl/certs/datagerry.key
-
-4. Start DataGerry using DockerHub images:
+3. Start DataGerry using DockerHub images:
 
 .. code-block:: sh
 	:linenos:
@@ -136,7 +127,7 @@ If you like to use SSL, copy your SSL certificate and key to:
 
 .. note::
 	| Now you can access the DataGerry frontend:	
-	| 'http://localhost' or 'https://localhost'
+	| 'http://localhost'
 	
 	| Default User: admin
 	| Default Password: admin
