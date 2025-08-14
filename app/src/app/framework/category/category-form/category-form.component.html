@@ -43,8 +43,8 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-name">Identifier<span class="required">*</span>:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-name">Identifier<span class="required">*</span>:</label>
                             <input
                                 [formControl]="name"
                                 type="text"
@@ -55,12 +55,12 @@
                                 [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                                         'is-invalid': name.invalid && (name.dirty || name.touched)}"
                             >
-                            <small class="form-text text-muted float-start">Unique identifier for the category</small>
+                            <small class="form-text text-muted text-start">Unique identifier for the category</small>
                             <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                                <div class="float-end" *ngIf="name.errors.required">
+                                <div class="text-end" *ngIf="name.errors.required">
                                     This field is required
                                 </div>
-                                <div class="float-end" *ngIf="name.errors.categoryExists">
+                                <div class="text-end" *ngIf="name.errors.categoryExists">
                                     A category with this name already exists
                                 </div>
                             </div>
@@ -68,8 +68,8 @@
                         </div>
                     </div>
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-label">Label:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-label">Label:</label>
                             <input
                                 formControlName="label"
                                 type="text"
@@ -85,8 +85,8 @@
                         </div>
                     </div>
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-meta-icon">Icon:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-meta-icon">Icon:</label>
                             <div class="input-group" formGroupName="meta">
                                     <span
                                         class="input-group-text"
@@ -115,8 +115,8 @@
                         </div>
                     </div>
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-name">Parent:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-name">Parent:</label>
                             <ng-select
                                 formControlName="parent"
                                 placeholder="No parent category"
@@ -126,7 +126,7 @@
                                 bindValue="public_id"
                                 bindLabel="label"
                                 class="form-control"
-                                appendTo="body"
+                            
                                 (scrollToEnd)="onScrollToEnd()"
                                 [ngClass]="{ 'is-valid': parent.valid && (parent.dirty || parent.touched),
                                             'is-invalid': parent.invalid && (parent.dirty || parent.touched)}"
@@ -143,7 +143,7 @@
                 <hr/>
                 <div class="row">
                     <div class="col-md-12 dnd">
-                        <label for="category-types">Types:</label>
+                        <label class="mb-3 mt-2" for="category-types">Types:</label>
                         <section
                             id="category-types"
                             dndDropzone
@@ -159,7 +159,7 @@
                                     [dndDraggable]="type"
                                     [dndEffectAllowed]="effect"
                                     (dndMoved)="onDragged(type, assignedTypes, 'move', true)"
-                                    class="list-group-item"
+                                    class="card p-3 mb-2"
                                 >
                                     <div class="container">
                                         <div class="row">
@@ -179,7 +179,7 @@
                 </div>
             </div>
             <div class="card-footer">
-                <div class="btn-group float-end" role="group">
+                <div class="btn-group text-end" role="group">
                     <button
                         class="btn btn-outline-danger me-2"
                         type="button"
