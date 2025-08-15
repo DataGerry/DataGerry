@@ -36,6 +36,8 @@ from .database_errors import (
     DocumentAggregationError,
     PublicIdCounterInitError,
     CollectionInitError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -59,4 +61,6 @@ __all__: list[str] = [
     'DocumentAggregationError',
     'PublicIdCounterInitError',
     'CollectionInitError',
+    'DocumentLockTimeoutError',
+    'DocumentNetworkError',
 ]
