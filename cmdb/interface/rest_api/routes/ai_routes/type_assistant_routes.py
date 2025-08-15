@@ -16,12 +16,15 @@
 """
 Definition of all routes for the Type Assistant
 """
+import json
 import logging
 from flask import abort, request
+from cerberus import Validator
 
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.type_model import CmdbType
 
 from cmdb.interface.rest_api.ai_models.gemini_model import gemini_model
 from cmdb.interface.blueprints import APIBlueprint
@@ -62,8 +65,32 @@ def send_message_ai(request_user: CmdbUser):
 
         response = gemini_model.generate_content(full_prompt)
 
+        is_valid_type = True
+
+        try:
+            formatted_data = json.loads(response.text)
+
+            try:
+                validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
+                validator.validate(formatted_data)
+            except Exception as err:
+                LOGGER.debug("AI Response Type validation failed. Error:%s", err)
+                is_valid_type = False
+
+        except Exception as err:
+            LOGGER.debug("AI Response to json failed. Error:%s", err)
+            is_valid_type = False
+            formatted_data = response.text
+
+        # LOGGER.debug("formatted_text: %s", formatted_data)
+
+        response_data = {
+            'data': formatted_data,
+            'is_valid_type': is_valid_type
+        }
+
         # LOGGER.debug("response text: %s", response.text)
-        return DefaultResponse(response.text).make_response()
+        return DefaultResponse(response_data).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
@@ -126,4 +153,15 @@ Rules:
 - Use relation only when the attribute refers to another object type.
 - Each object type should have at least 1-3 additional sections (excluding Information). Each section should contain
   2-6 attributes, except Global Sections which always include only their predefined attributes.
+
+
+Return your answer as **only** valid JSON.
+Do not include any explanations, text, or markdown code fences.
+Do not include triple backticks.
+Return the result as a single valid JSON object.
+Do NOT wrap the object in an array.
+Do NOT include any extra keys other than the ones requested.
+The JSON must be directly parsable by Python's json.loads().
+Your output should start with { and end with }.
+The JSON object must contain ONLY the properties of the modeled object directly at the root level.
 """
