@@ -136,3 +136,15 @@ class CollectionInitError(DataBaseError):
     """
     Raised when a collection could not be initialised
     """
+
+
+class DocumentLockTimeoutError(DataBaseError):
+    """
+    Raised when a MongoDB LockTimeout occurs
+    """
+
+
+class DocumentNetworkError(DataBaseError):
+    """
+    Raised when an insert fails due to network or timeout issues
+    """

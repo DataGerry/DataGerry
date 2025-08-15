@@ -55,7 +55,7 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.database import SetDatabaseError, DatabaseNotFoundError
+from cmdb.errors.database import SetDatabaseError, DatabaseNotFoundError, DocumentNetworkError, DocumentLockTimeoutError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -124,6 +124,28 @@ def user_has_right(required_right: str, request_user: CmdbUser | None = None) ->
 
     except Exception:
         return False
+
+
+def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Decorator to catch database-related errors and return proper HTTP responses.
+
+    Catches:
+        - DocumentNetworkError -> 503 Service Unavailable
+        - DocumentLockTimeoutError -> 423 Locked
+    """
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except DocumentNetworkError as err:
+            LOGGER.error("[DB Network Error] %s: %s", type(err), err, exc_info=True)
+            abort(500, "Database connection issue. Please try again!")
+        except DocumentLockTimeoutError as err:
+            LOGGER.error("[DB Lock Timeout] %s: %s", type(err), err, exc_info=True)
+            abort(500, "Database collection currently in use. Please try again!")
+
+    return wrapper
 
 
 def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:

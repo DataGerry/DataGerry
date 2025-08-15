@@ -20,7 +20,16 @@ import logging
 from typing import Any
 from collections.abc import MutableMapping
 from pymongo.database import Database
-from pymongo.errors import CollectionInvalid, DuplicateKeyError
+from pymongo.errors import (
+    PyMongoError,
+    CollectionInvalid,
+    DuplicateKeyError,
+    OperationFailure,
+    NetworkTimeout,
+    ConnectionFailure,
+    ServerSelectionTimeoutError,
+    ExecutionTimeout,
+)
 from pymongo import IndexModel
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
@@ -45,6 +54,8 @@ from cmdb.errors.database import (
     DocumentAggregationError,
     GetCollectionError,
     PublicIdCounterInitError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -65,8 +76,9 @@ class MongoDatabaseManager:
 
         self.client_options: dict[str, Any] = {
             # 'ssl': True,  # Enable SSL connection by default (for Azure Cosmos DB, for example)
-            # 'connectTimeoutMS': 30000,  # Timeout after 30 seconds if no connection is made
-            # 'socketTimeoutMS': 30000,  # Socket timeout (set to 30 seconds)
+            'connectTimeoutMS': 40000,  # Timeout after 30 seconds if no connection is made
+            'socketTimeoutMS': 40000,  # Socket timeout (set to 30 seconds)
+            'serverSelectionTimeoutMS': 40000, 
             # 'heartbeatFrequencyMS': 30000,       # reduce background chatter
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
@@ -84,7 +96,6 @@ class MongoDatabaseManager:
         else:
             self.client_options['ssl'] = False  # Disable SSL for local mode
 
-        # self.connector = MongoConnector(self.host, self.port, self.db_name, self.client_options)
         self.connector = MongoConnector(self.host, self.port, self.client_options)
 
 
@@ -323,18 +334,20 @@ class MongoDatabaseManager:
     @retry_operation
     def insert(self, collection: str, db_name: str, data: dict[str, Any], skip_public: bool = False) -> int:
         """
-        Adds a document to a collection
+        Adds a document to a collection with retry on duplicate public_id.
 
         Args:
-            collection (str): name of database collection
-            data (dict): data which should be inserted
-            skip_public (bool): Skip the public id creation and counter increment
+            collection (str): Name of the database collection.
+            data (dict): Data to be inserted.
+            skip_public (bool): If True, skips public ID creation and counter increment.
 
         Raises:
-            DocumentInsertError: When a document could not be created
+            DocumentInsertError: If the document could not be created.
+            DocumentNetworkError: If a network or timeout error occurs.
+            DocumentLockTimeoutError: If a lock or execution timeout occurs.
         
         Returns:
-            int: New public id of the document
+            int: New public ID of the inserted document.
         """
         try:
             if skip_public:
@@ -348,20 +361,38 @@ class MongoDatabaseManager:
                 try:
                     self.get_collection(collection, db_name).insert_one(data)
                     return data['public_id']
+
                 except DuplicateKeyError:
                     LOGGER.debug(
                         "Duplicate public_id %s detected on attempt %d, retrying...",
                         data['public_id'], attempt + 1
                     )
-                    # Force getting a new public_id on next iteration
                     data.pop('public_id', None)
+
+                except ExecutionTimeout as err:
+                    LOGGER.debug("ExecutionTimeout on attempt %d: %s", attempt + 1, err, exc_info=True)
+                    raise DocumentLockTimeoutError(f"Execution timeout: {err}") from err
+
+                except OperationFailure as err:
+                    if err.code == 24:  # MongoDB LockTimeout
+                        LOGGER.debug("LockTimeout on attempt %d: %s", attempt + 1, err, exc_info=True)
+                        raise DocumentLockTimeoutError(f"Lock timeout: {err}") from err
+                    raise DocumentInsertError(f"Operation failure: {err}") from err
 
             raise DocumentInsertError(
                 f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
             )
+
+        except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure, PyMongoError) as net_err:
+            LOGGER.debug("Network exception: %s", net_err, exc_info=True)
+            raise DocumentNetworkError(f"Network/timeout error while inserting document: {net_err}") from net_err
+
         except Exception as err:
-            LOGGER.debug("Insert Exception: %s. Type: %s", err, type(err), exc_info=True)
-            raise DocumentInsertError(f"Failed to insert document into collection '{collection}': {err}") from err
+            LOGGER.debug("Insert exception: %s. Type: %s", err, type(err), exc_info=True)
+            raise DocumentInsertError(
+                f"Failed to insert document into collection '{collection}': {err}"
+        ) from err
+
 
 
     @retry_operation
@@ -417,11 +448,11 @@ class MongoDatabaseManager:
             collection: str,
             db_name: str,
             criteria: dict,
-            data: dict,
-            *args,
+            data: dict[str, Any],
+            *args: Any,
             add_to_set: bool = True,
             plain: bool = False,
-            **kwargs) -> UpdateResult:
+            **kwargs: Any) -> UpdateResult:
         """
         Updates a document inside the specified collection
 
@@ -456,7 +487,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def upsert_set(self, collection:str, db_name: str, data: dict) -> UpdateResult:
+    def upsert_set(self, collection:str, db_name: str, data: dict[str, Any]) -> UpdateResult:
         """
         Performs an upsert operation on a specified MongoDB collection.
         
@@ -498,12 +529,14 @@ class MongoDatabaseManager:
 
     @retry_operation
     def unset_update_many(
-            self,
-            collection: str,
-            db_name: str,
-            criteria: dict,
-            field: str,
-            *args, **kwargs) -> UpdateResult:
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict,
+        field: str,
+        *args: Any,
+        **kwargs: Any
+    ) -> UpdateResult:
         """
         Removes a field from multiple documents in the specified collection
 
@@ -682,7 +715,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find(self, collection: str, db_name: str, *args, **kwargs) -> Cursor:
+    def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor:
         """
         Retrieves documents from the specified collection with optional filters and projections
         
@@ -708,7 +741,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find_one_by(self, collection: str, db_name: str, *args, **kwargs) -> dict:
+    def find_one_by(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> dict:
         """
         Find one specific document by special requirements
 

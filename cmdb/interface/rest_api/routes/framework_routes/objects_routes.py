@@ -41,6 +41,7 @@ from cmdb.manager import (
     ObjectRelationLogsManager,
 )
 
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.object_relation_model import CmdbObjectRelation
@@ -56,7 +57,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, sync_config_items, verify_api_access
+from cmdb.interface.route_utils import insert_request_user, sync_config_items, verify_api_access, handle_db_errors
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
     GetListResponse,
@@ -87,6 +88,7 @@ objects_blueprint = APIBlueprint('objects', __name__)
 
 #TODO: REFACTOR-FIX (reduce complexity)
 @objects_blueprint.route('/', methods=['POST'])
+@handle_db_errors
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.add')
@@ -108,7 +110,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
         webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
-        objects_count = objects_manager.count_objects()
+        objects_count: int = objects_manager.count_objects()
 
         if current_app.cloud_mode:
             if check_config_item_limit_reached(request_user, objects_count):
@@ -132,9 +134,9 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
 
         new_object_id = objects_manager.insert_object(new_object_data, request_user, AccessControlPermission.CREATE)
 
-        current_type_instance = objects_manager.get_object_type(new_object_data['type_id'])
+        current_type_instance: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
 
-        current_object = objects_manager.get_object(new_object_id)
+        current_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
 
         if not current_object:
             abort(404, "Could not retrieve the created object from the database!")
@@ -183,7 +185,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
 
         # Generate new insert log
         try:
-            log_params = {
+            log_params: dict[str, Any] = {
                 'object_id': new_object_id,
                 'user_id': request_user.get_public_id(),
                 'user_name': request_user.get_display_name(),
