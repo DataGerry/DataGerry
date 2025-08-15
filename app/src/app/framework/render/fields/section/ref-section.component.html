@@ -28,7 +28,7 @@
         <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
                                         [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
         <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
-          <ng-select #selection class="mb-3 ng-select-valid custom-select ref-section-select"
+          <ng-select #selection class="mb-3 ng-select-valid form-select ref-section-select"
                      [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                        'is-invalid': controller.invalid && (controller.dirty || controller.touched)}" [loading]="loading"
                      [items]="objects"

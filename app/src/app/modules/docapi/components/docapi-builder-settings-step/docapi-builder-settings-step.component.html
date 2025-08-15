@@ -10,14 +10,14 @@
             >
                 <div class="mb-3">
                     <label>Active by default: <span class="required">*</span></label>
-                    <div class="custom-control custom-switch">
-                        <input type="checkbox" formControlName="active" class="custom-control-input" id="docActiveInput"/>
-                        <label class="custom-control-label" for="docActiveInput"></label>
+                    <div class="form-check form-switch mt-2">
+                        <input type="checkbox" formControlName="active" class="form-check-input" id="docActiveInput"/>
+                        <label class="form-check-label" for="docActiveInput"></label>
                     </div>
                 </div>
 
                 <div class="mb-3">
-                    <label for="docLabelInput">Label: <span class="required">*</span></label>
+                    <label class="mb-2" for="docLabelInput">Label: <span class="required">*</span></label>
                     <input
                         type="text"
                         formControlName="label"
@@ -32,7 +32,7 @@
                         *ngIf="label.invalid && (label.dirty || label.touched)"
                         class="invalid-feedback"
                     >
-                        <div class="float-end" *ngIf="label.errors.required">
+                        <div class="text-end" *ngIf="label.errors.required">
                             Label is required
                         </div>
                     </div>
@@ -41,7 +41,7 @@
                 </div>
 
                 <div class="mb-3">
-                    <label for="docNameInput">Name: <span class="required">*</span></label>
+                    <label class="mb-2" for="docNameInput">Name: <span class="required">*</span></label>
                     <input
                         type="text"
                         formControlName="name"
@@ -57,18 +57,17 @@
                         Document name must be lowercase unique
                     </small>
                     <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                        <div class="float-end" *ngIf="name.errors.required">
+                        <div class="text-end" *ngIf="name.errors.required">
                             Name is required
                         </div>
-                        <div class="float-end" *ngIf="name.errors.nameAlreadyTaken">
+                        <div class="text-end" *ngIf="name.errors.nameAlreadyTaken">
                             A type with this name already exists
                         </div>
                     </div>
-                    <div class="clearfix"></div>
                 </div>
 
                 <div class="mb-3">
-                    <label for="docDescriptionInput">Description:</label>
+                    <label class="mb-2" for="docDescriptionInput">Description:</label>
                     <textarea
                         class="form-control"
                         formControlName="description"

@@ -12,10 +12,10 @@
                  name-guideline>
           <div *ngIf="usernameControl.invalid && (usernameControl.dirty || usernameControl.touched)"
                class="invalid-feedback">
-            <div class="float-end" *ngIf="usernameControl.errors.required">
+            <div class="text-end" *ngIf="usernameControl.errors.required">
               Username is required
             </div>
-            <div class="float-end" *ngIf="usernameControl.errors.userExists">
+            <div class="text-end" *ngIf="usernameControl.errors.userExists">
               User with this name already exists
             </div>
             <div class="clearfix"></div>
@@ -31,7 +31,7 @@
                  'is-invalid': emailControl.invalid && (emailControl.dirty || emailControl.touched)}">
           <div *ngIf="emailControl.invalid && (emailControl.dirty || emailControl.touched)"
                class="invalid-feedback">
-            <div class="float-end ms-2" *ngIf="emailControl.errors.email">
+            <div class="text-end ms-2" *ngIf="emailControl.errors.email">
               This is not a valid email address
             </div>
             <div class="clearfix"></div>
@@ -48,10 +48,10 @@
                  'is-invalid': passwordControl.invalid && (passwordControl.dirty || passwordControl.touched)}">
           <div *ngIf="passwordControl.invalid && (passwordControl.dirty || passwordControl.touched)"
                class="invalid-feedback">
-            <div class="float-end ms-2" *ngIf="passwordControl.errors.required">
+            <div class="text-end ms-2" *ngIf="passwordControl.errors.required">
               Password is required
             </div>
-            <div class="float-end ms-2" *ngIf="passwordControl.errors.strength">
+            <div class="text-end ms-2" *ngIf="passwordControl.errors.strength">
               Password is not strong enough
             </div>
             <div class="clearfix"></div>
@@ -88,7 +88,7 @@
           </select>
           <div *ngIf="authenticatorControl.invalid && (authenticatorControl.dirty || authenticatorControl.touched)"
                class="invalid-feedback">
-            <div class="float-end" *ngIf="authenticatorControl.errors.required">
+            <div class="text-end" *ngIf="authenticatorControl.errors.required">
               Authenticator is required.
             </div>
             <div class="clearfix"></div>
@@ -106,7 +106,7 @@
           </select>
           <div *ngIf="groupControl.invalid && (groupControl.dirty || groupControl.touched)"
                class="invalid-feedback">
-            <div class="float-end" *ngIf="groupControl.errors.required">
+            <div class="text-end" *ngIf="groupControl.errors.required">
               Group is required.
             </div>
             <div class="clearfix"></div>

@@ -53,10 +53,10 @@
               required>
             <div *ngIf="external_name.invalid && (external_name.dirty || external_name.touched)"
               class="invalid-feedback">
-              <div class="float-end" *ngIf="external_name.errors.required">
+              <div class="text-end" *ngIf="external_name.errors.required">
                 Name is required.
               </div>
-              <div class="float-end" *ngIf="external_name.errors.nameAlreadyTaken">
+              <div class="text-end" *ngIf="external_name.errors.nameAlreadyTaken">
                 A external with this name already exists.
               </div>
             </div>
@@ -67,7 +67,7 @@
                  'is-invalid': external_label.invalid && (external_label.dirty || external_label.touched)}" required>
             <div *ngIf="external_label.invalid && (external_label.dirty || external_label.touched)"
               class="invalid-feedback">
-              <div class="float-end" *ngIf="external_label.errors.required">
+              <div class="text-end" *ngIf="external_label.errors.required">
                 Label is required.
               </div>
             </div>

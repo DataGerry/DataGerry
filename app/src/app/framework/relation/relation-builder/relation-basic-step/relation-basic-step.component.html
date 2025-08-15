@@ -22,7 +22,7 @@
           'is-invalid': relation_name.invalid && (relation_name.dirty || relation_name.touched)
         }"
       />
-      <small class="form-text text-muted mt-1">
+      <small class="form-text mt-1">
         <i class=" me-1"></i>Use letters, numbers, and hyphens only
       </small>
       <div *ngIf="relation_name.invalid && (relation_name.dirty || relation_name.touched)"
@@ -79,6 +79,7 @@
                   formControlName="relation_color_parent"
                   class="form-control form-control-color"
                   title="Choose color"
+                  style="width: 100%; padding: 5px;"
                 />
               </div>
             </div>
@@ -98,7 +99,7 @@
                 [closeOnSelect]="false"
               >
               </ng-select>
-              <small class="form-text text-muted mt-1 d-block">
+              <small class="form-text mt-1">
                 Allowed parent types in this relation
               </small>
             </div>
@@ -150,6 +151,7 @@
                   formControlName="relation_color_child"
                   class="form-control form-control-color"
                   title="Choose color"
+                  style="width: 100%; padding: 5px;"
                 />
               </div>
             </div>
@@ -169,7 +171,7 @@
                 [closeOnSelect]="false"
               >
               </ng-select>
-              <small class="form-text text-muted mt-1 d-block">
+              <small class="form-text mt-1">
                 Allowed child types in this relation
               </small>
             </div>

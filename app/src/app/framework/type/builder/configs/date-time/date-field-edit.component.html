@@ -1,27 +1,28 @@
-<div [formGroup]="form" class="form-row">
-
+<div [formGroup]="form" class="row">
     <div *ngIf="this.fieldSectionType === 'multi-data-section'">
-        <div class="form-group col-md-12">
+        <div class=" col-md-12">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
-                    <input
-                        type="checkbox"
-                        [formControl]="hideFieldControl"
-                        name="hideFieldControl-date"
-                        (ngModelChange)="onInputChange($event, 'hideField')"
-                    />
-                    <label class="hide-info">
-                        Hide this field as column in object view/edit mode
-                    </label>
+                  <input
+                    type="checkbox"
+                    [formControl]="hideFieldControl"
+                    name="hideFieldControl-date"
+                    (ngModelChange)="onInputChange($event, 'hideField')"
+                    class="form-check-input"
+                    id="hideFieldControl-date"
+                  />
+                  <label class="form-check-label hide-info mb-1" for="hideFieldControl-date">
+                    Hide this field as column in object view/edit mode
+                  </label>
                 </span>
-            </div>
+              </div>
         </div>
     </div>
 
-    <div class="form-group col-md-12">
-        <label>Required/Identifier<span class="required">*</span>:</label>
+    <div class="col-md-12">
+        <label class="mb-1 mt-3">Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
-            <div class="input-group-prepend">
+            <!-- <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
                     <div class="custom-control custom-checkbox">
                         <input
@@ -31,10 +32,26 @@
                             [id]="nameControl.value+'-required'"
                             (ngModelChange)="onInputChange($event, 'required')"
                         />
-                        <label class="custom-control-label" [for]="nameControl.value+'-required'"></label>
+                        <label class="custom-control-label mb-1" [for]="nameControl.value+'-required'"></label>
                     </div>
                 </span>
-            </div>
+            </div> -->
+
+            <div class="input-group-prepend">
+                <span class="input-group-text pe-1">
+                  <div class="form-check">
+                    <input
+                      type="checkbox"
+                      [formControl]="requiredControl"
+                      class="form-check-input"
+                      [id]="nameControl.value+'-required'"
+                      (ngModelChange)="onInputChange($event, 'required')"
+                    />
+                    <label class="form-check-label mb-1" [for]="nameControl.value+'-required'"></label>
+                  </div>
+                </span>
+              </div>
+              
             <input
                 [formControl]="nameControl"
                 type="text"
@@ -47,21 +64,21 @@
             />
 
             <div *ngIf="isDuplicate$" class="invalid-feedback">
-                <div class="float-end">
+                <div class="text-end">
                     Field name must be unique
                 </div>
             </div>
         </div>
-        <small class="form-text text-muted float-start">Use a unique identifier</small>
+        <small class="form-text text-muted text-start">Use a unique identifier</small>
         <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="float-end" *ngIf="nameControl.errors?.required">
+            <div class="text-end" *ngIf="nameControl.errors?.required">
                 Identifier is a required field
             </div>
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group col-md-12">
-        <label>Label<span class="required">*</span>:</label>
+    <div class="form-group col-md-12 mt-3">
+        <label class="mb-1">Label<span class="required">*</span>:</label>
         <input
             [(ngModel)]="data.label"
             [formControl]="labelControl"
@@ -72,16 +89,15 @@
                  'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
             (ngModelChange)="onInputChange($event, 'label')"
         />
-        <small class="form-text text-muted float-start">A static display name</small>
+        <small class="form-text text-muted text-start">A static display name</small>
         <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="float-end" *ngIf="labelControl.errors?.required">
+            <div class="text-end" *ngIf="labelControl.errors?.required">
                 Label is a required field
             </div>
         </div>
-        <div class="clearfix"></div>
     </div>
-    <div class="form-group  col-md-12">
-        <label>Description:</label>
+    <div class="form-group  col-md-12 mt-3">
+        <label class="mb-1">Description:</label>
         <textarea
             [formControl]="descriptionControl"
             class="form-control"
@@ -92,8 +108,8 @@
         ></textarea>
         <small class="form-text text-muted">Short field description or helper text</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Default value:</label>
+    <div class="form-group col-md-12 mt-3">
+        <label class="mb-1">Default value:</label>
         <div class="input-group">
             <input
             [formControl]="valueControl"
@@ -106,15 +122,15 @@
             (focusout)="onFocusOut($event)"
           />
             <div class="input-group-append" *ngIf="!isDuplicate$">
-                <button class="input-group-text text-danger" (click)="resetDate()">
+                <button class="input-group-text text-danger" (click)="resetDate()" style="height: 100% !important;">
                     <i class="far fa-window-close"></i>
                 </button>
             </div>
         </div>
         <small class="form-text text-muted">To paste in a date use the following format: YYYY-MM-DD</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Helper text:</label>
+    <div class="form-group col-md-12 mt-3">
+        <label class="mb-1">Helper text:</label>
         <input
             [formControl]="helperTextControl"
             type="text"

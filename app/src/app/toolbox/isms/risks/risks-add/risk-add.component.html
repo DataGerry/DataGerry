@@ -87,8 +87,8 @@
 
     <!-- Protection Goals (Checkboxes) -->
     <div class="form-group mt-3">
-      <label>Affected Protection Goals:</label>
-      <div class="d-flex flex-wrap gap-3 flex-column">
+      <label class="mb-2">Affected Protection Goals:</label>
+      <div class="d-flex flex-wrap  flex-column">
         <ng-container *ngFor="let pg of protectionGoalOptions">
           <app-checkbox [id]="'pg-' + pg.public_id" [label]="pg.name"
             [checked]="selectedProtectionGoals.includes(pg.public_id)"

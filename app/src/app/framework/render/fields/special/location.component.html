@@ -45,7 +45,7 @@
                     <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
                         <ng-select #locationSelect
                             [items]="locationsList"
-                            class="ng-select-valid custom-select ref-simple-select"
+                            class="ng-select-valid form-select ref-simple-select"
                             [groupBy]="groupByFn"
                             [groupValue]="groupValueFn"
                             (change)="locationChanged($event)"
@@ -66,14 +66,14 @@
                                 </ng-container>
                             </ng-template>
                             <ng-template ng-option-tmp let-item="item">
-                                <span [className]="controller.value === item?.object_id ? 'font-weight-bold' : ''">
+                                <span [className]="controller.value === item?.object_id ? 'fw-bold' : ''">
                                 <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
                                 #{{item?.object_id}} - {{item?.name}}
                                 </span>
                             </ng-template>
                         </ng-select>
                     </cmdb-input-appends>
-                    <small class="form-text text-muted float-start warning" [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
+                    <small class="form-text text-muted text-start warning" [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
                         <span class="warning">Only deletable if this object is not a parent of a location</span>
                     </small>
                 </ng-container> <!-- edit, create, bulk - container -->
@@ -82,10 +82,9 @@
                 </div>
             </ng-container> <!-- switch=true - container -->
             <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-                <div class="float-end" *ngIf="controller.errors.required">
+                <div class="text-end" *ngIf="controller.errors.required">
                     {{data.label}} is a required field.
                 </div>
-                <div class="clearfix"></div>
             </div>
             <small class="description form-text text-muted">{{data?.description}}</small>
         </div> 
@@ -109,7 +108,7 @@
                         (input)="onTreeNameChanged($event.target.value)"
                         />
                 </div>
-                <small class="form-text text-muted float-start" [style.visibility]="mode == MODES.View ? 'hidden' : 'visible'">
+                <small class="form-text text-muted text-start" [style.visibility]="mode == MODES.View ? 'hidden' : 'visible'">
                     <span >This is only saved if a parent location is selected in Field "{{data.label}}" above</span>
                 </small>
             </ng-container>

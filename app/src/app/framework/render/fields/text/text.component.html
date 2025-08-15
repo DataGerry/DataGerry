@@ -28,10 +28,10 @@
         </div>
       </ng-container>
       <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-        <div class="float-end" *ngIf="controller.errors?.required">
+        <div class="text-end" *ngIf="controller.errors?.required">
           {{data.label}} is a required field.
         </div>
-        <div class="float-end" *ngIf="controller.errors?.pattern">
+        <div class="text-end" *ngIf="controller.errors?.pattern">
           {{data.value}} your input does not match the set regex pattern: {{data.regex}}
         </div>
         <div class="clearfix"></div>

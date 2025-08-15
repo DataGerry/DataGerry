@@ -1,5 +1,5 @@
 <h1>Categories Overview</h1>
-<div class="float-end">
+<div class="text-end">
   <ng-container *permissionLink="['base.framework.category.add']">
     <button [routerLink]="['/framework/category/add']" type="button" class="btn btn-sm btn-success">
       <i class="fas fa-plus"></i> Add
@@ -31,7 +31,7 @@
         </div>
       </div>
       <div *ngIf="mode == 2;" class="card-footer">
-        <div  class="btn-group float-end" role="group">
+        <div  class="btn-group text-end" role="group">
           <button type="submit" class="btn btn-success" (click)="onSave()">Save</button>
         </div>
       </div>

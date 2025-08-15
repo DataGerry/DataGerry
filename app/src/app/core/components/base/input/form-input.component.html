@@ -1,5 +1,5 @@
 <div class="mb-3">
-    <label *ngIf="label">
+    <label *ngIf="label" class="form-label mb-1 mt-3">
       {{ label }}
       <span *ngIf="required" class="text-danger">*</span>
     </label>
@@ -12,6 +12,8 @@
       (input)="onInput($event)"
       (blur)="onBlur()"
       [readonly]="readonly"
+      [class.bg-light]="readonly"
+      [class.text-muted]="readonly"
     />
     <div class="invalid-feedback d-block" *ngIf="errorMessage">
       {{ errorMessage }}

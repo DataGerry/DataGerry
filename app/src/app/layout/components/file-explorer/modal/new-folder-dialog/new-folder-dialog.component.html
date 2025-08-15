@@ -3,12 +3,12 @@
     <h4 class="modal-title">
       <i class="far fa-folder"></i> <span class="mx-3">Create a new folder</span>
     </h4>
-    <button type="button" class="close" aria-hidden="true" (click)="activeModal.close(false)">×</button>
+    <button type="button" class="btn-close" aria-label="Close" (click)="activeModal.close(false)"></button>
   </div>
   <form [formGroup]="basicForm">
     <div class="modal-body">
-      <div class="form-group">
-        <label for="folderNameInput">Folder Name: <span class="required">*</span></label>
+      <div class="mb-3">
+        <label class="mb-2" for="folderNameInput">Folder Name: <span class="required">*</span></label>
         <input type="text" formControlName="name" class="form-control"
                [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched) }"
@@ -16,10 +16,10 @@
         <small id="folderNameInputHelp" class="form-text text-muted">Folder name must be unique</small>
         <div *ngIf="name.invalid && (name.dirty || name.touched)"
              class="invalid-feedback">
-          <div class="float-end" *ngIf="name.errors.required">
+          <div class="text-end" *ngIf="name.errors.required">
             Name is required.
           </div>
-          <div class="float-end" *ngIf="name.errors.nameAlreadyTaken">
+          <div class="text-end" *ngIf="name.errors.nameAlreadyTaken">
             A folder with this name already exists.
           </div>
         </div>

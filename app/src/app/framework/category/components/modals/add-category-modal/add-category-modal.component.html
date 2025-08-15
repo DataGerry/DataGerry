@@ -12,13 +12,13 @@
           <input [formControl]="name" type="text" class="form-control" id="category-name"
                  placeholder="Enter a unique name" [value]="name.value | nameGuide"
                  [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched), 'is-invalid': name.invalid && (name.dirty || name.touched)}">
-          <small class="form-text text-muted float-start">Unique name with which the category can be
+          <small class="form-text text-muted text-start">Unique name with which the category can be
             identified</small>
           <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-            <div class="float-end" *ngIf="name.errors.required">
+            <div class="text-end" *ngIf="name.errors.required">
               This field is required
             </div>
-            <div class="float-end" *ngIf="name.errors.categoryExists">
+            <div class="text-end" *ngIf="name.errors.categoryExists">
               A category with this name already exists
             </div>
           </div>

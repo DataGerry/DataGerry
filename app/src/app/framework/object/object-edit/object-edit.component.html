@@ -36,15 +36,15 @@
             (ngSubmit)="editObject()"
         >
             <div class="editButton">
-                <div *permissionLink="'base.framework.object.edit'" class="custom-control custom-switch">
+                <div *permissionLink="'base.framework.object.edit'" class="form-check form-switch">
                     <input
                         type="checkbox"
-                        class="custom-control-input active-control"
+                        class="form-check-input active-control"
                         id="object-view-active"
                         (change)="toggleChange()"
                         [checked]="activeState"
                     >
-                    <label class="custom-control-label" for="object-view-active">Object active?</label>
+                    <label class="form-check-label" for="object-view-active">Object active?</label>
                 </div>
             </div>
 
@@ -76,11 +76,11 @@
             </form>
 
             <div id="object-form-action" class="shadow p-3 mb-5 bg-white rounded text-center">
-                <div class="row d-flex justify-content-center align-items-center">
+                <div class="d-flex justify-content-center align-items-center flex-wrap">
                     <p class="pt-3 mx-4">
                         Do you want to save the changes of <strong>{{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}</strong> you made before quitting?
                     </p>
-                    <div class="btn-group p-3" role="group">
+                    <div class="btn-group p-3 d-inline-flex flex-nowrap" role="group">
                         <button
                             type="button"
                             class="cancel-button btn btn-outline-danger"

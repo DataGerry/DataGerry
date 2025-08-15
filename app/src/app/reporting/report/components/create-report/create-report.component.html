@@ -4,7 +4,7 @@
     <form [formGroup]="createReportForm" (ngSubmit)="onSubmit()">
         <!-- Name Input -->
         <div class="mb-3">
-            <label for="name">Report Name <span class="required">*</span>:</label>
+            <label for="name" class="mb-2">Report Name <span class="required">*</span>:</label>
             <input
                 type="text"
                 id="name"
@@ -16,7 +16,7 @@
 
         <!-- Category Dropdown -->
         <div class="mb-3">
-            <label for="category">Category <span class="required">*</span>:</label>
+            <label for="category" class="mb-2">Category <span class="required">*</span>:</label>
             <ng-select
                 [items]="categories"
                 bindLabel="name"
@@ -29,7 +29,7 @@
 
         <!-- Type Dropdown -->
         <div class="mb-3">
-            <label for="type">Type <span class="required">*</span>:</label>
+            <label for="type" class="mb-2">Type <span class="required">*</span>:</label>
             <ng-select
                 [items]="types"
                 bindLabel="label"
@@ -42,7 +42,7 @@
 
         <!-- Fields Dropdown -->
         <div class="mb-3">
-            <label for="fields">Fields <span class="required">*</span>:</label>
+            <label for="fields" class="mb-2">Fields <span class="required">*</span>:</label>
             <ng-select
                 [items]="fields"
                 bindLabel="label"
@@ -56,7 +56,7 @@
 
         <!-- Multivalue Dropdown -->
         <div class="mb-3">
-            <label for="mds_mode">MultiValue:</label>
+            <label for="mds_mode" class="mb-2">MultiValue:</label>
             <ng-select
                 [items]="mdsModeOptions"
                 bindLabel="label"
@@ -79,13 +79,13 @@
         </div>
 
         <div class="d-flex justify-content-between align-items-center" style="height: 50px;">
-            <div class="btn-group float-start">
+            <div class="btn-group text-start">
                 <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
                     <i class="fas fa-arrow-left icon-margin"></i> Go Back
                 </button>                       
             </div>
 
-            <div class="btn-group float-end">
+            <div class="btn-group text-end">
                 <button type="submit" 
                     class="btn btn-success btn-sm submit-report d-flex align-items-center" 
                     [disabled]="createReportForm.invalid || !filterBuilderValidation">

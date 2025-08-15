@@ -1,19 +1,19 @@
-<div [formGroup]="form" class="form-row">
+<div [formGroup]="form" class="row">
 
-    <div class="form-group col-md-12">
-        <label>Required/Identifier<span class="required">*</span>:</label>
+    <div class="mb-3 col-md-12">
+        <label class="mt-1 mb-1">Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
-                    <div class="custom-control custom-checkbox">
+                    <div class="form-check custom-checkbox">
                         <input
                             type="checkbox"
                             [formControl]="requiredControl"
-                            class="custom-control-input"
+                            class="form-check-input"
                             [id]="nameControl.value+'-required'"
                             (ngModelChange)="onInputChange($event, 'required')"
                         />
-                        <label class="custom-control-label" [for]="nameControl.value+'-required'"></label>
+                        <label class="form-check-label" [for]="nameControl.value+'-required'"></label>
                     </div>
                 </span>
             </div>
@@ -28,23 +28,23 @@
                 (ngModelChange)="onInputChange($event, 'name')"
             />
             <div *ngIf="isDuplicate$" class="invalid-feedback">
-                <div class="float-end">
+                <div class="text-end">
                     Field name must be unique
                 </div>
             </div>
         </div>
      
-        <small class="form-text text-muted float-start">Use a unique field identifier</small>
+        <small class="form-text text-muted text-start">Use a unique field identifier</small>
         <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="float-end" *ngIf="nameControl.errors?.required">
+            <div class="text-end" *ngIf="nameControl.errors?.required">
                 Identifier is a required field
             </div>
         </div>
         <div class="clearfix"></div>
     </div>
 
-    <div class="form-group col-md-12">
-        <label>Label<span class="required">*</span>:</label>
+    <div class="mb-3 col-md-12">
+        <label class="mt-2 mb-1">Label<span class="required">*</span>:</label>
         <input
             [formControl]="labelControl"
             type="text"
@@ -55,16 +55,16 @@
                         'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
             (ngModelChange)="onInputChange($event, 'label')"
         />
-        <small class="form-text text-muted float-start">a static display name</small>
+        <small class="form-text text-muted text-start">a static display name</small>
         <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="float-end" *ngIf="labelControl.errors?.required">
+            <div class="text-end" *ngIf="labelControl.errors?.required">
                 Label is a required field
             </div>
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group  col-md-12">
-        <label>Description:</label>
+    <div class="mb-3  col-md-12">
+        <label class="mt-2 mb-1">Description:</label>
         <textarea
             [formControl]="descriptionControl"
             class="form-control"
@@ -75,8 +75,8 @@
         ></textarea>
         <small class="form-text text-muted">short field description or helper text</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Regex:</label>
+    <div class="mb-3 col-md-12">
+        <label class="mt-2 mb-1">Regex:</label>
         <input
             [formControl]="regexControl"
             type="text"
@@ -86,16 +86,16 @@
                         'is-invalid': regexControl.invalid && (regexControl.dirty || regexControl.touched)}"
             (ngModelChange)="onInputChange($event, 'regex')"
         />
-        <small class="form-text text-muted float-start">Regex validation</small>
+        <small class="form-text text-muted text-start">Regex validation</small>
         <div *ngIf="regexControl.invalid && (regexControl.dirty || regexControl.touched)" class="invalid-feedback">
-            <div class="float-end" *ngIf="regexControl.errors?.regexInValid">
+            <div class="text-end" *ngIf="regexControl.errors?.regexInValid">
                 Regex is invalid
             </div>
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group col-md-12">
-        <label>Placeholder:</label>
+    <div class="mb-3 col-md-12">
+        <label class="mt-2 mb-1">Placeholder:</label>
         <input
             [formControl]="placeholderControl"
             type="text"
@@ -107,8 +107,8 @@
         />
         <small class="form-text text-muted">The placeholder will only be displayed if the field is complete empty</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Default value:</label>
+    <div class="mb-3 col-md-12">
+        <label class="mt-2 mb-1">Default value:</label>
         <input
             [formControl]="valueControl"
             type="number"
@@ -120,8 +120,8 @@
         />
         <small class="form-text text-muted">Default value of this field</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Helper text:</label>
+    <div class="mb-3 col-md-12">
+        <label class="mt-2 mb-1">Helper text:</label>
         <input
             [formControl]="helperTextControl"
             type="text"

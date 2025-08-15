@@ -71,10 +71,10 @@ import { ReportService } from 'src/app/reporting/services/report.service';
                     Type in the name of the type to confirm the deletion.
                 </small>
                 <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="float-end" *ngIf="name.errors?.required">
+                    <div class="text-end" *ngIf="name.errors?.required">
                         Name is required
                     </div>
-                    <div class="float-end" *ngIf="name.errors?.notequal">
+                    <div class="text-end" *ngIf="name.errors?.notequal">
                         Your answer is not equal!
                     </div>
                 </div>

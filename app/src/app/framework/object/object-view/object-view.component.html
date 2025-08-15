@@ -39,7 +39,8 @@
                   [class.btn-outline-primary]="isGraphView" (click)="toggleView(false)" title="Table View">
                   <i class="fas fa-table"></i>
                 </button>
-                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']" type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
+                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']"
+                  type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
                   [class.btn-outline-primary]="!isGraphView" (click)="toggleView(true)" title="Graph View">
                   <i class="fas fa-project-diagram"></i>
                 </button>
@@ -50,7 +51,7 @@
       </div>
 
       <!-- Header -->
-      <div style="margin-top: 30px;">
+      <div class="mt-4">
         <cmdb-object-header [renderResult]="renderResult"></cmdb-object-header>
       </div>
       <hr>
@@ -88,7 +89,7 @@
               </li>
 
               <!-- "Add Relation" tab => index relationGroups.length + 1 -->
-              <li class="nav-item d-inline-block" style="margin-left: 5px;">
+              <li class="nav-item d-inline-block ms-1">
                 <button type="button" class="btn btn-sm btn-success ms-2"
                   style="display: inline-flex; align-items: center;" (click)="onClickAddRelationTab()">
                   <i class="fas fa-plus me-1"></i> Add Relation
@@ -153,9 +154,7 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Select Relationship</h5>
-          <button type="button" class="close" (click)="closeRelationModal()">
-            <span>×</span>
-          </button>
+          <button type="button" class="btn-close" aria-label="Close" (click)="closeRelationModal()"></button>
         </div>
         <div class="modal-body">
           <div *ngIf="loadingRelations" class="loading-state text-center">
@@ -218,7 +217,7 @@
   </div>
 </div>
 
-<!-- Relation Role Dialog (unchanged) -->
+<!-- Relation Role Dialog -->
 <relation-role-dialog *ngIf="showRelationRoleDialog" [chosenRole]="chosenRole"
   [currentObjectTypeID]="renderResult.type_information.type_id" [parentTypeIDs]="roleParentTypeIDs"
   [childTypeIDs]="roleChildTypeIDs" [currentObjectID]="currentObjectID" [relation]="chosenRelation" [mode]="dialogMode"

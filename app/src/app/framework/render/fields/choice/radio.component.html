@@ -1,14 +1,14 @@
 <div class="mb-3 row" [formGroup]="parentFormGroup">
-  <label class="col-sm-3 col-check-label">
-    {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
+  <label class="col-sm-3 col-form-label mb-1">
+    {{data.label}}: <span class="text-danger" *ngIf="data?.required">*</span>
   </label>
   <div class="col-sm-9">
     <ng-container [ngSwitch]="true">
       <ng-container *ngSwitchCase="mode == MODES.View">
-        <div class="custom-control custom-radio" *ngFor="let option of data.options">
+        <div class="form-check" *ngFor="let option of data.options">
           <input type="radio" [formControlName]="data.name" name="{{data.name}}" id="{{option.name}}"
-                 value="{{option.name}}" class="custom-control-input"/>
-          <label class="custom-control-label" for="{{option.name}}"> {{option.label}}</label>
+                 value="{{option.name}}" class="form-check-input"/>
+          <label class="form-check-label mb-1" for="{{option.name}}"> {{option.label}}</label>
         </div>
       </ng-container>
       <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
@@ -24,7 +24,7 @@
                      value="{{option.name}}" class="form-check-input"
                      [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                              'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"/>
-              <label class="form-check-label" [attr.for]="data.name + option.name"> {{option.label}}</label>
+              <label class="form-check-label mb-1" [attr.for]="data.name + option.name"> {{option.label}}</label>
             </div>
           </div>
           <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup"></cmdb-input-appends>
@@ -35,10 +35,10 @@
       </div>
     </ng-container>
     <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-      <div class="float-end" *ngIf="controller.errors.required">
+      <div class="text-end" *ngIf="controller.errors.required">
         {{data.label}} is a required field.
       </div>
-      <div class="clearfix"></div>
+      <!-- <div class="clearfix"></div> -->
     </div>
   </div>
 </div>

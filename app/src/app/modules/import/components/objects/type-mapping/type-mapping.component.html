@@ -5,7 +5,7 @@
             Select type:
         </label>
         <div class="col-9">
-            <select class="custom-select" formControlName="typeID">
+            <select class="form-select" formControlName="typeID">
                 <option *ngFor="let typeSelect of typeList" [value]="typeSelect.public_id">
                     {{typeSelect.label}}
                 </option>
@@ -82,12 +82,11 @@
 
             <div class="col-md-9">
                 <ng-template #mappingContainer></ng-template>
-                <div class="float-end mt-2">
+                <div class="text-end mt-2">
                     <button type="button" class="btn btn-outline-primary" (click)="initMapping()">
                         Reset
                     </button>
                 </div>
-                <div class="clearfix"></div>
             </div>
         </div>
         <hr/>

@@ -2,9 +2,8 @@
     <h4 class="modal-title">
         <fa-icon icon="broom"></fa-icon> Cleanup Objects of type {{type.label}}
     </h4>
-    <button type="button" class="close" (click)="activeModal.close()">
-        <span class="white-text">&times;</span>
-    </button>
+    <button type="button" class="btn-close btn-close-white" (click)="activeModal.close()" aria-label="Close"></button>
+
 </div>
 
 <div class="modal-body">
@@ -23,6 +22,6 @@
 <div class="modal-footer">
     <button type="button" class="btn btn-outline-dark" (click)="activeModal.close('Close')">Close</button>
     <button type="submit" class="btn btn-danger" [disabled]="cleaning" (click)="clean()">
-        <span class="spinner-border spinner-border-sm" *ngIf="cleaning"></span> Clean!
+        <span class="spinner-border spinner-border-sm me-2" *ngIf="cleaning"></span> Clean!
     </button>
 </div>

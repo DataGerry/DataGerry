@@ -19,10 +19,10 @@
           </div>
           <div *ngIf="password.invalid && (password.dirty || password.touched)"
                class="invalid-feedback">
-            <div class="float-end ms-2" *ngIf="password.errors.required">
+            <div class="text-end ms-2" *ngIf="password.errors.required">
               Password is required
             </div>
-            <div class="float-end ms-2" *ngIf="password.errors.strength">
+            <div class="text-end ms-2" *ngIf="password.errors.strength">
               Password is not strong enough
             </div>
             <div class="clearfix"></div>

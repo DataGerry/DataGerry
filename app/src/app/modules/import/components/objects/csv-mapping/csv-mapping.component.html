@@ -1,16 +1,15 @@
 <div class="card">
-    <div class="card-header">
+    <div class="card-header d-flex justify-content-between align-items-center">
         Mapping
-        <div class="float-end">
+        <div class="text-end">
             <form [formGroup]="previewIndexSelectionForm">
-                <select formControlName="indexSelection" class="custom-select custom-select-sm">
+                <select formControlName="indexSelection" class="form-select form-select-sm">
                     <option *ngFor="let _ of parsedData?.entries; let idx = index" [value]="idx">
                         Row: {{idx}}
                     </option>
                 </select>
             </form>
         </div>
-        <div class="clearfix"></div>
     </div>
 
     <table class="table">

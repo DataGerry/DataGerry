@@ -1,14 +1,12 @@
 <div class="modal-backdrop show" style="display: block;"></div>
-<div class="modal show" tabindex="-1" style="display: block;">
+<div class="modal fade show" tabindex="-1" style="display: block;" aria-modal="true" role="dialog">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h4 class="modal-title">
           {{ mode === CmdbMode.View ? 'View Relation' : mode === CmdbMode.Edit ? 'Edit Relation' : 'Create Relation' }}
         </h4>
-        <button type="button" class="close" (click)="back()">
-          <span aria-hidden="true">×</span>
-        </button>
+        <button type="button" class="btn-close" aria-label="Close" (click)="back()"></button>
       </div>
 
       <div class="modal-body">
@@ -23,12 +21,12 @@
               <section class="config-section parent-config" *ngIf="chosenRole === 'parent' || chosenRole === 'both'">
                 <h5 class="config-heading"><i class="fas fa-project-diagram"></i>Parent Settings</h5>
                 <div class="config-content">
-                  <div class="form-group">
-                    <label class="input-label">Parent Object</label>
+                  <div class="mb-3">
+                    <label class="form-label">Parent Object</label>
                     <input class="form-control parent-id" type="text" [disabled]="true" [value]="'Object #' + form.get('parent')?.value" />
                   </div>
-                  <div class="form-group">
-                    <label class="input-label">Child Selection</label>
+                  <div class="mb-3">
+                    <label class="form-label">Child Selection</label>
                     <ng-select class="child-select" [items]="flatChildOptions" [groupBy]="'group'" bindLabel="label" bindValue="value"
                       formControlName="child" placeholder="Select child object" [searchable]="true" [readonly]="mode === CmdbMode.View">
                       <ng-template ng-notfound-tmp><div class="no-options">No child objects found</div></ng-template>
@@ -43,12 +41,12 @@
               <section class="config-section child-config" *ngIf="chosenRole === 'child' || chosenRole === 'both'">
                 <h5 class="config-heading"><i class="fas fa-sitemap"></i>Child Settings</h5>
                 <div class="config-content">
-                  <div class="form-group">
-                    <label class="input-label">Child Object</label>
+                  <div class="mb-3">
+                    <label class="form-label">Child Object</label>
                     <input class="form-control child-id" type="text" [disabled]="true" [value]="'Object #' + form.get('child')?.value" />
                   </div>
-                  <div class="form-group">
-                    <label class="input-label">Parent Selection</label>
+                  <div class="mb-3">
+                    <label class="form-label">Parent Selection</label>
                     <ng-select class="parent-select" [items]="flatParentOptions" [groupBy]="'group'" bindLabel="label" bindValue="value"
                       formControlName="parent" placeholder="Select parent object" [searchable]="true" [readonly]="mode === CmdbMode.View">
                       <ng-template ng-notfound-tmp><div class="no-options">No parent objects found</div></ng-template>

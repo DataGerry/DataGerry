@@ -12,18 +12,18 @@
       <input type="number" class="form-control" min="0" formControlName="secondary" name="secondary" id="secondary"
              [ngClass]="{ 'is-valid': secondary.valid && (secondary.dirty || secondary.touched),
                  'is-invalid': secondary.invalid && (secondary.dirty || secondary.touched)}"/>
-      <small id="secondaryHelp" class="form-text text-muted float-start">Select the Public ID of another object</small>
+      <small id="secondaryHelp" class="form-text text-muted text-start">Select the Public ID of another object</small>
       <div *ngIf="secondary.invalid && (secondary.dirty || secondary.touched)" class="invalid-feedback">
-        <div class="float-end" *ngIf="secondary.errors.required">
+        <div class="text-end" *ngIf="secondary.errors.required">
           Please enter a valid Public ID
         </div>
-        <div class="float-end" *ngIf="secondary.errors.sameID">
+        <div class="text-end" *ngIf="secondary.errors.sameID">
           You can`t link a object to itself.
         </div>
-        <div class="float-end" *ngIf="secondary.errors.objectExists">
+        <div class="text-end" *ngIf="secondary.errors.objectExists">
           Object not exists!
         </div>
-        <div class="float-end" *ngIf="secondary.errors.objectProtected">
+        <div class="text-end" *ngIf="secondary.errors.objectProtected">
           No access to this object!
         </div>
         <div class="clearfix"></div>

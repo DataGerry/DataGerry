@@ -4,7 +4,7 @@
     <div class="card">
         <div class="card-body">
             <div class="mb-3">
-                <label for="typeChooser">
+                <label for="typeChooser" class="mb-2">
                     Select Object Type <span class="required">*</span>
                 </label>
 
@@ -35,7 +35,7 @@
             </div>
 
             <div class="mb-3">
-                <label for="formatChooser">
+                <label for="formatChooser" class="mb-2">
                     Output format <span class="required">*</span>
                 </label>
 
@@ -67,7 +67,7 @@
 
             <button
                 type="button"
-                class="btn btn-primary float-end"
+                class="btn btn-primary text-end"
                 [disabled]="!formExport.valid"
                 (click)="this.exportObjectByTypeID()"
             >

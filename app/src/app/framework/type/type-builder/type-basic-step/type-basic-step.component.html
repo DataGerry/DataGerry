@@ -2,11 +2,14 @@
   <form [formGroup]="form" id="basic-type-information-form" class="needs-validation" novalidate autocomplete="off">
     <div class="row">
       <div class="col-md-12 mb-3">
-        <label for="typeNameInput" class="form-label">Active / Name: <span class="required">*</span></label>
+        <label for="typeNameInput" class="form-label">Active / Name: <span class="text-danger">*</span></label>
         <div class="input-group">
           <span class="input-group-text pe-1">
-            <input type="checkbox" formControlName="active" class="form-check-input m-0"
-              id="typeActiveInput" />
+            <div class="form-check">
+              <input type="checkbox" formControlName="active" class="form-check-input"
+                id="typeActiveInput" />
+              <label class="form-check-label" for="typeActiveInput"></label>
+            </div>
           </span>
           <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched) }" id="typeNameInput" name-guideline
@@ -28,13 +31,13 @@
     
     <div class="row">
       <div class="col-md-6 mb-3">
-        <label for="typeLabelInput" class="form-label">Label: <span class="required">*</span></label>
+        <label for="typeLabelInput" class="form-label">Label: <span class="text-danger">*</span></label>
         <input type="text" formControlName="label" class="form-control" [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
                  'is-invalid': label.invalid && (label.dirty || label.touched)}" id="typeLabelInput"
           aria-describedby="typeLabelInputHelp" required>
-        <div id="typeLabelInputHelp" class="form-text text-muted float-start">Displayed name</div>
+        <div id="typeLabelInputHelp" class="form-text text-start">Displayed name</div>
         <div *ngIf="label.invalid && (label.dirty || label.touched)" class="invalid-feedback">
-          <div class="float-end" *ngIf="label.errors.required">
+          <div class="text-end" *ngIf="label.errors.required">
             Label is required.
           </div>
         </div>
@@ -49,7 +52,7 @@
       <div class="col-md-3 mb-3">
         <label for="ciExplorerColor" class="form-label">Color:</label>
         <div class="input-group">
-          <input type="color" class="form-control" id="ciExplorerColor" formControlName="ci_explorer_color" />
+          <input type="color" class="form-control form-control-color" id="ciExplorerColor" formControlName="ci_explorer_color" />
           <button type="button" class="btn btn-outline-secondary" (click)="setRandomColor()"
             title="Generate random color">
             <i class="fas fa-random"></i>
@@ -62,7 +65,7 @@
         <textarea class="form-control" formControlName="description" id="typeDescriptionInput" rows="3"
           aria-describedby="typeDescriptionInputHelp" [ngClass]="{ 'is-valid': description.valid && (description.dirty || description.touched),
                  'is-invalid': description.invalid && (description.dirty || description.touched) }"></textarea>
-        <div id="typeDescriptionInputHelp" class="form-text text-muted">Small description of the type</div>
+        <div id="typeDescriptionInputHelp" class="form-text">Small description of the type</div>
       </div>
     </div>
   </form>

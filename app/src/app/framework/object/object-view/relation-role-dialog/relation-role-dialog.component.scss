@@ -11,7 +11,8 @@ $dg-error-message-color: #dc3545;
 .modal.show .modal-dialog {
   max-width: 1200px;
   margin: 2rem auto;
-  height: calc(100vh - 4rem);
+  height: calc(100vh - 4rem) !important;
+  display: flex;
 
   .modal-content {
     border: none;
