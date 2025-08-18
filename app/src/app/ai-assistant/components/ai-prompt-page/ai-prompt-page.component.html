@@ -1,16 +1,58 @@
 <div class="container mt-4">
-    <h2>AI Assistant</h2>
-    <form [formGroup]="promptForm">
-      <app-form-input
-        formControlName="prompt"
-        label="Prompt"
-        [required]="true"
-        errorMessage="Prompt is required">
-      </app-form-input>
-      <div class="mt-3 d-flex gap-2">
-        <button type="button" class="btn btn-outline-dark" (click)="cancel()">Cancel</button>
-        <button type="button" class="btn btn-primary" [disabled]="promptForm.invalid" (click)="submit()">Submit</button>
-      </div>
-    </form>
+
+  <!-- Prompt -->
+  <form [formGroup]="promptForm" class="mb-4">
+    <app-form-input
+      formControlName="prompt"
+      label="Prompt"
+      [required]="true"
+      errorMessage="Prompt is required">
+    </app-form-input>
+
+    <button type="button" class="btn btn-primary" [disabled]="promptForm.invalid || loading" (click)="requestSchema()">
+      <fa-icon *ngIf="loading" icon="spinner" [spin]="true" class="me-2"></fa-icon>
+      Generate Schema
+    </button>
+  </form>
+
+  <!-- Invalid banner -->
+  <div *ngIf="validationMessage && !hasSchema" class="alert alert-warning">
+    {{ validationMessage }}
   </div>
-  
+
+  <!-- Selection -->
+  <form *ngIf="hasSchema" [formGroup]="selectionForm">
+    <cmdb-table [dataSource]="sectionsFA.controls">
+
+      <ng-container cmdbColumnDef="section">
+        <cmdb-table-header>Section</cmdb-table-header>
+        <cmdb-table-cell *cmdbTableCell="let section; let si = index" [formGroup]="section">
+          <app-form-checkbox formControlName="includeSection" [disabled]="disableSectionUncheck(si)">
+            {{ section.value.meta.label }}
+          </app-form-checkbox>
+        </cmdb-table-cell>
+      </ng-container>
+
+      <div class="d-flex flex-column gap-2" formArrayName="fieldChecks">
+        <ng-container *ngFor="let fc of fieldChecks(section).controls; let fi = index; trackBy: trackByIndex">
+          <app-form-checkbox
+            [formControl]="fc"
+            [disabled]="disableFieldUncheck(si, fi)">
+            {{ fieldLabel(section.value.meta.fields[fi]) }}
+            <small class="badge bg-light text-muted ms-2">
+              {{ fieldKind(section.value.meta.fields[fi]) }}
+            </small>
+          </app-form-checkbox>
+        </ng-container>
+      </div>
+      
+
+      <cmdb-table-header-row *cmdbHeaderRowDef="['section','fields']"></cmdb-table-header-row>
+      <cmdb-table-row *cmdbRowDef="let r; columns: ['section','fields'];"></cmdb-table-row>
+    </cmdb-table>
+
+    <div class="d-flex justify-content-end gap-2 mt-3">
+      <button type="button" class="btn btn-primary" (click)="submitSelection()">Continue</button>
+    </div>
+  </form>
+</div>
