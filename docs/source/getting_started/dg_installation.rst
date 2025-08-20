@@ -201,10 +201,10 @@ You can now access the frontend:
 
 | 
 
-Setup via tar.gz / zip Archive
+Setup via zip Archive
 ==============================
 
-For Linux distributions that are not RPM-based, we provide a ``tar.gz`` and ``zip`` archive containing a setup script
+For Linux distributions that are not RPM-based, we provide a ``zip`` archive containing a setup script
 for simplified installation. This method requires **systemd** and has been tested on the following distributions:
 
     - Ubuntu 20.04
