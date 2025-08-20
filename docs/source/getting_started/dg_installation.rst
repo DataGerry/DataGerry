@@ -148,8 +148,7 @@ Setup via RPM
 For **Red Hat Enterprise Linux (RHEL)** and compatible systems like **CentOS** or **Oracle Linux**, DataGerry can
 be installed using an RPM package.
 
-Download the RPM from:  
-`BuildKite RPM Package <https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-rpm>`_
+Download the RPM :ref:`here <package-rpm-anchor>`.
 
 Supported Platforms:
 
@@ -230,25 +229,11 @@ To install MongoDB, follow the official MongoDB guide for your platform:
 DataGerry Installation
 ----------------------
 
-Download the archive from the following source:
-
-- `BuildKite ZIP Package <https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-zip>`_
-
-Choose either the ``zip`` or ``tar.gz`` archive depending on your preference.
-
-**Installation using zip:**
+Download the ZIP :ref:`here <package-zip-anchor>`.
 
 .. code-block:: console
 
     $ unzip datagerry-<version>.zip
-    $ cd datagerry
-    $ sudo ./setup.sh
-
-**Installation using tar.gz:**
-
-.. code-block:: console
-
-    $ tar -xzvf datagerry-<version>.tar.gz
     $ cd datagerry
     $ sudo ./setup.sh
 
@@ -325,9 +310,7 @@ Follow the official MongoDB guide to install MongoDB 6.0 on Debian:
 DataGerry Installation
 ----------------------
 
-Download the DEB package from:
-
-- `BuildKite DEB Package <https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-deb>`_
+Download the DEB :ref:`here <package-deb-anchor>`.
 
 Navigate to the directory containing the package and run:
 
