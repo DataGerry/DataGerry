@@ -30,9 +30,12 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     template: `
       <div class="modal-header">
           <h4 class="modal-title" id="modal-basic-title">Delete Log</h4>
-          <button type="button" class="close" aria-label="Close" (click)=" handleModalDismiss()">
-              <span aria-hidden="true">&times;</span>
-          </button>
+          <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            (click)="handleModalDismiss()">
+            </button>
       </div>
       <div class="modal-body">
          Do you want to delete the log with the ID <b>{{publicID}}</b>?

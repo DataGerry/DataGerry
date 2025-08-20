@@ -83,7 +83,8 @@
         <div class="modal-header">
           <h3>Select Risk Class</h3>
           <!-- <div class="modal-subheader">{{ selectedCell?.calculated_value }}</div> -->
-          <button class="close-btn" (click)="closeModal()">&times;</button>
+          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeModal()">
+          </button>
         </div>
         <div class="risk-class-options">
           <div *ngFor="let rc of riskClasses" class="risk-class-option" [style.backgroundColor]="rc.color"

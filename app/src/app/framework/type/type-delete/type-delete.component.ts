@@ -39,9 +39,12 @@ import { ReportService } from 'src/app/reporting/services/report.service';
     template: `
     <div class="modal-header">
         <h4 class="modal-title" id="modal-title">Type deletion</h4>
-        <button type="button" class="close" aria-describedby="modal-title" (click)="modal.dismiss('Cross click')">
-            <span aria-hidden="true">&times;</span>
-        </button>
+        <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            (click)="modal.dismiss('Cross click')">
+            </button>
     </div>
     <div class="modal-body">
         <strong>Are you sure you want to delete <span class="text-primary">{{typeLabel}}</span> type?</strong>

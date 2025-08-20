@@ -9,11 +9,9 @@
           <textarea [formControlName]="data.name" class="form-control scrollable-textarea" name="{{data.name}}"
           placeholder="{{data?.placeholder}}"
           rows="{{data?.rows ? data?.rows : 3}}"></textarea>
-          <div class="input-group-append">
             <span class="input-group-text" (click)="copyToClipboard()">
               <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
             </span>
-          </div>
         </ng-container>
         <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
           <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"

@@ -26,9 +26,7 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
     template: `
     <div class="modal-header">
       <h4 class="modal-title" id="modal-title">Category deletion</h4>
-      <button type="button" class="close" (click)="modal.dismiss('')">
-        <span aria-hidden="true">&times;</span>
-      </button>
+      <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss('')"></button>
     </div>
     <div class="modal-body">
       <strong>Are you sure you want to delete <span class="text-primary">{{category.name}}</span> category?</strong>

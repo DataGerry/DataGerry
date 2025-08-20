@@ -28,7 +28,7 @@ export class AiPromptPageComponent implements OnInit {
       const message: AiAssistantMessage = { message: this.promptForm.get('prompt')?.value };
       this.aiAssistantService.postMessage(message).subscribe({
         next: (response) => {
-          console.log('AI response:', response);
+          // console.log('AI response:', response);
         },
         error: (error) => {
           console.error('Error posting AI message:', error);

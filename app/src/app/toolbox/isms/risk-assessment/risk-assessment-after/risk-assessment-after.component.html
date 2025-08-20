@@ -7,7 +7,7 @@
     </div> -->
 
     <div class="slider-row" *ngFor="let catCtrl of impactsArray.controls; let i = index;">
-        <label class="cat-name">{{ impactCategories[i]?.name }}</label>
+        <label class="cat-name mb-1">{{ impactCategories[i]?.name }}</label>
 
         <app-form-slider [items]="impacts" [allowNotRated]="true" [selectedId]="catCtrl.get('impact_id')?.value"
             (selectedIdChange)="onImpactChanged(i, $event)" [showChosenText]="false" [disabled]="isView">
@@ -23,7 +23,7 @@
     </div> -->
 
     <div class="slider-row">
-        <label class="cat-name">Likelihood</label>
+        <label class="cat-name ">Likelihood</label>
 
         <app-form-slider [items]="displayedLikelihoods" [allowNotRated]="true"
             [selectedId]="afterGroup.get('likelihood_id')?.value" (selectedIdChange)="onLikelihoodChanged($event)"

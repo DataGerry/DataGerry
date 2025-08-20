@@ -1,9 +1,7 @@
 <div class="modal-header bg-primary text-white">
   <h4 class="modal-title" *ngIf="primaryResult">Add connection to object:
     #{{primaryResult?.object_information?.object_id}} {{primaryResult?.type_information?.type_label}}</h4>
-  <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
-    <span aria-hidden="true">&times;</span>
-  </button>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('Cross click')"></button>
 </div>
 <form novalidate>
   <div class="modal-body">
@@ -26,9 +24,7 @@
         <div class="text-end" *ngIf="secondary.errors.objectProtected">
           No access to this object!
         </div>
-        <div class="clearfix"></div>
       </div>
-      <div class="clearfix"></div>
     </div>
   </div>
   <div class="modal-footer">

@@ -1,7 +1,7 @@
-<div class="form-group" (keydown)="$event.stopPropagation()">
+<div class="mb-3" (keydown)="$event.stopPropagation()">
   <label *ngIf="label" class="form-label">
     {{ label }}
-    <span *ngIf="required" class="required">*</span>
+    <span *ngIf="required" class="text-danger">*</span>
   </label>
 
   <ng-select [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue" [multiple]="multiple"

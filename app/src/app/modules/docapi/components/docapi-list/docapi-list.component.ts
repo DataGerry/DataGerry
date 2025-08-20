@@ -210,7 +210,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
             if (result) {
                 this.loaderService?.show();
                 this.docapiService?.deleteDocTemplate(publicId)?.pipe(finalize(() => this.loaderService?.hide())).subscribe({
-                    next: resp => console.log(resp),
+                    next: resp => {},
                     error: error => console.log(error),
                     complete: () => this.loadTemplatesFromAPI()
                 });

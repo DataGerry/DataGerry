@@ -4,19 +4,21 @@
     border: 1px solid #ddd;
     margin-bottom: 15px;
     min-width: 0;
-    padding: 5px 15px 5px 5px;
+    padding: 10px 15px 15px 15px;
     position: relative;
 
     legend {
       font-size: 14px;
       font-weight: bold;
-      margin-left: -6px;
-      margin-bottom: 11px;
-      width: 35%;
+      width: auto; 
+      max-width: 100%;
+      margin-bottom: 0.5rem; 
+      margin-left: 0;
       border: 1px solid #ddd;
       border-radius: 0;
-      padding: 5px 5px 5px 15px;
+      padding: 5px 15px;
       background-color: #ffffff;
+      float: none;
     }
 
     label {

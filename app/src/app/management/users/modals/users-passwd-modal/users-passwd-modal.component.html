@@ -1,7 +1,6 @@
 <div class="modal-header bg-primary text-white">
   <h4 class="modal-title">Change user password</h4>
-  <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
-    <span aria-hidden="true">&times;</span>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
   </button>
 </div>
 <form [formGroup]="passwdForm" (ngSubmit)="onPasswordChange()" novalidate>

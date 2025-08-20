@@ -7,7 +7,7 @@
             <ng-container [ngSwitch]="true">
                 <ng-container *ngSwitchCase="mode == MODES.View">
                     <div class="input-group input-group-sm">
-                        <div class="form-control text-start overflow-auto" readonly>
+                        <div class="form-control bg-light text-start overflow-auto" readonly>
                             <ng-container *ngIf="objectLocation; else noRef;">
                                 <ng-container *ngIf="!protect">
                                     <ng-container *ngIf="!data?.reference?.line; else refLine">
@@ -24,20 +24,16 @@
                             </ng-container><!-- ende init view-->
                             <ng-template #noRef> No location set</ng-template>
                         </div>
-                        <div class="input-group-append" *ngIf="data?.reference && !protect">
-                            <span class="input-group-text"
+                            <span *ngIf="data?.reference && !protect" class="input-group-text"
                                 [class.ref-disabled]="!objectLocation?.object_id"
                                 (click)="showReferencePreview()">
                                 <fa-icon icon="file-powerpoint"></fa-icon>
                             </span>
-                            <span class="input-group-text">
-                                <a [class.ref-disabled]="!objectLocation?.object_id"
+                                <a *ngIf="data?.reference && !protect" class="input-group-text" [class.ref-disabled]="!objectLocation?.object_id"
                                     [routerLink]="'/framework/object/view/'+ objectLocation?.object_id">
                                     <fa-icon icon="arrow-right"></fa-icon>
                                 </a>
-                            </span>
                         </div>
-                    </div>
                 </ng-container><!-- mode view-->
                 <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit">
                     <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
@@ -113,6 +109,6 @@
                 </small>
             </ng-container>
         </div>
-    <div>
+    </div>
 </div>
   

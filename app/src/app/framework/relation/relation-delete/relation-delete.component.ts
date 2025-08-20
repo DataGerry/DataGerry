@@ -38,8 +38,12 @@ import { ObjectRelationService } from '../../services/object-relation.service';
     template: `
     <div class="modal-header">
         <h4 class="modal-title" id="modal-title">Relation deletion</h4>
-            <button type="button" class="close" aria-describedby="modal-title" (click)="modal.dismiss('Cross click')">
-                <span aria-hidden="true">&times;</span>
+        <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            aria-describedby="modal-title"
+            (click)="modal.dismiss('Cross click')">
             </button>
     </div>
     <div class="modal-body">

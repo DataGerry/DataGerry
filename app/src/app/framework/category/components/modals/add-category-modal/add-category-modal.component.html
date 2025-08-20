@@ -1,9 +1,7 @@
  <div class="modal-content">
     <div class="modal-header">
       <h3 class="modal-title">Add new Category</h3>
-      <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
-        <span aria-hidden="true">&times;</span>
-      </button>
+      <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('Cross click')"></button>
     </div>
     <div class="modal-body">
       <form [formGroup]="catAddForm">

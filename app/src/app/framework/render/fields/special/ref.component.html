@@ -1,13 +1,13 @@
-<div class="form-group row" [formGroup]="parentFormGroup">
+<div class="mb-3 row" [formGroup]="parentFormGroup">
     <label class="col-sm-3 col-form-label">
-        {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
+        {{data.label}}: <span class="text-danger" *ngIf="data?.required">*</span>
     </label>
 
     <div class="col-sm-9">
         <ng-container [ngSwitch]="true">
             <ng-container *ngSwitchCase="mode == MODES.View">
                 <div class="input-group input-group-sm">
-                    <div class="form-control text-start overflow-auto" readonly>
+                    <div class="form-control bg-light text-start overflow-auto" readonly>
                         <ng-container *ngIf="data.reference && data.reference?.object_id !== 0; else noRef;">
                             <ng-container *ngIf="!protect">
                                 <ng-container *ngIf="!data?.reference.line; else refLine">
@@ -37,18 +37,15 @@
                         </ng-container>
                         <ng-template #noRef> No reference set</ng-template>
                     </div>
-                    <div class="input-group-append" *ngIf="data.reference && !protect">
-                        <span class="input-group-text" [class.ref-disabled]="!data.reference?.object_id"
-                            (click)="showReferencePreview()">
-                            <fa-icon icon="file-powerpoint"></fa-icon>
-                        </span>
-                        <span class="input-group-text">
-                            <a [class.ref-disabled]="!data.reference?.object_id"
-                                [routerLink]="'/framework/object/view/'+ data.reference?.object_id">
-                                <fa-icon icon="arrow-right"></fa-icon>
-                            </a>
-                        </span>
-                    </div>
+                    <span *ngIf="data.reference && !protect" class="input-group-text"
+                        [class.ref-disabled]="!data.reference?.object_id" (click)="showReferencePreview()">
+                        <fa-icon icon="file-powerpoint"></fa-icon>
+                    </span>
+                    <a *ngIf="data.reference && !protect" class="input-group-text"
+                        [class.ref-disabled]="!data.reference?.object_id"
+                        [routerLink]="'/framework/object/view/'+ data.reference?.object_id">
+                        <fa-icon icon="arrow-right"></fa-icon>
+                    </a>
                 </div>
             </ng-container>
 
@@ -58,10 +55,9 @@
 
                 <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
 
-                    <ng-select #selectElement [items]="objectList"
-                        class="ng-select-valid form-select ref-simple-select" [groupBy]="groupByFn"
-                        [groupValue]="groupValueFn" bindValue="object_information.object_id" [searchFn]="searchRef"
-                        [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
+                    <ng-select #selectElement [items]="objectList" class="ng-select-valid form-select ref-simple-select"
+                        [groupBy]="groupByFn" [groupValue]="groupValueFn" bindValue="object_information.object_id"
+                        [searchFn]="searchRef" [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                         'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"
                         [formControlName]="data.name">
                         <ng-template ng-optgroup-tmp let-item="item">
