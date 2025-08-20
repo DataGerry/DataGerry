@@ -67,7 +67,7 @@ and manage any type of asset or configuration data.
 
 .. toctree::
     :caption: Sources
-    :maxdepth: 1
+    :maxdepth: 2
 
     sources/packages
     Download Docker <https://hub.docker.com/r/becongmbh/datagerry>
