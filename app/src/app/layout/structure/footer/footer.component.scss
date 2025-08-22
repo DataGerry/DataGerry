@@ -1,7 +1,8 @@
+@use "sass:color";
 @import "src/scss/variables";
 
 $footer-height: 50px !default;
-$footer-bg: darken($white, 5%) !default;
+$footer-bg: color.scale($white, $lightness: -5%) !default;
 $footer-color: $body-color !default;
 $footer-borders: (
   top: (size: 2px, style: solid, color: $primary)

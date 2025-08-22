@@ -1,7 +1,8 @@
+@use "sass:color";
 @import "src/scss/variables";
 
 $breadcrumb-border-radius: 0px;
-$breadcrumb-bg: darken($white, 5%);
+$breadcrumb-bg: color.scale($white, $lightness: -5%);
 $breadcrumb-borders: (
   bottom: (size: 1px, style: solid, color: $border-color)
 ) !default;
@@ -45,7 +46,7 @@ $breadcrumb-height: 46px;
         text-decoration: none;
         
         &:hover {
-          color: darken($primary, 10%);
+          color: color.scale($primary, $lightness: -10%);
           text-decoration: underline;
         }
       }

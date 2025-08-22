@@ -1,9 +1,10 @@
+@use "sass:color";
 @import 'variables';
 
 // color definitions
 $wz-color-default:  $primary !default;
 $wz-color-current: lighten($primary, 10%) !default;
-$wz-color-done: darken($primary, 20%) !default;
+$wz-color-done: color.scale($primary, $lightness: -20%) !default;
 $wz-color-optional: $wz-color-default !default;
 $wz-color-editing: $wz-color-default !default;
 
@@ -131,17 +132,23 @@ $wz-param-indicator-color: null;
 @mixin wz-state-circle-with-border($color) {
   border-width: $wz-param-indicator-border-width;
   border-style: solid;
-  border-color: if($wz-param-indicator-state == 'hover', darken($color, 10%), $color);
-}
+  border-color: if($wz-param-indicator-state =='hover',
+        color.scale($color, $lightness: -10%),
+        $color );
+  }
 
 @mixin wz-state-circle-with-border-and-content($color) {
   @include wz-state-circle-with-border($color);
-  color: if($wz-param-indicator-state == 'hover', darken($color, 10%), $color);
-}
+  color: if($wz-param-indicator-state =='hover',
+        color.scale($color, $lightness: -10%),
+        $color );
+  }
 
 @mixin wz-state-circle-with-background($color) {
-  background-color: if($wz-param-indicator-state == 'hover', darken($color, 5%), $color);
-}
+  background-color: if($wz-param-indicator-state =='hover',
+        color.scale($color, $lightness: -5%),
+        $color );
+  }
 
 @mixin wz-state-circle-with-background-and-content($color) {
   @include wz-state-circle-with-background($color);
@@ -309,7 +316,7 @@ aw-wizard-navigation-bar {
       }
 
       a:hover .label {
-        color: darken($wz-color-current, 20%);
+        color: color.scale($wz-color-current, $lightness: -20%);
       }
     }
   }

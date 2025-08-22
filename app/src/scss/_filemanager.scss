@@ -1,3 +1,4 @@
+@use "sass:color";
 @import "src/scss/variables";
 
 .fileExplorer {
@@ -100,7 +101,7 @@
 
         &:hover {
           font-weight: 900;
-          color: darken($cmdb-primary, 20%);;
+          color: color.scale($cmdb-primary, $lightness: -20%);
         }
       }
     }

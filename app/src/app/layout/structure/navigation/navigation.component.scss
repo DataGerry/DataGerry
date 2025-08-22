@@ -1,3 +1,4 @@
+@use "sass:color";
 @import 'src/scss/variables';
 /**
  * Navbar
@@ -11,7 +12,7 @@ $navbar-brand-width: 210px;
 $navbar-bg-color: $white;
 $navbar-border-width: 2px;
 $navbar-border-style: solid;
-$navbar-icon-link: darken(white, 40%);
+$navbar-icon-link: color.scale(white, $lightness: -40%);
 $navbar-dropdown-font-size: 0.875rem !default;
 $navbar-dropdown-borders: (
   all: (size: 1px, style: solid, color: $border-color)
@@ -223,7 +224,7 @@ $navbar-dropdown-header-background: $primary;
 @media(max-width: 991px) {
   #navbar-cmdb {
     .container-content {
-      border-bottom: 1px solid darken(white, 40%);
+      border-bottom: 1px solid color.scale(white, $lightness: -40%);
     }
 
     .dropdown-lg {

@@ -17,7 +17,7 @@
 */
 
 /* import bootstrap */
-@import "scss/bootstrap_variables";
+@import "scss/variables";
 @import "bootstrap/scss/bootstrap";
 
 /* import font-awesome */
@@ -31,7 +31,6 @@
 @import "node_modules/@rg-software/angular-archwizard/styles/archwizard.scss";
 
 /* custom global modules */
-@import "scss/variables";
 @import "scss/mixins";
 @import "scss/utils";
 @import "scss/layout";

@@ -1,3 +1,6 @@
+@use "sass:color";
+
+
 $dg-primary-color: #e94d18;
 $dg-selected-background-color: #cccccc;
 $dg-hover-background-color: #bfbfbf;
@@ -24,11 +27,13 @@ $dg-error-message-color: #dc3545;
         border: 1px solid rgba(255, 255, 255, 0.4);
 
     .modal-header {
-      background: linear-gradient(195deg, darken($dg-primary-color, 5%), $dg-primary-color);
-      color: white;
-      border-radius: 16px 16px 0 0;
-      padding: 1.5rem 2rem;
-      border-bottom: none;
+      background: linear-gradient(195deg,
+            color.scale($dg-primary-color, $lightness: -5%),
+            $dg-primary-color );
+        color: white;
+        border-radius: 16px 16px 0 0;
+        padding: 1.5rem 2rem;
+        border-bottom: none;
 
       .modal-title {
         font-weight: 600;
@@ -258,3 +263,63 @@ $dg-error-message-color: #dc3545;
       line-height: 1.5;
     }
   }
+
+.parent-select, .child-select {
+  
+  // Make selected value wrap to multiple lines
+  ::ng-deep .ng-select-container {
+    // Allow container to grow in height
+    min-height: 38px !important;
+    height: auto !important;
+    
+    .ng-value-container {
+      // Allow value container to wrap
+      height: auto !important;
+      min-height: 36px !important;
+      
+      .ng-value {
+        // Make selected value wrap
+        max-width: 100% !important;
+        
+        .ng-value-label {
+          // Allow text to wrap to next line
+          white-space: normal !important;
+          word-wrap: break-word !important;
+          word-break: break-word !important;
+          overflow: visible !important;
+          text-overflow: clip !important;
+          line-height: 1.4 !important;
+          display: block !important;
+          max-width: 100% !important;
+        }
+      }
+    }
+    
+    // Adjust arrow position for multi-line
+    .ng-arrow-wrapper {
+      align-self: flex-start !important;
+      margin-top: 8px !important;
+    }
+    
+    // Adjust clear button position if present
+    .ng-clear-wrapper {
+      align-self: flex-start !important;
+      margin-top: 6px !important;
+    }
+  }
+  
+  // Make dropdown options wrap to multiple lines
+  ::ng-deep .ng-dropdown-panel {
+    .ng-option {
+      // Allow option text to wrap
+      white-space: normal !important;
+      word-wrap: break-word !important;
+      word-break: break-word !important;
+      line-height: 1.4 !important;
+      min-height: auto !important;
+      height: auto !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+    }
+  }
+}

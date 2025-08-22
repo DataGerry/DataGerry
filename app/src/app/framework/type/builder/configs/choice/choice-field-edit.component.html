@@ -1,7 +1,7 @@
 <div [formGroup]="form" class="row">
 
     <div *ngIf="this.fieldSectionType === 'multi-data-section'">
-        <div class="form-group col-md-12">
+        <div class="col-md-12">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
                     <input
@@ -10,7 +10,7 @@
                         name="hideFieldControl-choice"
                         (ngModelChange)="onInputChange($event, 'hideField')"
                     />
-                    <label class="hide-info">
+                    <label class="hide-info mb-1 mt-3">
                         Hide this field as column in object view/edit mode
                     </label>
                 </span>
@@ -18,8 +18,8 @@
         </div>
     </div>
 
-    <div class="form-group col-md-12">
-        <label>Required/Identifier<span class="required">*</span>:</label>
+    <div class="col-md-12">
+        <label class="mb-1">Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
@@ -57,8 +57,8 @@
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group col-md-12">
-        <label>Label<span class="required">*</span>:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Label<span class="required">*</span>:</label>
         <input
             [(ngModel)]="data.label"
             [formControl]="labelControl"
@@ -76,8 +76,8 @@
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group  col-md-12">
-        <label>Description:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Description:</label>
         <textarea
             [formControl]="descriptionControl"
             class="form-control"
@@ -88,8 +88,8 @@
         ></textarea>
         <small class="form-text text-muted">Short field description or helper text</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Helper text:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Helper text:</label>
         <input
             [formControl]="helperTextControl"
             type="text"
@@ -101,8 +101,8 @@
         />
         <small class="form-text text-muted">Small helper popup.</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Options:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Options:</label>
         <table class="table table-bordered" >
             <thead>
                 <tr>
@@ -158,11 +158,11 @@
             </tbody>
         </table>
     </div>
-    <div class="form-group col-md-12">
-        <label>Default value:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Default value:</label>
         <select 
             [formControl]="valueControl"
-            class="custom-select"
+            class="form-select"
             (ngModelChange)="onInputChange($event, 'value')"
             >
             <option></option>

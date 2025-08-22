@@ -1,10 +1,13 @@
+$primary: #e94d18;
+
+
+
 @import 'bootstrap_variables';
 @import 'bootstrap/scss/functions';
 @import 'bootstrap/scss/variables';
 @import 'mixins';
 
 $navbar-height: calc(80px + #{$navbar-padding-y});
-$primary: #e94d18;
 
 $content-min-width: 0;
 $content-padding-x: 16px !default;
