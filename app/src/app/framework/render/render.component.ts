@@ -117,17 +117,17 @@ export class RenderComponent implements OnInit {
 
     public getFieldByName(name: string) {
         if (this.renderResult !== undefined) {
-            return this.renderResult.fields.find(field => field.name === name);
+            return this.renderResult?.fields?.find(field => field?.name === name);
         } else {
-            const field: any = this.typeInstance.fields.find(f => f.name === name);
+            const field: any = this.typeInstance?.fields?.find(f => f?.name === name);
 
             switch (field.type) {
                 case 'ref': {
-                    field.default = parseInt(field.default, 10);
+                    field.default = parseInt(field?.default, 10);
                     break;
                 }
                 default: {
-                    field.default = field.value;
+                    field.default = field?.value;
                     break;
                 }
             }

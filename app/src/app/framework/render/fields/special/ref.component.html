@@ -1,4 +1,4 @@
-<div class="mb-3 row" [formGroup]="parentFormGroup">
+<div class="row mb-3" [formGroup]="parentFormGroup">
     <label class="col-sm-3 col-form-label">
         {{data.label}}: <span class="text-danger" *ngIf="data?.required">*</span>
     </label>
@@ -62,7 +62,7 @@
                         [formControlName]="data.name">
                         <ng-template ng-optgroup-tmp let-item="item">
                             <span style="vertical-align: middle;">{{item.name}}</span>
-                            <span class="ms-1 badge bg-secondary">{{item.total}}</span>
+                            <span class="badge bg-secondary ms-1">{{item.total}}</span>
                         </ng-template>
 
                         <ng-template ng-label-tmp let-item="item">

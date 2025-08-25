@@ -1,10 +1,11 @@
 <div class="modal-content">
-  <div class="modal-header">
+  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
     <h4 class="modal-title">
       <i class="fas fa-expand-arrows-alt"></i> <span class="mx-3">Move Element</span>
     </h4>
-    <button type="button" class="close" aria-hidden="true" (click)="activeModal.close(false)">×</button>
-  </div>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(false)">
+    </button>
+</div>
   <form [formGroup]="basicForm">
     <div class="modal-body">
       <div class="form-group">

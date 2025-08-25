@@ -4,15 +4,15 @@
       <div id="object-view-active" *permissionLink="'base.framework.object.edit'" class="btn-group">
         <label class="btn btn-outline-cmdb-primary btn-sm" [class.active]="activeState === true"
           (click)="onActiveChange(true)">
-          <input type="radio" name="on" id="activeState" autocomplete="off"> Active
+          <input type="radio" name="on" class="btn-check" id="activeState" autocomplete="off"> Active
         </label>
         <label class="btn btn-outline-cmdb-primary btn-sm active" [class.active]="activeState === undefined"
           (click)="onActiveChange(undefined)">
-          <input type="radio" name="n/a" id="undefinedState" autocomplete="off" checked> N/A
+          <input type="radio" name="n/a" class="btn-check" id="undefinedState" autocomplete="off" checked> N/A
         </label>
         <label class="btn btn-outline-cmdb-primary btn-sm" [class.active]="activeState === false"
           (click)="onActiveChange(false)">
-          <input type="radio" name="off" id="inactiveState" autocomplete="off"> Inactive
+          <input type="radio" name="off" class="btn-check" id="inactiveState" autocomplete="off"> Inactive
         </label>
       </div>
     </div>

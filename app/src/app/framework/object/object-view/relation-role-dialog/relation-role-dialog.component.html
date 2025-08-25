@@ -6,7 +6,7 @@
         <h4 class="modal-title">
           {{ mode === CmdbMode.View ? 'View Relation' : mode === CmdbMode.Edit ? 'Edit Relation' : 'Create Relation' }}
         </h4>
-        <button type="button" class="btn-close" aria-label="Close" (click)="back()"></button>
+        <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="back()"></button>
       </div>
 
       <div class="modal-body">
@@ -102,7 +102,7 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" (click)="back()">Cancel</button>
         <button class="btn btn-success" (click)="confirm()" [disabled]="isConfirmDisabled()" *ngIf="mode !== CmdbMode.View">
-          {{ mode === CmdbMode.Edit ? 'Update Relationship' : 'Confirm Creation' }}
+          {{ mode === CmdbMode.Edit ? 'Update' : 'Confirm' }}
         </button>
       </div>
     </div>

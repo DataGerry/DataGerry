@@ -1,9 +1,9 @@
 <div class="modal-content">
-  <div class="modal-header">
+  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
     <h4 class="modal-title">
       <i class="far fa-edit"></i> <span class="mx-3">Rename Element</span>
     </h4>
-    <button type="button" class="btn-close" aria-label="Close" (click)="activeModal.close(false)">
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(false)">
     </button>
   </div>
   <form [formGroup]="basicForm">
@@ -21,12 +21,11 @@
             A element with this name already exists.
           </div>
         </div>
-        <div class="clearfix"></div>
       </div>
     </div>
     <div class="modal-footer">
       <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close(false)">Cancel</button>
-      <button type="button" class="btn btn-primary" [disabled]="!name.valid"
+      <button type="button" class="btn btn-success" [disabled]="!name.valid"
         (click)="activeModal.close({filename: name.value})">OK</button>
     </div>
   </form>

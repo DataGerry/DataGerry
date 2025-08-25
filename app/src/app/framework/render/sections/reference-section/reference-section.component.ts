@@ -71,14 +71,14 @@ export class ReferenceSectionComponent extends BaseSectionComponent implements O
   }
 
   public getFieldByName(name: string) {
-    const field: any = this.fields.find(s => s.name === `${ this.section.name }-field`).references.fields.find(f => f.name === name);
+    const field: any = this.fields?.find(s => s?.name === `${ this.section?.name }-field`).references?.fields.find(f => f?.name === name);
     switch (field.type) {
       case 'ref': {
         field.default = parseInt(field.default, 10);
         break;
       }
       default: {
-        field.default = field.value;
+        field.default = field?.value;
         break;
       }
     }
