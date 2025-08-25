@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 Implementation of all authentication related API routes
 """
 import logging
-from typing import Tuple
+from typing import Any, Tuple
 from datetime import datetime, timezone
 from flask import request, current_app, abort
 from werkzeug.exceptions import HTTPException
@@ -177,7 +177,7 @@ def post_login():
             users_manager=users_manager
         )
 
-        user_instance = None
+        user_instance: CmdbUser | None = None
 
         try:
             user_instance = auth_module.login(request_user_name, request_password)
@@ -231,6 +231,7 @@ def get_auth_settings(request_user: CmdbUser):
     except Exception as err:
         LOGGER.error("[get_auth_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving auth settings!")
+
 
 @auth_blueprint.route('/providers', methods=['GET'])
 @insert_request_user
@@ -378,7 +379,7 @@ def generate_token_with_params(
     """
     tg = TokenGenerator(database_manager)
 
-    user_data = {'public_id': login_user.get_public_id()}
+    user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
 
     if cloud_mode:
         user_data['database'] = login_user.get_database()

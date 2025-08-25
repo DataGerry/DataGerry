@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -35,7 +35,7 @@ class LoginResponse(BaseAPIResponse):
     
     Extends: BaseAPIResponse
     """
-    def __init__(self, user: CmdbUser, token: bytes, token_issued_at: int, token_expire: int):
+    def __init__(self, user: CmdbUser, token: bytes, token_issued_at: int, token_expire: int) -> None:
         """
         Initializes a `LoginResponse` instance
 
@@ -45,7 +45,7 @@ class LoginResponse(BaseAPIResponse):
             token_issued_at (int): The UNIX timestamp indicating when the token was issued
             token_expire (int): The UNIX timestamp indicating when the token will expire
         """
-        self.user = user
+        self.user: CmdbUser = user
         self.token = token
         self.token_issued_at = token_issued_at
         self.token_expire = token_expire

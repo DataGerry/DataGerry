@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for CmdbRelations
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RelationsManager, ObjectRelationsManager
@@ -60,7 +62,7 @@ relations_blueprint = APIBlueprint('relations', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right='base.framework.relation.add')
 @relations_blueprint.validate(CmdbRelation.SCHEMA)
-def insert_cmdb_relation(data: dict, request_user: CmdbUser):
+def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbRelation into the database
 
@@ -80,9 +82,7 @@ def insert_cmdb_relation(data: dict, request_user: CmdbUser):
         created_relation: dict = relations_manager.get_relation(result_id)
 
         if created_relation:
-            api_response = InsertSingleResponse(created_relation, result_id)
-
-            return api_response.make_response()
+            return InsertSingleResponse(created_relation, result_id).make_response()
 
         abort(404, "Could not retrieve the created Relation from the database!")
     except HTTPException as http_err:
@@ -95,7 +95,7 @@ def insert_cmdb_relation(data: dict, request_user: CmdbUser):
         abort(400, "Failed to retrieve the created Relation from the database!")
     except Exception as err:
         LOGGER.error("[insert_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while creating the new Relation!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -104,7 +104,7 @@ def insert_cmdb_relation(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right='base.framework.relation.view')
 @relations_blueprint.parse_collection_parameters()
-def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbRelations
 
@@ -138,14 +138,14 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser):
         abort(400, "Failed to retrieve Relations from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while iterating Relations!")
 
 
 @relations_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right='base.framework.relation.view')
-def get_cmdb_relation(public_id: int, request_user: CmdbUser):
+def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbRelation
 
@@ -173,7 +173,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the Relation with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while retrieving Relation with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -182,7 +182,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right='base.framework.relation.edit')
 @relations_blueprint.validate(CmdbRelation.SCHEMA)
-def update_cmdb_relation(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbRelation
 
@@ -210,7 +210,7 @@ def update_cmdb_relation(public_id: int, data: dict, request_user: CmdbUser):
 
             object_relations_manager.update_changed_fields(public_id, changed_fields)
 
-            relation = CmdbRelation.from_data(data)
+            relation: CmdbRelation = CmdbRelation.from_data(data)
 
             relations_manager.update_relation(public_id, relation)
 
@@ -227,7 +227,7 @@ def update_cmdb_relation(public_id: int, data: dict, request_user: CmdbUser):
         abort(400, f"Failed to update the Relation with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while updating Relation with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -235,7 +235,7 @@ def update_cmdb_relation(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right='base.framework.relation.delete')
-def delete_cmdb_relation(public_id: int, request_user: CmdbUser):
+def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbRelation
 
@@ -272,8 +272,7 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the Relation with ID:{public_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
-
+        abort(500, "An internal server error occured while deleting Relation with ID:{public_id}!")
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -304,7 +303,7 @@ def handle_deleted_type_ids(old_relation: dict,
                                                                      False)
 
 
-def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> dict:
+def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> list[int]:
     """
     Identifies the IDs that have been deleted when comparing two lists
 
@@ -313,6 +312,6 @@ def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> dict:
         new_ids (list[int]): The updated list of IDs
 
     Returns:
-        dict: A dictionary containing the list of deleted IDs
+        list[int]: A list containing the deleted IDs
     """
     return list(set(old_ids) - set(new_ids))

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 Implementation of BaseQueryBuilder
 """
 import logging
-from typing import Union
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import AccessControlQueryBuilder
@@ -60,12 +59,12 @@ class BaseQueryBuilder(Builder):
               builder_params: BuilderParameters,
               user: CmdbUser = None,
               permission: AccessControlPermission = None,
-              object_builder_mode: bool = False):
+              object_builder_mode: bool = False) -> list[dict]:
         """
         Converts the parameters from the call to a MongoDB aggregation pipeline
 
         Returns:
-            Union[dict, list[dict]]: The build query
+            list[dict]: The build query
         """
         self.query = self.__init_query(builder_params.get_criteria(), object_builder_mode)
 
@@ -101,11 +100,12 @@ class BaseQueryBuilder(Builder):
 
 
     def count(self,
-              criteria: Union[dict, list[dict]],
+              criteria: dict | list[dict],
               user: CmdbUser = None,
               permission: AccessControlPermission = None) -> list[dict]:
         """
         Count the number of documents
+
         Args:
             criteria: Filter for documents
 
@@ -128,12 +128,12 @@ class BaseQueryBuilder(Builder):
         self.query = None
 
 
-    def __init_query(self, criteria: Union[dict, list[dict]], object_builder_mode: bool = False) -> list[dict]:
+    def __init_query(self, criteria: dict | list[dict], object_builder_mode: bool = False) -> list[dict]:
         """
         Initialises the query with valid format
 
         Args:
-            criteria (Union[dict, list[dict]]): Filter which should be applied
+            criteria (dict | list[dict]): Filter which should be applied
 
         Returns:
             list[dict]: The initialised query

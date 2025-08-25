@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -35,7 +35,7 @@ class DefaultResponse(BaseAPIResponse):
 
     Extends: BaseAPIResponse
     """
-    def __init__(self, value: Any):
+    def __init__(self, value: Any) -> None:
         """
         Initializes the DefaultResponse instance with the provided value
 

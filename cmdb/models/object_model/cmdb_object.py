@@ -17,8 +17,8 @@
 This module contains the implementation of CmdbObject, which is representing
 an object in DataGerry
 """
-import logging
-from typing import Optional
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
@@ -32,7 +32,7 @@ from cmdb.errors.models.cmdb_object import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbObject - CLASS                                                  #
@@ -48,21 +48,23 @@ class CmdbObject(CmdbDAO):
     MODEL = 'Object'
     DEFAULT_VERSION = '1.0.0'
     REQUIRED_INIT_KEYS = ['type_id', 'creation_time', 'author_id', 'active', 'fields', 'version']
-    SCHEMA: dict = get_cmdb_object_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_object_schema()
 
     #pylint: disable=R0913, R0917
-    def __init__(self,
-                 type_id: int,
-                 creation_time: datetime,
-                 author_id: int,
-                 active: bool,
-                 fields: list,
-                 multi_data_sections: list = None,
-                 last_edit_time: datetime = None,
-                 editor_id: int = None,
-                 version: str = '1.0.0',
-                 ci_explorer_tooltip: str = None,
-                 **kwargs):
+    def __init__(
+        self,
+        type_id: int,
+        creation_time: datetime,
+        author_id: int,
+        active: bool,
+        fields: list,
+        multi_data_sections: list | None = None,
+        last_edit_time: datetime | None = None,
+        editor_id: int | None = None,
+        version: str = '1.0.0',
+        ci_explorer_tooltip: str | None = None,
+        **kwargs: Any
+    ) -> None:
         """
         Initialises a CmdbObject
 
@@ -83,20 +85,20 @@ class CmdbObject(CmdbDAO):
             CmdbObjectInitError: If the initialisation failed
         """
         try:
-            self.type_id = type_id
-            self.version = version
-            self.creation_time = creation_time
-            self.author_id = author_id
-            self.last_edit_time = last_edit_time
-            self.editor_id = editor_id
-            self.active = active
+            self.type_id: int = type_id
+            self.version: str = version
+            self.creation_time: datetime = creation_time
+            self.author_id: int = author_id
+            self.last_edit_time: datetime | None = last_edit_time
+            self.editor_id: int | None = editor_id
+            self.active: bool = active
             self.fields = fields
-            self.ci_explorer_tooltip = ci_explorer_tooltip
+            self.ci_explorer_tooltip: str | None = ci_explorer_tooltip
             self.multi_data_sections = multi_data_sections or []
 
             super().__init__(**kwargs)
         except Exception as err:
-            raise CmdbObjectInitError(err) from err
+            raise CmdbObjectInitError(str(err)) from err
 
 
     def __truediv__(self, other):
@@ -123,7 +125,7 @@ class CmdbObject(CmdbDAO):
 
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbObject":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbObject":
         """
         Initialises a CmdbObject from a dict
 
@@ -137,8 +139,8 @@ class CmdbObject(CmdbDAO):
             CmdbObject: CmdbObject with the given data
         """
         try:
-            creation_time = data.get('creation_time', None)
-            last_edit_time = data.get('last_edit_time', None)
+            creation_time = data.get('creation_time')
+            last_edit_time = data.get('last_edit_time')
 
             if isinstance(creation_time, str):
                 creation_time = parse(creation_time, fuzzy=True)
@@ -147,24 +149,24 @@ class CmdbObject(CmdbDAO):
                 last_edit_time = parse(last_edit_time, fuzzy=True)
 
             return cls(
-                public_id = data.get('public_id'),
-                type_id = data.get('type_id'),
-                version = data.get('version'),
-                creation_time = creation_time,
-                author_id = data.get('author_id'),
-                last_edit_time = last_edit_time,
-                editor_id = data.get('editor_id'),
-                active = data.get('active'),
-                fields = data.get('fields', []),
-                ci_explorer_tooltip = data.get('ci_explorer_tooltip'),
-                multi_data_sections = data.get('multi_data_sections', []),
+                public_id=data.get('public_id'),
+                type_id=int(data["type_id"]),
+                version=data.get("version", "1.0.0"),
+                creation_time=creation_time,
+                author_id=int(data["author_id"]),
+                last_edit_time=last_edit_time,
+                editor_id=data.get('editor_id'),
+                active=data.get("active", True),
+                fields=data.get('fields', []),
+                ci_explorer_tooltip=data.get('ci_explorer_tooltip'),
+                multi_data_sections=data.get('multi_data_sections', []),
             )
         except Exception as err:
-            raise CmdbObjectInitFromDataError(err) from err
+            raise CmdbObjectInitFromDataError(str(err)) from err
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbObject") -> dict:
+    def to_json(cls, instance: "CmdbObject") -> dict[str, Any]:
         """
         Converts a CmdbObject into a json compatible dict
 
@@ -192,7 +194,7 @@ class CmdbObject(CmdbDAO):
                 'multi_data_sections': instance.multi_data_sections,
             }
         except Exception as err:
-            raise CmdbObjectToJsonError(err) from err
+            raise CmdbObjectToJsonError(str(err)) from err
 
 
     def get_type_id(self) -> int:
@@ -215,7 +217,7 @@ class CmdbObject(CmdbDAO):
         return self.fields
 
 
-    def get_value(self, field: dict) -> Optional[str]:
+    def get_value(self, field: dict) -> str | None:
         """
         Retrieves the value of a field by its name
 
@@ -228,7 +230,7 @@ class CmdbObject(CmdbDAO):
             ValueError: If no field with the specified name is found
 
         Returns:
-            Optional[str]: The value of the field if found
+            str | None: The value of the field if found
         """
         f: dict
         for f in self.fields:

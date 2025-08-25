@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -55,10 +55,10 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
     def __init__(
             self,
             file=None,
-            config: CsvObjectImporterConfig = None,
-            parser: JsonObjectParser = None,
-            objects_manager: ObjectsManager = None,
-            request_user: CmdbUser = None):
+            config: CsvObjectImporterConfig | None = None,
+            parser: JsonObjectParser | None = None,
+            objects_manager: ObjectsManager | None = None,
+            request_user: CmdbUser | None = None) -> None:
         """
         Initialize the CsvObjectImporter
 

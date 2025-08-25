@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -15,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-DATAGERRY is a flexible asset management tool and open-source configurable management database
+DataGerry is a flexible asset management tool and open-source configurable management database
 """
 import logging.config
 import signal
@@ -69,7 +68,7 @@ def build_arg_parser() -> Namespace:
 
     Returns: instance of OptionParser
     """
-    _parser = ArgumentParser(prog='DATAGERRY', usage=f"usage: {__title__} [options]")
+    _parser = ArgumentParser(prog='DataGerry', usage=f"usage: {__title__} [options]")
 
     _parser.add_argument(
         '--keys',
@@ -207,7 +206,7 @@ if __name__ == "__main__":
     """
 
     WELCOME_STRING = """
-        Welcome to DATAGERRY
+        Welcome to DataGerry
         Starting system with following parameters:
         {}\n
     """
@@ -228,5 +227,5 @@ if __name__ == "__main__":
             traceback.print_exc()
 
         LOGGER.critical("%s: %s",type(err).__name__, err, exc_info=True)
-        LOGGER.info("DATAGERRY stopped!")
+        LOGGER.info("DataGerry stopped!")
         sys.exit(1)

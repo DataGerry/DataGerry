@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerrys - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for IsmsImpacts
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ImpactManager, ImpactCategoryManager
@@ -61,7 +63,7 @@ impact_blueprint = APIBlueprint('impacts', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.add')
 @impact_blueprint.validate(IsmsImpact.SCHEMA)
-def insert_isms_impact(data: dict, request_user: CmdbUser):
+def insert_isms_impact(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsImpact into the database
 
@@ -123,7 +125,7 @@ def insert_isms_impact(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.view')
 @impact_blueprint.parse_collection_parameters()
-def get_isms_impacts(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_impacts(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsImpacts
 
@@ -163,7 +165,7 @@ def get_isms_impacts(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.view')
-def get_isms_impact(public_id: int, request_user: CmdbUser):
+def get_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsImpact
 
@@ -199,7 +201,7 @@ def get_isms_impact(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.edit')
 @impact_blueprint.validate(IsmsImpact.SCHEMA)
-def update_isms_impact(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpact
 
@@ -252,7 +254,7 @@ def update_isms_impact(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.delete')
-def delete_isms_impact(public_id: int, request_user: CmdbUser):
+def delete_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsImpact
 

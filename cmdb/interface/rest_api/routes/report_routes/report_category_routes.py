@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for CmdbReportCategories
 """
 import logging
+from typing import Any
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -53,7 +55,7 @@ report_categories_blueprint = APIBlueprint('report_categories', __name__)
 @report_categories_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def create_cmdb_report_category(params: dict, request_user: CmdbUser):
+def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbReportCategory into the database
 
@@ -71,7 +73,7 @@ def create_cmdb_report_category(params: dict, request_user: CmdbUser):
 
         # It is not possible to create a predefined CmdbReportCategory
         #TODO: FIX in Frontend (do not send the public_id)
-        params['public_id'] = report_categories_manager.get_next_public_id()
+        params['public_id'] = report_categories_manager.get_next_public_id(inc_id=True)
         params['predefined'] = False
 
         new_report_category_id = report_categories_manager.insert_item(params)
@@ -89,7 +91,7 @@ def create_cmdb_report_category(params: dict, request_user: CmdbUser):
 @report_categories_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_cmdb_report_category(public_id: int, request_user: CmdbUser):
+def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbReportCategory
 
@@ -125,7 +127,7 @@ def get_cmdb_report_category(public_id: int, request_user: CmdbUser):
 @report_categories_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbReportCategories
 
@@ -167,7 +169,7 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
 @report_categories_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def update_cmdb_report_category(public_id: int, params: dict, request_user: CmdbUser):
+def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbReportCategory
 
@@ -211,7 +213,7 @@ def update_cmdb_report_category(public_id: int, params: dict, request_user: Cmdb
 @report_categories_blueprint.route('/<int:public_id>/', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def delete_cmdb_report_category(public_id: int, request_user: CmdbUser):
+def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes the CmdbReportCategory with the given public_id
     

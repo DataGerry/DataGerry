@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,6 @@
 Implementation of FileMetaData
 """
 import logging
-from typing import Optional
-
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -32,11 +30,11 @@ class FileMetadata:
 
     Attributes:
         author_id (str): The ID of the author of the file/folder
-        permissions (Optional[str]): The permissions associated with the file/folder
-        reference (Optional[str]): A reference to another object
-        reference_type (Optional[str]): The type of reference (if any)
+        permissions (str | None): The permissions associated with the file/folder
+        reference (str | None): A reference to another object
+        reference_type (str | None): The type of reference (if any)
         folder (bool): Whether the object represents a folder
-        parent (Optional[int]): The ID of the parent folder or object
+        parent (ints | None): The ID of the parent folder or object
         mime_type (str): The MIME type of the file, default is "application/json"
     """
 
@@ -55,11 +53,11 @@ class FileMetadata:
 
         Args:
             author_id (str): The ID of the author
-            permissions (Optional[str]): The permissions for the file/folder
-            reference (Optional[str]): The reference associated with the file/folder
-            reference_type (Optional[str]): The type of reference (if any)
+            permissions (str | None): The permissions for the file/folder
+            reference (str | None): The reference associated with the file/folder
+            reference_type (str | None): The type of reference (if any)
             folder (bool): A flag indicating if it's a folder
-            parent (Optional[int]): The ID of the parent folder
+            parent (int | None): The ID of the parent folder
             mime_type (str): The MIME type for the file
         """
         self.reference = reference
@@ -71,12 +69,12 @@ class FileMetadata:
         self.permission = permissions
 
 
-    def get_ref_to(self) -> Optional[str]:
+    def get_ref_to(self) -> str | None:
         """
         Get the reference associated with this file/folder
 
         Returns:
-            Optional[str]: The reference, or None if not set
+            str | None: The reference, or None if not set
         """
         return self.reference
 
@@ -101,12 +99,12 @@ class FileMetadata:
         return self.mime_type or "application/json"
 
 
-    def get_permission(self) -> Optional[str]:
+    def get_permission(self) -> str | None:
         """
         Get the permissions associated with this file/folder
 
         Returns:
-            Optional[str]: The permissions, or None if not set
+            str | None: The permissions, or None if not set
         """
         return self.permission
 

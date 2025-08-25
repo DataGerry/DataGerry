@@ -92,7 +92,7 @@ class CmdbObjectLog(CmdbMetaLog):
                  user_name: str = None,
                  changes: list = None,
                  comment: str = None,
-                 render_state=None):
+                 render_state = None):
         """
         Initializes a new instance of the CmdbObjectLog class,
         representing a log entry for changes made to a CMDB object.
@@ -106,11 +106,11 @@ class CmdbObjectLog(CmdbMetaLog):
             object_id (int): ID of the CMDB object the log entry is associated with
             version: Version identifier of the object (exact type depends on implementation)
             user_id (int): ID of the user who performed the action
-            user_name (str, optional): Name of the user who performed the action. Defaults to an "unknown"
+            user_name (str | None): Name of the user who performed the action. Defaults to an "unknown"
                                        string if not provided
-            changes (list, optional): List detailing the specific changes made to the object
-            comment (str, optional): Additional comments or notes regarding the log entry
-            render_state (optional): Optional rendering state or snapshot of the object at the time of the log
+            changes (list | None): List detailing the specific changes made to the object
+            comment (str | None): Additional comments or notes regarding the log entry
+            render_state (Any | None): Optional rendering state or snapshot of the object at the time of the log
         """
         self.object_id = object_id
         self.version = version

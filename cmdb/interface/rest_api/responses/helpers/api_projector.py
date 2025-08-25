@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,15 +16,14 @@
 """
 Implementation of APIProjector
 """
-import logging
-from typing import Union
+from logging import Logger, getLogger
 
 from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
 
 from cmdb.errors.api_projection import APIProjectionInclusionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIProjector - CLASS                                                 #
@@ -34,22 +33,26 @@ class APIProjector:
     Converts the API Responses based on the ApiProjection mapping.
     """
 
-    def __init__(self, data: Union[dict, list[dict]], projection: APIProjection = None):
+    def __init__(self, data: dict | list[dict], projection: APIProjection | None = None) -> None:
         self._output = None
         self.__data = data
-        self.__projection = projection
+        self.__projection: APIProjection | None = projection
 
 
     @property
     def project(self) -> dict:
-        """Outputs the projected data."""
+        """
+        Outputs the projected data
+        """
         if not self._output:
             self._output = self.__project_output()
         return self._output
 
 
-    def __project_output(self) -> Union[dict, list[dict]]:
-        """Generate the output from the the api result or results"""
+    def __project_output(self) -> dict | list[dict]:
+        """
+        Generate the output from the the api result or results
+        W"""
         if not self.__projection:
             return self.__data
 

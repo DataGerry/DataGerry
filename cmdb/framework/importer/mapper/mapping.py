@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,12 +33,12 @@ class Mapping(Iterable):
     """
     Handles mappings between data sources and their respective memory fields
     """
-    def __init__(self, entries: list[MapEntry] = None):
+    def __init__(self, entries: list[MapEntry] | None = None) -> None:
         """
         Initializes a Mapping
 
         Args:
-            entries (list[MapEntry], optional): List of MapEntry objects. Defaults to an empty list
+            entries (list[MapEntry] | None): List of MapEntry objects. Defaults to an empty list
         """
         self.__entries: list[MapEntry] = entries or []
 
@@ -97,7 +97,7 @@ class Mapping(Iterable):
         self.__entries.append(entry)
 
 
-    def add_entries(self, entries: list[MapEntry]):
+    def add_entries(self, entries: list[MapEntry]) -> None:
         """
         Adds multiple mapping entries
         
@@ -107,7 +107,7 @@ class Mapping(Iterable):
         self.__entries.extend(entries)
 
 
-    def remove_entry(self, entry: MapEntry):
+    def remove_entry(self, entry: MapEntry) -> None:
         """
         Removes a mapping entry
         

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,8 +26,8 @@ class APIPagination:
     Reference to RFC 5988 and should be used as a cursor.
     """
 
-    def __init__(self, current: str, first, prev=None, next_=None, last=None):
-        self.current = current
+    def __init__(self, current: str, first, prev=None, next_=None, last=None) -> None:
+        self.current: str = current
         self.first = first
         self.prev = prev
         self.next = next_
@@ -53,7 +53,7 @@ class APIPagination:
 
 
     @staticmethod
-    def __set_page(query: str, page: int):
+    def __set_page(query: str, page: int) -> str:
         """
         Set the query page parameter
 
@@ -126,12 +126,12 @@ class APIPagination:
         return cls(current=url, first=first_url, prev=prev_url, next_=next_url, last=last_url)
 
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any | None]:
         """
         Converts the attributes of the IsmsVulnerability into a json compatible dict
 
         Returns:
-            dict: Json compatible dict of the IsmsVulnerability attributes
+            dict[str, Any | None]: Json compatible dict of the IsmsVulnerability attributes
         """
         return {
             'current': self.current,

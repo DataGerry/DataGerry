@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 This module contains the implementation of the LocationsManager
 """
 import logging
-from typing import Union, Optional
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -30,7 +29,6 @@ from cmdb.errors.models.cmdb_location import CmdbLocationToJsonError
 from cmdb.errors.manager import (
     BaseManagerInsertError,
     BaseManagerGetError,
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
     BaseManagerIterationError,
 )
@@ -74,12 +72,12 @@ class LocationsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_location(self, location: Union[CmdbLocation, dict]) -> int:
+    def insert_location(self, location: CmdbLocation | dict) -> int:
         """
         Insert a CmdbLocation into the database
 
         Args:
-            location (Union[CmdbLocation, dict]): Raw data of the CmdbLocation
+            location (CmdbLocation | dict): Raw data of the CmdbLocation
 
         Raises:
             LocationsManagerInsertError: When a CmdbLocation could not be inserted into the database
@@ -126,7 +124,7 @@ class LocationsManager(BaseManager):
             raise LocationsManagerIterationError(err) from err
 
 
-    def get_location(self, public_id: int) -> Optional[dict]:
+    def get_location(self, public_id: int) -> dict | None:
         """
         Retrieves a CmdbLocation from the database
 
@@ -137,7 +135,7 @@ class LocationsManager(BaseManager):
             LocationsManagerGetError: When a CmdbLocation could not be retrieved
 
         Returns:
-            Optional[dict]: A dictionary representation of the CmdbLocation if successful, otherwise None
+            dict | None: A dictionary representation of the CmdbLocation if successful, otherwise None
         """
         try:
             return self.get_one(public_id)
@@ -192,13 +190,13 @@ class LocationsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_location(self, object_id:int, data: Union[CmdbLocation, dict], per_object: bool = True) -> None:
+    def update_location(self, object_id:int, data: CmdbLocation | dict, per_object: bool = True) -> None:
         """
         Updates a CmdbLocation in the database
 
         Args:
             object_id (int): object_id of the CmdbLocation which should be updated
-            data: Union[CmdbLocation, dict]: The new data for the CmdbLocation
+            data: (CmdbLocation | dict): The new data for the CmdbLocation
 
         Raises:
             LocationsManagerUpdateError: When the update operation fails
@@ -210,8 +208,6 @@ class LocationsManager(BaseManager):
             update_key = 'object_id' if per_object else 'public_id'
 
             self.update({update_key: object_id}, data)
-        except (BaseManagerUpdateError, CmdbLocationToJsonError) as err:
-            raise LocationsManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_location] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerUpdateError(err) from err

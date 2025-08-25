@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -46,10 +46,14 @@ class SearcherFramework:
         self.objects_manager = objects_manager
 
 
-    def aggregate(self, pipeline: list[dict],
-                  request_user: CmdbUser = None,
-                  limit: int = DEFAULT_LIMIT,
-                  skip: int = 0, **kwargs) -> SearchResult[RenderResult]:
+    def aggregate(
+        self,
+        pipeline: list[dict],
+        request_user: CmdbUser | None = None,
+        limit: int = DEFAULT_LIMIT,
+        skip: int = 0,
+        **kwargs
+    ) -> SearchResult[RenderResult]:
         """
         Use mongodb aggregation system with pipeline queries
         Args:

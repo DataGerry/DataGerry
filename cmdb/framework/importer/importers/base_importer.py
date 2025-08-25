@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 Module of basic importers
 """
 import logging
-from typing import Optional
 
 from cmdb.framework.importer.configs.base_importer_config import BaseImporterConfig
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -29,7 +28,9 @@ LOGGER = logging.getLogger(__name__)
 #                                                 BaseImporter - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class BaseImporter:
-    """Base class for all importer"""
+    """
+    Base class for all importers
+    """
 
     def __init__(self, file, file_type: str, config: BaseImporterConfig = None):
         """
@@ -54,7 +55,7 @@ class BaseImporter:
         return self.file
 
 
-    def get_config(self) -> Optional[BaseImporterConfig]:
+    def get_config(self) -> BaseImporterConfig | None:
         """Get the configuration object"""
         return self.config
 

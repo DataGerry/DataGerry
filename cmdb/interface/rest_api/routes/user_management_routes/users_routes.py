@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,8 +18,10 @@ Implementation of all API routes for CmdbUsers
 """
 import json
 import logging
+from typing import Any
 from datetime import datetime, timezone
 from flask import abort, request, current_app
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -63,7 +65,7 @@ users_blueprint = APIBlueprint('users', __name__)
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.add')
 @users_blueprint.validate(CmdbUser.SCHEMA)
-def insert_cmdb_user(data: dict, request_user: CmdbUser):
+def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUser into the database
 
@@ -154,7 +156,7 @@ def insert_cmdb_user(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.view')
 @users_blueprint.parse_collection_parameters()
-def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for retrieving multiple CmdbUsers with a filter
 
@@ -191,7 +193,7 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.view', excepted={'public_id': 'public_id'})
-def get_cmdb_user(public_id: int, request_user: CmdbUser):
+def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single CmdbUser
 
@@ -226,7 +228,7 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.edit', excepted={'public_id': 'public_id'})
 @users_blueprint.validate(CmdbUser.SCHEMA)
-def update_cmdb_user(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_user(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser
 
@@ -272,7 +274,7 @@ def update_cmdb_user(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.edit', excepted={'public_id': 'public_id'})
-def change_cmdb_user_password(public_id: int, request_user: CmdbUser):
+def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route for changing the password of a CmdbUser
 
@@ -314,7 +316,7 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.delete')
-def delete_cmdb_user(public_id: int, request_user: CmdbUser):
+def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbUser
 

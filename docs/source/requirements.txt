@@ -1,4 +1,4 @@
-sphinx==7.3.7
+sphinx==8.2.3
 sphinx_rtd_theme==3.0.2
 readthedocs-sphinx-search==0.1.1
 sphinxcontrib.httpdomain==1.8.1

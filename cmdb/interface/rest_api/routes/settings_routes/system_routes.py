@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,9 @@ Implementation of DataGerry general system information API routes
 import sys
 import time
 import logging
+from typing import Any
 from flask import abort
+from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
@@ -43,7 +45,7 @@ system_blueprint = NestedBlueprint(settings_blueprint, url_prefix='/system')
 @system_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_datagerry_information(request_user: CmdbUser):
+def get_datagerry_information(request_user: CmdbUser) -> Response:
     """
     Gathers and returns basic information about the DataGerry system, including version,
     database version, runtime, and startup parameters
@@ -63,7 +65,7 @@ def get_datagerry_information(request_user: CmdbUser):
             LOGGER.error("[get_datagerry_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
             db_version = 0
 
-        datagerry_infos = {
+        datagerry_infos: dict[str, Any] = {
             'title': __title__,
             'version': __version__,
             'db_version': db_version,
@@ -81,7 +83,7 @@ def get_datagerry_information(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.system.view')
-def get_config_information(request_user: CmdbUser):
+def get_config_information(request_user: CmdbUser) -> Response:
     """
     Retrieves and returns the configuration information, including path and properties,
     of the system configuration file
@@ -95,7 +97,7 @@ def get_config_information(request_user: CmdbUser):
     try:
         ssc = SystemConfigReader()
 
-        config_dict = {
+        config_dict: dict[str, Any] = {
             'path': ssc.config_file,
             'properties': []
         }

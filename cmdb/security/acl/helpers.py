@@ -38,12 +38,18 @@ def has_access_control(target_type: CmdbType, user: CmdbUser, permission: Access
     return True
 
 
-def verify_access(target_type: CmdbType, user: CmdbUser = None, permission: AccessControlPermission = None):
-    """Validate if a user has access to objects of this type."""
+def verify_access(
+    target_type: CmdbType,
+    user: CmdbUser | None = None,
+    permission: AccessControlPermission | None = None
+) -> None:
+    """
+    Validate if a user has access to objects of this type
+    """
     if not user or not permission:
         return
 
-    verify = has_access_control(target_type, user, permission)
+    verify: bool = has_access_control(target_type, user, permission)
 
     if not verify:
         raise AccessDeniedError('Protected by ACL permission!')

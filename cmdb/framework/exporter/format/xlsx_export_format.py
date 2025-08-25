@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -52,12 +52,12 @@ class XlsxExportFormat(BaseExporterFormat):
 
         Args:
             data (list[RenderResult]): A list of `RenderResult` objects to be exported
-            *args: Optional arguments, including 'metadata' and 'view', that can customize the export
+            *args: arguments including 'metadata' and 'view', that can customize the export
 
         Returns:
             bytes: The content of the XLSX file as a byte string.
         """
-        workbook = self.create_xls_object(data, args)
+        workbook: Workbook = self.create_xls_object(data, args)
 
         # Save the workbook to a temporary file and return its content as bytes
         with tempfile.NamedTemporaryFile() as tmp:

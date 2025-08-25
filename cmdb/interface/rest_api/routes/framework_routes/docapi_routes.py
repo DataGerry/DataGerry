@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -230,7 +230,7 @@ def get_template_by_name(name: str, request_user: CmdbUser):
         abort(404, f"Could not retrieve the template with name:{name}!")
     except Exception as err:
         LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An error occured when trying to retrieve the template with name:{name}!")
+        abort(500, f"An internal server error occured when trying to retrieve the Template with name:{name}!")
 
 
 @docapi_blueprint.route('/template/<int:public_id>/render/<int:object_id>', methods=['GET'])

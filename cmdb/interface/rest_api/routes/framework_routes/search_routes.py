@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,7 @@ Implementation of all API routes for Search requests
 import json
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -48,7 +49,7 @@ search_blueprint = APIBlueprint('search_rest', __name__, url_prefix='/search')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @search_blueprint.protect(auth=True)
-def quick_search_result_counter(request_user: CmdbUser):
+def quick_search_result_counter(request_user: CmdbUser) -> Response:
     """
     Aggregates and returns quick search result counts (active, inactive, total) for the given user
 
@@ -56,7 +57,7 @@ def quick_search_result_counter(request_user: CmdbUser):
         request_user (CmdbUser): The user making the request. Used for permission and access control
 
     Returns:
-        Response: A Flask Response containing the quick search result counts
+        Response: A Response containing the quick search result counts
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
@@ -82,14 +83,14 @@ def quick_search_result_counter(request_user: CmdbUser):
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
-        LOGGER.error("[export_cmdb_types_by_ids] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[quick_search_result_counter] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while processing quick search results!")
 
 
 @search_blueprint.route('/', methods=['GET', 'POST'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
-def search_framework(request_user: CmdbUser):
+def search_framework(request_user: CmdbUser) -> Response:
     """
     Processes a search request (GET or POST) using the SearcherFramework, applying filters, pagination, and 
     optional reference resolution
@@ -98,7 +99,7 @@ def search_framework(request_user: CmdbUser):
         request_user (CmdbUser): The user making the request, used for permission checks and data access
 
     Returns:
-        Response: A Flask Response object containing the search results (list of objects) or an empty list 
+        Response: A Response object containing the search results (list of objects) or an empty list 
                   with HTTP 204 if an error occurs during search aggregation
     """
     try:
@@ -136,8 +137,14 @@ def search_framework(request_user: CmdbUser):
                                             permission=AccessControlPermission.READ,
                                             active_flag=only_active)
 
-            result = searcher.aggregate(pipeline=query, request_user=request_user, limit=limit, skip=skip,
-                                        resolve=resolve_object_references, active=only_active)
+            result = searcher.aggregate(
+                                                     pipeline=query,
+                                                     request_user=request_user,
+                                                     limit=limit,
+                                                     skip=skip,
+                                                     resolve=resolve_object_references,
+                                                     active=only_active
+                                                 )
 
             return DefaultResponse(result).make_response()
         except Exception as err:
@@ -152,14 +159,14 @@ def search_framework(request_user: CmdbUser):
 # ------------------------------------------------------ HELPERS ----------------------------------------------------- #
 
 #TODO: REFACTOR-FIX (move to helper file since identical method in objects_routes.py)
-def _fetch_only_active_objs():
+def _fetch_only_active_objs() -> bool:
     """
         Checking if request have cookie parameter for object active state
         Returns:
             True if cookie is set or value is true else false
         """
     if request.args.get('onlyActiveObjCookie') is not None:
-        value = request.args.get('onlyActiveObjCookie')
+        value: str | None = request.args.get('onlyActiveObjCookie')
         if value in ['True', 'true']:
             return True
 

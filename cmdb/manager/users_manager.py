@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,6 @@
 This module contains the implementation of the UsersManager
 """
 import logging
-from typing import Union, Optional
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -26,13 +25,6 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import (
-    BaseManagerInsertError,
-    BaseManagerDeleteError,
-    BaseManagerGetError,
-    BaseManagerIterationError,
-    BaseManagerUpdateError,
-)
 from cmdb.errors.manager.users_manager import (
     UsersManagerInitError,
     UsersManagerGetError,
@@ -40,10 +32,6 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerDeleteError,
     UsersManagerUpdateError,
     UsersManagerIterationError,
-)
-from cmdb.errors.models.cmdb_user import (
-    CmdbUserToJsonError,
-    CmdbUserInitFromDataError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -73,12 +61,12 @@ class UsersManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_user(self, user: Union[CmdbUser, dict]) -> int:
+    def insert_user(self, user: CmdbUser | dict) -> int:
         """
         Insert a single CmdbUser into the database
 
         Args:
-            user (dict): Raw data of the CmdbUser
+            user (CmdbUser | dict): Raw data of the CmdbUser
 
         Raises:
             UsersManagerInsertError: When the CmdbUser could not be inserted in the database
@@ -91,15 +79,13 @@ class UsersManager(BaseManager):
                 user = CmdbUser.to_json(user)
 
             return self.insert(user)
-        except (BaseManagerInsertError, CmdbUserToJsonError) as err:
-            raise UsersManagerInsertError(err) from err
         except Exception as err:
             LOGGER.error("[insert_user] Exception: %s. Type: %s", err, type(err))
             raise UsersManagerInsertError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_user(self, public_id: int) -> Optional[CmdbUser]:
+    def get_user(self, public_id: int) -> CmdbUser | None:
         """
         Retrieve a single CmdbUser by its public_id
 
@@ -110,7 +96,7 @@ class UsersManager(BaseManager):
             UsersManagerGetError: If CmdbUser could not be retrieved
 
         Returns:
-            Optional[CmdbUser]: The requested CmdbUser if it exist else None
+            CmdbUser | None: The requested CmdbUser if it exist else None
         """
         try:
             requested_user = self.get_one(public_id)
@@ -119,14 +105,12 @@ class UsersManager(BaseManager):
                 return None
 
             return CmdbUser.from_data(requested_user)
-        except (BaseManagerGetError, CmdbUserInitFromDataError) as err:
-            raise UsersManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_user] Exception: %s. Type: %s", err, type(err))
             raise UsersManagerGetError(err) from err
 
 
-    def get_user_by(self, query: dict) -> Optional[CmdbUser]:
+    def get_user_by(self, query: dict) -> CmdbUser | None:
         """
         Get a single CmdbUser by a query
 
@@ -137,7 +121,7 @@ class UsersManager(BaseManager):
             UsersManagerGetError: When the CmdbUser could not be retrieved
 
         Returns:
-            Optional[CmdbUser]: CmdbUser matching the query if it exist else None
+            CmdbUser | None: CmdbUser matching the query if it exist else None
         """
         try:
             result = self.get(filter=query, limit=1)
@@ -149,8 +133,6 @@ class UsersManager(BaseManager):
             return CmdbUser.from_data(requested_user)
         except IndexError: # No user found
             return None
-        except (BaseManagerGetError, CmdbUserInitFromDataError) as err:
-            raise UsersManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_user_by] Exception: %s. Type: %s", err, type(err))
             raise UsersManagerGetError(err) from err
@@ -175,10 +157,8 @@ class UsersManager(BaseManager):
             results = self.get(filter=query)
 
             return [CmdbUser.from_data(user) for user in results]
-        except (BaseManagerGetError, CmdbUserInitFromDataError) as err:
-            raise UsersManagerGetError(err) from err
         except Exception as err:
-            LOGGER.error("[get_many_users] Error: %s, Type: %s", err, type(err))
+            LOGGER.error("[get_many_users] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerGetError(err) from err
 
 
@@ -201,21 +181,19 @@ class UsersManager(BaseManager):
             iteration_result: IterationResult[CmdbUser] = IterationResult(aggregation_result, total, CmdbUser)
 
             return iteration_result
-        except BaseManagerIterationError as err:
-            raise UsersManagerIterationError(err) from err
         except Exception as err:
-            LOGGER.error("[iterate] Error: %s, Type: %s", err, type(err))
+            LOGGER.error("[iterate] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerIterationError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_user(self, public_id: int, user_data: Union[CmdbUser, dict]) -> None:
+    def update_user(self, public_id: int, user_data: CmdbUser | dict) -> None:
         """
         Update an existing CmdbUser
 
         Args:
             public_id (int): public_id of the CmdbUser
-            user(CmdbUser/dict): Instance or dict of CmdbUser
+            user(CmdbUser | dict): Instance or dict of CmdbUser
 
         Raises:
             UsersManagerUpdateError: When the CmdbUser could not be updated
@@ -225,10 +203,8 @@ class UsersManager(BaseManager):
                 user_data = CmdbUser.to_json(user_data)
 
             self.update(criteria={'public_id': public_id}, data=user_data)
-        except (BaseManagerUpdateError, CmdbUserToJsonError) as err:
-            raise UsersManagerUpdateError(err) from err
         except Exception as err:
-            LOGGER.error("[update_user] Error: %s, Type: %s", err, type(err))
+            LOGGER.error("[update_user] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -251,5 +227,6 @@ class UsersManager(BaseManager):
                 raise UsersManagerDeleteError("You can't delete the admin user!")
 
             return self.delete({'public_id': public_id})
-        except BaseManagerDeleteError as err:
+        except Exception as err:
+            LOGGER.error("[delete_user] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerDeleteError(err) from err

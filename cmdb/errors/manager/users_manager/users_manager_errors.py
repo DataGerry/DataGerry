@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,13 +22,13 @@ class UsersManagerError(Exception):
     """
     Raised to catch all UsersManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all UsersManager related errors
         """
         super().__init__(err)
 
-# ----------------------------------------------- UsersManager Errors ------------------------------------------------ #
+# ----------------------------------------------- UsersManager - ERRORS ---------------------------------------------- #
 
 class UsersManagerInitError(UsersManagerError):
     """

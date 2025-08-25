@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for the IsmsRiskAssessments
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
@@ -70,7 +72,7 @@ risk_assessment_blueprint = APIBlueprint('risk_assessment', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
 @risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
-def insert_isms_risk_assessment(data: dict, request_user: CmdbUser):
+def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
 
@@ -86,7 +88,7 @@ def insert_isms_risk_assessment(data: dict, request_user: CmdbUser):
                                                                             ManagerType.RISK_ASSESSMENT,
                                                                             request_user
                                                                          )
-        cm_assignment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+        cm_assignment_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
                                                                             ManagerType.CONTROL_MEASURE_ASSIGNMENT,
                                                                             request_user
                                                                        )
@@ -95,9 +97,9 @@ def insert_isms_risk_assessment(data: dict, request_user: CmdbUser):
         except Exception:
             abort(400, "The 'Cost for Implementation' could not be converted to a float!")
 
-        cm_assignments = data.pop('control_measure_assignments', None)
+        cm_assignments = data.pop('control_measure_assignments')
 
-        result_id = risk_assessment_manager.insert_item(data)
+        result_id: int = risk_assessment_manager.insert_item(data)
 
         # Create all provided ControlMeasureAssignments if there are any
         if cm_assignments:
@@ -130,7 +132,12 @@ def insert_isms_risk_assessment(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
 @risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
-def duplicate_isms_risk_assessment(data: dict, request_user: CmdbUser, duplicate_mode: str, public_ids: str):
+def duplicate_isms_risk_assessment(
+    data: dict[str, Any],
+    request_user: CmdbUser,
+    duplicate_mode: str,
+    public_ids: str
+) -> Response:
     """
     HTTP `POST` route to duplicate an IsmsRiskAssessment into the database
 
@@ -222,7 +229,7 @@ def duplicate_isms_risk_assessment(data: dict, request_user: CmdbUser, duplicate
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.view')
 @risk_assessment_blueprint.parse_collection_parameters()
-def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRiskAssessments
 
@@ -234,7 +241,7 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
         GetMultiResponse: All the IsmsRiskAssessments matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body: bool = request.method == 'HEAD'
 
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
             ManagerType.RISK_ASSESSMENT,
@@ -410,7 +417,7 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.view')
-def get_isms_risk_assessment(public_id: int, request_user: CmdbUser):
+def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRiskAssessment
 
@@ -449,7 +456,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.edit')
 @risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
-def update_isms_risk_assessment(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_risk_assessment(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment
 
@@ -528,7 +535,7 @@ def update_isms_risk_assessment(public_id: int, data: dict, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.delete')
-def delete_isms_risk_assessment(public_id: int, request_user: CmdbUser):
+def delete_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRiskAssessment
 

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for IsmsImpactCategories
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ImpactCategoryManager
@@ -61,7 +63,7 @@ impact_category_blueprint = APIBlueprint('impact_categories', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.add')
 @impact_category_blueprint.validate(IsmsImpactCategory.SCHEMA)
-def insert_isms_impact_category(data: dict, request_user: CmdbUser):
+def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsImpactCategory into the database
 
@@ -78,7 +80,7 @@ def insert_isms_impact_category(data: dict, request_user: CmdbUser):
 
         result_id: int = impact_category_manager.create_with_follow_up(data)
 
-        created_impact: dict = impact_category_manager.get_item(result_id, as_dict=True)
+        created_impact: dict[str, Any] = impact_category_manager.get_item(result_id, as_dict=True)
 
         if created_impact:
             return InsertSingleResponse(created_impact, result_id).make_response()
@@ -103,7 +105,7 @@ def insert_isms_impact_category(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.view')
 @impact_category_blueprint.parse_collection_parameters()
-def get_isms_impact_categories(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_impact_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsImpactCategories
 
@@ -145,7 +147,7 @@ def get_isms_impact_categories(params: CollectionParameters, request_user: CmdbU
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.view')
-def get_isms_impact_category(public_id: int, request_user: CmdbUser):
+def get_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsImpactCategory
 
@@ -182,7 +184,7 @@ def get_isms_impact_category(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.edit')
 @impact_category_blueprint.validate(IsmsImpactCategory.SCHEMA)
-def update_isms_impact_category(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_impact_category(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpactCategory
 

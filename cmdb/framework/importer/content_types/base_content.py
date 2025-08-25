@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,6 +24,6 @@ class BaseContent:
     Notes:
         Should not be used
     """
-    ICON = ''
-    CONTENT_TYPE = ''
-    FILE_TYPE = ''
+    ICON: str = ''
+    CONTENT_TYPE: str = ''
+    FILE_TYPE: str = ''

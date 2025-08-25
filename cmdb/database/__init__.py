@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,7 @@ from .mongo_database_manager import MongoDatabaseManager
 from .mongo_query_builder import MongoDBQueryBuilder
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ConnectionStatus',
     'DatabaseGridFS',
     'MongoConnector',

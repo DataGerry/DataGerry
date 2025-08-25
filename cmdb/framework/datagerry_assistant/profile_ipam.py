@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,19 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module manages the 'IPAM'-Profile for the DATAGERRY assistant
+This module manages the IPAM - Profile for the DataGerry assistant
 """
 import logging
 
-from cmdb.manager.types_manager import TypesManager
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
 
-
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  IPAMProfile - CLASS                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
 class IPAMProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'IPAM'-Profile

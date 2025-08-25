@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 Implementation of GetMultiResponse
 """
 import logging
+from typing import Any
 from math import ceil
 from werkzeug.wrappers import Response
 
@@ -42,8 +43,8 @@ class GetMultiResponse(BaseAPIResponse):
                  results: list[dict],
                  total: int,
                  params: CollectionParameters,
-                 url: str = None,
-                 body: bool = None):
+                 url: str | None = None,
+                 body: bool = None) -> None:
         """
         Constructor of GetMultiResponse
 
@@ -54,7 +55,7 @@ class GetMultiResponse(BaseAPIResponse):
             url: Requested url
             body: If http response should not have a body
         """
-        self.parameters = params
+        self.parameters: CollectionParameters = params
 
         if self.parameters.projection:
             project = APIProjection(self.parameters.projection)
@@ -76,7 +77,7 @@ class GetMultiResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.GET, url=url, body=body)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response.
 
@@ -97,7 +98,7 @@ class GetMultiResponse(BaseAPIResponse):
         return response
 
 
-    def export(self, pagination: bool = True) -> dict:
+    def export(self, pagination: bool = True) -> dict[str, Any]:
         """
         Get the response data as dict
 

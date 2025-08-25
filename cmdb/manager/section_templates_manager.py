@@ -17,6 +17,7 @@
 This module contains the implementation of the SectionTemplatesManager
 """
 import logging
+from typing import Any
 from deepdiff import DeepDiff
 
 from cmdb.database import MongoDatabaseManager
@@ -49,7 +50,7 @@ class SectionTemplatesManager(BaseManager):
     Extends: BaseManager
     """
 
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection and the queue for sending events
 
@@ -64,7 +65,7 @@ class SectionTemplatesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_section_template(self, data: dict) -> int:
+    def insert_section_template(self, data: dict[str, Any]) -> int:
         """
         Insert new CMDBSectionTemplate
         Args:
@@ -136,10 +137,10 @@ class SectionTemplatesManager(BaseManager):
 
             if section_template:
                 found_template = CmdbSectionTemplate(**section_template)
-        except Exception as err:
-            raise BaseManagerGetError(err) from err
 
-        return found_template
+            return found_template
+        except Exception as err:
+            raise BaseManagerGetError(str(err)) from err
 
 
     def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict:

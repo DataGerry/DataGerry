@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ class BaseCmdbApp(Flask):
     """
     A base class for the CMDB application, extending Flask
     """
-    def __init__(self, import_name: str, database_manager: MongoDatabaseManager = None):
+    def __init__(self, import_name: str, database_manager: MongoDatabaseManager | None = None) -> None:
         """
         Initializes the BaseCmdbApp instance
 
@@ -41,13 +41,13 @@ class BaseCmdbApp(Flask):
             import_name (str): The name of the application module
             database_manager (MongoDatabaseManager | None, optional): Database interaction manager. Defaults to None
         """
-        self.database_manager = database_manager
+        self.database_manager: MongoDatabaseManager | None = database_manager
         self.temp_folder = '/tmp/'
-        self.cloud_mode = __CLOUD_MODE__
-        self.local_mode = __LOCAL_MODE__
+        self.cloud_mode: bool = __CLOUD_MODE__
+        self.local_mode: bool = __LOCAL_MODE__
 
         # Used for local development
-        self.asymmetric_key = {
+        self.asymmetric_key: dict[str, bytes] = {
             'private': (
                 b"-----BEGIN RSA PRIVATE KEY-----\n"
                 b"MIIEogIBAAKCAQEAmFEdxz3bGXnCYuKX2AFliOytBbsTrJWI/iLqzBX1EZSL0s1c\n"

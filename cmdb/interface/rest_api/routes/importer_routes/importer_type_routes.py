@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,9 +18,11 @@ Implementation of all API routes for Type Imports
 """
 import json
 import logging
+from typing import Any
 from datetime import datetime, timezone
 from bson import json_util
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -48,7 +50,7 @@ LOGGER = logging.getLogger(__name__)
 @importer_type_blueprint.route('/create/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def add_type(request_user: CmdbUser):
+def add_type(request_user: CmdbUser) -> Response:
     """
     Adds new CmdbTypes based on uploaded JSON data. Generates new public IDs and creation timestamps for 
     each imported type, and inserts them into the database
@@ -63,7 +65,7 @@ def add_type(request_user: CmdbUser):
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        error_collection = {}
+        error_collection: dict[str, Any] = {}
         upload = request.form.get('uploadFile')
         new_type_list = json.loads(upload, object_hook=json_util.object_hook)
 

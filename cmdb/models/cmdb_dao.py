@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 Implementation of CmdbDAO
 """
 import logging
-from typing import Type, TypeVar
+from typing import Type, TypeVar, Any
 import pprint
 from pymongo import IndexModel
 
@@ -56,14 +56,18 @@ class CmdbDAO:
     DAO_DESCENDING = -1
     COLLECTION = 'framework.*'
     MODEL: str = ''
-    SCHEMA: dict = {}
+    SCHEMA: dict[str, Any] = {}
 
-    __SUPER_INIT_KEYS = [
+    __SUPER_INIT_KEYS: list[str] = [
         'public_id'
     ]
 
-    SUPER_INDEX_KEYS = [
-        {'keys': [('public_id', DAO_ASCENDING)], 'name': 'public_id', 'unique': True}
+    SUPER_INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [('public_id', DAO_ASCENDING)],
+            'name': 'public_id',
+            'unique': True
+        }
     ]
 
     IGNORED_INIT_KEYS = []
@@ -74,7 +78,7 @@ class CmdbDAO:
     VERSIONING_PATCH = 0
 
 
-    def __init__(self, public_id, **kwargs):
+    def __init__(self, public_id : int, **kwargs: Any) -> None:
         """
         All parameters inside *kwargs will be auto convert to attributes
 
@@ -105,13 +109,13 @@ class CmdbDAO:
         Returns:
             int: public id
         """
-        if self.public_id == 0 or self.public_id is None:
+        if self.public_id == 0:
             raise NoPublicIDError("No public_id assigned!")
 
         return self.public_id
 
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args: Any, **kwargs: Any):
         """
         auto call function by object initialization
         checks if all required keys for cmdb usage are present
@@ -201,16 +205,16 @@ class CmdbDAO:
 
 
     @classmethod
-    def from_data(cls: Type[T], data: dict) -> T:
+    def from_data(cls: Type[T], data: dict[str, Any]) -> T:
         """
         Each subclass must implement this to initialize from a dictionary
         """
-        raise NotImplementedError(f"{cls.__name__} must implement from_data.")
+        raise NotImplementedError(f"{cls.__name__} must implement a 'from_data' method!")
 
 
     @classmethod
-    def to_json(cls, instance: T) -> dict:
+    def to_json(cls, instance: T) -> dict[str, Any]:
         """
         Each subclass must implement this to convert to a JSON-compatible dict
         """
-        raise NotImplementedError(f"{cls.__name__} must implement to_json.")
+        raise NotImplementedError(f"{cls.__name__} must implement a 'to_json' method!")

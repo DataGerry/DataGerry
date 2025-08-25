@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -86,4 +86,5 @@ class ZipExportFormat(BaseExporterFormat):
 
         # returns zipped file
         zipped_file.seek(0)
+
         return zipped_file

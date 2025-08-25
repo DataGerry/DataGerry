@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -110,8 +110,6 @@ class CmdbWebhookEvent(CmdbDAO):
             changes (dict): Dictionary summarizing the changes made to the object
             response_code (int): HTTP response status code returned by the webhook endpoint
             status (bool): Whether the webhook request was successful (True if response code was 200)
-
-        Optional Args:
             **kwargs: Additional fields to pass to the superclass initializer
         """
         self.event_time = event_time
