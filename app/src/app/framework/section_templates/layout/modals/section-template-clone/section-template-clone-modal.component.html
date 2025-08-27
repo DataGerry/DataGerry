@@ -1,12 +1,11 @@
 <div class="modal-content">
+    <div class="modal-header">
+        <h4 class="modal-title">Clone Template</h4>
+        <button type="button" class="close text-white" (click)="activeModal.close(false)">
+            <span aria-hidden="true">×</span>
+        </button>
+    </div>
     <div class="modal-body">
-        <img 
-            id="login-logo" 
-            src="/assets/img/datagerry_logo.svg" 
-            class="img-fluid mx-auto d-block w-50"
-            alt="DATAGERRY"
-        />
-        <br>
         <div class="clone-heading">
             <h4><b>Cloning of {{sectionTemplate.label}} [ID:{{sectionTemplate.public_id}}]</b></h4>
             Enter the name for the copy and decide if it should be a global template!
@@ -33,7 +32,7 @@
         </form>
     </div>
     <div class="modal-footer">
-        <button type="button" class="btn btn-light" (click)="activeModal.close(false)">Cancel</button>
-        <button type="button" class="btn btn-primary" [disabled]="!cloneForm.valid" (click)="activeModal.close(cloneForm.value)">Clone Template</button>
+        <button type="button" class="btn btn-warning" (click)="activeModal.close(false)">Cancel</button>
+        <button type="button" class="btn btn-success" [disabled]="!cloneForm.valid" (click)="activeModal.close(cloneForm.value)">Clone Template</button>
     </div>
 </div>
