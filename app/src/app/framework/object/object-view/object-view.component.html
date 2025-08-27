@@ -154,7 +154,7 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Select Relationship</h5>
-          <button type="button" class="btn-close" aria-label="Close" (click)="closeRelationModal()"></button>
+          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeRelationModal()"></button>
         </div>
         <div class="modal-body">
           <div *ngIf="loadingRelations" class="loading-state text-center">
@@ -207,7 +207,7 @@
           <button class="btn btn-secondary" (click)="closeRelationModal()">
             Cancel
           </button>
-          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary"
+          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary text-white"
             [disabled]="!chosenRelation" (click)="onConfirmRelationSelection()">
             Confirm
           </button>

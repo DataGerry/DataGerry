@@ -74,4 +74,8 @@ export class ToastComponentComponent {
     })();
   }
 
+  closeToast(toast: any) {
+    this.toastService.remove(toast);
+  }
+  
 }

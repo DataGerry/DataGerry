@@ -1,12 +1,12 @@
-<div class="toast-container shadow mb-2 {{toast.classname}}">
+<div class="toast-container shadow mb-2 {{toast.classname}}" >
   <span>{{waitTillDisposal((toast.delayTime * 1000) || 3500, toast)}}</span>
   <div class="toast-body border-0">
     <div class="container">
       <div class="row">
-        <div class="col-2 ps-0"><i class="{{toast?.icon}} {{toast.iconClass}} fa-3x fa-align-center icon-center"></i></div>
+        <div class="col-2 pl-0"><i class="{{toast?.icon}} {{toast.iconClass}} fa-3x fa-align-center icon-center"></i></div>
         <div class="col-9"><h5>{{toast?.headerName}}</h5> <p>{{toast?.text}}</p></div>
-        <div class="col-1 pe-0 text-end">
-          <button type="button" class="ms-2 mb-2 close" data-dismiss="toast" aria-label="Close">
+        <div class="col-1 pr-0">
+          <button type="button" class="ml-2 mb-2 close" data-dismiss="toast" aria-label="Close">
             <span aria-hidden="true" (click)="toastService?.remove(toast)">×</span>
           </button>
         </div>

@@ -1,57 +1,31 @@
-
-
-.toast-container {
+.cmdb-toast {
+  box-sizing: border-box;
   overflow: visible;
-  opacity: 1;
-  background: white;
-  pointer-events: all;
-  border: 0 solid;
+  background: #fff; 
+  border-radius: 5px;
   border-left: 5px solid;
   min-width: 350px;
   max-width: 400px;
   word-break: break-word;
-  word-wrap: break-word;
   overflow-wrap: break-word;
-  pointer-events: all;
-  border-radius: 5px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.16);
+  opacity: 1;
+  padding: 9px;
 }
 
-.fixed {
-  position: fixed;
-  pointer-events: none;
-  margin: 1em;
-}
+.toast { display: block !important; opacity: 1 !important; }
 
-.left {
-  left: 0;
-}
-
-.top {
-  top: 0;
-}
-
-.bottom {
-  bottom: 0;
-}
-
-.right {
-  right: 0;
-}
-
-.center {
-  height: fit-content;
-  width: fit-content;
-  right: 45%;
-  left: 45%;
-  top: 45%;
-  bottom: 45%;
-}
-
-.icon-center {
+.cmdb-toast .btn-close {
   position: absolute;
-  left: 5%;
-  top: 30%;
+  top: .5rem;
+  right: .5rem;
+  width: .9rem;
+  height: .9rem;
+  opacity: .6;
 }
+.cmdb-toast .btn-close:hover { opacity: 1; }
+
+.icon-center { position: absolute; left: 5%; top: 30%; }
 
 .meter {
   height: 5px;
@@ -60,18 +34,7 @@
   overflow: hidden;
   margin-top: 12px;
 }
+.meter span { display: block; height: 100%; }
+.progress { background-color: green; }
 
-.meter span {
-  display: block;
-  height: 100%;
-}
-
-.progress {
-  background-color: green;
-}
-
-
-@keyframes progressBar {
-  0% { width: 0; }
-  100% { width: 100%; }
-}
+@keyframes progressBar { 0% {width:0;} 100% {width:100%;} }

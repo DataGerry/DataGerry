@@ -127,7 +127,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
             projection: undefined
         },
         view: string = 'render'): Observable<APIGetMultiResponse<T>> {
-            console.log('getObjects')
         const options = this.options;
         let httpParams: HttpParams = new HttpParams();
 
@@ -159,7 +158,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
 
     public getObjectsByType(typeID: number | Array<number>): Observable<Array<T>> {
-        console.log('getObjectsByType')
 
         if (!Array.isArray(typeID)) {
             typeID = [typeID];
@@ -183,7 +181,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
 
     public getObject<R>(publicID: number, native: boolean = false): Observable<R> {
-        console.log('getObject')
 
         const options = this.options;
         options.params = new HttpParams();
@@ -204,7 +201,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
 
     public getObjectMdsReference<R>(publicID: number): Observable<R> {
-        console.log('getObjectMdsReference')
 
         const options = this.options;
         options.params = new HttpParams();
@@ -240,7 +236,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     public getNewestObjects<R>(
         params: CollectionParameters = { limit: 10, order: -1, page: 1 },
         view: string = 'render'): Observable<APIGetMultiResponse<T>> {
-            console.log('getNewestObjects')
 
         params.sort = 'creation_time';
         params.filter = [{ $match: { creation_time: { $ne: null } } }];
@@ -257,7 +252,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     public getLatestObjects<R>(
         params: CollectionParameters = { limit: 10, order: -1, page: 1 },
         view: string = 'render'): Observable<APIGetMultiResponse<T>> {
-            console.log('getLatestObjects')
 
         params.sort = 'last_edit_time';
         params.filter = [{ $match: { last_edit_time: { $ne: null } } }];
