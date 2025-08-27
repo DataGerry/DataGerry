@@ -18,7 +18,7 @@ Implementation of all API routes for CmdbObjects
 """
 import json
 import copy
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 from bson import json_util
@@ -80,7 +80,7 @@ from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsM
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 objects_blueprint = APIBlueprint('objects', __name__)
 
@@ -121,7 +121,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         if "public_id" not in new_object_data:
             new_object_data['public_id'] = objects_manager.get_new_object_public_id()
         else:
-            existing_object = objects_manager.get_object(new_object_data['public_id'])
+            existing_object: dict[str, Any] | None = objects_manager.get_object(new_object_data['public_id'])
 
             if existing_object:
                 abort(400, f'Object with ID: {new_object_data["public_id"]} already exists!')
@@ -141,7 +141,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         if not current_object:
             abort(404, "Could not retrieve the created object from the database!")
 
-        current_object = CmdbObject.from_data(current_object)
+        current_object: CmdbObject = CmdbObject.from_data(current_object)
 
         # Handle Webhook Events
         try:
@@ -186,13 +186,12 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         # Generate new insert log
         try:
             log_params: dict[str, Any] = {
-                'object_id': new_object_id,
-                'user_id': request_user.get_public_id(),
-                'user_name': request_user.get_display_name(),
-                'comment': 'Object was created',
-                'render_state': json.dumps(current_object_render_result,
-                                           default=default).encode('UTF-8'),
-                'version': current_object.version
+                "object_id": new_object_id,
+                "user_id": request_user.get_public_id(),
+                "user_name": request_user.get_display_name(),
+                "comment": "Object created",
+                "render_state": json.dumps(current_object_render_result, default=default).encode('UTF-8'),
+                "version": current_object.version
             }
 
             logs_manager.insert_log(action=LogAction.CREATE, log_type=CmdbObjectLog.__name__, **log_params)

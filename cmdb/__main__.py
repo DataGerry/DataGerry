@@ -16,7 +16,8 @@
 """
 DataGerry is a flexible asset management tool and open-source configurable management database
 """
-import logging.config
+from logging import Logger, getLogger, config
+
 import signal
 import traceback
 from argparse import ArgumentParser, Namespace
@@ -32,15 +33,15 @@ from cmdb.process_management.process_manager import ProcessManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Setup logging
-logging.config.dictConfig(get_logging_conf())
+config.dictConfig(get_logging_conf())
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 app_manager = ProcessManager()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def main(args: Namespace):
+def main(args: Namespace) -> None:
     """
     Default application start function
     Args:
@@ -176,11 +177,11 @@ def _start_app() -> None:
     signal.signal(signal.SIGTERM, _stop_app)
 
     # start app
-    app_status = app_manager.start_app()
+    app_status: bool = app_manager.start_app()
     LOGGER.info('Process manager started: %s', app_status)
 
 
-def _stop_app():
+def _stop_app() -> None:
     """
     Stop application services
     """

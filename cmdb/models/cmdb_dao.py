@@ -200,7 +200,7 @@ class CmdbDAO:
         raise NoVersionError(f"The object (ID: {self.get_public_id()}) has no version property")
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'Class: {self.__class__.__name__} \nDict:\n{pprint.pformat(self.__dict__)}'
 
 
@@ -213,7 +213,7 @@ class CmdbDAO:
 
 
     @classmethod
-    def to_json(cls, instance: T) -> dict[str, Any]:
+    def to_json(cls, instance: "CmdbDAO") -> dict[str, Any]:
         """
         Each subclass must implement this to convert to a JSON-compatible dict
         """
