@@ -16,7 +16,7 @@
 """
 Implementation of the BaseManager for all Managers requiring a database connection
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 from pymongo.results import DeleteResult, UpdateResult
@@ -46,7 +46,7 @@ from cmdb.errors.manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  BaseManager - CLASS                                                 #
@@ -98,10 +98,12 @@ class BaseManager:
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def iterate_query(self,
-                      builder_params: BuilderParameters,
-                      user: CmdbUser | None = None,
-                      permission: AccessControlPermission | None = None) -> tuple[list, int]:
+    def iterate_query(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> tuple[list, int]:
         """
         Performs an aggregation on the database
 
@@ -150,7 +152,7 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
-    def get_one_from_other_collection(self, collection: str, public_id: int) -> dict | None:
+    def get_one_from_other_collection(self, collection: str, public_id: int) -> dict[str, Any] | None:
         """
         Retrieves a single document from another MongoDB collection
 
@@ -162,12 +164,12 @@ class BaseManager:
             BaseManagerGetError: When the find_one operation fails
         
         Returns:
-            dict | None: The found document as a dictionary or None if no document matches the query
+            dict[str, Any] | None: The found document as a dictionary or None if no document matches the query
         """
         try:
             return self.dbm.find_one(collection, self.db_name, public_id)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
     def get_many_from_other_collection(
@@ -176,7 +178,7 @@ class BaseManager:
             sort: str = 'public_id',
             direction: int = -1,
             limit: int = 0,
-            **requirements: dict) -> list[dict]:
+            **requirements: Any) -> list[dict[str, Any]]:
         """
         Retrieves documents from a given collection that match the specified requirements
 
@@ -203,10 +205,10 @@ class BaseManager:
                                      filter=requirements_filter,
                                      sort=formatted_sort)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
-    def get(self, *args, **kwargs) -> Cursor:
+    def get(self, *args: Any, **kwargs: Any) -> Cursor:
         """
         General method to retrieve documents from the collection using MongoDB's 'find' operation
 
@@ -251,7 +253,7 @@ class BaseManager:
             raise err
 
 
-    def find(self, *args, criteria: dict = None, **kwargs) -> Cursor:
+    def find(self, *args: Any, criteria: dict = None, **kwargs: Any) -> Cursor:
         """
         Retrieves documents from the specified collection that match the given criteria.
 
@@ -301,7 +303,7 @@ class BaseManager:
             sort: str = 'public_id',
             direction: int = -1,
             limit: int=0,
-            **requirements: dict) -> list[dict]:
+            **requirements: Any) -> list[dict]:
         """
         Retrieves documents from the database filtered by the provided requirements
 
@@ -327,7 +329,7 @@ class BaseManager:
                                     filter=requirements_filter,
                                     sort=formatted_sort)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
     def aggregate(self, *args, **kwargs) -> CommandCursor:
@@ -368,7 +370,7 @@ class BaseManager:
         try:
             return self.dbm.aggregate(collection, self.db_name, *args, **kwargs)
         except DocumentAggregationError as err:
-            raise BaseManagerIterationError(err) from err
+            raise BaseManagerIterationError(str(err)) from err
 
 
     def get_next_public_id(self, inc_id: bool = False) -> int:
@@ -474,7 +476,7 @@ class BaseManager:
 
             return self.dbm.upsert_set(target_collection, self.db_name, data)
         except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
+            raise BaseManagerUpdateError(str(err)) from err
 
 
     def update_many(
@@ -503,7 +505,7 @@ class BaseManager:
         try:
             return self.dbm.update_many(self.collection, self.db_name, criteria, update, add_to_set, plain)
         except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
+            raise BaseManagerUpdateError(str(err)) from err
 
 
     def update_many_pull(self, criteria: dict, update: dict) -> UpdateResult:
@@ -523,7 +525,7 @@ class BaseManager:
         try:
             return self.dbm.update_many_pull(self.collection, self.db_name, criteria, update)
         except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
+            raise BaseManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

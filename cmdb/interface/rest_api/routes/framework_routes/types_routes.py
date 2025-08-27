@@ -100,16 +100,16 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         data.setdefault('creation_time', datetime.now(timezone.utc))
-        possible_id = data.get('public_id')
+        possible_id: Any | None = data.get('public_id')
 
         if possible_id:
-            possible_type = types_manager.get_type(possible_id)
+            possible_type: dict[str, Any] | None = types_manager.get_type(possible_id)
 
             if possible_type:
                 abort(400, f"Type with ID:{possible_id} already exists!")
 
-        result_id = types_manager.insert_type(data)
-        created_type = types_manager.get_type(result_id)
+        result_id: int = types_manager.insert_type(data)
+        created_type: dict | None = types_manager.get_type(result_id)
 
         if created_type:
             return InsertSingleResponse(result_id=result_id, raw=created_type).make_response()

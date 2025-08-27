@@ -182,7 +182,8 @@ class DocapiTemplatesManager(BaseManager):
             if not len(templates) == 0:
                 raise DocapiTemplatesManagerGetError('More than 1 type matches this requirement')
 
-            raise DocapiTemplatesManagerGetError('No document matches the filter!')
+            return None
+            # raise DocapiTemplatesManagerGetError('No document matches the filter!')
         except Exception as err:
             raise DocapiTemplatesManagerGetError(err) from err
 

@@ -57,7 +57,7 @@ def noneify(s: str) -> None:
     raise ValueError(f"Invalid None value: {s}")
 
 
-def auto_cast(val: str):
+def auto_cast(val: str) -> float | int | str | bool | None:
     """
     Attempts to automatically convert a string into its most appropriate data type
     

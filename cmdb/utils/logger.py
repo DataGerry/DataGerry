@@ -16,6 +16,7 @@
 """
 Logging module
 """
+from typing import Any
 import os
 import multiprocessing
 import pathlib
@@ -23,9 +24,9 @@ import pathlib
 import cmdb
 # -------------------------------------------------------------------------------------------------------------------- #
 
-DEFAULT_LOG_DIR = os.path.join(os.path.dirname(__file__), '../../logs/')
+DEFAULT_LOG_DIR: str = os.path.join(os.path.dirname(__file__), '../../logs/')
 
-LOGLEVELS = {
+LOGLEVELS: dict[str, int] = {
     "NOTSET": 0,
     "DEBUG": 10,
     "INFO": 20,
@@ -58,7 +59,7 @@ def get_log_level(minlevel=None):
     return loglevel
 
 
-def get_logging_conf():
+def get_logging_conf() -> dict[str, Any]:
     """
     returns the logging configuration
 
@@ -70,7 +71,7 @@ def get_logging_conf():
     # get current process name
     proc_name = multiprocessing.current_process().name
 
-    logging_conf = {
+    logging_conf: dict[str, Any] = {
         'version':1,
         'disable_existing_loggers':True,
         'handlers':{

@@ -16,13 +16,14 @@
 """
 The schema of a CmdbType
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DEFAULT_VERSION = '1.0.0'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
-def get_cmdb_type_schema() -> dict:
+def get_cmdb_type_schema() -> dict[str, Any]:
     """
     Returns the CmdbTypeSchema
 

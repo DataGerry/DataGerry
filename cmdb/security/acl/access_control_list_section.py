@@ -16,12 +16,15 @@
 """
 Implementation of AccessControlListSection
 """
+from logging import Logger, getLogger
 from abc import ABC, abstractmethod
-from typing import TypeVar, Set, Generic
+from typing import TypeVar, Set, Generic, Any
 
 from cmdb.security.acl.access_control_section_dict import AccessControlSectionDict
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -31,7 +34,7 @@ T = TypeVar('T')
 class AccessControlListSection(ABC, Generic[T]):
     """`AccessControlListSection` are a config element inside the complete ac-dict."""
 
-    def __init__(self, includes: AccessControlSectionDict = None):
+    def __init__(self, includes: AccessControlSectionDict | None = None) -> None:
         """
         Initializes an AccessControlListSection with a given dictionary of included permissions
 
@@ -54,7 +57,7 @@ class AccessControlListSection(ABC, Generic[T]):
 
 
     @includes.setter
-    def includes(self, value: AccessControlSectionDict):
+    def includes(self, value: AccessControlSectionDict) -> None:
         """
         Sets the `includes` attribute to a new dictionary, ensuring that it is of the correct type
 
@@ -66,13 +69,14 @@ class AccessControlListSection(ABC, Generic[T]):
         """
         if not isinstance(value, dict):
             raise TypeError('`AccessControlListSection` only takes dict as include structure')
+
         self._includes = value
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
     @abstractmethod
-    def from_data(cls, data: dict) -> "AccessControlListSection[T]":
+    def from_data(cls, data: dict[str, Any]) -> "AccessControlListSection[T]":
         """
         Abstract method that creates an AccessControlListSection instance from a dictionary of data.
         """

@@ -275,7 +275,7 @@ def __get_x_api_key() -> str | None:
     Returns:
         str | None: The value of the 'x-api-key' header if present, otherwise None
     """
-    x_api_key = request.headers.get('x-api-key')
+    x_api_key: str | None = request.headers.get('x-api-key')
 
     return x_api_key
 
@@ -291,7 +291,7 @@ def __get_request_api_user() -> dict[str, str] | None:
                                unsupported authentication type
     """
     try:
-        value = _wsgi_decoding_dance(request.headers['Authorization'])
+        value: str = _wsgi_decoding_dance(request.headers['Authorization'])
 
         try:
             auth_type, auth_info = value.split(None, 1)
@@ -341,7 +341,7 @@ def __get_request_auth_method() -> AuthMethod | None:
         abort(400, "Invalid auth method!")
 
 
-def __check_api_level(user_instance: dict = None, required_api_level: ApiLevel = ApiLevel.NO_API) -> bool:
+def __check_api_level(user_instance: dict[str, Any] | None = None, required_api_level: ApiLevel = ApiLevel.NO_API) -> bool:
     """
     Check if the user has the required API access level
 
@@ -536,7 +536,7 @@ def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> boo
         return False
 
 
-def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None) -> dict | None:
+def check_user_in_service_portal(mail: str, password: str, x_api_key: str | None = None) -> dict | None:
     """Check if a user exists in the service portal
 
     This function verifies user credentials in two modes:
@@ -704,22 +704,22 @@ def delete_database(db_name: str) -> None:
         raise DatabaseNotFoundError(db_name) from err
 
 
-def validate_subscrption_user(email: str, password: str, x_api_key: str = None) -> dict:
+def validate_subscrption_user(email: str, password: str, x_api_key: str | None = None) -> dict:
     """
     Validates the user credentials
     """
-    x_access_token = os.getenv("X-ACCESS-TOKEN")
+    x_access_token: str | None = os.getenv("X-ACCESS-TOKEN")
 
     if not x_access_token:
         raise NoAccessTokenError("No x-access-token provided!")
 
-    headers = {
+    headers: dict[str, str] = {
         "x-access-token": x_access_token
     }
 
-    target = os.getenv('SP_AUTH_URL')
+    target: str | None = os.getenv('SP_AUTH_URL')
 
-    payload = {
+    payload: dict[str, str] = {
         "email": email,
         "password": password
     }
@@ -737,9 +737,9 @@ def validate_subscrption_user(email: str, password: str, x_api_key: str = None) 
 
         raise InvalidCloudUserError(response.json()['message'])
     except requests.exceptions.Timeout as err:
-        raise RequestTimeoutError(err) from err
+        raise RequestTimeoutError(str(err)) from err
     except requests.exceptions.RequestException as err:
-        raise RequestError(err) from err
+        raise RequestError(str(err)) from err
 
 
 def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
@@ -772,17 +772,17 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
     if not x_access_token:
         raise NoAccessTokenError("No x-access-token provided!")
 
-    headers = {
+    headers: dict[str, str] = {
         "x-access-token": x_access_token
     }
 
-    payload = {
+    payload: dict[str, Any] = {
         "email": email,
         "database_name": database,
         "config_item_count": config_item_count
     }
 
-    target = os.getenv('SP_CI_SYNC_URL')
+    target: str | None = os.getenv('SP_CI_SYNC_URL')
 
     try:
         response = requests.post(target, headers=headers, json=payload, timeout=3)
@@ -796,7 +796,7 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
         return False
 
 
-def mongo_retry(retries=3, delay=2):
+def mongo_retry(retries: int = 3, delay:int = 2):
     """
     Decorator to retry MongoDB operations in case of transient errors.
     

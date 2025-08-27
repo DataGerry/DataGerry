@@ -50,7 +50,7 @@ class ConfigFileReader(SystemReader):
     CONFIG_NOT_LOADED = False
 
 
-    def __init__(self, config_name: str, config_location: str):
+    def __init__(self, config_name: str | None, config_location: str) -> None:
         """
         Initializes the configuration reader
 
