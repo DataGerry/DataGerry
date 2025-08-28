@@ -10,47 +10,51 @@ import { WebhookLogViewerComponent } from './components/webhook-log-viewer/webho
 import { NgSelectModule } from '@ng-select/ng-select';
 import { UserSettingsResolver } from '../management/user-settings/resolvers/user-settings-resolver.service';
 import { AuthModule } from '../modules/auth/auth.module';
-import { LayoutModule } from '../layout/layout.module';
 import { CoreModule } from '../core/core.module';
 
 const routes: Routes = [
     {
-        path: '',
-        data: {
-            breadcrumb: 'Webhooks',
-            right: 'base.framework.webhook.view'
+      path: '',
+      data: {
+        breadcrumb: 'Webhooks',
+        right: 'base.framework.webhook.view'
+      },
+      resolve: {
+        userSetting: UserSettingsResolver
+      },
+      children: [
+        {
+          path: '',
+          component: WebhookOverviewComponent
         },
-
-        resolve: {
-            userSetting: UserSettingsResolver
-        },
-        component: WebhookOverviewComponent
-    },
-    {
-        path: 'create',
-        data: {
+        {
+          path: 'create',
+          data: {
             breadcrumb: 'Create WebHook',
-            right: 'base.framework.webhook.add',
+            right: 'base.framework.webhook.add'
+          },
+          component: WebhookFormComponent
         },
-        component: WebhookFormComponent
-    },
-    {
-        path: 'edit/:id',
-        data: {
+        {
+          path: 'edit/:id',
+          data: {
             breadcrumb: 'Edit WebHook',
-            right: 'base.framework.webhook.edit',
+            right: 'base.framework.webhook.edit'
+          },
+          component: WebhookFormComponent
         },
-        component: WebhookFormComponent
-    },
-    {
-        path: 'logs',
-        data: {
+        {
+          path: 'logs',
+          data: {
             breadcrumb: 'WebHook Logs',
-            right: 'base.framework.webhook.view',
-        },
-        component: WebhookLogViewerComponent
-    },
-];
+            right: 'base.framework.webhook.view'
+          },
+          component: WebhookLogViewerComponent
+        }
+      ]
+    }
+  ];
+  
 
 @NgModule({
     declarations: [
