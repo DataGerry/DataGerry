@@ -79,8 +79,8 @@ def get_cmdb_type_schema() -> dict:
         },
         'fields': {
             'type': 'list',
-            'required': False,
-            'default': None,
+            'required': True,
+            'min': 1,
             'schema': {
                 'type': 'dict',
                 'schema': {
@@ -204,6 +204,7 @@ def get_cmdb_type_schema() -> dict:
         'render_meta': {
             'type': 'dict',
             'allow_unknown': False,
+            'required': True,
             'schema': {
                 'icon': {
                     'type': 'string',
@@ -211,6 +212,8 @@ def get_cmdb_type_schema() -> dict:
                 },
                 'sections': {
                     'type': 'list',
+                    'required': True,
+                    'min': 1,
                     'schema': {
                         'type': 'dict',
                         'schema': {
