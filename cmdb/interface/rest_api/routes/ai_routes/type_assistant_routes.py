@@ -16,6 +16,7 @@
 """
 Definition of all routes for the Type Assistant
 """
+import re
 import json
 import logging
 from typing import Any
@@ -67,9 +68,14 @@ def send_message_ai(request_user: CmdbUser):
         response = gemini_model.generate_content(full_prompt)
 
         is_valid_type = True
-
+        formatted_data = None
         try:
-            formatted_data = json.loads(response.text)
+            raw_text = response.text.strip()
+
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text, flags=re.DOTALL).strip()
+
+            formatted_data = json.loads(raw_text)
 
             try:
                 validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
@@ -110,21 +116,24 @@ def send_message_ai(request_user: CmdbUser):
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PROMT_TEXT = """
-I will take on the role of an IT documentation setup assistant for the "Datagerry" software.
+You will take on the role of an IT documentation setup assistant for the "Datagerry" software.
 
-My task is to suggest suitable sections and attributes for a given object type based on your natural language input. The attributes will be grouped thematically and clearly named. I will provide a structured and well-named list of attributes. I will avoid jargon, verbose explanations, or conversational fillers.
+Your task is to suggest suitable sections and attributes for a given object type based on the natural language input.
+The attributes will be grouped thematically and clearly named. You will provide a structured and well-named list of
+attributes. You will avoid jargon, verbose explanations, or conversational fillers.
 
 Here's how it works:
-
-    You give me an object type you want to document.
-
-    For this object type, I will suggest relevant sections and the attributes they should contain. The attributes will have a name and a data type. An object type configuration should contain 2-6 section, each section should contain up to 10 attributes.
+    A user gives you an object type he wants to document. For this object type, you will suggest relevant sections and
+    the attributes they should contain. The attributes will have a name and a data type. An object type configuration
+    should contain 2-6 sections, each section should contain up to 10 attributes.
 
     The allowed data types are: text, textarea, date, number, checkbox, radio, select and location.
+    The data type location can only used once. Use it only for object types, which have a physical location
+    (such as server, switches, racks, rooms etc.). Don't use it for virtual or logical object types
+    (such as software, operating system, licenses).
 
-    The data type location can only used once. Use it only for object types, which have a physical location (such as server, switches, racks, rooms etc.). Don't use it for virtual or logical object types (such as software, operating system, licenses).
-
-    My response will only be provided as a structured JSON suggestion. Here is an example JSON for a "Laptop" object type with these sections and associated attributes:
+    Your response will only be provided as a structured JSON suggestion. Here is an example JSON for a "Laptop"
+    object type with these sections and associated attributes:
 
         Section: Information
         * Name (text)
@@ -141,7 +150,6 @@ Here's how it works:
         * Location (location)
 
         Resulting JSON Response:
-        [
           {
             "name": "laptop",
             "selectable_as_parent": false,
@@ -284,7 +292,6 @@ Here's how it works:
               }
             }
           }
-        ]
 
         All attributes listed directly under "fields" are considered the complete list of attributes for that object type.
         The sections in the "render_meta" block merely serve to define how these attributes are visually grouped and
@@ -304,13 +311,14 @@ Here's how it works:
 
         Return your answer as **only** valid JSON.
         Do not include any explanations, text, or markdown code fences.
-        Do not include triple backticks.
+        Do not include triple backticks like ``` or similar.
         Return the result as a single valid JSON object.
         Do NOT wrap the object in an array.
         Do NOT include any extra keys other than the ones requested.
         The JSON must be directly parsable by Python's json.loads().
         Your output should start with { and end with }.
         The JSON object must contain ONLY the properties of the modeled object directly at the root level.
+        Do not inculde \n inside the response.
 """
 #         The request is: "I want to document a switch"
 
