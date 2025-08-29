@@ -20,6 +20,7 @@ import logging
 from typing import Any, Tuple
 from datetime import datetime, timezone
 from flask import request, current_app, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
@@ -66,7 +67,7 @@ auth_blueprint = APIBlueprint('auth', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 #TODO: REFACTOR-FIX (Reduce complexity)
 @auth_blueprint.route('/login', methods=['POST'])
-def post_login():
+def post_login() -> Response:
     """
     Handles user login authentication
 
@@ -79,7 +80,7 @@ def post_login():
         Response: A response containing authentication tokens or subscription options
     """
     try:
-        login_data = request.json
+        login_data: Any | None = request.json
 
         if not login_data:
             abort(400, 'No valid JSON data was provided')

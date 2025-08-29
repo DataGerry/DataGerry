@@ -20,8 +20,9 @@ import json
 import logging
 from bson import json_util
 from flask import abort, request, Response
-from werkzeug.wrappers.response import Response
+from werkzeug.wrappers.response import Response as Resp
 
+from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
 
@@ -67,7 +68,7 @@ media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix
 @insert_request_user
 @media_file_blueprint.protect(auth=True, right='base.framework.object.view')
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Response:
+def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     """
     Get all objects in database
 
@@ -83,7 +84,7 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Respo
 
         metadata = generate_collection_parameters(params=params)
         response_query = {'limit': params.limit, 'skip': params.skip, 'sort': [(params.sort, params.order)]}
-        output = media_files_manager.get_many_media_files(metadata, **response_query)
+        output: GridFsResponse = media_files_manager.get_many_media_files(metadata, **response_query)
 
         api_response = GetMultiResponse(output.result, total=output.total, params=params, url=request.url)
 
@@ -100,7 +101,7 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Respo
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.framework.object.edit')
-def add_new_file(request_user: CmdbUser) -> Response:
+def add_new_file(request_user: CmdbUser) -> Resp:
     """
     This method saves a file to the specified section of the document for storing workflow data.
     Any existing value that matches filename and the metadata is deleted. Before saving a value.
@@ -175,7 +176,7 @@ def add_new_file(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.framework.object.edit')
-def update_file(request_user: CmdbUser):
+def update_file(request_user: CmdbUser) -> Resp:
     """
     This method updates a file to the specified section in the document.
     Any existing value that matches the file name and metadata is taken into account.
@@ -243,7 +244,7 @@ def update_file(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_file(filename: str, request_user: CmdbUser) -> Response:
+def get_file(filename: str, request_user: CmdbUser) -> Resp:
     """
     This method fetch a file to the specified section of the document.
     Any existing value that matches the file name and metadata will be considered.
@@ -278,7 +279,7 @@ def get_file(filename: str, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right='base.framework.object.view')
-def download_file(filename: str, request_user: CmdbUser) -> Response:
+def download_file(filename: str, request_user: CmdbUser) -> Resp:
     """
     This method download a file to the specified section of the document.
     Any existing value that matches the file name and metadata will be considered.
@@ -316,7 +317,7 @@ def download_file(filename: str, request_user: CmdbUser) -> Response:
 @media_file_blueprint.route('<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @media_file_blueprint.protect(auth=True, right='base.framework.object.edit')
-def delete_file(public_id: int, request_user: CmdbUser) -> Response:
+def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
     """
     This method deletes a file in the specified section of the document for storing workflow data.
     Any existing value that matches the file name and metadata is deleted. Before saving a value.

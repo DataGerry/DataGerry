@@ -45,6 +45,7 @@ from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
 
 # System Managers
 from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.manager.system_manager.user_cache_manager import UserCacheManager
 
 # ISMS Managers
 from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
@@ -61,7 +62,7 @@ from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentMana
 from cmdb.manager.isms_manager.control_measure_assignment_manager import ControlMeasureAssignmentManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CategoriesManager',
     'CiExplorerProfileManager',
     'DocapiTemplatesManager',
@@ -101,4 +102,5 @@ __all__ = [
     'PersonGroupsManager',
     'RiskAssessmentManager',
     'ControlMeasureAssignmentManager',
+    'UserCacheManager',
 ]

@@ -66,6 +66,12 @@ class NoAccessTokenError(SecurityError):
     """
 
 
+class MissingApiKeyError(SecurityError):
+    """
+    Raised when an API key is required but missing
+    """
+
+
 class InvalidCloudUserError(SecurityError):
     """
     Raised when Cloud Login failed

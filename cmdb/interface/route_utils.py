@@ -23,6 +23,7 @@ import json
 import logging
 from datetime import datetime, timezone
 import time
+import hashlib
 from typing import Any, Callable
 import requests
 from flask import request, abort, current_app
@@ -52,6 +53,7 @@ from cmdb.errors.security import (
     TokenValidationError,
     InvalidCloudUserError,
     NoAccessTokenError,
+    MissingApiKeyError,
     RequestTimeoutError,
     RequestError,
 )
@@ -240,9 +242,12 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
                 x_api_key = __get_x_api_key()
 
                 if auth_method == AuthMethod.BASIC:
-                    user_instance = check_user_in_service_portal(api_user_dict['email'],
-                                                                 api_user_dict['password'],
-                                                                 x_api_key)
+                    user_instance = check_user_in_service_portal(
+                                                                api_user_dict['email'],
+                                                                api_user_dict['password'],
+                                                                x_api_key,
+                                                                api_key_required=True
+                                                           )
 
                     # Set the user as request User
                     if required_api_level != ApiLevel.SUPER_ADMIN:
@@ -341,7 +346,10 @@ def __get_request_auth_method() -> AuthMethod | None:
         abort(400, "Invalid auth method!")
 
 
-def __check_api_level(user_instance: dict[str, Any] | None = None, required_api_level: ApiLevel = ApiLevel.NO_API) -> bool:
+def __check_api_level(
+        user_instance: dict[str, Any] | None = None,
+        required_api_level: ApiLevel = ApiLevel.NO_API
+) -> bool:
     """
     Check if the user has the required API access level
 
@@ -536,7 +544,12 @@ def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> boo
         return False
 
 
-def check_user_in_service_portal(mail: str, password: str, x_api_key: str | None = None) -> dict | None:
+def check_user_in_service_portal(
+    mail: str,
+    password: str,
+    x_api_key: str | None = None,
+    api_key_required: bool = False
+) -> dict | None:
     """Check if a user exists in the service portal
 
     This function verifies user credentials in two modes:
@@ -576,10 +589,17 @@ def check_user_in_service_portal(mail: str, password: str, x_api_key: str | None
 
     # Validation through service portal
     try:
-        user_data = validate_subscrption_user(mail, password, x_api_key)
+        # 1. Check cache first
+        # cached_user: dict | None = get_cached_user(mail, password, x_api_key, api_key_required)
+        # if cached_user:
+        #     return cached_user
+
+        # 2. Not cached or expired → validate against portal
+        user_data = validate_subscrption_user(mail, password, x_api_key, api_key_required)
+        # set_cached_user(mail, password, x_api_key, api_key_required, user_data)
 
         return user_data
-    except (NoAccessTokenError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
+    except (NoAccessTokenError, MissingApiKeyError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
         raise err from err
     except Exception as err:
         #TODO: ERROR-FIX (proper exception required)
@@ -704,10 +724,18 @@ def delete_database(db_name: str) -> None:
         raise DatabaseNotFoundError(db_name) from err
 
 
-def validate_subscrption_user(email: str, password: str, x_api_key: str | None = None) -> dict:
+def validate_subscrption_user(
+    email: str,
+    password: str,
+    x_api_key: str | None = None,
+    api_key_required: bool = False
+) -> dict:
     """
     Validates the user credentials
     """
+    if api_key_required and not x_api_key:
+        raise MissingApiKeyError("No API-KEY provided!")
+
     x_access_token: str | None = os.getenv("X-ACCESS-TOKEN")
 
     if not x_access_token:
@@ -729,13 +757,20 @@ def validate_subscrption_user(email: str, password: str, x_api_key: str | None =
 
         target = os.getenv('SP_API_AUTH_URL')
 
+    if not target:
+        raise RequestError("No service portal URL configured")
+
     try:
         response = requests.post(target, headers=headers, json=payload, timeout=3)
 
         if response.status_code == 200:
             return response.json()
 
-        raise InvalidCloudUserError(response.json()['message'])
+        try:
+            err_msg = response.json().get("message", response.text)
+        except ValueError:
+            err_msg = response.text
+        raise InvalidCloudUserError(err_msg)
     except requests.exceptions.Timeout as err:
         raise RequestTimeoutError(str(err)) from err
     except requests.exceptions.RequestException as err:
@@ -818,3 +853,60 @@ def mongo_retry(retries: int = 3, delay:int = 2):
             raise last_exception
         return wrapper
     return decorator
+
+
+# --------------------------------------------------- USER CACHING --------------------------------------------------- #
+
+# Cache: { cache_key: {"data": dict, "timestamp": float } }
+USER_CACHE: dict[str, dict] = {}
+CACHE_TTL = 3600  # 1 hour
+
+
+def make_cache_key(email: str, password: str, x_api_key: str | None, api_key_required: bool) -> str:
+    """
+    Generate a safe cache key for email+password+x_api_key+api_key_required
+    """
+    raw: str = f"{email}:{password}:{x_api_key or ''}:{api_key_required}"
+
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def get_cached_user(
+    email: str,
+    password: str,
+    x_api_key: str | None,
+    api_key_required: bool
+) -> dict | None:
+    """TODO: document"""
+    now: float = time.time()
+    # LOGGER.debug(f"[get_cached_user] USER_CACHE: {USER_CACHE}")
+    # Remove expired entries first
+    expired_keys: list[str] = [k for k, v in USER_CACHE.items() if now - v["timestamp"] >= CACHE_TTL]
+    for k in expired_keys:
+        USER_CACHE.pop(k, None)
+
+    key: str = make_cache_key(email, password, x_api_key, api_key_required)
+    cached: dict | None = USER_CACHE.get(key)
+
+    if cached:
+        return cached["data"]
+
+    return None
+
+
+def set_cached_user(
+    email: str,
+    password: str,
+    x_api_key: str | None,
+    api_key_required: bool,
+    data: dict
+) -> None:
+    """TODO: document"""
+    key: str = make_cache_key(email, password, x_api_key, api_key_required)
+
+    USER_CACHE[key] = {
+        "data": data,
+        "timestamp": time.time()
+    }
+
+    # LOGGER.debug(f"[set_cached_user] USER_CACHE: {USER_CACHE}")

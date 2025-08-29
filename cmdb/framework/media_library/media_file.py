@@ -144,7 +144,7 @@ class MediaFile(BaseMediaFile):
 
 
     @classmethod
-    def to_json(cls, instance) -> dict[str, Any]:
+    def to_json(cls, instance: "MediaFile") -> dict[str, Any]:
         """
         Convert a type instance to json conform data
         """
