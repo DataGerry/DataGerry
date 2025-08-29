@@ -1,16 +1,91 @@
 <div class="container mt-4">
-    <h2>AI Assistant</h2>
-    <form [formGroup]="promptForm">
-      <app-form-input
-        formControlName="prompt"
-        label="Prompt"
-        [required]="true"
-        errorMessage="Prompt is required">
-      </app-form-input>
-      <div class="mt-3 d-flex gap-2">
-        <button type="button" class="btn btn-outline-dark" (click)="cancel()">Cancel</button>
-        <button type="button" class="btn btn-primary" [disabled]="promptForm.invalid" (click)="submit()">Submit</button>
+
+  <!-- Prompt -->
+  <form [formGroup]="promptForm" class="mb-4">
+    <app-form-input
+      formControlName="prompt"
+      label="Prompt"
+      [required]="true"
+      errorMessage="Prompt is required">
+    </app-form-input>
+
+    <button
+      type="button"
+      class="btn btn-success"
+      [disabled]="promptForm.invalid || loading"
+      (click)="requestSchema()">
+      <fa-icon *ngIf="loading" icon="spinner" [spin]="true" class="me-2"></fa-icon>
+      Continue
+    </button>
+  </form>
+
+  <!-- Invalid banner -->
+  <div *ngIf="validationMessage && !hasSchema" class="alert alert-warning">
+    {{ validationMessage }}
+  </div>
+
+  <!-- Selection -->
+  <ng-container *ngIf="hasSchema; else aiTypeEmptyState">
+    <form [formGroup]="selectionForm" class="mt-3">
+      <table class="table table-bordered align-middle ai-type-table">
+        <thead>
+          <tr>
+            <th style="width:280px">Section</th>
+            <th>Fields</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr *ngFor="let row of sectionRows; let ri = index" [formGroup]="row.form">
+            <!-- Section (left column) -->
+            <td class="section-cell">
+              <label class="form-check d-flex align-items-center gap-2 mb-0">
+                <input
+                  type="checkbox"
+                  class="form-check-input"
+                  formControlName="includeSection"
+                  [disabled]="isSectionDisabled(ri)" />
+                <span class="form-check-label">
+                  {{ row?.meta?.label || row?.meta?.name }}
+                </span>
+              </label>
+            </td>
+
+            <!-- Fields (right column) -->
+            <td class="fields-cell">
+              <div class="field-grid" formArrayName="fieldChecks">
+                <label
+                  class="form-check d-flex align-items-center gap-2 mb-0"
+                  *ngFor="let fc of fieldChecksOf(row).controls; let fi = index; trackBy: trackByIndex">
+                  <input
+                    type="checkbox"
+                    class="form-check-input"
+                    [formControl]="fc"
+                    [disabled]="isFieldDisabled(ri, fi)" />
+                  <span class="form-check-label">
+                    {{ fieldLabel(row?.meta?.fields?.[fi]) || row?.meta?.fields?.[fi] }}
+                    <small class="text-muted ms-1">({{ fieldKind(row?.meta?.fields?.[fi]) }})</small>
+                  </span>
+                </label>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <button type="button" class="btn btn-success" (click)="submitSelection()">
+          Create Type
+        </button>
       </div>
     </form>
-  </div>
-  
+  </ng-container>
+
+  <!-- Empty state when schema hasn't been generated yet -->
+  <ng-template #aiTypeEmptyState>
+    <div *ngIf="!loading" class="text-muted mt-3">
+      Generate a type to review its sections and fields.
+    </div>
+  </ng-template>
+
+</div>

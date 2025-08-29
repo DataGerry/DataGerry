@@ -15,16 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { NgModule } from '@angular/core';
-import { RouterModule, Routes } from '@angular/router';
-import { AiPromptPageComponent } from './components/ai-prompt-page/ai-prompt-page.component';
+export interface SectionSelection {
+  sectionName: string;            // section.name
+  includeSection: boolean;        // section toggle
+  includedFieldNames: string[];   // field names kept
+}
 
-const routes: Routes = [
-  { path: 'ai-assistant', component: AiPromptPageComponent }
-];
-
-@NgModule({
-  imports: [RouterModule.forChild(routes)],
-  exports: [RouterModule],
-})
-export class AiAssistantRoutingModule { }
+export interface TypeSelectionPayload {
+  sections: SectionSelection[];
+}
