@@ -17,6 +17,7 @@
 Implementation of MediaFilesManager
 """
 import logging
+from typing import Any
 from datetime import datetime, timezone
 from gridfs.grid_file import GridOutCursor, GridOut
 from gridfs.errors import NoFile
@@ -138,16 +139,15 @@ class MediaFilesManager(BaseManager):
             MediaFileManagerGetError: If retrieval fails
         """
         try:
-            results = []
-            records_total = self.fs.find(filter=metadata).retrieved
+            results: list[dict[str, Any]] = []
 
             iterator: GridOutCursor = self.fs.find(filter=metadata)#**params)
             for grid in iterator:
                 results.append(MediaFile.to_json(MediaFile(**grid._file)))
 
-            return GridFsResponse(results, records_total)
+            return GridFsResponse(results, len(results))
         except Exception as err:
-            raise MediaFileManagerGetError(err) from err
+            raise MediaFileManagerGetError(str(err)) from err
 
 
     def file_exists(self, filter_metadata: dict) -> bool:

@@ -47,7 +47,7 @@ class CmdbObject(CmdbDAO):
     COLLECTION = 'framework.objects'
     MODEL = 'Object'
     DEFAULT_VERSION = '1.0.0'
-    REQUIRED_INIT_KEYS = ['type_id', 'creation_time', 'author_id', 'active', 'fields', 'version']
+    REQUIRED_INIT_KEYS: list[str] = ['type_id', 'creation_time', 'author_id', 'active', 'fields', 'version']
     SCHEMA: dict[str, Any] = get_cmdb_object_schema()
 
     #pylint: disable=R0913, R0917

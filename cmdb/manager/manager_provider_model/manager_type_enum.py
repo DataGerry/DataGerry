@@ -63,3 +63,6 @@ class ManagerType(Enum):
     CONTROL_MEASURE = 'ControlMeasureManager'
     RISK_ASSESSMENT = 'RiskAssessmentManager'
     CONTROL_MEASURE_ASSIGNMENT = 'ControlMeasureAssignmentManager'
+
+    # System Managers
+    USER_CACHE = 'UserCacheManager'
