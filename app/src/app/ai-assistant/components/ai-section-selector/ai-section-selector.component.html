@@ -1,0 +1,26 @@
+<tr [formGroup]="row.form">
+    <!-- Section cell -->
+    <td class="align-middle">
+      <app-form-checkbox
+        formControlName="includeSection"
+        [disabled]="sectionUncheckDisabled">
+        {{ row.meta.label }}
+      </app-form-checkbox>
+    </td>
+  
+    <!-- Fields cell -->
+    <td>
+      <div class="field-grid" formArrayName="fieldChecks">
+        <label
+          class="form-check d-flex align-items-center gap-2 mb-0"
+          *ngFor="let fc of fieldChecks().controls; let fi = index; trackBy: trackByIdx">
+          <input type="checkbox" class="form-check-input" [formControl]="fc" [disabled]="disableField(fi)" />
+          <span class="form-check-label">
+            {{ fieldLabel(row.meta.fields![fi]) }}
+            <small class="text-muted ms-1">({{ fieldKind(row.meta.fields![fi]) }})</small>
+          </span>
+        </label>
+      </div>
+    </td>
+  </tr>
+  

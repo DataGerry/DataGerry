@@ -1,0 +1,24 @@
+.ai-type-table {
+    .section-cell {
+      width: 280px;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+  
+    .fields-cell {
+      vertical-align: top;
+    }
+  }
+  
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: .35rem .9rem;
+  }
+  
+  app-form-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  
