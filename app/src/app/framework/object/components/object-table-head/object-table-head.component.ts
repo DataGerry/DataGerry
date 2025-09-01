@@ -23,7 +23,7 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { Router } from '@angular/router';
 import { environment } from 'src/environments/environment';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { catchError, debounceTime, interval, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
+import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 
 @Component({
   selector: 'cmdb-object-table-head',
