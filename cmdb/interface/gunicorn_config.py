@@ -16,19 +16,17 @@
 """
 Implementation of Gunicorn post fork method
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-
 
 def post_fork(server, worker) -> None:
     """
     Ensures MongoDB connections are properly reinitialized after forking
     """
-
     if hasattr(worker, 'app') and\
        hasattr(worker.app, 'application') and\
        hasattr(worker.app.application, 'database_manager'):

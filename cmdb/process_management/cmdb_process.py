@@ -16,10 +16,10 @@
 """
 Implementation of CmdbProcess
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbProcess - CLASS                                                 #
@@ -29,7 +29,7 @@ class CmdbProcess:
     Implementation of CmdbProcess
     """
 
-    def __init__(self, name: str, classname: str):
+    def __init__(self, name: str, classname: str) -> None:
         """
         Create a new instance of CmdbProcess
 
@@ -37,11 +37,11 @@ class CmdbProcess:
             name(str): name of the process
             classname(str): classname of the process
         """
-        self.__name = name
-        self.__classname = classname
+        self.__name: str = name
+        self.__classname: str = classname
 
 
-    def get_name(self):
+    def get_name(self) -> str:
         """
         Return the process name
 
@@ -51,7 +51,7 @@ class CmdbProcess:
         return self.__name
 
 
-    def get_class(self):
+    def get_class(self) -> str:
         """
         Return the class name
 

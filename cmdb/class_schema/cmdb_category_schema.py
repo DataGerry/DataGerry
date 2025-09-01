@@ -16,9 +16,10 @@
 """
 The schema of a CmdbCategory
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
-def get_cmdb_category_schema() -> dict:
+def get_cmdb_category_schema() -> dict[str, Any]:
     """
     Returns the CmdbCategorySchema
 
