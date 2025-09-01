@@ -19,13 +19,15 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { ConnectComponent } from './connect.component';
+import { cloudModeGuard } from '../auth/guards/cloud-mode.guard';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
     {
         path: '',
         pathMatch: 'full',
-        component: ConnectComponent
+        component: ConnectComponent,
+        canActivate: [cloudModeGuard]
     }
 ];
 
