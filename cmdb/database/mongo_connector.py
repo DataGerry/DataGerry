@@ -62,10 +62,8 @@ class MongoConnector:
             # Initialize the instance with the provided arguments
             cls._instance.host = host
             cls._instance.port = int(port)
-            # cls._instance.database_name = database_name
             cls._instance.client_options = client_options or {}
             cls._instance._client = None  # Lazy-loaded MongoClient
-            # cls._instance._database = None  # Lazy-loaded Database reference
 
         return cls._instance
 

@@ -348,7 +348,8 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        if not _fetch_only_active_objs():
+
+        if _fetch_only_active_objs():
             count_of_objects: int = objects_manager.count_objects({"active": True})
         else:
             count_of_objects = objects_manager.count_objects()
@@ -360,6 +361,7 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[get_cmdb_object_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "Internal server error while retrieving the number of Objects stored in database!")
+
 
 #TODO: API-Documentation-FIX
 @objects_blueprint.route('/count/<int:type_id>', methods=['GET'])
