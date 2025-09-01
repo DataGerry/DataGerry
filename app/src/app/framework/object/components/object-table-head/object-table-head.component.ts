@@ -56,20 +56,22 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
   ngOnInit(): void {
 
-    this.subscription = this.objectService.getConfigItemsLimit().subscribe({
-      next: (limit) => {
-        this.totalObjects = limit;
-      }
-    });
-
-    this.fetchTrigger$.pipe(
-      debounceTime(300),
-      takeUntil(this.destroy$)
-    ).subscribe(() => {
+    if(this.isCloudModeEnabled){
+      this.subscription = this.objectService.getConfigItemsLimit().subscribe({
+        next: (limit) => {
+          this.totalObjects = limit;
+        }
+      });
+  
+      this.fetchTrigger$.pipe(
+        debounceTime(300),
+        takeUntil(this.destroy$)
+      ).subscribe(() => {
+        this.fetchUsedObjects();
+      });
+  
       this.fetchUsedObjects();
-    });
-
-    this.fetchUsedObjects();
+    }
   }
 
 
@@ -101,7 +103,6 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
   private fetchUsedObjects(): void {
     this.usedObjects$ = this.objectService.countObjects().pipe(
       catchError(error => {
-        console.error('Error fetching used objects count:', error?.error?.message);
         return of(0);
       })
     );
@@ -123,7 +124,7 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
     const percentage = this.calculatePercentage();
 
-    if (percentage === 100) {
+    if (percentage === 100 || percentage > 100) {
       return 'btn btn-secondary disabled-look';
     }
   }
@@ -133,14 +134,16 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
    * Gets the tooltip text for the button based on usage percentage.
    */
   getButtonTooltip(): string {
-    const percentage = this.calculatePercentage();
-
-    if (percentage === 100) {
-      return 'Maximum number of objects has been reached';
+    if (!this.isCloudModeEnabled) {
+      return 'Add a new object';
     }
-
-    return 'Add a new object'; // Default tooltip
+  
+    const percentage = this.calculatePercentage();
+    return percentage === 100 || percentage > 100
+      ? 'Maximum number of objects has been reached'
+      : 'Add a new object';
   }
+  
 
   /**
   * Gets the tooltip text for the Bulk change button.
