@@ -421,6 +421,11 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
      * @param data new data for field
      */
     private handleFieldChanges(data: any) {
+        
+        if (data.inputName === 'selectable_as_parent') {
+            this.typeInstance.selectable_as_parent = !!data.newValue;
+            return;
+        }
 
         if (data.elementType == 'section') {
             this.validationService.updateSectionKey(data?.previousName, data?.fieldName)
