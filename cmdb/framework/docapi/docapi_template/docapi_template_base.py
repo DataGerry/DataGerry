@@ -37,8 +37,7 @@ class TemplateManagementBase:
         DESCENDING (int): Constant representing descending sort order
         COLLECTION (str): Collection pattern for document storage
         SUPER_INDEX_KEYS (list): Default index keys for unique constraints
-        IGNORED_INIT_KEYS (list): List of keys to be ignored during initialization
-        REQUIRED_INIT_KEYS (list): List of keys that are required for initialization
+        REQUIRED_INIT_KEYS (list[str]): List of keys that are required for initialization
         INDEX_KEYS (list): Custom index keys specific to derived classes
     """
 
@@ -53,8 +52,8 @@ class TemplateManagementBase:
             "unique": True
         }
     ]
-    IGNORED_INIT_KEYS: list[Any] = []
-    REQUIRED_INIT_KEYS: list[Any] = []
+
+    REQUIRED_INIT_KEYS: list[str] = []
     INDEX_KEYS: list[Any] = []
 
     def __init__(self, **kwargs: Any) -> None:

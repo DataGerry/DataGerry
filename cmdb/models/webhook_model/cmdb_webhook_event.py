@@ -17,13 +17,14 @@
 This module contains the implementation of CmdbWebhookEvent, which is representing
 a webhook event in Datagarry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbWebhook - CLASS                                                 #
@@ -37,7 +38,7 @@ class CmdbWebhookEvent(CmdbDAO):
     COLLECTION = 'framework.webhookEvents'
     MODEL = 'Webhook_Event'
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = [
+    REQUIRED_INIT_KEYS: list[str] = [
         'event_time',
         'operation',
         'webhook_id',
@@ -48,7 +49,7 @@ class CmdbWebhookEvent(CmdbDAO):
         'response_code',
     ]
 
-    SCHEMA: dict = {
+    SCHEMA: dict[str, Any] = {
         'public_id': {
             'type': 'integer'
         },

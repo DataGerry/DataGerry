@@ -39,14 +39,14 @@ class TypeExternalLink:
         href: str,
         label: str | None = None,
         icon: str | None = None,
-        fields: list | None = None
+        fields: list[str] | None = None
     ) -> None:
         """TODO: document"""
         self.name: str = name
         self.href: str = href
         self.label: str = label or self.name.title()
         self.icon: str | None = icon
-        self.fields = fields or []
+        self.fields: list[str] = fields or []
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
@@ -66,7 +66,7 @@ class TypeExternalLink:
             href = data['href'],
             label = data.get('label'),
             icon = data.get('icon'),
-            fields = data.get('fields')
+            fields = data.get('fields', [])
         )
 
 
@@ -105,9 +105,11 @@ class TypeExternalLink:
         """
         the type of arguments passed to it and formats it according to the format codes defined in the string
         checks if the href link requires field informations.
+
         Examples:
             http://example.org/{}/dynamic/ -> True
             http://example.org/static/ -> False
+
         Returns:
             bool
         """
@@ -127,7 +129,7 @@ class TypeExternalLink:
         return len(self.fields) > 0
 
 
-    def fill_href(self, inputs) -> None:
+    def fill_href(self, inputs: list[Any]) -> None:
         """
         Fills the href brackets with data
         """

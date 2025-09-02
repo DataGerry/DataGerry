@@ -17,12 +17,13 @@
 This module contains the implementation of CmdbWebhook, which is representing
 a webhook in Datagarry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbWebhook - CLASS                                                 #
@@ -36,14 +37,14 @@ class CmdbWebhook(CmdbDAO):
     COLLECTION = 'framework.webhooks'
     MODEL = 'Webhook'
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = [
+    REQUIRED_INIT_KEYS: list[str] = [
         'name',
         'url',
         'event_types',
         'active',
     ]
 
-    SCHEMA: dict = {
+    SCHEMA: dict[str, Any] = {
         'public_id': {
             'type': 'integer'
         },

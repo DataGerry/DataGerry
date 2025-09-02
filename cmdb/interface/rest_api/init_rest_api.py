@@ -186,7 +186,6 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
     from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes import ci_explorer_blueprint
-    from cmdb.interface.rest_api.routes.ai_routes.type_assistant_routes import type_assistant_blueprint
     from cmdb.interface.rest_api.routes.framework_routes import (
         extendable_option_blueprint,
         object_group_blueprint,
@@ -244,7 +243,6 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(person_blueprint, url_prefix='/persons')
     app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
     app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
-    app.register_blueprint(type_assistant_blueprint, url_prefix='/ai/type_assistant')
 
     # ISMS Blueprints
     app.register_blueprint(isms_config_blueprint, url_prefix='/isms/config')

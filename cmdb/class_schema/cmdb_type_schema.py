@@ -264,7 +264,9 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                         'schema': {
                             'name': {
                                 'type': 'string',
-                                'required': True
+                                'required': True,
+                                'empty': False,
+                                'nullable': False,
                             },
                             'href': {
                                 'type': 'string',  # enter curved brackets for field interpolation example: Field {}
@@ -272,7 +274,9 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                             },
                             'label': {
                                 'type': 'string',
-                                'required': True
+                                'required': True,
+                                'empty': False,
+                                'nullable': False,
                             },
                             'icon': {
                                 'type': 'string',
