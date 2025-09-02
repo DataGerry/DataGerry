@@ -98,6 +98,9 @@ class MongoDatabaseManager:
 
         self.connector = MongoConnector(self.host, self.port, self.client_options)
 
+        # Start keep-alive thread
+        self._start_keepalive()
+
 
     @retry_operation
     def reset_connection(self) -> None:

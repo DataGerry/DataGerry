@@ -16,7 +16,7 @@
 """
 Implementation of CmdbType
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
@@ -37,7 +37,7 @@ from cmdb.errors.models.cmdb_type import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbType - CLASS                                                   #
@@ -50,7 +50,6 @@ class CmdbType(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.types"
-    MODEL = 'Type'
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
@@ -215,7 +214,7 @@ class CmdbType(CmdbDAO):
                 'acl': AccessControlList.to_json(instance.acl),
             }
         except Exception as err:
-            raise CmdbTypeToJsonError(err) from err
+            raise CmdbTypeToJsonError(str(err)) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

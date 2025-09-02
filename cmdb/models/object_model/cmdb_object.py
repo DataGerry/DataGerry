@@ -19,7 +19,7 @@ an object in DataGerry
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 from dateutil.parser import parse
 
 from cmdb.class_schema.cmdb_object_schema import get_cmdb_object_schema
@@ -57,7 +57,7 @@ class CmdbObject(CmdbDAO):
         creation_time: datetime,
         author_id: int,
         active: bool,
-        fields: list,
+        fields: list[dict[str, Any]],
         multi_data_sections: list | None = None,
         last_edit_time: datetime | None = None,
         editor_id: int | None = None,
@@ -92,7 +92,7 @@ class CmdbObject(CmdbDAO):
             self.last_edit_time: datetime | None = last_edit_time
             self.editor_id: int | None = editor_id
             self.active: bool = active
-            self.fields = fields
+            self.fields: list[dict[str, Any]] = fields
             self.ci_explorer_tooltip: str | None = ci_explorer_tooltip
             self.multi_data_sections = multi_data_sections or []
 
@@ -101,7 +101,7 @@ class CmdbObject(CmdbDAO):
             raise CmdbObjectInitError(str(err)) from err
 
 
-    def __truediv__(self, other):
+    def __truediv__(self, other: "CmdbObject") -> dict[str, list[Any]]:
         """
         Compares the 'fields' of two CmdbObjects of the same class and returns a dictionary with differences
 
@@ -120,6 +120,7 @@ class CmdbObject(CmdbDAO):
         """
         if not isinstance(other, self.__class__):
             raise TypeError("Not the same class")
+
         return {**{'old': [i for i in self.fields if i not in other.fields]},
                 **{'new': [j for j in other.fields if j not in self.fields]}}
 
@@ -139,8 +140,8 @@ class CmdbObject(CmdbDAO):
             CmdbObject: CmdbObject with the given data
         """
         try:
-            creation_time = data.get('creation_time')
-            last_edit_time = data.get('last_edit_time')
+            creation_time: Any | None = data.get('creation_time')
+            last_edit_time: Any | None = data.get('last_edit_time')
 
             if isinstance(creation_time, str):
                 creation_time = parse(creation_time, fuzzy=True)
@@ -152,7 +153,7 @@ class CmdbObject(CmdbDAO):
                 public_id=data.get('public_id'),
                 type_id=int(data["type_id"]),
                 version=data.get("version", "1.0.0"),
-                creation_time=creation_time,
+                creation_time=creation_time or datetime.now(timezone.utc),
                 author_id=int(data["author_id"]),
                 last_edit_time=last_edit_time,
                 editor_id=data.get('editor_id'),
@@ -217,7 +218,7 @@ class CmdbObject(CmdbDAO):
         return self.fields
 
 
-    def get_value(self, field: dict) -> str | None:
+    def get_value(self, field: str) -> str | None:
         """
         Retrieves the value of a field by its name
 
@@ -232,7 +233,7 @@ class CmdbObject(CmdbDAO):
         Returns:
             str | None: The value of the field if found
         """
-        f: dict
+        f: dict[str, Any]
         for f in self.fields:
             if f.get('name') == field:
                 return f.get('value')

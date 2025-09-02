@@ -135,4 +135,5 @@ class UserCacheManager:
             db_name=self.db_name,
             criteria={}
         )
+
         return result.deleted_count

@@ -42,7 +42,6 @@ class CmdbDAO:
         DAO_ASCENDING (int): models sort order ascending
         DAO_DESCENDING (int): models sort order descending
         COLLECTION (str): name of the database table - should always be overwritten
-        IGNORED_INIT_KEYS (list, optional): list of default init keys which an specific object won't need
         REQUIRED_INIT_KEYS (list, optional): list of default parameters which an object needs to work
         VERSIONING_MAJOR (int): addend for major version updates
         VERSIONING_MINOR (int): addend for minor version updates
@@ -55,10 +54,9 @@ class CmdbDAO:
     DAO_ASCENDING = 1
     DAO_DESCENDING = -1
     COLLECTION = 'framework.*'
-    MODEL: str = ''
     SCHEMA: dict[str, Any] = {}
 
-    __SUPER_INIT_KEYS: list[str] = [
+    SUPER_INIT_KEYS: list[str] = [
         'public_id'
     ]
 
@@ -70,9 +68,8 @@ class CmdbDAO:
         }
     ]
 
-    IGNORED_INIT_KEYS = []
-    REQUIRED_INIT_KEYS = []
-    INDEX_KEYS = []
+    REQUIRED_INIT_KEYS: list[str] = []
+    INDEX_KEYS: list[dict[str, Any]] = []
     VERSIONING_MAJOR = 2
     VERSIONING_MINOR = 1
     VERSIONING_PATCH = 0
@@ -92,6 +89,30 @@ class CmdbDAO:
                 self.version = value
             else:
                 setattr(self, key, value)
+
+
+    def __new__(cls, *args: Any, **kwargs: Any):
+        """
+        auto call function by object initialization
+        checks if all required keys for cmdb usage are present
+        @deprecated_implementation
+        if not all(key in key_list for key in cls.REQUIRED_INIT_KEYS):
+
+        Returns:
+            Instance of the object
+
+        Raises:
+            RequiredInitKeyNotFoundError: if some given attributes are not inside the requirement lists
+        """
+        init_keys: list[str] = cls.SUPER_INIT_KEYS + cls.REQUIRED_INIT_KEYS
+
+        for req_key in init_keys:
+            if req_key in kwargs:
+                continue
+
+            raise RequiredInitKeyNotFoundError(f"A required InitKey is missing: {req_key}!")
+
+        return super().__new__(cls)
 
 
     def get_public_id(self) -> int:
@@ -115,35 +136,8 @@ class CmdbDAO:
         return self.public_id
 
 
-    def __new__(cls, *args: Any, **kwargs: Any):
-        """
-        auto call function by object initialization
-        checks if all required keys for cmdb usage are present
-        @deprecated_implementation
-        if not all(key in key_list for key in cls.REQUIRED_INIT_KEYS):
-
-        Returns:
-            Instance of the object
-
-        Raises:
-            RequiredInitKeyNotFoundError: if some given attributes are not inside the requirement lists
-        """
-        init_keys = cls.__SUPER_INIT_KEYS + cls.REQUIRED_INIT_KEYS
-
-        if len(cls.IGNORED_INIT_KEYS) > 0:
-            init_keys = [i for j, i in enumerate(init_keys) if j in cls.IGNORED_INIT_KEYS]
-
-        for req_key in init_keys:
-            if req_key in kwargs:
-                continue
-
-            raise RequiredInitKeyNotFoundError(f"A required InitKey is missing: {req_key}!")
-
-        return super().__new__(cls)
-
-
     @classmethod
-    def get_index_keys(cls):
+    def get_index_keys(cls) -> list[IndexModel]:
         """
         Retrieves a list of index models based on class-defined index keys
 
@@ -153,7 +147,7 @@ class CmdbDAO:
         return [IndexModel(**index) for index in cls.INDEX_KEYS + cls.SUPER_INDEX_KEYS]
 
 
-    def update_version(self, update) -> str:
+    def update_version(self, update: int) -> str:
         """
         Update the version number of the object
 
@@ -171,9 +165,6 @@ class CmdbDAO:
             raise NoVersionError(f"The object (ID: {self.get_public_id()}) has no version property")
 
         updater_version = Versioning(*map(int, self.version.split('.')))
-
-        if not isinstance(updater_version, Versioning):
-            raise TypeError('Version type must be a Versioning')
 
         if update == self.VERSIONING_MAJOR:
             updater_version.update_major()

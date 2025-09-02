@@ -41,7 +41,6 @@ class BaseMediaFile:
         {'keys': [('public_id', ASCENDING)], 'name': 'public_id', 'unique': True}
     ]
 
-    IGNORED_INIT_KEYS = []
     REQUIRED_INIT_KEYS = []
     INDEX_KEYS = []
 
