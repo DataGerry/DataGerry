@@ -11,7 +11,7 @@
   <ng-container *ngIf="renderResult?.externals.length > 0; else noLinks">
     <div class="overflow-auto" style="max-height:20vh">
       <a mat-menu-item *ngFor="let ext of renderResult?.externals" [href]="getSantizeUrl(ext.href)" target="_blank">
-        <mat-icon>{{ ext.icon }}</mat-icon>
+        <i [class]="ext.icon" class="mr-2"></i>
         <span>{{ ext.label }}</span>
       </a>
     </div>
