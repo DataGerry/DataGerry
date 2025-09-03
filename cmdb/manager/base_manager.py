@@ -411,14 +411,16 @@ class BaseManager:
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update(self,
-               criteria: dict,
-               data: dict[str, Any],
-               *args: Any,
-               add_to_set: bool = True,
-               plain: bool = False,
-               col: str | None = None,
-               **kwargs: Any) -> UpdateResult:
+    def update(
+        self,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+        *args: Any,
+        add_to_set: bool = True,
+        plain: bool = False,
+        col: str | None = None,
+        **kwargs: Any
+    ) -> UpdateResult:
         """
         Updates a document in the database with the specified criteria and new data
 
@@ -444,10 +446,10 @@ class BaseManager:
 
             return self.dbm.update(collection, self.db_name, criteria, data, *args, add_to_set, plain, **kwargs)
         except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
+            raise BaseManagerUpdateError(str(err)) from err
 
 
-    def upsert_set(self, data: dict, collection:str = None) -> UpdateResult:
+    def upsert_set(self, data: dict, collection:str | None = None) -> UpdateResult:
         """
         Performs an upsert operation on a specified MongoDB collection.
 

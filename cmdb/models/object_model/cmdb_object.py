@@ -208,7 +208,7 @@ class CmdbObject(CmdbDAO):
         return self.type_id
 
 
-    def get_all_fields(self) -> list:
+    def get_all_fields(self) -> list[dict[str, Any]]:
         """
         Reutns all fields of the CmdbObject
 

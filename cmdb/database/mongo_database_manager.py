@@ -471,15 +471,16 @@ class MongoDatabaseManager:
 
     @retry_operation
     def update(
-            self,
-            collection: str,
-            db_name: str,
-            criteria: dict,
-            data: dict[str, Any],
-            *args: Any,
-            add_to_set: bool = True,
-            plain: bool = False,
-            **kwargs: Any) -> UpdateResult:
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+        *args: Any,
+        add_to_set: bool = True,
+        plain: bool = False,
+        **kwargs: Any
+    ) -> UpdateResult:
         """
         Updates a document inside the specified collection
 
