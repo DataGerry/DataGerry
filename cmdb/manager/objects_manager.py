@@ -175,10 +175,12 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(str(err)) from err
 
 
-    def iterate(self,
-                builder_params: BuilderParameters,
-                user: CmdbUser = None,
-                permission: AccessControlPermission = None) -> IterationResult[CmdbObject]:
+    def iterate(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> IterationResult[CmdbObject]:
         """
         Retrieves multiple CmdbObjects
 

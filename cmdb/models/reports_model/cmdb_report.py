@@ -16,7 +16,8 @@
 """
 This module contains the implementation of CmdbReport, which is representing a report in Datagarry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
@@ -28,7 +29,7 @@ from cmdb.errors.models.cmdb_report import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbReport - CLASS                                                  #
@@ -44,7 +45,7 @@ class CmdbReport(CmdbDAO):
     MODEL = 'Report'
     DEFAULT_VERSION: str = '1.0.0'
 
-    REQUIRED_INIT_KEYS = [
+    REQUIRED_INIT_KEYS: list[str] = [
         'report_category_id',
         'name',
         'type_id',
@@ -55,7 +56,7 @@ class CmdbReport(CmdbDAO):
         'mds_mode',
     ]
 
-    SCHEMA: dict = {
+    SCHEMA: dict[str, Any] = {
         'public_id': {
             'type': 'integer'
         },
@@ -94,16 +95,17 @@ class CmdbReport(CmdbDAO):
 
     #pylint: disable=R0913, R0917
     def __init__(
-            self,
-            report_category_id: int,
-            name: str,
-            type_id: int,
-            selected_fields: list,
-            conditions: dict,
-            report_query: dict,
-            predefined: bool = False,
-            mds_mode: str = MdsMode.ROWS,
-            **kwargs):
+        self,
+        report_category_id: int,
+        name: str,
+        type_id: int,
+        selected_fields: list[str],
+        conditions: dict[str, Any] | None,
+        report_query: dict[str, Any] | None,
+        predefined: bool = False,
+        mds_mode: str = MdsMode.ROWS,
+        **kwargs: Any
+    ) -> None:
         """
         Initialize a new CmdbReport instance
 
@@ -122,21 +124,21 @@ class CmdbReport(CmdbDAO):
             CmdbReportInitError: If the CmdbReport could not be initialised
         """
         try:
-            self.report_category_id = report_category_id
-            self.name = name
-            self.type_id = type_id
-            self.selected_fields = selected_fields
-            self.conditions = conditions
-            self.report_query = report_query
-            self.predefined = predefined
-            self.mds_mode = mds_mode
+            self.report_category_id: int = report_category_id
+            self.name: str = name
+            self.type_id: int = type_id
+            self.selected_fields: list[str] = selected_fields
+            self.conditions: dict[str, Any] | None = conditions
+            self.report_query: dict[str, Any] | None = report_query
+            self.predefined: bool = predefined
+            self.mds_mode: str = mds_mode
 
             super().__init__(**kwargs)
         except Exception as err:
-            raise CmdbReportInitError(err) from err
+            raise CmdbReportInitError(str(err)) from err
 
 
-    def get_selected_fields(self) -> list:
+    def get_selected_fields(self) -> list[str]:
         """
         Returns the list of selected fields for the report
 
@@ -146,7 +148,7 @@ class CmdbReport(CmdbDAO):
         return self.selected_fields
 
 
-    def remove_field_occurences(self, field_name: str):
+    def remove_field_occurences(self, field_name: str) -> None:
         """
         Remove all occurrences of a field from both selected fields and conditions
 
@@ -161,7 +163,7 @@ class CmdbReport(CmdbDAO):
         self.conditions = self.clear_rules_of_field(self.conditions, field_name)
 
 
-    def clear_rules_of_field(self, conditions: dict, field_name: str):
+    def clear_rules_of_field(self, conditions: dict[str, Any] | None, field_name: str) -> dict[str, Any] | None:
         """
         Recursively clears rules associated with a specific field from the conditions dictionary
 
@@ -172,12 +174,15 @@ class CmdbReport(CmdbDAO):
         Returns:
             dict | None: The updated conditions dictionary or None if all relevant rules were removed
         """
-        new_conditions = {'condition': conditions['condition']}
-        new_rules = []
+        if not conditions:
+            return None
+
+        new_conditions: dict[str, Any] = {'condition': conditions['condition']}
+        new_rules: list[dict[str, Any]] = []
 
         for a_rule in conditions.get('rules', []):
             if "condition" in a_rule:
-                result = self.clear_rules_of_field(a_rule, field_name)
+                result: dict[str, Any] | None = self.clear_rules_of_field(a_rule, field_name)
 
                 if result:
                     new_rules.append(result)
@@ -196,7 +201,7 @@ class CmdbReport(CmdbDAO):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbReport":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbReport":
         """
         Creates a CmdbReport instance from a dictionary of data
 
@@ -209,20 +214,20 @@ class CmdbReport(CmdbDAO):
         try:
             return cls(
                 public_id = data.get('public_id'),
-                report_category_id = data.get('report_category_id'),
-                name = data.get('name'),
-                type_id = data.get('type_id'),
-                selected_fields = data.get('selected_fields'),
+                report_category_id = data['report_category_id'],
+                name = data['name'],
+                type_id = data['type_id'],
+                selected_fields = data['selected_fields'],
                 conditions = data.get('conditions'),
                 report_query = data.get('report_query'),
-                mds_mode = data.get('mds_mode'),
-                predefined = data.get('predefined'),
+                mds_mode = data['mds_mode'],
+                predefined = data['predefined'],
             )
         except Exception as err:
-            raise CmdbReportInitFromDataError(err) from err
+            raise CmdbReportInitFromDataError(str(err)) from err
 
     @classmethod
-    def to_json(cls, instance: "CmdbReport") -> dict:
+    def to_json(cls, instance: "CmdbReport") -> dict[str, Any]:
         """
         Converts a CmdbReport instance into a dictionary suitable for JSON serialization
 
@@ -245,4 +250,4 @@ class CmdbReport(CmdbDAO):
                 'mds_mode': instance.mds_mode,
             }
         except Exception as err:
-            raise CmdbReportToJsonError(err) from err
+            raise CmdbReportToJsonError(str(err)) from err
