@@ -29,7 +29,7 @@ import {
   FormGroup,
   Validators
 } from '@angular/forms';
-import { BehaviorSubject, forkJoin, Observable } from 'rxjs';
+import { BehaviorSubject, forkJoin, Observable, of } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -402,11 +402,13 @@ export class RiskAssessmentAddComponent implements OnInit {
       order: SortDirection.ASCENDING
     };
 
+    const shouldLoadObjects = !(this.fromObject || this.fromObjectGroup || this.isView);
+
     this
       .doWithLoader(
         forkJoin({
           risks: this.riskSrv.getRisks(baseParams),
-          objects: this.objectSrv.getObjects(baseParams),
+          objects: shouldLoadObjects ? this.objectSrv.getObjects(baseParams) : of({ results: [] }),
           objectGroups: this.objectGroupSrv.getObjectGroups(baseParams),
           persons: this.personSrv.getPersons(baseParams),
           personGroups: this.personGroupSrv.getPersonGroups(baseParams),
