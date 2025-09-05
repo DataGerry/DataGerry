@@ -36,6 +36,7 @@ import { TableLoadingComponent } from './components/table-loading/table-loading.
 import { TableStateComponent } from './components/table-states/table-state.component';
 import { TableColumnSearchComponent } from './head/table-column-search/table-column-search.component';
 import { DragDropModule } from '@angular/cdk/drag-drop';
+import { AnchorDetectPipe } from './pipes/anchor-detect.pipe';
 
 
 @NgModule({
@@ -44,7 +45,7 @@ import { DragDropModule } from '@angular/cdk/drag-drop';
     TablePaginationComponent, TableFootDirective, TableHeadDirective, TableDirective,
     TableBodyDirective, TableColumnHeadComponent, TableInfoComponent, TableCellComponent,
     TableRowDirective, TableColumnToggleComponent, TableLoadingComponent, TableStateComponent,
-    TableColumnSearchComponent],
+    TableColumnSearchComponent, AnchorDetectPipe],
     exports: [
         TableComponent,
         TablePaginationComponent

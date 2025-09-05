@@ -1,7 +1,12 @@
 <div [ngClass]="{'row-hoverable': isViewAndEditRequired}" class="clickable-container" (click)="handleObjectView()" (dblclick)="handleObjectEdit()">
     <ng-container *ngIf="column.template" [ngTemplateOutlet]="column.template"
                  [ngTemplateOutletContext]="{ data: data, item: item, column: column}"></ng-container>
-                   <ng-container *ngIf="data && !column.template">
-                     <span>{{data}}</span>
-                   </ng-container>            
+    <ng-container *ngIf="data && !column.template">
+        <ng-container *ngIf="(data | anchorDetect:'href') as href; else plainText">
+            <a [href]="href" target="_blank" rel="noopener noreferrer" style="text-decoration: underline;">{{ (data | anchorDetect:'text') }}</a>
+        </ng-container>
+        <ng-template #plainText>
+            <span>{{data}}</span>
+        </ng-template>
+    </ng-container>
                </div>           
