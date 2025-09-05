@@ -128,16 +128,18 @@ def post_login() -> Response:
                     LOGGER.error("[post_login] Error: Invalid data. No subscriptions!")
                     abort(401, "Invalid data. Could not login!")
 
-                user = retrive_user(user_data, user_database)
+                user: dict[str, Any] | None = retrive_user(user_data, user_database)
 
                 # User does not exist
                 if not user:
                     LOGGER.error("[post_login] Could not retrieve User from database!")
                     abort(401, "Invalid user or password. Could not login!")
 
-                token, token_issued_at, token_expire = generate_token_with_params(user,
-                                                                                current_app.database_manager,
-                                                                                True)
+                token, token_issued_at, token_expire = generate_token_with_params(
+                                                                            user,
+                                                                            current_app.database_manager,
+                                                                            True
+                                                                        )
 
                 return LoginResponse(user, token, token_issued_at, token_expire).make_response()
         except HTTPException as http_err:

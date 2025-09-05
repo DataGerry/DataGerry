@@ -232,7 +232,7 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
     """
     def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any):
             if not current_app.cloud_mode:
                 return func(*args, **kwargs)
 
@@ -549,7 +549,7 @@ def check_user_in_service_portal(
     password: str,
     x_api_key: str | None = None,
     api_key_required: bool = False
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Check if a user exists in the service portal
 
     This function verifies user credentials in two modes:
@@ -678,7 +678,7 @@ def set_admin_user(user_data: dict, subscription: dict):
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict, database: str) -> dict | None:
+def retrive_user(user_data: dict[str, Any], database: str) -> dict[str, Any] | None:
     """
     Retrieve a user from the database by email
 
@@ -729,7 +729,7 @@ def validate_subscrption_user(
     password: str,
     x_api_key: str | None = None,
     api_key_required: bool = False
-) -> dict:
+) -> dict[str , Any]:
     """
     Validates the user credentials
     """
@@ -769,7 +769,7 @@ def validate_subscrption_user(
         try:
             err_msg = response.json().get("message", response.text)
         except ValueError:
-            err_msg = response.text
+            err_msg: str = response.text
         raise InvalidCloudUserError(err_msg)
     except requests.exceptions.Timeout as err:
         raise RequestTimeoutError(str(err)) from err

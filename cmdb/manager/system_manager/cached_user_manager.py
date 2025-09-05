@@ -14,115 +14,98 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of UserCacheManager
+Implementation of CachedUserManager
 """
 from logging import Logger, getLogger
-from datetime import datetime, timezone
 from typing import Any
 
-from pymongo import IndexModel
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import DG_CACHE_DB
+
+from cmdb.manager.generic_manager import GenericManager
+
+from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
+
+from cmdb.errors.manager.cached_user_manager import CACHED_USER_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               UserCacheManager - CLASS                                               #
+#                                               CachedUserManager - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-class UserCacheManager:
+class CachedUserManager(GenericManager):
     """
-    UserCacheManager handles cached user data
+    The CachedUserManager manages the interaction between CmdbCachedUsers and the database
+
+    Extends: GenericManager
     """
-    CACHE_TTL = 3600
-    COLLECTION = 'cache.users'
-
-    SUPER_INDEX_KEYS: list[dict[str, Any]] = [
-        {
-            "keys": [("created_at", 1)],
-            "name": "expire_after",
-            "expireAfterSeconds": CACHE_TTL,
-        },
-        {
-            "keys": [("mail", 1), ("x_api_key", 1)],
-            "name": "user_unique",
-            "unique": True,
-        }
-    ]
-
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
-        """
-        init system settings reader
-        Args:
-            database_manager: database managers
-        """
-        self.db_name: str | None = database
-        self.dbm: MongoDatabaseManager = dbm
-
-        super().__init__()
-
-# -------------------------------------------------- CLASS - METHOD -------------------------------------------------- #
-
-    @classmethod
-    def get_index_keys(cls) -> list[IndexModel]:
-        """
-        Retrieves a list of index models based on class-defined index keys
-
-        Returns:
-            list: A list of IndexModel instances created from `INDEX_KEYS` and `SUPER_INDEX_KEYS`
-        """
-        return [IndexModel(**index) for index in cls.SUPER_INDEX_KEYS]
-
+        super().__init__(dbm, CmdbCachedUser, CACHED_USER_MANAGER_ERRORS, DG_CACHE_DB)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def set_cached_user(self, mail: str, password: str, x_api_key: str | None, user_data: dict) -> UpdateResult:
+    def set_cached_user(
+        self,
+        mail: str,
+        password: str,
+        x_api_key: str | None,
+        user_data: dict[str, Any]
+    ) -> UpdateResult:
         """
         Insert/update a cached user entry with TTL
         """
-        doc: dict[str, Any] = {
-            "mail": mail,
-            "password": password,
-            "x_api_key": x_api_key,
-            "user_data": user_data,
-            "created_at": datetime.now(timezone.utc),
-        }
-
         return self.dbm.update(
-            collection=self.COLLECTION,
+            collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={"mail": mail, "x_api_key": x_api_key},
-            data=doc,
+            criteria={"mail": mail},
+            data=user_data,
             upsert=True
         )
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_cached_user(self, mail: str, password: str, x_api_key: str | None) -> dict | None:
+    def get_cached_user(
+            self,
+            email: str,
+            password: str,
+            api_key: str | None,
+            api_key_required: bool = False) -> dict[str, Any] | None:
         """
         Retrieve cached user if available (password check included)
         """
-        user = self.dbm.find_one_by(
-            collection=self.COLLECTION,
+        cached_user: dict[str, Any] | None = self.dbm.find_one_by(
+            collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            filter={"mail": mail, "x_api_key": x_api_key}
+            filter={"email": email}
         )
-        if user and user.get("password") == password:
-            return user.get("user_data")
+
+        if cached_user:
+
+            # Check password
+
+            # If api_key if requried return the subscription with the api_key else None
+            # if api_key_required:
+
+
+            return cached_user
+
         return None
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-    def delete_cached_user(self, mail: str, x_api_key: str | None) -> bool:
+    def delete_cached_user(self, mail: str) -> bool:
         """
         Remove a cached user explicitly (logout)
         """
         result = self.dbm.delete(
-            collection=self.COLLECTION,
+            collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={"mail": mail, "x_api_key": x_api_key}
+            criteria={"mail": mail}
         )
+
         return result.deleted_count > 0
 
 
@@ -131,7 +114,7 @@ class UserCacheManager:
         Remove all cached users (admin/debug)
         """
         result = self.dbm.delete_many(
-            collection=self.COLLECTION,
+            collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
             criteria={}
         )

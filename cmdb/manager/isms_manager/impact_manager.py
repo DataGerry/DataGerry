@@ -16,7 +16,9 @@
 """
 This module contains the implementation of the ImpactManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from pymongo import UpdateOne
 
 from cmdb.database import MongoDatabaseManager
@@ -28,7 +30,7 @@ from cmdb.models.isms_model import IsmsImpact, IsmsRiskAssessment
 from cmdb.errors.manager.impact_manager import IMPACT_MANAGER_ERRORS, ImpactManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ImpactManager - CLASS                                                #
@@ -39,12 +41,12 @@ class ImpactManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         super().__init__(dbm, IsmsImpact, IMPACT_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_with_follow_up(self, public_id: int, new_data: dict) -> None:
+    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> None:
         """
         Updates an IsmsImpact with new data and propagates the updated calculation_basis
         to all affected IsmsRiskAssessments.
@@ -56,7 +58,7 @@ class ImpactManager(GenericManager):
 
         Args:
             public_id (int): The public_id of the Impact to update
-            new_data (dict): The new data for the Impact
+            new_data (dict[str, Any]): The new data for the Impact
         """
         # First update the IsmsImpact
         self.update_item(public_id, IsmsImpact.from_data(new_data))
@@ -64,7 +66,7 @@ class ImpactManager(GenericManager):
         new_basis = new_data['calculation_basis']
 
         # Find IsmsRiskAssessments where this Impact is used
-        query = {
+        query: dict[str, list[dict[str, int]]] = {
             '$or': [
                 {'risk_calculation_before.impacts.impact_id': public_id},
                 {'risk_calculation_after.impacts.impact_id': public_id}
@@ -73,7 +75,7 @@ class ImpactManager(GenericManager):
 
         updates = []
 
-        affected_risk_assessments: list[dict] = self.dbm.find(
+        affected_risk_assessments: list[dict[str, Any]] = self.dbm.find(
                                                     collection=IsmsRiskAssessment.COLLECTION,
                                                     db_name=self.db_name,
                                                     filter=query
@@ -83,7 +85,7 @@ class ImpactManager(GenericManager):
             update_fields = {}
 
             # Check the before-Matrix
-            before: dict = risk_assessment.get('risk_calculation_before', {})
+            before: dict[str, Any] = risk_assessment.get('risk_calculation_before', {})
             before_impacts = before.get('impacts', [])
 
             max_before_value = -1
@@ -185,4 +187,4 @@ class ImpactManager(GenericManager):
             return bool(result)
         except Exception as err:
             LOGGER.error("[impact_calculation_basis_exists] Exception: %s. Type: %s", err, type(err))
-            raise ImpactManagerGetError(err) from err
+            raise ImpactManagerGetError(str(err)) from err

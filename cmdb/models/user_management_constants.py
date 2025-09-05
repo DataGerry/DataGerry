@@ -17,6 +17,7 @@
 Basic user functions such as create, change and delete are implemented here.
 In addition, the rights management, group administration and access rights are defined here.
 """
+from typing import Any
 from cmdb.manager import RightsManager
 
 from cmdb.models.user_model import CmdbUser
@@ -29,7 +30,7 @@ from cmdb.models.right_model.base_right import BaseRight
 
 rights_manager = RightsManager()
 
-__COLLECTIONS__: list = [
+__COLLECTIONS__: list[Any] = [
     CmdbUser,
     CmdbUserSetting,
     CmdbUserGroup,
