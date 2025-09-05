@@ -29,4 +29,26 @@ export class TextComponent extends RenderFieldComponent {
     super();
   }
 
+  /**
+   * Returns true if the provided value is exactly an anchor tag like
+   * <a href="https://...">Label</a>
+   */
+  public isAnchorValue(value: any): boolean {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    const anchorPattern = /^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i;
+    return anchorPattern.test(trimmed);
+  }
+
+  /** Extracts the href from an anchor string */
+  public getAnchorHref(value: string): string | null {
+    const match = value?.trim().match(/^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i);
+    return match ? match[1] : null;
+  }
+
+  /** Extracts the label text from an anchor string */
+  public getAnchorText(value: string): string | null {
+    const match = value?.trim().match(/^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i);
+    return match ? match[2] : null;
+  }
 }
