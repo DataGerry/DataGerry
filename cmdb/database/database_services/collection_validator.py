@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pymongo.results import UpdateResult
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
-from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION
+from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION, DG_CACHE_DB
 from cmdb.database.predefined_data.isms_data import (
     get_default_protection_goals,
     get_default_risk_matrix,
@@ -41,6 +41,7 @@ from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 
 from cmdb.models.extendable_option_model import CmdbExtendableOption
 from cmdb.models.isms_model import (
@@ -77,7 +78,7 @@ class CollectionValidator:
     The CollectionValidator makes sure that all required Collections and inital data in the Collections is created
     """
 
-    def __init__(self, db_name: str, dbm: MongoDatabaseManager, local_mode: bool = False):
+    def __init__(self, db_name: str, dbm: MongoDatabaseManager, local_mode: bool = False) -> None:
         """
         Initialises the CollectionValidator
 
@@ -94,7 +95,7 @@ class CollectionValidator:
             self.dbm = dbm
             self.local_mode = local_mode
         except Exception as err:
-            raise CollectionValidatorInitError(err) from err
+            raise CollectionValidatorInitError(str(err)) from err
 
 
     def validate_collections(self) -> None:
@@ -109,9 +110,10 @@ class CollectionValidator:
             self.init_database()
             self.init_framework_collections()
             self.init_management_collections()
+            self.init_cache_db()
         except Exception as err:
             LOGGER.error("[validate_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-            raise CollectionValidationError(err) from err
+            raise CollectionValidationError(str(err)) from err
 
 
     def init_database(self) -> None:
@@ -121,6 +123,16 @@ class CollectionValidator:
         if not self.dbm.check_database_exists(self.db_name):
             self.dbm.create_database(self.db_name)
             self.init_keys()
+
+
+    def init_cache_db(self) -> None:
+        """
+        Created the DataGerry cache database
+        """
+        if not self.dbm.check_database_exists(DG_CACHE_DB):
+            self.dbm.create_database(DG_CACHE_DB)
+            self.dbm.create_collection(CmdbCachedUser.COLLECTION, DG_CACHE_DB)
+            self.dbm.create_indexes(CmdbCachedUser.COLLECTION, DG_CACHE_DB, CmdbCachedUser.get_index_keys())
 
 
     def init_keys(self) -> None:
@@ -227,7 +239,7 @@ class CollectionValidator:
                         users_manager.insert_user(admin_user)
         except Exception as err:
             LOGGER.error("[init_management_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-            raise CollectionInitError(err) from err
+            raise CollectionInitError(str(err)) from err
 # -------------------------------------------------- HELEPER METHODS ------------------------------------------------- #
 
     def get_all_db_collections(self, db_name: str) -> list[str]:

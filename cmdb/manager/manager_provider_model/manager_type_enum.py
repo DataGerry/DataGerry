@@ -65,4 +65,4 @@ class ManagerType(Enum):
     CONTROL_MEASURE_ASSIGNMENT = 'ControlMeasureAssignmentManager'
 
     # System Managers
-    USER_CACHE = 'UserCacheManager'
+    CACHED_USER = 'CachedUserManager'

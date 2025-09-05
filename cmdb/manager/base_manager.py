@@ -277,7 +277,7 @@ class BaseManager:
             raise BaseManagerGetError(err) from err
 
 
-    def get_one_by(self, criteria: dict, collection: str = None) -> dict | None:
+    def get_one_by(self, criteria: dict[str, Any], collection: str | None = None) -> dict[str, Any] | None:
         """
         Retrieves a single document defined by the given criteria
 
@@ -295,15 +295,16 @@ class BaseManager:
 
             return self.dbm.find_one_by(target_collection, self.db_name, criteria)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
     def get_many(
-            self,
-            sort: str = 'public_id',
-            direction: int = -1,
-            limit: int=0,
-            **requirements: Any) -> list[dict]:
+        self,
+        sort: str = 'public_id',
+        direction: int = -1,
+        limit: int=0,
+        **requirements: Any
+    ) -> list[dict[str, Any]]:
         """
         Retrieves documents from the database filtered by the provided requirements
 

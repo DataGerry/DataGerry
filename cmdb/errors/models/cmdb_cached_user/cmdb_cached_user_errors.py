@@ -14,35 +14,35 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all CmdbUsers errors
+This module contains the classes of all CmdbCachedUser errors
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class CmdbUserError(Exception):
+class CmdbCachedUserError(Exception):
     """
-    Raised to catch all CmdbUser related errors
+    Raised to catch all CmdbCachedUser related errors
     """
     def __init__(self, err: str) -> None:
         """
-        Raised to catch all CmdbUser related errors
+        Raised to catch all CmdbCachedUser related errors
         """
         super().__init__(err)
 
-# ------------------------------------------------- CmdbUser - ERRORS ------------------------------------------------ #
+# ---------------------------------------------- CmdbCachedUser - ERRORS --------------------------------------------- #
 
-class CmdbUserInitError(CmdbUserError):
+class CmdbCachedUserInitError(CmdbCachedUserError):
     """
-    Raised when a CmdbUser could not be initialised
-    """
-
-
-class CmdbUserInitFromDataError(CmdbUserError):
-    """
-    Raised when a CmdbUser could not be initialised from a dict
+    Raised when a CmdbCachedUser could not be initialised
     """
 
 
-class CmdbUserToJsonError(CmdbUserError):
+class CmdbCachedUserInitFromDataError(CmdbCachedUserError):
     """
-    Raised when a CmdbUser could not be transformed into a json compatible dict
+    Raised when a CmdbCachedUser could not be initialised from a dict
+    """
+
+
+class CmdbCachedUserToJsonError(CmdbCachedUserError):
+    """
+    Raised when a CmdbCachedUser could not be transformed into a json compatible dict
     """
