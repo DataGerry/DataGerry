@@ -20,15 +20,15 @@ import { Pipe, PipeTransform } from '@angular/core';
 
 @Pipe({ name: 'anchorDetect' })
 export class AnchorDetectPipe implements PipeTransform {
-  private readonly pattern = /^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i;
+  private readonly pattern = /^<a\s+[^>]*href\s*=\s*(['"])(.*?)\1[^>]*>\s*([\s\S]*?)\s*<\/a>$/i;
 
   transform(value: any, mode: 'href' | 'text'): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     const match = trimmed.match(this.pattern);
     if (!match) return null;
-    if (mode === 'href') return match[1];
-    if (mode === 'text') return match[2];
+    if (mode === 'href') return match[2]; 
+    if (mode === 'text') return match[3];
     return null;
   }
 }

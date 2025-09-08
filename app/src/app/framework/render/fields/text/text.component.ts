@@ -30,25 +30,38 @@ export class TextComponent extends RenderFieldComponent {
   }
 
   /**
-   * Returns true if the provided value is exactly an anchor tag like
-   * <a href="https://...">Label</a>
+   * Checks if the given value is a valid anchor tag string.
+   * Example: <a href="https://example.com">Example</a>
+   * @param value - The value to check, expected to be a string.
+   * @returns True if the value matches the anchor tag pattern, otherwise false.
    */
   public isAnchorValue(value: any): boolean {
     if (typeof value !== 'string') return false;
-    const trimmed = value.trim();
-    const anchorPattern = /^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i;
-    return anchorPattern.test(trimmed);
+    return /^<a\s+[^>]*href\s*=\s*(['"])(.*?)\1[^>]*>\s*([\s\S]*?)\s*<\/a>$/i.test(value.trim());
   }
-
-  /** Extracts the href from an anchor string */
+  
+  
+  /**
+   * Extracts the href (link URL) from a valid anchor tag string.
+   * Example: from `<a href="https://example.com">Example</a>` it extracts "https://example.com".
+   * @param value - The anchor tag string to parse.
+   * @returns The href value as a string, or null if no match is found.
+   */
   public getAnchorHref(value: string): string | null {
-    const match = value?.trim().match(/^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i);
-    return match ? match[1] : null;
-  }
-
-  /** Extracts the label text from an anchor string */
-  public getAnchorText(value: string): string | null {
-    const match = value?.trim().match(/^<a\s+[^>]*href="([^"]+)"[^>]*>\s*([\s\S]*?)\s*<\/a>$/i);
+    const match = value?.trim().match(/^<a\s+[^>]*href\s*=\s*(['"])(.*?)\1[^>]*>\s*([\s\S]*?)\s*<\/a>$/i);
     return match ? match[2] : null;
   }
+  
+
+  /**
+   * Extracts the link text (label) from a valid anchor tag string.
+   * Example: from `<a href="https://example.com">Example</a>` it extracts "Example".
+   * @param value - The anchor tag string to parse.
+   * @returns The text inside the anchor tag, or null if no match is found.
+   */
+  public getAnchorText(value: string): string | null {
+    const match = value?.trim().match(/^<a\s+[^>]*href\s*=\s*(['"])(.*?)\1[^>]*>\s*([\s\S]*?)\s*<\/a>$/i);
+    return match ? match[3] : null;
+  }
+  
 }
