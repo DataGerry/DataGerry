@@ -72,7 +72,7 @@
     "@angular-devkit/build-angular": "^18.2.20",
     "@angular/cli": "^18.2.20",
     "@angular/compiler-cli": "^18.2.13",
-    "@angular/language-service": "^18.2.13",
+    "@angular/language-service": "^20.2.4",
     "@babel/traverse": "^7.24.7",
     "@types/bootstrap": "^5.2.10",
     "@types/chart.js": "^2.9.41",
