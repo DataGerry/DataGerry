@@ -275,24 +275,32 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * Sets all columns of MDS-table
      */
     initTableColumns(): void {
-        for(let aField of this.fields){
-            if (this.section.fields.includes(aField.name) && !this.isHiddenField(aField.name)) {
-                let fieldColumn: Column = {
-                    display: aField.label,
-                    name: aField.name,
-                    data: aField.name,
-                    searchable: false,
-                    sortable: false,
-                    fixed: true,
-                    cssClasses: ['text-center'],
-                };
-                // Use a custom template for password fields
-                if (aField.type === 'password' && this.passwordTemplate) {
-                    fieldColumn.template = this.passwordTemplate;
-                }
-
-                this.multiDataColumns.push(fieldColumn);
+        for (let aSectionFieldName of this.section.fields) {
+            if (this.isHiddenField(aSectionFieldName)) {
+                continue;
             }
+
+            // Find the full field definition by name
+            const aField = this.getAllFieldsOfType().find((f: any) => f.name === aSectionFieldName);
+            if (!aField) {
+                continue;
+            }
+
+            let fieldColumn: Column = {
+                display: aField.label,
+                name: aField.name,
+                data: aField.name,
+                searchable: false,
+                sortable: false,
+                fixed: true,
+                cssClasses: ['text-center'],
+            };
+            // Use a custom template for password fields
+            if (aField.type === 'password' && this.passwordTemplate) {
+                fieldColumn.template = this.passwordTemplate;
+            }
+
+            this.multiDataColumns.push(fieldColumn);
         }
 
         // Only show the 'Actions'-column in Create- or Edit-Mode
