@@ -50,9 +50,10 @@ class BaseAuthenticationProvider:
 
     def __init__(
         self,
-        config: BaseAuthProviderConfig = None,
-        security_manager: SecurityManager = None,
-        users_manager: UsersManager = None):
+        config: BaseAuthProviderConfig | None = None,
+        security_manager: SecurityManager | None = None,
+        users_manager: UsersManager | None = None
+    ) -> None:
         """
         Initializes the base authentication provider
 

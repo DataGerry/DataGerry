@@ -38,6 +38,7 @@ from cmdb.manager import (
     GroupsManager,
     SecurityManager,
     SettingsManager,
+    CachedUserManager,
 )
 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -545,7 +546,7 @@ def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> boo
 
 
 def check_user_in_service_portal(
-    mail: str,
+    email: str,
     password: str,
     x_api_key: str | None = None,
     api_key_required: bool = False
@@ -557,7 +558,7 @@ def check_user_in_service_portal(
     - **Cloud mode**: Validates user credentials via the service portal
 
     Args:
-        mail (str): The user's email address
+        email (str): The user's email address
         password (str): The user's password
         x_api_key (dict | None): API key for authentication. Defaults to None
 
@@ -576,8 +577,8 @@ def check_user_in_service_portal(
             with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
                 users_data = json.load(users_file)
 
-                if mail in users_data:
-                    user = users_data[mail]
+                if email in users_data:
+                    user = users_data[email]
 
                     if user["password"] == password:
                         return user
@@ -589,14 +590,50 @@ def check_user_in_service_portal(
 
     # Validation through service portal
     try:
-        # 1. Check cache first
-        # cached_user: dict | None = get_cached_user(mail, password, x_api_key, api_key_required)
-        # if cached_user:
-        #     return cached_user
+        # Early out if no api_key is provided when it is required
+        if api_key_required and not x_api_key:
+            return None
 
-        # 2. Not cached or expired → validate against portal
-        user_data = validate_subscrption_user(mail, password, x_api_key, api_key_required)
-        # set_cached_user(mail, password, x_api_key, api_key_required, user_data)
+        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+        security_manager = SecurityManager(current_app.database_manager)
+
+        user_exists_in_cache = cached_user_manager.cached_user_exists(email)
+        # 1. Check cache first
+        if user_exists_in_cache:
+            cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
+                                                                    email,
+                                                                    security_manager.generate_hmac(password),
+                                                                    x_api_key,
+                                                                    api_key_required
+                                                                )
+
+            if cached_user:
+                return cached_user
+
+        # 2. Not cached or invalid data → validate against portal
+        user_data: dict[str, Any] = validate_subscrption_user(email, password, x_api_key, api_key_required)
+
+        if user_data:
+            user_data["password"] = security_manager.generate_hmac(user_data["password"])
+
+            if api_key_required and x_api_key:
+                # External API → only one subscription is returned from portal
+                subscription = user_data["subscriptions"][0]
+
+                if user_exists_in_cache:
+                    cached_user_manager.update_cached_user(email, user_data)
+                else:
+                    cached_user_manager.insert_cached_user(user_data)
+
+                # Make sure subscription in cache has the api_key assigned
+                cached_user_manager.set_subscription(email, x_api_key, subscription["database"])
+
+            else:
+                # Frontend login → cache all subscriptions
+                if user_exists_in_cache:
+                    cached_user_manager.update_cached_user(email, user_data)
+                else:
+                    cached_user_manager.insert_cached_user(user_data)
 
         return user_data
     except (NoAccessTokenError, MissingApiKeyError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
@@ -635,7 +672,7 @@ def init_db_routine(db_name: str) -> None:
     database_updater.set_update_version(database_updater.get_highest_update_version())
 
 
-def set_admin_user(user_data: dict, subscription: dict):
+def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> None:
     """Creates a new admin user"""
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, subscription['database'])
