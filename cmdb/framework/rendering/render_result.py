@@ -52,3 +52,4 @@ class RenderResult:
         self.summary_line: str = ''
         self.externals: list = []
         self.multi_data_sections: list = []
+        self.object_relations: list = []
