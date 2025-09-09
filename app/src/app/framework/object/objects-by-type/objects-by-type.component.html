@@ -46,9 +46,18 @@
 </ng-template>
 
 <ng-template #fieldTemplate let-data="data">
-    <cmdb-render-element [mode]="mode" [data]="data.field" [value]="data.value"></cmdb-render-element>
-</ng-template>
+    <ng-container *ngIf="(data?.value | anchorDetect:'href') as href; else renderDefault">
+        <a [href]="href" target="_blank" rel="noopener noreferrer" (click)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()" style="text-decoration: underline;">
+            {{ (data?.value | anchorDetect:'text') }}
+        </a>
+    </ng-container>
 
+    <ng-template #renderDefault>
+        <cmdb-render-element [mode]="mode" [data]="data.field" [value]="data.value"></cmdb-render-element>
+    </ng-template>
+</ng-template>
+  
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
 <ng-template #actionTemplate let-item="item">

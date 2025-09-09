@@ -1158,4 +1158,42 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             }
             );
     }
+
+    /**
+     * Returns true if the provided value is an anchor tag string.
+     */
+    public isAnchorValue(value: any): boolean {
+        if (typeof value !== 'string') return false;
+        return /^<a[^>]*>\s*[\s\S]*?<\/a>$/i.test(value.trim());
+    }
+
+    /**
+     * Extracts href from an anchor string; supports various quoting styles or none.
+     */
+    public getAnchorHref(value: string): string | null {
+        const v = value?.trim();
+        if (!v) return null;
+        const patterns: RegExp[] = [
+            /href\s*=\s*"([^"]*)"/i,
+            /href\s*=\s*'([^']*)'/i,
+            /href\s*=\s*“([^”]*)”/i,
+            /href\s*=\s*‘([^’]*)’/i,
+            /href\s*=\s*([^\s>]+)/i
+        ];
+        for (const p of patterns) {
+            const m = v.match(p);
+            if (m && m[1]) return m[1];
+        }
+        return null;
+    }
+
+    /**
+     * Extracts the inner text from an anchor string.
+     */
+    public getAnchorText(value: string): string | null {
+        const v = value?.trim();
+        if (!v) return null;
+        const m = v.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+        return m ? m[1] : null;
+    }
 }
