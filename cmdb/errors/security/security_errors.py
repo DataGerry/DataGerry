@@ -94,3 +94,15 @@ class DisallowedActionError(SecurityError):
     """
     Raised when an illegal action is requested
     """
+
+
+class WrongPasswordError(SecurityError):
+    """
+    Raised when the password is not matching
+    """
+
+
+class NoValidSubscriptionError(SecurityError):
+    """
+    Raised when no subscription matches the given API-KEY
+    """

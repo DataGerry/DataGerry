@@ -29,6 +29,8 @@ from .security_errors import (
     RequestTimeoutError,
     RequestError,
     DisallowedActionError,
+    WrongPasswordError,
+    NoValidSubscriptionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -45,4 +47,6 @@ __all__: list[str] = [
     'RequestTimeoutError',
     'RequestError',
     'DisallowedActionError',
+    'WrongPasswordError',
+    'NoValidSubscriptionError',
 ]

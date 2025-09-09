@@ -38,14 +38,14 @@ class SettingsManager(SystemReader):
     """
     COLLECTION = 'settings.conf'
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         init system settings reader
         Args:
             database_manager: database managers
         """
-        self.db_name = database
-        self.dbm = dbm
+        self.db_name: str | None = database
+        self.dbm: MongoDatabaseManager = dbm
 
         super().__init__()
 
