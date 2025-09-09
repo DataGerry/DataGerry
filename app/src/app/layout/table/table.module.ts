@@ -48,7 +48,8 @@ import { AnchorDetectPipe } from './pipes/anchor-detect.pipe';
     TableColumnSearchComponent, AnchorDetectPipe],
     exports: [
         TableComponent,
-        TablePaginationComponent
+        TablePaginationComponent,
+        AnchorDetectPipe
     ],
   imports: [
     CommonModule,
