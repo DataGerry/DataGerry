@@ -19,17 +19,24 @@ Implementation of CmdbRender
 from logging import Logger, getLogger
 from typing import Any
 from dateutil.parser import parse
+from collections import defaultdict
 
+from cmdb.framework.results.iteration_result import IterationResult
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     ObjectsManager,
     UsersManager,
     TypesManager,
+    ObjectRelationsManager,
+    RelationsManager,
 )
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.type_model import (
     CmdbType,
     TypeReference,
@@ -89,6 +96,14 @@ class CmdbRender:
         self.objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, self.render_user)
         self.types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, self.render_user)
         self.users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, self.render_user)
+        self.object_relations_manager: ObjectRelationsManager =  ManagerProvider.get_manager(
+                                                                                    ManagerType.OBJECT_RELATIONS,
+                                                                                    self.render_user
+                                                                                )
+        self.relations_manager: RelationsManager =  ManagerProvider.get_manager(
+                                                                        ManagerType.RELATIONS,
+                                                                        self.render_user
+                                                                    )
 
         self.ref_render: bool = ref_render
 
@@ -206,6 +221,7 @@ class CmdbRender:
             render_result = self.__set_summaries(render_result)
             render_result = self.__set_external(render_result)
             render_result = self.__set_multi_data_sections(render_result)
+            render_result = self.__set_object_relations(render_result)
 
             return render_result
         except Exception as err:
@@ -223,6 +239,71 @@ class CmdbRender:
             RenderResult: The updated render result with multi-data sections
         """
         render_result.multi_data_sections = self.object_instance.multi_data_sections
+
+        return render_result
+
+
+    def __set_object_relations(self, render_result: RenderResult) -> RenderResult:
+        """
+        Example Result:
+
+        {
+            "42_parent": {"count": 3, "name": "owns"},
+            "42_child": {"count": 2, "name": "owned_by"},
+            "77_child": {"count": 5, "name": "depends_on"}
+        }
+        """
+        object_relations_filter = {
+            "$or": [
+                { "relation_parent_id": self.object_instance.public_id },
+                { "relation_child_id": self.object_instance.public_id }
+            ]
+        }
+
+        object_relations: IterationResult[CmdbObjectRelation] = self.object_relations_manager.iterate(
+                                                                    BuilderParameters(object_relations_filter)
+                                                            )
+
+        # Get all object relations
+        object_relation_list: list[dict] = [CmdbObjectRelation.to_json(object_relation) for object_relation
+                                            in object_relations.results]
+
+        relation_ids: list[int] = list({obj_rel["relation_id"] for obj_rel in object_relation_list})
+
+        relations_filter ={
+            "public_id": {"$in": relation_ids}
+        }
+
+        #Get all linked relations
+        linked_relations: IterationResult[CmdbRelation] = self.relations_manager.iterate(
+                                                                BuilderParameters(relations_filter)
+                                                            )
+
+        linked_relations_list: list[dict] = [CmdbRelation.to_json(linked_relation) for linked_relation
+                                            in linked_relations.results]
+
+
+        # Build a map: relation_id -> blueprint
+        relation_map = {rel["public_id"]: rel for rel in linked_relations_list}
+
+        # Count grouped relations with name
+        relation_counts = defaultdict(lambda: {"count": 0, "name": None})
+
+        for obj_rel in object_relation_list:
+            rel_blueprint = relation_map[obj_rel["relation_id"]]
+
+            if obj_rel["relation_parent_id"] == self.object_instance.public_id:
+                relation_name = rel_blueprint["relation_name_parent"]
+                direction = "parent"
+            else:
+                relation_name = rel_blueprint["relation_name_child"]
+                direction = "child"
+
+            key = f"{obj_rel['relation_id']}_{direction}"
+            relation_counts[key]["count"] += 1
+            relation_counts[key]["name"] = relation_name
+
+        render_result.object_relations = relation_counts
 
         return render_result
 
