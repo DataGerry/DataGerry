@@ -1,12 +1,17 @@
-<ng-select [items]="objectList" [(ngModel)]="selectedObjects" (ngModelChange)="onSelectionChange($event)"
-  [multiple]="multiple" [groupBy]="groupByFn" [groupValue]="groupValueFn" [searchFn]="objectSearchFn"
-  placeholder="Select objects..." [closeOnSelect]="false" [searchable]="true" [clearable]="true" [disabled]="isViewMode"
-  class="w-100" [virtualScroll]="true" (scrollToEnd)="onScrollToEnd()">
-
-  <!-- Header -->
-  <ng-template ng-header-tmp> <small class="form-text text-muted"> Loaded {{ objectList.length }} of {{ totalObjects }}
-    </small> </ng-template>
-
+<ng-select
+  [items]="objectList"
+  [(ngModel)]="selectedObjects"
+  (ngModelChange)="onSelectionChange($event)"
+  [multiple]="multiple"
+  [groupBy]="groupByFn"
+  [groupValue]="groupValueFn"
+  placeholder="Select objects..."
+  [closeOnSelect]="false"
+  [searchable]="true"
+  [clearable]="true"
+  [disabled]="isViewMode"
+  class="w-100"
+>
   <ng-template ng-optgroup-tmp let-item="item">
     <span>{{ item.name }} [{{ item.total }}]</span>
   </ng-template>
@@ -30,4 +35,7 @@
 </ng-select>
 
 
-<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+<app-loading-popup 
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
