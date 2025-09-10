@@ -207,6 +207,8 @@ def register_blueprints(app: BaseCmdbApp):
         isms_report_blueprint,
     )
 
+    from cmdb.interface.rest_api.routes.itsa_api_routes.itsa_routes import itsa_blueprint
+
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
     app.register_blueprint(date_blueprint, url_prefix='/date')
@@ -260,6 +262,8 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(control_measure_assignment_blueprint, url_prefix='/isms/control_measure_assignments')
     app.register_blueprint(isms_importer_blueprint, url_prefix='/isms/importer')
     app.register_blueprint(isms_report_blueprint, url_prefix='/isms/reports')
+
+    app.register_blueprint(itsa_blueprint, url_prefix='/itsa')
 
     if cmdb.__MODE__ == 'DEBUG':
         from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
