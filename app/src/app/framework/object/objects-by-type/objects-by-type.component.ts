@@ -384,72 +384,53 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * - Hidden by default unless present in current table state
      */
     private addRelationNameColumnsFromResults(results: Array<RenderResult>): void {
-        if (!Array.isArray(results) || results.length === 0) {
-            return;
-        }
-
+        if (!Array.isArray(results) || results.length === 0) return;
+      
         const existingNames = new Set(this.columns.map(c => c.name));
-        const relationNames = new Set<string>();
-
+        const relationKeys = new Set<string>();
+        const labelByKey = new Map<string, string>();
+      
         for (const row of results) {
-            const rels: any = (row as any)?.object_relations;
-            if (rels && typeof rels === 'object') {
-                for (const key of Object.keys(rels)) {
-                    const name = rels[key]?.name;
-                    if (typeof name === 'string' && name.trim().length > 0) {
-                        relationNames.add(name.trim());
-                    }
-                }
+          const rels: any = (row as any)?.object_relations;
+          if (rels && typeof rels === 'object') {
+            for (const key of Object.keys(rels)) {
+              relationKeys.add(key);
+              const n = rels[key]?.name;
+              if (typeof n === 'string' && n.trim().length > 0) {
+                labelByKey.set(key, n.trim());
+              }
             }
+          }
         }
-
-        if (relationNames.size === 0) {
-            return;
+      
+        if (relationKeys.size === 0) return;
+      
+        for (const key of relationKeys) {
+          if (existingNames.has(key)) continue;
+      
+          const col: Column = {
+            display: labelByKey.get(key) ?? key,
+            name: key,
+            data: 'object_relations',
+            type: 'number',
+            sortable: true,
+            searchable: false,
+            hidden: !(this.tableState?.visibleColumns?.includes(key)),
+            render(data: any) {
+              if (!data || typeof data !== 'object') return 0;
+              const entry = data[key];
+              return Number(entry?.count ?? 0);
+            }
+          } as Column;
+      
+          let insertIdx = this.columns.findIndex(c => c.name === 'author_id');
+          if (insertIdx === -1) insertIdx = this.columns.findIndex(c => c.name === 'creation_time');
+          if (insertIdx === -1) insertIdx = this.columns.findIndex(c => c.name === 'actions');
+          if (insertIdx > -1) this.columns.splice(insertIdx, 0, col);
+          else this.columns.push(col);
         }
-
-        for (const name of relationNames) {
-            const columnKey = `relation.${name}`;
-            if (existingNames.has(columnKey)) {
-                continue;
-            }
-
-            const col: Column = {
-                display: name,
-                name: columnKey,
-                data: 'object_relations',
-                type: 'number',
-                sortable: true,
-                searchable: false,
-                hidden: !(this.tableState?.visibleColumns?.includes(columnKey)),
-                render(data: any) {
-                    if (!data || typeof data !== 'object') {
-                        return 0;
-                    }
-                    for (const relKey of Object.keys(data)) {
-                        const rel = data[relKey];
-                        if (rel?.name === name) {
-                            return Number(rel?.count) || 0;
-                        }
-                    }
-                    return 0;
-                }
-            } as Column;
-
-            // Insert before Author column if present; fallback to Creation Time, then Actions; else push
-            let insertIdx = this.columns.findIndex(c => c.name === 'author_id');
-            if (insertIdx === -1) {
-                insertIdx = this.columns.findIndex(c => c.name === 'creation_time');
-            }
-            if (insertIdx === -1) {
-                insertIdx = this.columns.findIndex(c => c.name === 'actions');
-            }
-            if (insertIdx > -1) {
-                this.columns.splice(insertIdx, 0, col);
-            } else {
-                this.columns.push(col);
-            }
-        }
-    }
+      }
+      
 
     /**
      * DB Query / Filter Builder
@@ -907,7 +888,9 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      */
     public onSortChange(sort: Sort): void {
         this.sort = sort;
-        const isRelation = typeof sort?.name === 'string' && sort.name.startsWith('relation.');
+        const isRelation = !!this.columns?.find(
+          c => c.name === sort?.name && c.data === 'object_relations'
+        );
         this.loadSortedObjects(isRelation ? 'object_relation' : 'object');
       }
 
