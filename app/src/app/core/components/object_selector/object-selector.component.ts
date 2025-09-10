@@ -163,43 +163,69 @@ export class ObjectSelectorComponent implements OnInit {
   public selectedObjects: RenderResult[] | RenderResult | null = null; // Updated type
   public isLoading$ = this.loaderService.isLoading$;
 
+  public totalObjects = 0;
+  private currentPage = 1;
+  private maxPage = 1;
+  private pageSize = 5;
+  public isFetching = false;
+
   constructor(
     private objectService: ObjectService,
     private loaderService: LoaderService,
     private toast: ToastService
-  ) {}
+  ) { }
 
   ngOnInit(): void {
-    this.fetchObjects();
+    this.fetchObjects(this.currentPage);
   }
 
-  private fetchObjects(): void {
-    if (!this.typeIds || this.typeIds.length === 0) {
-      this.initSelectedObjects();
-      return;
-    }
+  // private fetchObjects(): void {
+  //   if (!this.typeIds || this.typeIds.length === 0) {
+  //     this.initSelectedObjects();
+  //     return;
+  //   }
 
-    const params: CollectionParameters = {
-      filter: [{ $match: { type_id: { $in: this.typeIds } } }],
-      limit: 0,
-      sort: 'public_id',
-      order: 1,
-      page: 1
-    };
+  //   const params: CollectionParameters = {
+  //     filter: [{ $match: { type_id: { $in: this.typeIds } } }],
+  //     limit: 0,
+  //     sort: 'public_id',
+  //     order: 1,
+  //     page: 1
+  //   };
 
+  //   this.loaderService.show();
+  //   this.objectService.getObjects(params).pipe(finalize(() => this.loaderService.hide())).subscribe({
+  //     next: (response: APIGetMultiResponse<RenderResult>) => {
+  //       this.objectList = response.results || [];
+  //       this.initSelectedObjects();
+  //     },
+  //     error: (err) => {
+  //       this.toast.error(err?.error?.message);
+  //       this.objectList = [];
+  //       this.initSelectedObjects();
+  //     }
+  //   });
+  // }
+
+
+  private fetchObjects(page: number = 1): void {
+    if (!this.typeIds || this.typeIds.length === 0) { this.initSelectedObjects(); return; } if (this.isFetching) return;
+    // prevent double fetch 
+    if (this.maxPage && page > this.maxPage) return;
+    const params: CollectionParameters = { filter: [{ $match: { type_id: { $in: this.typeIds } } }], limit: this.pageSize, sort: 'public_id', order: 1, page };
+    this.isFetching = true;
     this.loaderService.show();
-    this.objectService.getObjects(params).pipe(finalize(() => this.loaderService.hide())).subscribe({
-      next: (response: APIGetMultiResponse<RenderResult>) => {
-        this.objectList = response.results || [];
-        this.initSelectedObjects();
-      },
-      error: (err) => {
-        this.toast.error(err?.error?.message);
-        this.objectList = [];
-        this.initSelectedObjects();
-      }
-    });
+    this.objectService.getObjects(params).pipe(finalize(() => { this.isFetching = false; this.loaderService.hide(); })).subscribe(
+      {
+        next: (response: APIGetMultiResponse<RenderResult>) => {
+          this.objectList = [...this.objectList, ...response.results]; this.totalObjects = response.total; this.maxPage = response.pager.total_pages; this.currentPage = page + 1; this.initSelectedObjects();
+
+        }, error: (err) => { this.toast.error(err?.error?.message ?? 'Failed to fetch objects'); }
+      });
   }
+
+  public onScrollToEnd(): void { this.fetchObjects(this.currentPage); }
+
 
   private initSelectedObjects(): void {
     const numericIds: number[] = (this.selectedIds || []).map(item => {
@@ -228,7 +254,7 @@ export class ObjectSelectorComponent implements OnInit {
       this.selectionChange.emit([]);
       return;
     }
-  
+
     // Case 2: Multiple selection (expecting an array)
     if (this.multiple) {
       if (Array.isArray(selectedValue)) {
@@ -249,6 +275,34 @@ export class ObjectSelectorComponent implements OnInit {
       }
     }
   }
+
+  public objectSearchFn = (term: string, item: RenderResult): boolean => {
+    const q = (term || '').toLowerCase().trim();
+    if (!q) return true;
+
+    const typeLabel = item?.type_information?.type_label?.toLowerCase() || '';
+    const icon = item?.type_information?.icon?.toLowerCase() || '';
+    const id = String(item?.object_information?.object_id ?? '').toLowerCase();
+    const summary = item?.summary_line?.toLowerCase() || '';
+    const group = (this.groupByFn(item) || '').toLowerCase();
+
+    // ✅ use backticks for string interpolation
+    const composite = `${typeLabel} #${id} ${summary}`.toLowerCase();
+
+    const cleanedQ = q.replace(/[#\-]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    return cleanedQ
+      .split(' ')
+      .every(part =>
+        typeLabel.includes(part) ||
+        summary.includes(part) ||
+        id.includes(part) ||
+        composite.includes(part) ||
+        group.includes(part) ||
+        icon.includes(part)
+      );
+  };
+  
 
   public groupByFn = (item: RenderResult) => item.type_information.type_label;
   public groupValueFn = (_: string, children: RenderResult[]) => ({
