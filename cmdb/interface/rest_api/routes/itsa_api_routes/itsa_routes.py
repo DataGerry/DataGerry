@@ -17,26 +17,21 @@
 Implementation of all API routes for CmdbObjects
 """
 from logging import Logger, getLogger
-from flask import abort, current_app, request
+from flask import abort, request
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     ObjectsManager,
-    ObjectRelationsManager,
 )
 
-from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.models.type_model.cmdb_type import CmdbType
-from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.results import IterationResult
-from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
+from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -63,6 +58,8 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
         view = params.optional.get('view', 'object')
 
+        # LOGGER.debug(f"view: {view}")
+
         if _fetch_only_active_objs():
             if isinstance(params.filter, dict):
                 params.filter = [{'$match': params.filter}]
@@ -71,6 +68,8 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                 params.filter.append({'$match': {'active': {"$eq": True}}})
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+
+        # LOGGER.debug(f"builder_params: {builder_params}")
 
         # BuilderParameters(
         #     criteria=[{'$match': {'type_id': 1}}, {'$match': {'active': {'$eq': True}}}],
@@ -137,16 +136,112 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
             query.append({'$limit': builder_params.limit})
 
+
+        if view == 'object_relation':
+            relation_id, direction = builder_params.sort.split("_", 1)
+
+            relation_id = int(relation_id)
+            query.extend([
+                # Join with types
+                {
+                    '$lookup': {
+                        'from': 'framework.types',
+                        'localField': 'type_id',
+                        'foreignField': 'public_id',
+                        'as': 'type'
+                    }
+                },
+                {'$unwind': {'path': '$type', 'preserveNullAndEmptyArrays': True}},
+
+                # ACL filtering
+                {
+                    '$match': {
+                        '$or': [
+                            {'type.acl': {'$exists': False}},
+                            {'type.acl.activated': False},
+                            {
+                                '$and': [
+                                    {'type.acl.groups.includes.1': {'$exists': True}},
+                                    {'type.acl.groups.includes.1': {'$all': ['READ']}}
+                                ]
+                            }
+                        ]
+                    }
+                },
+                {
+                    '$lookup': {
+                        'from': 'framework.objectRelations',
+                        'let': { 'obj_id': '$public_id' },
+                        'pipeline': [
+                            {
+                                '$match': {
+                                    '$expr': {
+                                        '$or': [
+                                            { '$eq': [ '$relation_parent_id', '$$obj_id' ] },
+                                            { '$eq': [ '$relation_child_id', '$$obj_id' ] }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                '$group': {
+                                    '_id': {
+                                        'relation_id': '$relation_id',
+                                        'direction': {
+                                            '$cond': [
+                                                { '$eq': [ '$relation_parent_id', '$$obj_id' ] },
+                                                'parent',
+                                                'child'
+                                            ]
+                                        }
+                                    },
+                                    'count': { '$sum': 1 }
+                                }
+                            }
+                        ],
+                        'as': 'relation_counts'
+                    }
+                },
+
+                # Expose the counter for a specific relation+direction
+                {
+                    '$addFields': {
+                        'relation_sort_value': {
+                            '$reduce': {
+                                'input': '$relation_counts',
+                                'initialValue': 0,
+                                'in': {
+                                    '$cond': [
+                                        {
+                                            '$and': [
+                                                { '$eq': [ '$$this._id.relation_id', relation_id ] },
+                                                { '$eq': [ '$$this._id.direction', direction ] }
+                                            ]
+                                        },
+                                        '$$this.count',
+                                        '$$value'
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+
+                #  Sort by that specific counter
+                { '$sort': { 'relation_sort_value': builder_params.order } },  # or 1 for ascending
+            ])
+
+            if builder_params.skip > 0:
+                query.append({'$skip': builder_params.skip})
+
+            query.append({'$limit': builder_params.limit})
+
+        # LOGGER.debug(f"query: {query}")
+
         result = list(objects_manager.aggregate(query))
 
         iteration_result: IterationResult[CmdbObject] = IterationResult(result, len(result), CmdbObject)
-
-
-        # iteration_result: IterationResult[CmdbObject] = objects_manager.iterate(builder_params,
-        #                                                                         request_user,
-        #                                                                         AccessControlPermission.READ)
-
-        result_data = None
+        # LOGGER.debug(f"iteration_result.results: {iteration_result.results}")
 
         result_data = RenderList(object_list=iteration_result.results,
                                     request_user=request_user,
