@@ -343,6 +343,38 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             });
     }
 
+    /**
+     * Load sorted objects
+     * @public
+     */
+    public loadSortedObjects(view: 'object' | 'object_relation' = 'object'): void {
+
+
+        this.loaderService.show();
+        this.loading = true;
+        this.selectedObjects = [];
+        this.selectedObjectsIDs = [];
+
+
+        const params: CollectionParameters = {
+            filter: this.collectionFilterParameter,
+            limit: this.limit,
+            sort: this.sort.name,
+            order: this.sort.order,
+            page: this.page
+        };
+
+
+        this.objectService.getSortingObjects(params, view).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+            .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
+                this.results = apiResponse.results as Array<RenderResult>;
+                this.totalResults = apiResponse.total;
+                this.addRelationNameColumnsFromResults(this.results);
+                this.loading = false;
+            });
+    }
+
+
 
     /**
      * Ensure dynamic columns for each relation name in the result set.
@@ -386,7 +418,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
                 name: columnKey,
                 data: 'object_relations',
                 type: 'number',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 hidden: !(this.tableState?.visibleColumns?.includes(columnKey)),
                 render(data: any) {
@@ -875,8 +907,9 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      */
     public onSortChange(sort: Sort): void {
         this.sort = sort;
-        this.loadObjects();
-    }
+        const isRelation = typeof sort?.name === 'string' && sort.name.startsWith('relation.');
+        this.loadSortedObjects(isRelation ? 'object_relation' : 'object');
+      }
 
 
     /**
