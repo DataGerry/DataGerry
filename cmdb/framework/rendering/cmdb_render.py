@@ -19,7 +19,6 @@ Implementation of CmdbRender
 from logging import Logger, getLogger
 from typing import Any
 from dateutil.parser import parse
-from collections import defaultdict
 
 from cmdb.framework.results.iteration_result import IterationResult
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -268,10 +267,11 @@ class CmdbRender:
         object_relation_list: list[dict] = [CmdbObjectRelation.to_json(object_relation) for object_relation
                                             in object_relations.results]
 
-        relation_ids: list[int] = list({obj_rel["relation_id"] for obj_rel in object_relation_list})
-
         relations_filter ={
-            "public_id": {"$in": relation_ids}
+            "$or": [
+                {"parent_type_ids": self.object_instance.type_id},
+                {"child_type_ids": self.object_instance.type_id}
+            ]
         }
 
         #Get all linked relations
@@ -282,26 +282,30 @@ class CmdbRender:
         linked_relations_list: list[dict] = [CmdbRelation.to_json(linked_relation) for linked_relation
                                             in linked_relations.results]
 
+        #: Initialize dict with only relevant directions
+        relation_counts = {}
+        for rel in linked_relations_list:
+            if self.object_instance.type_id in rel.get("parent_type_ids", []):
+                relation_counts[f"{rel['public_id']}_parent"] = {
+                    "count": 0,
+                    "name": rel["relation_name_parent"]
+                }
+            if self.object_instance.type_id in rel.get("child_type_ids", []):
+                relation_counts[f"{rel['public_id']}_child"] = {
+                    "count": 0,
+                    "name": rel["relation_name_child"]
+                }
 
-        # Build a map: relation_id -> blueprint
-        relation_map = {rel["public_id"]: rel for rel in linked_relations_list}
-
-        # Count grouped relations with name
-        relation_counts = defaultdict(lambda: {"count": 0, "name": None})
-
+        # Update counts with actual object relations
         for obj_rel in object_relation_list:
-            rel_blueprint = relation_map[obj_rel["relation_id"]]
-
             if obj_rel["relation_parent_id"] == self.object_instance.public_id:
-                relation_name = rel_blueprint["relation_name_parent"]
-                direction = "parent"
+                key = f"{obj_rel['relation_id']}_parent"
             else:
-                relation_name = rel_blueprint["relation_name_child"]
-                direction = "child"
+                key = f"{obj_rel['relation_id']}_child"
 
-            key = f"{obj_rel['relation_id']}_{direction}"
-            relation_counts[key]["count"] += 1
-            relation_counts[key]["name"] = relation_name
+            # Only update if initialized (in case of strict filtering)
+            if key in relation_counts:
+                relation_counts[key]["count"] += 1
 
         render_result.object_relations = relation_counts
 
