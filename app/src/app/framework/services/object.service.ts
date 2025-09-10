@@ -82,6 +82,7 @@ export const COOCKIENAME = 'onlyActiveObjCookie';
 export class ObjectService<T = CmdbObject | RenderResult> implements ApiServicePrefix {
     public objectActionSource = new Subject();
     public servicePrefix: string = 'objects';
+    public sortingServicePrefix: string = 'itsa/search';
 
 
     // A private property to store the last fetched count
@@ -155,6 +156,51 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
             })
         );
     }
+
+    public getSortingObjects(
+        params: CollectionParameters = {
+            filter: undefined,
+            limit: 10,
+            sort: 'public_id',
+            order: 1,
+            page: 1,
+            projection: undefined
+        },
+        view: string = 'object'): Observable<APIGetMultiResponse<T>> {
+        const options = this.options;
+        let httpParams: HttpParams = new HttpParams();
+ 
+ 
+        if (params.filter !== undefined) {
+            const filter = JSON.stringify(params.filter);
+            httpParams = httpParams.set('filter', filter);
+        }
+ 
+ 
+        if (params.projection !== undefined) {
+            const projection = JSON.stringify(params.projection);
+            httpParams = httpParams.set('projection', projection);
+        }
+ 
+ 
+        httpParams = httpParams.set('limit', params.limit.toString());
+        httpParams = httpParams.set('sort', params.sort);
+        httpParams = httpParams.set('order', params.order.toString());
+        httpParams = httpParams.set('page', params.page.toString());
+ 
+ 
+        httpParams = httpParams.set('view', view);
+        httpParams = httpParams.set('onlyActiveObjCookie', this.api.readCookies(COOCKIENAME));
+        options.params = httpParams;
+ 
+ 
+        return this.api.callGet<Array<T>>(this.sortingServicePrefix, options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+                return apiResponse.body;
+            })
+        );
+    }
+ 
 
 
     public getObjectsByType(typeID: number | Array<number>): Observable<Array<T>> {
