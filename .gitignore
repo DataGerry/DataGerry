@@ -77,3 +77,6 @@ target/
 ._*
 .DS_Store
 node_modules/
+
+.smbdelete*
+**/.smbdelete*
