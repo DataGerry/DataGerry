@@ -87,6 +87,8 @@ export class TableComponent<T> implements OnInit, OnDestroy {
     @Input('columns')
     public set Columns(columns: Array<Column>) {
         this.columns = columns;
+        // Keep column search form in sync when columns change dynamically
+        this.syncColumnSearchControls();
     }
 
     // Column search form group
@@ -317,6 +319,32 @@ export class TableComponent<T> implements OnInit, OnDestroy {
             this.sortChange.asObservable(),
             this.pageSizeChange.asObservable()
         );
+    }
+
+
+    /**
+     * Ensure the column search form contains controls for all current columns.
+     * Adds missing controls and preserves existing values.
+     */
+    private syncColumnSearchControls(): void {
+        // If form not yet initialized, nothing to sync
+        if (!this.columnSearchForm) { return; }
+
+        const existingControls = this.columnSearchForm.controls;
+
+        // Add controls for new columns
+        for (const col of this.columns) {
+            if (!existingControls[col.name]) {
+                this.columnSearchForm.addControl(col.name, new UntypedFormControl(''));
+            }
+        }
+
+        // Remove controls that no longer exist
+        Object.keys(existingControls).forEach(key => {
+            if (!this.columns.find(c => c.name === key)) {
+                this.columnSearchForm.removeControl(key);
+            }
+        });
     }
 
 
