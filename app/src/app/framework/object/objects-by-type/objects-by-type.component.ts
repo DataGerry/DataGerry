@@ -320,7 +320,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * Load objects from the backend with custom filters
      * @private
      */
-    private getObjectsFromBackend() {
+    private getObjectsFromBackend(view: 'render' | 'object_relation_filter' = 'render') {
         this.loaderService.show();
         this.loading = true;
         this.selectedObjects = [];
@@ -334,7 +334,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             page: this.page
         };
 
-        this.objectService.getObjects(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+        this.objectService.getObjects(params, view).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
                 this.results = apiResponse.results as Array<RenderResult>;
                 this.totalResults = apiResponse.total;
@@ -347,7 +347,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * Load sorted objects
      * @public
      */
-    public loadSortedObjects(view: 'object' | 'object_relation' = 'object'): void {
+    public loadSortedObjects(view: 'object' | 'object_relation' | 'object_relation_filter' = 'object'): void {
 
 
         this.loaderService.show();
@@ -1016,8 +1016,17 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
                 this.collectionFilterParameter.push({ $match: { $or: or } });
             }
 
+            // If the table shows at least one object_relation column (not hidden)
+            // and the user entered any filter anywhere, use the relation filter view.
+            const hasRelationColumn = this.columns?.some(c => c.data === 'object_relations' && !c.hidden);
+            const hasAnyFilterInput = (changes || []).some(group => Array.isArray(group) && group.length > 0);
+
             this.page = this.initPage;
-            this.getObjectsFromBackend();
+            if (hasRelationColumn && hasAnyFilterInput) {
+                this.loadSortedObjects('object_relation_filter');
+            } else {
+                this.getObjectsFromBackend();
+            }
         }
     }
 
