@@ -1016,13 +1016,17 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
                 this.collectionFilterParameter.push({ $match: { $or: or } });
             }
 
-            // If the table shows at least one object_relation column (not hidden)
-            // and the user entered any filter anywhere, use the relation filter view.
-            const hasRelationColumn = this.columns?.some(c => c.data === 'object_relations' && !c.hidden);
-            const hasAnyFilterInput = (changes || []).some(group => Array.isArray(group) && group.length > 0);
+            // If the user entered a filter in any visible object_relation column,
+            // use the relation filter view. Otherwise use the default backend call.
+            const hasRelationFilter = (changes || []).some(group =>
+                Array.isArray(group) && group.some(ch => {
+                    const col = this.columns.find(c => c.name === ch?.name);
+                    return col && col.data === 'object_relations' && !col.hidden;
+                })
+            );
 
             this.page = this.initPage;
-            if (hasRelationColumn && hasAnyFilterInput) {
+            if (hasRelationFilter) {
                 this.loadSortedObjects('object_relation_filter');
             } else {
                 this.getObjectsFromBackend();
