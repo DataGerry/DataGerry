@@ -45,7 +45,7 @@ export class RiskAssessmentFormTopComponent implements OnInit {
   @Input() fromReport = false;
 
   @Input() risks:        any[]        = [];
-  @Input() objects:      CmdbObject[] = [];
+  // @Input() objects:      CmdbObject[] = [];
   @Input() objectGroups: any[]        = [];
 
   @Input() objectSummary:   string | null = null;
