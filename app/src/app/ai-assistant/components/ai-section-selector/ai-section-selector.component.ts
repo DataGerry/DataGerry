@@ -15,8 +15,9 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
-import { FormArray, FormControl, FormGroup } from '@angular/forms';
+import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, ViewEncapsulation } from '@angular/core';
+import { ControlContainer, FormArray, FormControl, FormGroup, FormGroupDirective } from '@angular/forms';
+import { Subscription } from 'rxjs';
 
 interface SectionMeta {
   name: string;
@@ -30,13 +31,16 @@ export interface SectionRow {
 }
 
 @Component({
-  selector: 'cmdb-ai-section-selector',
+  selector: 'tr[cmdb-ai-section-selector]',
   templateUrl: './ai-section-selector.component.html',
   styleUrls: ['./ai-section-selector.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false
+  standalone: false,
+  viewProviders: [{ provide: ControlContainer, useExisting: FormGroupDirective }],
+  encapsulation: ViewEncapsulation.None,
+  host: { '[formGroup]': 'row.form' }
 })
-export class AiSectionSelectorComponent {
+export class AiSectionSelectorComponent implements OnInit, OnDestroy {
   @Input({ required: true }) row!: SectionRow;
   @Input({ required: true }) rowIndex!: number;
 
@@ -66,4 +70,27 @@ export class AiSectionSelectorComponent {
   }
 
   trackByIdx = (i: number) => i;
+
+  private includeSub?: Subscription;
+
+  ngOnInit(): void {
+    const includeCtrl = this.row.form.get('includeSection') as FormControl<boolean> | null;
+    if (!includeCtrl) return;
+    this.includeSub = includeCtrl.valueChanges.subscribe((isOn: boolean) => {
+      if (isOn) return;
+      const fa = this.fieldChecks();
+      if (!fa) return;
+      fa.controls.forEach(ctrl => ctrl.setValue(false, { emitEvent: false }));
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.includeSub?.unsubscribe();
+  }
+
+
+  get includeSectionCtrl(): FormControl<boolean> {
+    return this.row.form.get('includeSection') as FormControl<boolean>;
+  }
+  
 }

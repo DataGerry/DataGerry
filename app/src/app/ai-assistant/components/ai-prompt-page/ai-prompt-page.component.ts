@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
-import { FormArray, FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormControl, FormGroup, UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { finalize, take } from 'rxjs/operators';
@@ -25,11 +25,12 @@ import { AiAssistantService } from '../../services/ai-assistant.service';
 import { AiAssistantMessage } from '../../models/ai-suggestion.model';
 import { TypeAssistantResponse } from '../../models/ai-assistant-response.model';
 
-import { TypeService } from 'src/app/framework/services/type.service';
+import { checkTypeExistsValidator, TypeService } from 'src/app/framework/services/type.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { CmdbType } from 'src/app/framework/models/cmdb-type';
+import { alphanumericValidator } from 'src/app/framework/type/type-builder/type-basic-step/alphanumeric-validator';
 
 /** Minimal shapes for the AI-returned schema */
 interface FieldMeta {
@@ -75,6 +76,7 @@ interface SectionRow {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class AiPromptPageComponent implements OnInit, OnDestroy {
+    public form: UntypedFormGroup;
 
   promptForm = this.fb.group({
     prompt: this.fb.control<string>('', { nonNullable: true, validators: [Validators.required] })
@@ -108,8 +110,11 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
     private router: Router,
     private typeService: TypeService,
     private sidebarService: SidebarService,
-    private loaderService: LoaderService
-  ) {}
+    private loaderService: LoaderService) {
+    this.form = new UntypedFormGroup({
+      name: new UntypedFormControl('', [Validators.required, alphanumericValidator()]),
+    });
+  }
 
   ngOnInit(): void {}
   ngOnDestroy(): void { this.valueSub?.unsubscribe(); }
@@ -127,6 +132,15 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
 
   fieldLabel = (fieldName: string): string => this.fieldByName.get(fieldName)?.label ?? fieldName;
   fieldKind  = (fieldName: string): string => this.fieldByName.get(fieldName)?.type  ?? '';
+
+  /** Total selected fields across all sections */
+  totalSelectedFields(): number {
+    return this.sectionRows.reduce((acc, r) => {
+      if (!r.form.value.includeSection) return acc;
+      const checks: boolean[] = r.form.value.fieldChecks;
+      return acc + checks.filter(Boolean).length;
+    }, 0);
+  }
 
   /** Prompt -> Schema */
   requestSchema(): void {
@@ -151,6 +165,10 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
         }
         this.schema = resp.data;
         this.buildSelectionFrom(this.schema);
+        this.form.patchValue({
+          name: this.schema.name,});
+          this.form.markAllAsTouched();
+        this.form.get('name').setAsyncValidators(checkTypeExistsValidator(this.typeService));
         this.hasSchema = true;
         this.loading = false;
         this.cdr.markForCheck();
@@ -222,13 +240,7 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
     const current = (row.form.value.fieldChecks as boolean[])[fieldIndex];
     if (!current) return false;
 
-    const totalSelectedFields = this.sectionRows.reduce((acc, r) => {
-      if (!r.form.value.includeSection) return acc;
-      const checks: boolean[] = r.form.value.fieldChecks;
-      return acc + checks.filter(Boolean).length;
-    }, 0);
-
-    return totalSelectedFields <= 1; // prevent unchecking the very last field globally
+    return this.totalSelectedFields() <= 1; // prevent unchecking the very last field globally
   };
 
 
@@ -255,6 +267,8 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
 
     draft.render_meta.sections = keptSections;
     draft.fields = (draft.fields ?? []).filter(f => keptFieldNames.has(f.name));
+
+    draft.name = this.form.value.name!;
 
     if (draft.render_meta?.summary?.fields?.length) {
       draft.render_meta.summary.fields = draft.render_meta.summary.fields.filter(n => keptFieldNames.has(n));
@@ -297,5 +311,20 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
           this.toast.error(e?.error?.message || 'Could not create type.');
         }
       });
+  }
+
+
+  get name() {
+    return this.form.get('name');
+  }
+
+  goBack() {
+    this.schema = null;
+    this.hasSchema = false;
+    this.sectionRows = [];
+    this.promptForm.reset();
+    this.selectionForm.reset();
+    this.validationMessage = '';
+    this.cdr.markForCheck();
   }
 }
