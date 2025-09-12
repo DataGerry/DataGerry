@@ -36,6 +36,8 @@ def get_cmdb_type_schema() -> dict:
         'name': { # Unique name of the CmdbType
             'type': 'string',
             'required': True,
+            'nullable': False,
+            'empty': False,
             'regex': r'(\w+)-*(\w)([\w-]*)'  # kebab case validation,
         },
         'label': { # Label of the CmdbType (visible by users)
