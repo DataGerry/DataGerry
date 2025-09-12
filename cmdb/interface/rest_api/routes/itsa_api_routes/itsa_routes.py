@@ -16,6 +16,7 @@
 """
 Implementation of all API routes for CmdbObjects
 """
+import re
 from logging import Logger, getLogger
 from flask import abort, request
 from werkzeug.exceptions import HTTPException
@@ -58,7 +59,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
         view = params.optional.get('view', 'object')
 
-        # LOGGER.debug(f"view: {view}")
+        LOGGER.debug(f"view: {view}")
 
         if _fetch_only_active_objs():
             if isinstance(params.filter, dict):
@@ -69,7 +70,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        # LOGGER.debug(f"builder_params: {builder_params}")
+        LOGGER.debug(f"builder_params: {builder_params}")
 
         # BuilderParameters(
         #     criteria=[{'$match': {'type_id': 1}}, {'$match': {'active': {'$eq': True}}}],
@@ -78,10 +79,11 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
         #     sort='fields.text-19742',
         #     order=1
         # )
-
         query = builder_params.criteria
+
         sort_stage = {'$sort': {builder_params.sort: builder_params.order}}
 
+# --------------------------------------------------- OBJECT - SORT -------------------------------------------------- #
         if view == 'object':
             if builder_params.get_sort().startswith('fields'):
                 sort_value = builder_params.get_sort()[7:]
@@ -136,6 +138,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
             query.append({'$limit': builder_params.limit})
 
+# ---------------------------------------------- OBJECT RELATION - SORT ---------------------------------------------- #
 
         if view == 'object_relation':
             relation_id, direction = builder_params.sort.split("_", 1)
@@ -236,7 +239,150 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
             query.append({'$limit': builder_params.limit})
 
-        # LOGGER.debug(f"query: {query}")
+# --------------------------------------------- OBJECT RELATION - FILTER --------------------------------------------- #
+
+        if view == "object_relation_filter":
+            # ===== Stage 1: Build query with objectRelation filters safely =====
+            query = []
+
+            query.append({
+                "$addFields": {
+                    "public_id_str": {"$toString": "$public_id"}
+                }
+            })
+
+            query.extend(process_match_criteria(builder_params))
+
+            # process_match_criteria(builder_params.criteria, query)
+
+            # for criterion in builder_params.criteria:
+            #     if "$match" in criterion:
+            #         match_condition = criterion["$match"]
+            #         new_match = {}
+            #         for key, value in match_condition.items():
+            #             if should_skip_elem_match(value):
+            #                 continue  # Skip objectRelation count filters for now
+            #             new_match[key] = value
+            #         if new_match:
+            #             query.append({"$match": new_match})
+
+            # Step 2: join types
+            query.append({
+                "$lookup": {
+                    "from": "framework.types",
+                    "localField": "type_id",
+                    "foreignField": "public_id",
+                    "as": "type"
+                }
+            })
+            query.append({
+                "$unwind": {
+                    "path": "$type",
+                    "preserveNullAndEmptyArrays": True
+                }
+            })
+
+            # Step 3: ACL filter
+            query.append({
+                "$match": {
+                    "$or": [
+                        {"type.acl": {"$exists": False}},
+                        {"type.acl.activated": False},
+                        {"$and": [
+                            {"type.acl.groups.includes.1": {"$exists": True}},
+                            {"type.acl.groups.includes.1": {"$all": ["READ"]}}
+                        ]}
+                    ]
+                }
+            })
+
+            # Step 4: join objectRelations
+            query.append({
+                "$lookup": {
+                    "from": "framework.objectRelations",
+                    "let": {"obj_id": "$public_id"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$or": [
+                                        {"$eq": ["$relation_parent_id", "$$obj_id"]},
+                                        {"$eq": ["$relation_child_id", "$$obj_id"]}
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "$group": {
+                                "_id": {
+                                    "relation_id": "$relation_id",
+                                    "direction": {
+                                        "$cond": [
+                                            {"$eq": ["$relation_parent_id", "$$obj_id"]},
+                                            "parent",
+                                            "child"
+                                        ]
+                                    }
+                                },
+                                "count": {"$sum": 1}
+                            }
+                        }
+                    ],
+                    "as": "relation_counts"
+                }
+            })
+
+            # Step 5: build filter_values object
+            query.append({
+                "$addFields": {
+                    "filter_values": {
+                        "$arrayToObject": {
+                            "$map": {
+                                "input": "$relation_counts",
+                                "as": "r",
+                                "in": {
+                                    "k": {"$concat": [
+                                        {"$toString": "$$r._id.relation_id"},
+                                        "_",
+                                        "$$r._id.direction"
+                                    ]},
+                                    "v": {"$toString": "$$r.count"}
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+
+            # Stage 6: Append objectRelation count filters **after filter_values is added**
+            object_relation_filters = []
+            for criterion in builder_params.criteria:
+                if "$match" in criterion:
+                    match_value = criterion["$match"]
+                    for key, value in match_value.items():
+                        object_relation_filters.extend(extract_object_relation_filters(value))
+
+            # Only append non-empty filters
+            for f in object_relation_filters:
+                if f:  # <- prevents empty $and/$or errors
+                    query.append({"$match": f})
+
+            # Step 7: sorting, skipping, limiting
+            query.append({"$sort": {builder_params.sort: -1 if builder_params.order == -1 else 1}})
+            query.append({"$skip": builder_params.skip})
+            query.append({"$limit": builder_params.limit})
+
+            # Step 8: final projection
+            query.append({
+                "$project": {
+                    "type": 0,
+                    "relation_counts": 0,
+                    "filter_values": 0,
+                    "public_id_str": 0,
+                }
+            })
+
+        LOGGER.debug(f"query: {query}")
 
         result = list(objects_manager.aggregate(query))
 
@@ -247,6 +393,9 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                                     request_user=request_user,
                                     ref_render=True,
                                     objects_manager=objects_manager).render_result_list(raw=True)
+
+        LOGGER.debug(f"results count: {len(result_data)}")
+        # LOGGER.debug(f"results: {result_data}")
 
         api_response = GetMultiResponse(result_data,
                                         total=iteration_result.total,
@@ -274,3 +423,104 @@ def _fetch_only_active_objs() -> bool:
         return value in ['True', 'true']
 
     return False
+
+
+def should_skip_elem_match(elem):
+    """
+    Returns True if the elemMatch is an objectRelation count field (like 1_parent, 3_child).
+    Returns False for all other $elemMatch (normal fields).
+    """
+    if isinstance(elem, list):
+        return any(should_skip_elem_match(x) for x in elem)
+    
+    if not isinstance(elem, dict):
+        return False
+    
+    # Direct $elemMatch inside 'fields'
+    if "fields" in elem and "$elemMatch" in elem["fields"]:
+        em = elem["fields"]["$elemMatch"]
+        name = em.get("name", "")
+        parts = name.split("_")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1] in ["parent", "child"]:
+            return True
+        return False
+
+    # Recursively check nested $and / $or
+    for k in ["$and", "$or"]:
+        if k in elem and isinstance(elem[k], list):
+            # Skip only if any child is objectRelation count
+            return any(should_skip_elem_match(x) for x in elem[k])
+    
+    return False
+
+
+def extract_object_relation_filters(value):
+    """
+    Recursively walk a value (list or dict) and extract objectRelation count filters
+    from $elemMatch inside fields with names like <number>_parent or <number>_child.
+    Returns a list of dicts suitable for $match stage.
+    """
+    filters = []
+
+    if isinstance(value, list):
+        for item in value:
+            filters.extend(extract_object_relation_filters(item))
+
+    elif isinstance(value, dict):
+        # Nested $and / $or
+        for op in ["$and", "$or"]:
+            if op in value and isinstance(value[op], list):
+                # Only include non-empty filters
+                nested_filters = [f for f in extract_object_relation_filters(value[op]) if f]
+                filters.extend(nested_filters)
+
+        # $elemMatch inside 'fields'
+        if "fields" in value and "$elemMatch" in value["fields"]:
+            em = value["fields"]["$elemMatch"]
+            if isinstance(em, dict) and "name" in em:
+                parts = em["name"].split("_")
+                if len(parts) == 2 and parts[0].isdigit() and parts[1] in ["parent", "child"]:
+                    # Only include valid objectRelation filters
+                    filters.append({f"filter_values.{em['name']}": em["value"]})
+
+    return filters
+
+def process_match_criteria(builder_params):
+    """
+    Processes builder_params.criteria and builds $match stages for normal fields.
+    ObjectRelation count filters (like '1_parent', '3_child') are skipped and handled later.
+    Returns a list of $match stages for the pipeline.
+    """
+    query = []
+
+    for criterion in builder_params.criteria:
+        if "$match" in criterion:
+            match_condition = criterion["$match"]
+
+            # Check if this $match has an $or containing an $and (objectRelation + normal fields)
+            if "$or" in match_condition:
+                for or_item in match_condition["$or"]:
+                    if "$and" in or_item:
+                        for and_item in or_item["$and"]:
+                            if should_skip_elem_match(and_item):
+                                continue  # skip objectRelation count filters
+                            if "public_id" in and_item and isinstance(and_item["public_id"], dict) and "$regex" in and_item["public_id"]:
+                                and_item["public_id_str"] = and_item.pop("public_id")
+                            query.append({"$match": and_item})
+                    else:
+                        if should_skip_elem_match(or_item):
+                            continue
+                        if "public_id" in or_item and isinstance(or_item["public_id"], dict) and "$regex" in or_item["public_id"]:
+                            or_item["public_id_str"] = or_item.pop("public_id")
+                        query.append({"$match": or_item})
+            else:
+                # Normal $match, just skip objectRelation count filters
+                new_match = {}
+                for key, value in match_condition.items():
+                    if should_skip_elem_match({key: value}):
+                        continue
+                    new_match[key] = value
+                if new_match:
+                    query.append({"$match": new_match})
+
+    return query
