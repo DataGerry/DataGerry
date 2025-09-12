@@ -90,6 +90,7 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
   loading = false;
   hasSchema = false;
   validationMessage = '';
+  public isLoading$ = this.loaderService.isLoading$;
 
   /** Caches */
   private fieldByName = new Map<string, FieldMeta>();
@@ -97,6 +98,7 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
 
   /** subscription to keep guard counts fresh (optional) */
   private valueSub?: Subscription;
+
 
   constructor(
     private fb: FormBuilder,
@@ -130,6 +132,7 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
   requestSchema(): void {
     if (this.promptForm.invalid) return;
 
+    this.loaderService.show();
     this.loading = true;
     this.validationMessage = '';
     this.hasSchema = false;
@@ -137,7 +140,7 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
 
     const message: AiAssistantMessage = { message: this.promptForm.value.prompt! };
 
-    this.ai.postMessage(message).pipe(take(1)).subscribe({
+    this.ai.postMessage(message).pipe(take(1), finalize(() => { this.loaderService.hide()})).subscribe({
       next: (resp: TypeAssistantResponse<AiGeneratedType>) => {
         if (!resp?.is_valid_type) {
           this.loading = false;
