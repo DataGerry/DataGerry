@@ -1,7 +1,7 @@
 <div class="container mt-4">
 
   <!-- Prompt -->
-  <form [formGroup]="promptForm" class="mb-4">
+  <form [formGroup]="promptForm" class="mb-4" *ngIf="!hasSchema">
     <app-form-input
       formControlName="prompt"
       label="Prompt"
@@ -26,7 +26,22 @@
 
   <!-- Selection -->
   <ng-container *ngIf="hasSchema; else aiTypeEmptyState">
-    <pre>Backend response: {{schema | json}}</pre>
+    <label for="typeNameInput">Name: <span class="required">*</span></label>
+    <form [formGroup]="form">
+      <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
+          'is-invalid': name.invalid && (name.dirty || name.touched) }" id="typeNameInput" name-guideline required>
+      <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
+        <div *ngIf="name.errors.required">
+          Name is required
+        </div>
+        <div *ngIf="name.errors.typeExists">
+          A type with this name already exists
+        </div>
+        <div *ngIf="name.errors.invalidCharacters">
+          Name can only contain letters, numbers, hyphens (-), and underscores (_)
+        </div>
+      </div>
+    </form>
     <form [formGroup]="selectionForm" class="mt-3">
       <table class="table table-bordered align-middle ai-type-table">
         <thead>
@@ -37,49 +52,31 @@
         </thead>
 
         <tbody>
-          <tr *ngFor="let row of sectionRows; let ri = index" [formGroup]="row.form">
-            <!-- Section (left column) -->
-            <td class="section-cell">
-              <label class="form-check d-flex align-items-center gap-2 mb-0">
-                <input
-                  type="checkbox"
-                  class="form-check-input"
-                  formControlName="includeSection"
-                  [disabled]="isSectionDisabled(ri)" />
-                <span class="form-check-label">
-                  {{ row?.meta?.label || row?.meta?.name }}
-                </span>
-              </label>
-            </td>
-
-            <!-- Fields (right column) -->
-            <td class="fields-cell">
-              <div class="field-grid" formArrayName="fieldChecks">
-                <label
-                  class="form-check d-flex align-items-center gap-2 mb-0"
-                  *ngFor="let fc of fieldChecksOf(row).controls; let fi = index; trackBy: trackByIndex">
-                  <input
-                    type="checkbox"
-                    class="form-check-input"
-                    [formControl]="fc"
-                    [disabled]="isFieldDisabled(ri, fi)" />
-                  <span class="form-check-label">
-                    {{ fieldLabel(row?.meta?.fields?.[fi]) || row?.meta?.fields?.[fi] }}
-                    <small class="text-muted ms-1">({{ fieldKind(row?.meta?.fields?.[fi]) }})</small>
-                  </span>
-                </label>
-              </div>
-            </td>
+          <tr cmdb-ai-section-selector
+              *ngFor="let row of sectionRows; let ri = index; trackBy: trackByIndex"
+              [row]="row"
+              [rowIndex]="ri"
+              [sectionUncheckDisabled]="isSectionDisabled(ri)"
+              [totalSelectedFields]="totalSelectedFields()"
+              [fieldLabel]="fieldLabel"
+              [fieldKind]="fieldKind">
           </tr>
         </tbody>
       </table>
 
-      <div class="d-flex justify-content-end gap-2 mt-3">
+      <div class="d-flex justify-content-between gap-2 mt-3">
+        <button type="button" class="btn btn-secondary" (click)="goBack()">
+          Go Back
+        </button>
         <button type="button" class="btn btn-success" (click)="submitSelection()">
           Create Type
         </button>
       </div>
     </form>
+
+    <hr>
+
+    <pre style="margin-top: 50px;">Backend response: {{schema | json}}</pre>
   </ng-container>
 
   <!-- Empty state when schema hasn't been generated yet -->
