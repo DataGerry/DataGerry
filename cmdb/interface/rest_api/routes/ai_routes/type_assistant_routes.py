@@ -304,8 +304,9 @@ Here's how it works:
         contains the identifier of the "Name" attribute. All other attributes are assigned the values as in the
         example file.
 
-        The identifier of sections and attributes always contains a 36-digit UUID after the "-" as in the example json.
-
+        The identifier of sections and attributes always contains a 36-digit UUID after the "-" as in the example json
+        and each identifier needs to be unique.
+        
         The identifier of the "location" attribute is always "dg_location." The "selectable_as_parent" attribute
         specifies whether objects of this type should be selectable as physical locations, e.g., buildings, rooms, cabinets.
 

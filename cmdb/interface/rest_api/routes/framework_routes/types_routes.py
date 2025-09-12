@@ -107,6 +107,11 @@ def insert_cmdb_type(data: dict, request_user: CmdbUser) -> Response:
             if possible_type:
                 abort(400, f"Type with ID:{possible_id} already exists!")
 
+        type_with_name = types_manager.get_one_by({'name': data['name']})
+
+        if type_with_name:
+            abort(400, f"Type with name:{data['name']} already exists!")
+
         result_id = types_manager.insert_type(data)
         created_type = types_manager.get_type(result_id)
 
