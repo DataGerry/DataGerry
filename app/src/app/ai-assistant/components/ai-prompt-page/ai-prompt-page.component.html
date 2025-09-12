@@ -26,6 +26,7 @@
 
   <!-- Selection -->
   <ng-container *ngIf="hasSchema; else aiTypeEmptyState">
+    <pre>Backend response: {{schema | json}}</pre>
     <form [formGroup]="selectionForm" class="mt-3">
       <table class="table table-bordered align-middle ai-type-table">
         <thead>
@@ -89,3 +90,9 @@
   </ng-template>
 
 </div>
+
+
+<app-loading-popup 
+[isVisible]="isLoading$ | async"
+message="We're Processing the Data..."
+></app-loading-popup>

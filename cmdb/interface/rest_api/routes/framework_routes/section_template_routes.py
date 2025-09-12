@@ -234,7 +234,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to update SectionTemplate with ID: {params['public_id']}!")
     except NoDocumentFoundError:
-        abort(404, f"SectionTemplate with ID:{params.get("public_id")} not found!")
+        abort(404, f"SectionTemplate with ID:{params.get('public_id')} not found!")
     except Exception as err:
         LOGGER.error("[update_section_template] Exception: %s, Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating SectionTemplate with ID:{params['public_id']}!")
