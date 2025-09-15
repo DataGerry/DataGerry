@@ -890,18 +890,19 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      */
     public onSortChange(sort: Sort): void {
         this.sort = sort;
-      
+
         const isRelationCol = !!this.columns?.find(
-          c => c.name === sort?.name && c.data === 'object_relations'
+            c => c.name === sort?.name && c.data === 'object_relations'
         );
-      
+
         const view: 'object' | 'object_relation' | 'object_relation_filter' =
-          isRelationCol
-            ? (this.isFilterActive ? 'object_relation_filter' : 'object_relation')
-            : 'object';
-      
+            this.isFilterActive
+                ? 'object_relation_filter'
+                : (isRelationCol ? 'object_relation' : 'object');
+
+
         this.loadSortedObjects(view);
-      }
+    }
 
 
     /**
