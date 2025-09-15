@@ -1036,7 +1036,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             );
 
             this.page = this.initPage;
-            if (this.hasRelationFilter) {
+            if (this.isFilterActive || this.hasRelationFilter) {
                 this.loadSortedObjects('object_relation_filter');
             } else {
                 this.getObjectsFromBackend();
