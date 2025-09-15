@@ -890,10 +890,17 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      */
     public onSortChange(sort: Sort): void {
         this.sort = sort;
-        const isRelation = !!this.columns?.find(
+      
+        const isRelationCol = !!this.columns?.find(
           c => c.name === sort?.name && c.data === 'object_relations'
         );
-        this.loadSortedObjects(isRelation ? (this.hasRelationFilter ? 'object_relation_filter' : 'object_relation') : 'object');
+      
+        const view: 'object' | 'object_relation' | 'object_relation_filter' =
+          isRelationCol
+            ? (this.isFilterActive ? 'object_relation_filter' : 'object_relation')
+            : 'object';
+      
+        this.loadSortedObjects(view);
       }
 
 
@@ -1227,4 +1234,9 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         const m = v.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
         return m ? m[1] : null;
     }
+
+    private get isFilterActive(): boolean {
+        // When the column-filter UI is open, the icon is hidden.
+        return !!this.objectsTableComponent && this.objectsTableComponent.columnSearchIconHidden === true;
+      }
 }
