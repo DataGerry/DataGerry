@@ -59,7 +59,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
         view = params.optional.get('view', 'object')
 
-        LOGGER.debug(f"view: {view}")
+        # LOGGER.debug(f"view: {view}")
 
         if _fetch_only_active_objs():
             if isinstance(params.filter, dict):
@@ -70,7 +70,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        LOGGER.debug(f"builder_params: {builder_params}")
+        # LOGGER.debug(f"builder_params: {builder_params}")
 
         # BuilderParameters(
         #     criteria=[{'$match': {'type_id': 1}}, {'$match': {'active': {'$eq': True}}}],
@@ -251,20 +251,68 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                 }
             })
 
+            # Add normalized_fields (only for filtering)
+            query.append({
+                "$addFields": {
+                    "normalized_fields": {
+                        "$map": {
+                            "input": "$fields",
+                            "as": "f",
+                            "in": {
+                                "name": "$$f.name",
+                                "value": {
+                                    "$function": {
+                                        "body": """
+                                            function(val) {
+                                                if (typeof val !== 'string') return val;
+                                                var match = val.match(/<a [^>]+>(.*?)<\\/a>/i);
+                                                if (match) {
+                                                    return match[1]; // inner text only
+                                                }
+                                                return val;
+                                            }
+                                        """,
+                                        "args": ["$$f.value"],
+                                        "lang": "js"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            # query.append({
+            #     "$addFields": {
+            #         "fields": {
+            #             "$map": {
+            #                 "input": "$fields",
+            #                 "as": "f",
+            #                 "in": {
+            #                     "name": "$$f.name",
+            #                     "value": {
+            #                         "$cond": [
+            #                             { "$regexMatch": { "input": "$$f.value", "regex": "^<a href=.*>.*</a>$" } },
+            #                             {
+            #                                 "$arrayElemAt": [
+            #                                     { "$split": [
+            #                                         { "$arrayElemAt": [ { "$split": [ "$$f.value", ">" ] }, 1 ] },
+            #                                         "<"
+            #                                     ] },
+            #                                     0
+            #                                 ]
+            #                             },
+            #                             "$$f.value"
+            #                         ]
+            #                     }
+            #                 }
+            #             }
+            #         }
+            #     }
+            # })
+
+            # query.extend(process_match_criteria(builder_params))
+            # Use normalized_fields in filtering
             query.extend(process_match_criteria(builder_params))
-
-            # process_match_criteria(builder_params.criteria, query)
-
-            # for criterion in builder_params.criteria:
-            #     if "$match" in criterion:
-            #         match_condition = criterion["$match"]
-            #         new_match = {}
-            #         for key, value in match_condition.items():
-            #             if should_skip_elem_match(value):
-            #                 continue  # Skip objectRelation count filters for now
-            #             new_match[key] = value
-            #         if new_match:
-            #             query.append({"$match": new_match})
 
             # Step 2: join types
             query.append({
@@ -368,7 +416,17 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                     query.append({"$match": f})
 
             # Step 7: sorting, skipping, limiting
-            query.append({"$sort": {builder_params.sort: -1 if builder_params.order == -1 else 1}})
+            sort_key = builder_params.sort
+            sort_order = -1 if builder_params.order == -1 else 1
+
+            # If sort is an objectRelation field like '3_child' or '1_parent'
+            if isinstance(sort_key, str):
+                parts = sort_key.split("_")
+                if len(parts) == 2 and parts[0].isdigit() and parts[1] in ["parent", "child"]:
+                    sort_key = f"filter_values.{sort_key}"
+
+            query.append({"$sort": {sort_key: sort_order}})
+            # query.append({"$sort": {builder_params.sort: -1 if builder_params.order == -1 else 1}})
             query.append({"$skip": builder_params.skip})
             query.append({"$limit": builder_params.limit})
 
@@ -379,10 +437,11 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                     "relation_counts": 0,
                     "filter_values": 0,
                     "public_id_str": 0,
+                    "normalized_fields": 0,
                 }
             })
 
-        LOGGER.debug(f"query: {query}")
+        # LOGGER.debug(f"query: {query}")
 
         result = list(objects_manager.aggregate(query))
 
@@ -394,7 +453,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                                     ref_render=True,
                                     objects_manager=objects_manager).render_result_list(raw=True)
 
-        LOGGER.debug(f"results count: {len(result_data)}")
+        # LOGGER.debug(f"results count: {len(result_data)}")
         # LOGGER.debug(f"results: {result_data}")
 
         api_response = GetMultiResponse(result_data,
@@ -450,7 +509,7 @@ def should_skip_elem_match(elem):
         if k in elem and isinstance(elem[k], list):
             # Skip only if any child is objectRelation count
             return any(should_skip_elem_match(x) for x in elem[k])
-    
+
     return False
 
 
@@ -485,6 +544,40 @@ def extract_object_relation_filters(value):
 
     return filters
 
+# def process_match_criteria(builder_params, fields_key="fields"):
+#     query = []
+#     for criterion in builder_params.criteria:
+#         if "$match" in criterion:
+#             match_condition = criterion["$match"]
+
+#             if "$or" in match_condition:
+#                 for or_item in match_condition["$or"]:
+#                     if "$and" in or_item:
+#                         for and_item in or_item["$and"]:
+#                             if should_skip_elem_match(and_item):
+#                                 continue
+#                             if fields_key != "fields" and "fields" in and_item:
+#                                 and_item[fields_key] = and_item.pop("fields")
+#                             query.append({"$match": and_item})
+#                     else:
+#                         if should_skip_elem_match(or_item):
+#                             continue
+#                         if fields_key != "fields" and "fields" in or_item:
+#                             or_item[fields_key] = or_item.pop("fields")
+#                         query.append({"$match": or_item})
+#             else:
+#                 new_match = {}
+#                 for key, value in match_condition.items():
+#                     if should_skip_elem_match({key: value}):
+#                         continue
+#                     new_match[key] = value
+#                 if new_match:
+#                     query.append({"$match": new_match})
+#     return query
+
+
+
+
 def process_match_criteria(builder_params):
     """
     Processes builder_params.criteria and builds $match stages for normal fields.
@@ -497,30 +590,102 @@ def process_match_criteria(builder_params):
         if "$match" in criterion:
             match_condition = criterion["$match"]
 
-            # Check if this $match has an $or containing an $and (objectRelation + normal fields)
+            # Case: $or in match_condition
             if "$or" in match_condition:
                 for or_item in match_condition["$or"]:
                     if "$and" in or_item:
                         for and_item in or_item["$and"]:
                             if should_skip_elem_match(and_item):
-                                continue  # skip objectRelation count filters
-                            if "public_id" in and_item and isinstance(and_item["public_id"], dict) and "$regex" in and_item["public_id"]:
+                                continue
+
+                            # Normalize regex on public_id
+                            if (
+                                "public_id" in and_item
+                                and isinstance(and_item["public_id"], dict)
+                                and "$regex" in and_item["public_id"]
+                            ):
                                 and_item["public_id_str"] = and_item.pop("public_id")
+
+                            # Redirect fields → normalized_fields
+                            if "fields" in and_item:
+                                and_item["normalized_fields"] = and_item.pop("fields")
+
                             query.append({"$match": and_item})
+
                     else:
                         if should_skip_elem_match(or_item):
                             continue
-                        if "public_id" in or_item and isinstance(or_item["public_id"], dict) and "$regex" in or_item["public_id"]:
+
+                        if (
+                            "public_id" in or_item
+                            and isinstance(or_item["public_id"], dict)
+                            and "$regex" in or_item["public_id"]
+                        ):
                             or_item["public_id_str"] = or_item.pop("public_id")
+
+                        if "fields" in or_item:
+                            or_item["normalized_fields"] = or_item.pop("fields")
+
                         query.append({"$match": or_item})
+
             else:
-                # Normal $match, just skip objectRelation count filters
+                # Normal $match
                 new_match = {}
                 for key, value in match_condition.items():
                     if should_skip_elem_match({key: value}):
                         continue
-                    new_match[key] = value
+
+                    if key == "public_id" and isinstance(value, dict) and "$regex" in value:
+                        new_match["public_id_str"] = value
+                    elif key == "fields":
+                        new_match["normalized_fields"] = value
+                    else:
+                        new_match[key] = value
+
                 if new_match:
                     query.append({"$match": new_match})
 
     return query
+
+
+
+# # working one
+# def process_match_criteria(builder_params):
+#     """
+#     Processes builder_params.criteria and builds $match stages for normal fields.
+#     ObjectRelation count filters (like '1_parent', '3_child') are skipped and handled later.
+#     Returns a list of $match stages for the pipeline.
+#     """
+#     query = []
+
+#     for criterion in builder_params.criteria:
+#         if "$match" in criterion:
+#             match_condition = criterion["$match"]
+
+#             # Check if this $match has an $or containing an $and (objectRelation + normal fields)
+#             if "$or" in match_condition:
+#                 for or_item in match_condition["$or"]:
+#                     if "$and" in or_item:
+#                         for and_item in or_item["$and"]:
+#                             if should_skip_elem_match(and_item):
+#                                 continue  # skip objectRelation count filters
+#                             if "public_id" in and_item and isinstance(and_item["public_id"], dict) and "$regex" in and_item["public_id"]:
+#                                 and_item["public_id_str"] = and_item.pop("public_id")
+#                             query.append({"$match": and_item})
+#                     else:
+#                         if should_skip_elem_match(or_item):
+#                             continue
+#                         if "public_id" in or_item and isinstance(or_item["public_id"], dict) and "$regex" in or_item["public_id"]:
+#                             or_item["public_id_str"] = or_item.pop("public_id")
+#                         query.append({"$match": or_item})
+#             else:
+#                 # Normal $match, just skip objectRelation count filters
+#                 new_match = {}
+#                 for key, value in match_condition.items():
+#                     if should_skip_elem_match({key: value}):
+#                         continue
+#                     new_match[key] = value
+#                 if new_match:
+#                     query.append({"$match": new_match})
+
+#     return query
