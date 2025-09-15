@@ -80,7 +80,7 @@
     "@types/jasmine": "^5.1.4",
     "@types/jasminewd2": "^2.0.13",
     "@types/jquery": "^3.5.30",
-    "@types/node": "^20.14.8",
+    "@types/node": "^24.4.0",
     "@types/uuid": "^10.0.0",
     "jasmine-core": "^5.1.2",
     "jasmine-spec-reporter": "^7.0.0",
