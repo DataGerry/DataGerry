@@ -100,6 +100,8 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
     private collectionFilterParameter: any[] = [];
 
+    private hasRelationFilter: boolean = false;
+
     public selectReset: Array<RenderResult> = [];
     public initialVisibleColumns: Array<string> = [];
     public columns: Array<Column>;
@@ -888,10 +890,17 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      */
     public onSortChange(sort: Sort): void {
         this.sort = sort;
-        const isRelation = !!this.columns?.find(
+      
+        const isRelationCol = !!this.columns?.find(
           c => c.name === sort?.name && c.data === 'object_relations'
         );
-        this.loadSortedObjects(isRelation ? 'object_relation' : 'object');
+      
+        const view: 'object' | 'object_relation' | 'object_relation_filter' =
+          isRelationCol
+            ? (this.isFilterActive ? 'object_relation_filter' : 'object_relation')
+            : 'object';
+      
+        this.loadSortedObjects(view);
       }
 
 
@@ -1018,7 +1027,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
             // If the user entered a filter in any visible object_relation column,
             // use the relation filter view. Otherwise use the default backend call.
-            const hasRelationFilter = (changes || []).some(group =>
+            this.hasRelationFilter = (changes || []).some(group =>
                 Array.isArray(group) && group.some(ch => {
                     const col = this.columns.find(c => c.name === ch?.name);
                     return col && col.data === 'object_relations' && !col.hidden;
@@ -1026,7 +1035,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             );
 
             this.page = this.initPage;
-            if (hasRelationFilter) {
+            if (this.hasRelationFilter) {
                 this.loadSortedObjects('object_relation_filter');
             } else {
                 this.getObjectsFromBackend();
@@ -1225,4 +1234,9 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         const m = v.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
         return m ? m[1] : null;
     }
+
+    private get isFilterActive(): boolean {
+        // When the column-filter UI is open, the icon is hidden.
+        return !!this.objectsTableComponent && this.objectsTableComponent.columnSearchIconHidden === true;
+      }
 }
