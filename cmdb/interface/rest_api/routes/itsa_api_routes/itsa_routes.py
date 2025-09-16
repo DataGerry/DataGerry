@@ -525,10 +525,10 @@ def should_skip_elem_match(elem):
     """
     if isinstance(elem, list):
         return any(should_skip_elem_match(x) for x in elem)
-    
+
     if not isinstance(elem, dict):
         return False
-    
+
     # Direct $elemMatch inside 'fields'
     if "fields" in elem and "$elemMatch" in elem["fields"]:
         em = elem["fields"]["$elemMatch"]

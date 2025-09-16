@@ -1198,6 +1198,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             );
     }
 
+
     /**
      * Returns true if the provided value is an anchor tag string.
      */
@@ -1205,6 +1206,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         if (typeof value !== 'string') return false;
         return /^<a[^>]*>\s*[\s\S]*?<\/a>$/i.test(value.trim());
     }
+
 
     /**
      * Extracts href from an anchor string; supports various quoting styles or none.
