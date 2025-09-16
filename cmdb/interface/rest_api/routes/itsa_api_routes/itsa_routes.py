@@ -610,8 +610,6 @@ def extract_object_relation_filters(value):
 #     return query
 
 
-
-
 def process_match_criteria(builder_params):
     """
     Processes builder_params.criteria and builds $match stages for normal fields.

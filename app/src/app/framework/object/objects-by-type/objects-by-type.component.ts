@@ -1183,6 +1183,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             );
     }
 
+
     public onObjectDeleteWithObjects(objectID: number) {
         this.loaderService.show();
         this.objectService.deleteObjectWithChildren(objectID).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
