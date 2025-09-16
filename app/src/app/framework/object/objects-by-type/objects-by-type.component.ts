@@ -898,7 +898,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         const view: 'object' | 'object_relation' | 'object_relation_filter' =
             this.isFilterActive
                 ? 'object_relation_filter'
-                : (isRelationCol ? 'object_relation' : 'object');
+                : (isRelationCol ? 'object_relation' : 'object_relation_filter');
 
 
         this.loadSortedObjects(view);
