@@ -898,7 +898,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         const view: 'object' | 'object_relation' | 'object_relation_filter' =
             this.isFilterActive
                 ? 'object_relation_filter'
-                : (isRelationCol ? 'object_relation' : 'object');
+                : (isRelationCol ? 'object_relation' : 'object_relation_filter');
 
 
         this.loadSortedObjects(view);
@@ -1183,6 +1183,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             );
     }
 
+
     public onObjectDeleteWithObjects(objectID: number) {
         this.loaderService.show();
         this.objectService.deleteObjectWithChildren(objectID).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
@@ -1198,6 +1199,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             );
     }
 
+
     /**
      * Returns true if the provided value is an anchor tag string.
      */
@@ -1205,6 +1207,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         if (typeof value !== 'string') return false;
         return /^<a[^>]*>\s*[\s\S]*?<\/a>$/i.test(value.trim());
     }
+
 
     /**
      * Extracts href from an anchor string; supports various quoting styles or none.

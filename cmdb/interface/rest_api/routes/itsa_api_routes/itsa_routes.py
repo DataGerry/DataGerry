@@ -419,11 +419,44 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
             sort_key = builder_params.sort
             sort_order = -1 if builder_params.order == -1 else 1
 
-            # If sort is an objectRelation field like '3_child' or '1_parent'
             if isinstance(sort_key, str):
+                # Case 1: objectRelation sort (e.g. 3_child)
                 parts = sort_key.split("_")
                 if len(parts) == 2 and parts[0].isdigit() and parts[1] in ["parent", "child"]:
                     sort_key = f"filter_values.{sort_key}"
+                # Case 2: normalized field sort (e.g. fields.text-19742)
+                elif sort_key.startswith("fields."):
+                    field_name = sort_key.split(".", 1)[1]  # → text-19742
+                    # Add a dedicated top-level field for sorting
+                    query.append({
+                        "$addFields": {
+                            f"sort_field_{field_name}": {
+                                "$let": {
+                                    "vars": {
+                                        "match": {
+                                            "$arrayElemAt": [
+                                                {
+                                                    "$filter": {
+                                                        "input": "$normalized_fields",
+                                                        "as": "f",
+                                                        "cond": {"$eq": ["$$f.name", field_name]}
+                                                    }
+                                                },
+                                                0
+                                            ]
+                                        }
+                                    },
+                                    "in": "$$match.value"
+                                }
+                            }
+                        }
+                    })
+                    sort_key = f"sort_field_{field_name}"
+            # If sort is an objectRelation field like '3_child' or '1_parent'
+            # if isinstance(sort_key, str):
+            #     parts = sort_key.split("_")
+            #     if len(parts) == 2 and parts[0].isdigit() and parts[1] in ["parent", "child"]:
+            #         sort_key = f"filter_values.{sort_key}"
 
             query.append({"$sort": {sort_key: sort_order}})
             # query.append({"$sort": {builder_params.sort: -1 if builder_params.order == -1 else 1}})
@@ -438,6 +471,7 @@ def search_objects(params: CollectionParameters, request_user: CmdbUser):
                     "filter_values": 0,
                     "public_id_str": 0,
                     "normalized_fields": 0,
+                    **({f"sort_field_{field_name}": 0} if "field_name" in locals() else {})
                 }
             })
 
@@ -491,10 +525,10 @@ def should_skip_elem_match(elem):
     """
     if isinstance(elem, list):
         return any(should_skip_elem_match(x) for x in elem)
-    
+
     if not isinstance(elem, dict):
         return False
-    
+
     # Direct $elemMatch inside 'fields'
     if "fields" in elem and "$elemMatch" in elem["fields"]:
         em = elem["fields"]["$elemMatch"]
@@ -574,8 +608,6 @@ def extract_object_relation_filters(value):
 #                 if new_match:
 #                     query.append({"$match": new_match})
 #     return query
-
-
 
 
 def process_match_criteria(builder_params):
