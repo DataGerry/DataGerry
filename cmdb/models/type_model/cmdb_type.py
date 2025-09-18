@@ -457,7 +457,7 @@ class CmdbType(CmdbDAO):
         raise CmdbTypeFieldNotFoundError(f"Field '{name}' was not found!")
 
 
-    def get_all_mds_fields(self) -> list:
+    def get_all_mds_fields(self) -> list[dict[str, Any]]:
         """
         Retrieves all fields from multi-data sections
 
@@ -467,7 +467,7 @@ class CmdbType(CmdbDAO):
         Returns:
             list: A list containing all fields from multi-data sections
         """
-        mds_fields = []
+        mds_fields: list[dict[str, Any]] = []
 
         for section in self.render_meta.sections:
             if section.type == "multi-data-section":

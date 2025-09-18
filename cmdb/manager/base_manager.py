@@ -277,7 +277,7 @@ class BaseManager:
             raise BaseManagerGetError(err) from err
 
 
-    def get_one_by(self, criteria: dict, collection: str = None) -> dict | None:
+    def get_one_by(self, criteria: dict[str, Any], collection: str | None = None) -> dict[str, Any] | None:
         """
         Retrieves a single document defined by the given criteria
 
@@ -295,15 +295,16 @@ class BaseManager:
 
             return self.dbm.find_one_by(target_collection, self.db_name, criteria)
         except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
+            raise BaseManagerGetError(str(err)) from err
 
 
     def get_many(
-            self,
-            sort: str = 'public_id',
-            direction: int = -1,
-            limit: int=0,
-            **requirements: Any) -> list[dict]:
+        self,
+        sort: str = 'public_id',
+        direction: int = -1,
+        limit: int=0,
+        **requirements: Any
+    ) -> list[dict[str, Any]]:
         """
         Retrieves documents from the database filtered by the provided requirements
 
@@ -411,14 +412,16 @@ class BaseManager:
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update(self,
-               criteria: dict,
-               data: dict[str, Any],
-               *args: Any,
-               add_to_set: bool = True,
-               plain: bool = False,
-               col: str | None = None,
-               **kwargs: Any) -> UpdateResult:
+    def update(
+        self,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+        *args: Any,
+        add_to_set: bool = True,
+        plain: bool = False,
+        col: str | None = None,
+        **kwargs: Any
+    ) -> UpdateResult:
         """
         Updates a document in the database with the specified criteria and new data
 
@@ -444,10 +447,10 @@ class BaseManager:
 
             return self.dbm.update(collection, self.db_name, criteria, data, *args, add_to_set, plain, **kwargs)
         except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
+            raise BaseManagerUpdateError(str(err)) from err
 
 
-    def upsert_set(self, data: dict, collection:str = None) -> UpdateResult:
+    def upsert_set(self, data: dict, collection:str | None = None) -> UpdateResult:
         """
         Performs an upsert operation on a specified MongoDB collection.
 

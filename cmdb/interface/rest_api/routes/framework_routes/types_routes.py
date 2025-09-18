@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for CmdbTypes
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 from flask import abort, request
@@ -74,7 +74,7 @@ from cmdb.errors.manager.locations_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
 
@@ -109,16 +109,16 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
                 abort(400, f"Type with ID:{possible_id} already exists!")
 
         result_id: int = types_manager.insert_type(data)
-        created_type: dict | None = types_manager.get_type(result_id)
+        created_type: dict[str, Any] | None = types_manager.get_type(result_id)
 
-        if created_type:
-            return InsertSingleResponse(result_id=result_id, raw=created_type).make_response()
+        if not created_type:
+            abort(404, "Could not retrieve the created Type from the database!")
 
-        abort(404, "Could not retrieve the created Type from the database!")
+        return InsertSingleResponse(result_id=result_id, raw=created_type).make_response()
     except HTTPException as http_err:
         raise http_err
     except TypesManagerGetError as err:
-        LOGGER.error("[insert_cmdb_type] %s: %s", type(err), err, exc_info=True)
+        LOGGER.error("[insert_cmdb_type] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to retrieve the created Type from the database!")
     except TypesManagerInsertError as err:
         LOGGER.error("[insert_cmdb_type] %s: %s", type(err), err, exc_info=True)

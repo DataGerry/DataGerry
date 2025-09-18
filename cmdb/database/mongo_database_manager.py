@@ -471,15 +471,16 @@ class MongoDatabaseManager:
 
     @retry_operation
     def update(
-            self,
-            collection: str,
-            db_name: str,
-            criteria: dict,
-            data: dict[str, Any],
-            *args: Any,
-            add_to_set: bool = True,
-            plain: bool = False,
-            **kwargs: Any) -> UpdateResult:
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+        *args: Any,
+        add_to_set: bool = True,
+        plain: bool = False,
+        **kwargs: Any
+    ) -> UpdateResult:
         """
         Updates a document inside the specified collection
 
@@ -742,7 +743,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor:
+    def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor[Any]:
         """
         Retrieves documents from the specified collection with optional filters and projections
         
@@ -768,7 +769,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find_one_by(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> dict:
+    def find_one_by(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
         """
         Find one specific document by special requirements
 
@@ -940,7 +941,7 @@ class MongoDatabaseManager:
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     @retry_operation
-    def delete(self, collection: str, db_name: str, criteria: dict) -> DeleteResult:
+    def delete(self, collection: str, db_name: str, criteria: dict[str, Any]) -> DeleteResult:
         """
         Deletes a document from the specified collection based on the given criteria
 
@@ -963,13 +964,13 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def delete_many(self, collection: str, db_name: str, **requirements: dict) -> DeleteResult:
+    def delete_many(self, collection: str, db_name: str, **requirements: Any) -> DeleteResult:
         """
         Removes all documents that match the filter from the collection
 
         Args:
             collection (str): Name of the database collection
-            requirements (dict): Specifies the deletion criteria using query operators
+            requirements (Any): Specifies the deletion criteria using query operators
 
         Raises:
             DocumentDeleteError: When documents could not be deleted

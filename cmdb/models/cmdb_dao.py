@@ -204,7 +204,7 @@ class CmdbDAO:
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbDAO") -> dict[str, Any]:
+    def to_json(cls: Type[T], instance: "CmdbDAO") -> dict[str, Any]:
         """
         Each subclass must implement this to convert to a JSON-compatible dict
         """

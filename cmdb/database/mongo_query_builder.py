@@ -16,7 +16,8 @@
 """
 The module builds a MongoDB query for a dict of conditions
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 
 from cmdb.models.type_model import CmdbType
@@ -30,7 +31,7 @@ from cmdb.errors.mongo_query_builder import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              MongoDBQueryBuilder - CLASS                                             #
@@ -40,7 +41,7 @@ class MongoDBQueryBuilder:
     """
     The MongoDBQueryBuilder generates a MongoDB query from a dict of rules
     """
-    def __init__(self, query_data: dict, report_type: CmdbType):
+    def __init__(self, query_data: dict[str, Any] | None, report_type: CmdbType) -> None:
         """
         Initializes a MongoQueryBuilder instance
 
@@ -52,21 +53,26 @@ class MongoDBQueryBuilder:
             MongoQueryBuilderInitError: If initialization fails
         """
         try:
-            self.condition = query_data.get("condition")
-            self.rules = query_data.get("rules")
-            self.report_type = report_type
+            self.condition: str | None = None
+            self.rules: list[dict[str, Any]] | None = None
 
-            self.number_fields = self.report_type.get_all_fields_of_type("number")
-            self.date_fields = self.report_type.get_all_fields_of_type("date")
-            self.ref_fields = self.report_type.get_all_fields_of_type("ref")
-            self.ref_section_fields = self.report_type.get_all_fields_of_type("ref-section-field")
-            self.mds_fields = self.report_type.get_all_mds_fields()
+            if query_data:
+                self.condition = query_data.get("condition")
+                self.rules = query_data.get("rules")
+
+            self.report_type: CmdbType = report_type
+
+            self.number_fields: list[str] = self.report_type.get_all_fields_of_type("number")
+            self.date_fields: list[str] = self.report_type.get_all_fields_of_type("date")
+            self.ref_fields: list[str] = self.report_type.get_all_fields_of_type("ref")
+            self.ref_section_fields: list[str] = self.report_type.get_all_fields_of_type("ref-section-field")
+            self.mds_fields: list[dict[str, Any]] = self.report_type.get_all_mds_fields()
         except Exception as err:
             LOGGER.error("[__init__] Initialization failed. Error: %s, Type: %s", err, type(err))
             raise MongoQueryBuilderInitError(f"Failed to initialize MongoQueryBuilder: {err}") from err
 
 
-    def build(self) -> dict:
+    def build(self) -> dict[str, Any]:
         """
         Builds the MongoDB query using the defined condition and rules
 
@@ -83,7 +89,7 @@ class MongoDBQueryBuilder:
             raise MongoQueryBuilderBuildError(f"Failed to build MongoDB query: {err}") from err
 
 
-    def __build_ruleset(self, condition: str, rules: list[dict]) -> dict:
+    def __build_ruleset(self, condition: str | None, rules: list[dict[str, Any]] | None) -> dict[str, Any]:
         """
         Recursively constructs a MongoDB query ruleset based on the provided condition and rules
 
@@ -120,7 +126,12 @@ class MongoDBQueryBuilder:
             raise MongoQueryBuilderBuildRulesetError(f"Error building MongoDB ruleset: {err}") from err
 
 
-    def __build_rule(self, field_name: str, operator: str, value: int | str | list[str] = None) -> dict:
+    def __build_rule(
+        self,
+        field_name: str,
+        operator: str,
+        value: int | str | list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Builds a query rule for MongoDB based on the provided field name, operator, and value
 
@@ -138,14 +149,14 @@ class MongoDBQueryBuilder:
         """
         try:
             target_field = "fields"
-            target_value = value
+            target_value: int | str | list[str] | datetime | None = value
 
             if field_name in self.date_fields and value:
                 target_value = datetime.strptime(value, '%Y-%m-%d')
 
-            if (field_name in self.ref_fields or
-                field_name in self.ref_section_fields or
-                field_name in self.number_fields
+            if (field_name in self.ref_fields
+                or field_name in self.ref_section_fields
+                or field_name in self.number_fields
                ) and value:
                 target_value = int(value)
 
@@ -157,16 +168,17 @@ class MongoDBQueryBuilder:
             raise MongoQueryBuilderInvalidOperatorError(f"Invalid operator: {operator}") from err
         except Exception as err:
             LOGGER.error("[__build_rule] Exception: %s, Type: %s", err, type(err))
-            raise MongoQueryBuilderBuildRuleError(err) from err
+            raise MongoQueryBuilderBuildRuleError(str(err)) from err
 
 # ------------------------------------------------------ HELPERS ----------------------------------------------------- #
 
     def create_rule(
-            self,
-            target_field: str,
-            operator: str,
-            field_name: str,
-            value: int | str | list[int] | list[str] = None) -> dict:
+        self,
+        target_field: str,
+        operator: str,
+        field_name: str,
+        value: int | str | list[int] | list[str] | datetime | None = None
+    ) -> dict[str, Any]:
         """
         Transforms a rule to a MongoDB compatible query part
         
@@ -183,17 +195,21 @@ class MongoDBQueryBuilder:
             dict: rule as MongoDB compatible query part
         """
         try:
-            return {target_field: self.get_operator_fragment(operator, field_name, value)}
+            return {
+                target_field: self.get_operator_fragment(operator, field_name, value)
+            }
         except MongoQueryBuilderInvalidOperatorError as err:
             raise MongoQueryBuilderInvalidOperatorError(operator) from err
         except Exception as err:
             LOGGER.error("[create_rule] Exception: %s. Type: %s", err, type(err))
-            raise MongoQueryBuilderBuildRuleError(err) from err
+            raise MongoQueryBuilderBuildRuleError(str(err)) from err
 
-    def get_operator_fragment(self,
-                              operator: str,
-                              field_name: str,
-                              value: int | str | list[int] | list[str] = None) -> dict:
+    def get_operator_fragment(
+        self,
+        operator: str,
+        field_name: str,
+        value: int | str | list[int] | list[str] | datetime | None = None
+    ) -> dict[str, Any]:
         """
         Creates the operator part of a condition for a MongoDB query
 
@@ -219,13 +235,14 @@ class MongoDBQueryBuilder:
             raise MongoQueryBuilderInvalidOperatorError(f"Invalid value for operator '{operator}'") from err
         except Exception as err:
             LOGGER.error("[get_operator_fragment] Unexpected error: %s, Type: %s", err, type(err))
-            raise MongoQueryBuilderBuildRuleError(err) from err
+            raise MongoQueryBuilderBuildRuleError(str(err)) from err
 
 
     def get_value_fragment(
-            self,
-            operator: str,
-            value: int | str | list[int] | list[str] = None) -> dict | str | None:
+        self,
+        operator: str,
+        value: int | str | list[int] | list[str] | datetime | None = None
+    ) -> dict[str, Any] | str:
         """
         Creates the value part of a condition for a MongoDB query
 
@@ -240,7 +257,7 @@ class MongoDBQueryBuilder:
             dict | str | None: Value part of a condition
         """
 
-        allowed_operators = {
+        allowed_operators: dict[str, Any] = {
             "=": {"$eq": value},
             "!=": {"$ne": value},
             "<=": {"$lte": value},

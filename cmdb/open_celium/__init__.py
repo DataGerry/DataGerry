@@ -14,18 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provide all constants for the Database section
+Provides all classes for OpenCelium interaction
 """
+from cmdb.open_celium.oc_connector import OpenCeliumConnector
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# Collection storing the public_id counters
-PUBLIC_ID_COUNTER_COLLECTION = "datastorage.counter"
-
-# Minimal Update Version since Cloud-Version
-MIN_CLOUD_UPDATER_VERSION = 20240603
-
-# Retry up to x times if duplicate key occurs while creating a document in the database
-MAX_DUPLICATE_KEY_RETRIES = 10
-
-# Name of the database handling caches
-DG_CACHE_DB = "dg_caches"
+__all__: list[str] = [
+    'OpenCeliumConnector',
+]

@@ -14,39 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for Security
+Implementation of OpenCeliumManager
 """
-from .security_errors import (
-    SecurityError,
-    TokenValidationError,
-    AccessDeniedError,
-    InvalidLevelRightError,
-    MinLevelRightError,
-    MaxLevelRightError,
-    NoAccessTokenError,
-    MissingApiKeyError,
-    InvalidCloudUserError,
-    RequestTimeoutError,
-    RequestError,
-    DisallowedActionError,
-    WrongPasswordError,
-    NoValidSubscriptionError,
-)
+from logging import Logger, getLogger
+
+from cmdb.open_celium import OpenCeliumConnector
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'SecurityError',
-    'TokenValidationError',
-    'AccessDeniedError',
-    'InvalidLevelRightError',
-    'MinLevelRightError',
-    'MaxLevelRightError',
-    'NoAccessTokenError',
-    'MissingApiKeyError',
-    'InvalidCloudUserError',
-    'RequestTimeoutError',
-    'RequestError',
-    'DisallowedActionError',
-    'WrongPasswordError',
-    'NoValidSubscriptionError',
-]
+LOGGER: Logger = getLogger(__name__)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               OpenCeliumManager - CLASS                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class OpenCeliumManager:
+    """
+    Manages the API communication with OpenCelium
+    """
+
+    def __init__(self) -> None:
+        self.oc_connector: OpenCeliumConnector = OpenCeliumConnector()

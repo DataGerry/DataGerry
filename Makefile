@@ -38,7 +38,7 @@ DIR_DEB_BUILD = ${DIR_BUILD}/deb
 DIR_TARGZ_BUILD = ${DIR_BUILD}/targz
 DIR_DOCKER_BUILD = ${DIR_BUILD}/docker
 DIR_WEB_SOURCE = app
-DIR_WEB_BUILD = app/dist/datagerry-app
+DIR_WEB_BUILD = app/dist/datagerry-app/browser
 DIR_WEB_TARGET = cmdb/interface/net_app/datagerry-app
 
 # set default goal

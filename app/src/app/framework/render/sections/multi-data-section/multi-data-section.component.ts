@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { displayPassword, maskPassword, PasswordVisibilityMap, togglePasswordVisibility as toggleVis, ensureVisibilityBucket as ensureBucket, refreshItemsReference, getRawValueForFieldFromMds } from './password-cell.util';
 import { UntypedFormControl } from '@angular/forms';
 
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
@@ -69,6 +70,9 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     // All Values of the MDS-Table
     public tableMultiDataValues = [];
 
+    // Visibility map for password fields per row and field
+    private passwordVisibility: PasswordVisibilityMap = {};
+
     //Initial MultiDataSectionEntry which will track the values of the form
     formatedDataSection: MultiDataSectionEntry = {
         "section_id": "",
@@ -81,6 +85,8 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
     // Table Template: Type actions column
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
+    // Table Template: Password cell with eye icon
+    @ViewChild('passwordTemplate', { static: true }) passwordTemplate: TemplateRef<any>;
 
 
 
@@ -269,20 +275,32 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * Sets all columns of MDS-table
      */
     initTableColumns(): void {
-        for(let aField of this.fields){
-            if (this.section.fields.includes(aField.name) && !this.isHiddenField(aField.name)) {
-                let fieldColumn: Column = {
-                    display: aField.label,
-                    name: aField.name,
-                    data: aField.name,
-                    searchable: false,
-                    sortable: false,
-                    fixed: true,
-                    cssClasses: ['text-center'],
-                };
-    
-                this.multiDataColumns.push(fieldColumn);
+        for (let aSectionFieldName of this.section.fields) {
+            if (this.isHiddenField(aSectionFieldName)) {
+                continue;
             }
+
+            // Find the full field definition by name
+            const aField = this.getAllFieldsOfType().find((f: any) => f.name === aSectionFieldName);
+            if (!aField) {
+                continue;
+            }
+
+            let fieldColumn: Column = {
+                display: aField.label,
+                name: aField.name,
+                data: aField.name,
+                searchable: false,
+                sortable: false,
+                fixed: true,
+                cssClasses: ['text-center'],
+            };
+            // Use a custom template for password fields
+            if (aField.type === 'password' && this.passwordTemplate) {
+                fieldColumn.template = this.passwordTemplate;
+            }
+
+            this.multiDataColumns.push(fieldColumn);
         }
 
         // Only show the 'Actions'-column in Create- or Edit-Mode
@@ -645,6 +663,10 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 }
                 break;
             }
+            case "password": {
+                return maskPassword(newValues[fieldID]);
+            }
+ 
         }
 
         return  newValues[fieldID];
@@ -709,6 +731,26 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         return undefined;
     }
 
+
+    /**
+     * Returns the display value for a password cell depending on its visibility state
+     */
+    getPasswordDisplayValue(row: any, fieldName: string): string {
+        const rowId = row['dg-multiDataRowIndex'];
+        const visible = this.passwordVisibility[rowId]?.[fieldName] === true;
+        const rawValue = getRawValueForFieldFromMds(this.formatedDataSection, rowId, fieldName);
+        return displayPassword(rawValue, visible);
+    }
+
+    /**
+     * Toggle visibility for a password cell
+     */
+    togglePasswordVisibility(row: any, fieldName: string): void {
+        const rowId = row['dg-multiDataRowIndex'];
+        ensureBucket(this.passwordVisibility, rowId);
+        toggleVis(this.passwordVisibility, rowId, fieldName);
+        this.currentMultiDataValues = refreshItemsReference(this.currentMultiDataValues);
+    }
 
     /**
      * Retrives field information for a field with the given fieldName
