@@ -618,20 +618,49 @@ def check_user_in_service_portal(
 
             if api_key_required and x_api_key:
                 # External API → only one subscription is returned from portal
-                subscription = user_data["subscriptions"][0]
 
                 if user_exists_in_cache:
-                    cached_user_manager.update_cached_user(email, user_data)
+                    cached_user_manager.update_cached_user_api_key(
+                        email,
+                        user_data['subscriptions'][0]['database'],
+                        x_api_key
+                    )
                 else:
-                    cached_user_manager.insert_cached_user(user_data)
+                    # Only create if the database of user exists
+                    if check_db_exists(user_data['subscriptions'][0]['database']):
+                        # Since the user is using external API first retrieve all subscriptions
+                        full_user_data: dict[str, Any] = validate_subscrption_user(email, password)
 
-                # Make sure subscription in cache has the api_key assigned
-                cached_user_manager.set_subscription(email, x_api_key, subscription["database"])
+                        if full_user_data:
+                            # Set the api_key on the matching subscription
+                            target_db = user_data['subscriptions'][0]['database']
+                            for sub in full_user_data["subscriptions"]:
+                                if sub["database"] == target_db:
+                                    sub["api_key"] = x_api_key
+                                    break
 
+                            cached_user_manager.insert_cached_user(full_user_data)
             else:
                 # Frontend login → cache all subscriptions
                 if user_exists_in_cache:
-                    cached_user_manager.update_cached_user(email, user_data)
+                    cached_user = cached_user_manager.get_cached_user(email)
+
+                    if cached_user:
+                        # Build a lookup of cached api_keys by database
+                        cached_api_keys: dict[Any, Any] = {
+                            sub["database"]: sub.get("api_key")
+                            for sub in cached_user.get("subscriptions", [])
+                            if sub.get("api_key")
+                        }
+
+                        # Apply fresh subscription data, but restore api_key if it existed
+                        for sub in user_data["subscriptions"]:
+                            db_name: str = sub["database"]
+
+                            if db_name in cached_api_keys:
+                                sub["api_key"] = cached_api_keys[db_name]
+
+                        cached_user_manager.update_cached_user(email, user_data)
                 else:
                     cached_user_manager.insert_cached_user(user_data)
 

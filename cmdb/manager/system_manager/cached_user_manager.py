@@ -107,16 +107,71 @@ class CachedUserManager(GenericManager):
             upsert=True
         )
 
+
+    def update_cached_user_api_key(
+        self,
+        email: str,
+        subscription_database: str,
+        api_key: str
+    ) -> UpdateResult:
+        """
+        Sets the API key for a specific subscription of a cached user.
+
+        Args:
+            email (str): The user's email.
+            subscription_database (str): Database name of the subscription to update.
+            api_key (str): API key to set for this subscription.
+
+        Returns:
+            UpdateResult: Result of the MongoDB update operation.
+        """
+        if not api_key:
+            raise ValueError("API key must be provided")
+        if not subscription_database:
+            raise ValueError("subscription_database must be provided")
+
+        # Retrieve cached user
+        cached_user = self.dbm.find_one_by(
+            collection=CmdbCachedUser.COLLECTION,
+            db_name=self.db_name,
+            filter={"email": email}
+        )
+
+        if not cached_user:
+            raise ValueError(f"Cached user for email '{email}' does not exist")
+
+        # Update only the subscription matching subscription_database
+        updated = False
+        for sub in cached_user['subscriptions']:
+            if sub['database'] == subscription_database:
+                sub['api_key'] = api_key  # create or overwrite
+                updated = True
+                break
+
+        if not updated:
+            raise ValueError(f"Subscription '{subscription_database}' not found in cached user")
+
+        # Update TTL timestamp
+        cached_user['creation_time'] = datetime.now(timezone.utc)
+
+        # Persist back to MongoDB
+        return self.dbm.update(
+            collection=CmdbCachedUser.COLLECTION,
+            db_name=self.db_name,
+            criteria={"email": email},
+            data=cached_user,
+            upsert=False  # do not create a new document
+        )
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-    def delete_cached_user(self, mail: str) -> bool:
+    def delete_cached_user(self, email: str) -> bool:
         """
         Remove a cached user explicitly (logout)
         """
         result = self.dbm.delete(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={"mail": mail}
+            criteria={"email": email}
         )
 
         return result.deleted_count > 0
@@ -135,52 +190,6 @@ class CachedUserManager(GenericManager):
         return result.deleted_count
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-    def get_subscription(self, email: str, api_key: str | None) -> dict[str, Any] | None:
-        """
-        Retrieves a subscription with a given API-kEY
-
-        Args:
-            api_key (str): _description_
-
-        Returns:
-            dict[str, Any]: _description_
-        """
-        cached_user: dict[str, Any] | None = self.dbm.find_one_by(
-            collection=CmdbCachedUser.COLLECTION,
-            db_name=self.db_name,
-            filter={"email": email},
-            projection={"subscriptions": 1}
-        )
-
-        if not cached_user:
-            return None
-
-        return next(
-            (sub for sub in cached_user.get("subscriptions", []) if sub.get("api_key") == api_key),
-            None
-        )
-
-
-    def set_subscription(self, email: str, api_key: str, db_name: str) -> bool:
-        """
-        Updates a subscription in the subscription list with the given API-KEY
-
-        Args:
-            api_key (str | None): _description_
-
-        Returns:
-            bool: _description_
-        """
-        result = self.dbm.update(
-            collection=CmdbCachedUser.COLLECTION,
-            db_name=self.db_name,
-            criteria={"email": email, "subscriptions.database": db_name},
-            data={"subscriptions.$.api_key": api_key}
-        )
-
-        return result.modified_count > 0
-
 
     def get_validated_user_data(
         self,
@@ -210,7 +219,7 @@ class CachedUserManager(GenericManager):
         if cached_user.get('password') != password:
             return None
 
-        # If api_key if requried return the subscription with the api_key else None
+        # If api_key if required return the subscription with the api_key else None
         if api_key_required:
             # Find single subscription for given api_key
             subscription = next(

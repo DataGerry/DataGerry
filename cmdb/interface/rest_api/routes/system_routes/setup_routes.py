@@ -16,10 +16,12 @@
 """
 These routes are used to setup databases and the correspondig user in DataGerry
 """
-import logging
-from flask import request, abort
+from logging import Logger, getLogger
+from flask import request, abort, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
+
+from cmdb.manager import CachedUserManager
 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -32,7 +34,7 @@ from cmdb.interface.route_utils import (
 from cmdb.errors.database import DatabaseNotFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 setup_blueprint = APIBlueprint('setup', __name__)
 
@@ -76,3 +78,57 @@ def delete_subscription() -> Response:
     except Exception as err:
         LOGGER.error("[delete_subscription] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while deleting the subscription!")
+
+
+@setup_blueprint.route('/cache/user', methods=['DELETE'])
+@verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
+def delete_cached_user() -> Response:
+    """
+    Deletes a subscription
+
+    Hint:
+    Expects a dict with the following keys:
+    {
+        "email"(str): Email of the cached user
+    }
+    """
+    try:
+        if not request.args:
+            abort(400, "No request arguments provided!")
+
+        delete_data: dict = request.args.to_dict()
+
+        try:
+            delete_email = delete_data['email']
+        except KeyError:
+            abort(400, "Email of cached User was not provided!")
+
+        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+
+        cached_user_manager.delete_cached_user(delete_email)
+
+        return DefaultResponse(True).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        LOGGER.error("[delete_cached_user] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while deleting a cached User!")
+
+
+@setup_blueprint.route('/cache/user/all', methods=['DELETE'])
+@verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
+def delete_all_cached_users() -> Response:
+    """
+    Deletes all cached users
+    """
+    try:
+        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+
+        cached_user_manager.clear_cache()
+
+        return DefaultResponse(True).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        LOGGER.error("[delete_all_cached_users] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while deleting all cached Users!")
