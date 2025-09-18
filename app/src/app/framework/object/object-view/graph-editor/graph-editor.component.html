@@ -16,6 +16,9 @@
         <button class="control-btn" [class.active]="focusMode" (click)="toggleFocusMode()" title="Focus Mode">
           <span class="material-icons">filter_center_focus</span>
         </button>
+        <button class="control-btn" (click)="exportFullGraphAsPng()" title="Export full graph as PNG">
+          <span class="material-icons">download</span>
+        </button>
       </div>
       <div class="toggle-controls">
         <!-- Filter Toggle Button -->
@@ -174,7 +177,8 @@
       [style.--focus-x]="focusedNodeId ? getNodeById(focusedNodeId).x + 'px' : '50%'"
       [style.--focus-y]="focusedNodeId ? getNodeById(focusedNodeId).y + 'px' : '50%'"></div>
 
-    <div class="graph-canvas" [class.smooth-transition]="smoothTransitions && !isDragging && !isPanning"
+    <div class="graph-canvas"    #graphCanvas
+     [class.smooth-transition]="smoothTransitions && !isDragging && !isPanning"
       [style.transform]="'translate(' + viewportX + 'px, ' + viewportY + 'px) scale(' + zoom + ')'">
       <!--  SVG Connections Layer -->
       <svg class="connections-svg" #svgContainer>

@@ -58,6 +58,7 @@ import { ProfileManagerModalComponent } from './modals/profile-manager/profile-m
 import { GraphProfileService } from './services/graph-profile.service';
 import { ConnectionDetailsModalComponent } from './modals/connection-details/connection-details-modal.component';
 import { ConnectionTrackerService } from './services/connection-tracker.service';
+import { CiExplorerExportService } from './services/ci-explorer-export.service';
 
 @Component({
   selector: 'app-graph-editor',
@@ -75,6 +76,7 @@ import { ConnectionTrackerService } from './services/connection-tracker.service'
 export class GraphEditorComponent implements OnInit, OnDestroy {
   @ViewChild('svgContainer') svgContainer!: ElementRef;
   @ViewChild('graphContainer') graphContainer!: ElementRef;
+  @ViewChild('graphCanvas') graphCanvas!: ElementRef;       // (entire canvas)
   @Input() rootNodeId: number = null;
 
   // Filter state
@@ -181,7 +183,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     private loaderService: LoaderService,
     private profileService: GraphProfileService,
     private modalService: NgbModal,
-    private connectionTracker: ConnectionTrackerService
+    private connectionTracker: ConnectionTrackerService,
+    private exportService: CiExplorerExportService,
   ) {
     this.filterForm = this.fb?.group({
       types: [[]],
@@ -1799,5 +1802,19 @@ getArrowPosition(conn: Connection): { x: number; y: number } {
     x: toCenterX - normalX * offsetDistance,
     y: toCenterY - normalY * offsetDistance
   };
+}
+
+exportFullGraphAsPng(): void {
+  const canvas = this.graphCanvas?.nativeElement as HTMLElement;
+  if (!canvas) return;
+
+  this.exportService.exportFullCanvasToPng(canvas, {
+    fileNamePrefix: 'ci-explorer',
+    backgroundColor: '#ffffff',
+    pixelRatioMax: 3,
+    padding: 32
+  })
+  .then(() => this.showNotification('PNG export completed', 'success'))
+  .catch(err => this.showErrorNotification(err?.message || 'Export failed'));
 }
 }
