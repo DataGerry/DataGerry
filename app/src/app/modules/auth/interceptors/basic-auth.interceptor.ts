@@ -27,9 +27,16 @@ import { Token } from '../models/token';
 export class BasicAuthInterceptor implements HttpInterceptor {
 
   public intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
+        // Skip adding Authorization header for NetBox API requests (handled by proxy)
+        if (request.url.startsWith('/netbox')) {
+            // console.log('BasicAuthInterceptor: Skipping NetBox request to', request.url);
+            return next.handle(request);
+        }
+
         const currentUser = new BehaviorSubject<User>(JSON.parse(localStorage.getItem('current-user'))).value;
         const currentUserToken = new BehaviorSubject<Token>(JSON.parse(localStorage.getItem('access-token'))).value;
         if (currentUser && currentUserToken) {
+            // console.log('BasicAuthInterceptor: Adding Bearer token for request to', request.url);
             request = request.clone({
                 setHeaders: {
                     Authorization: `Bearer ${ currentUserToken.token }`,
@@ -37,6 +44,8 @@ export class BasicAuthInterceptor implements HttpInterceptor {
                     Pragma: 'no-cache'
                 }
             });
+        } else {
+            // console.log('BasicAuthInterceptor: No user token found for request to', request.url);
         }
 
         return next.handle(request);
