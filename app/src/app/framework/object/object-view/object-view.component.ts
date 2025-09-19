@@ -26,7 +26,7 @@ import {
   TemplateRef,
   ViewChild
 } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { BehaviorSubject, Subject, takeUntil, forkJoin, switchMap, map, finalize } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { ObjectService } from 'src/app/framework/services/object.service';
@@ -107,6 +107,12 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   public isLoading$ = this.loaderService.isLoading$;
 
+  // Selector for Graph header
+  public allTypeIds: number[] = [];
+  public typesLoaded: boolean = false;
+  public selectedObjectIdForSelector: number | null = null;
+  private pendingSelectedId: number | null = null;
+
   /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
   constructor(
@@ -118,7 +124,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
     private toastService: ToastService,
     private changesRef: ChangeDetectorRef,
     private modalService: NgbModal,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+    private router: Router
   ) {
     this.activateRoute.data.subscribe({
       next: (data: any) => this.objectViewSubject.next(data.object as RenderResult),
@@ -127,11 +134,20 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnInit(): void {
+    // Auto-switch to graph view when query param view=graph
+    this.activateRoute.queryParamMap
+      .pipe(takeUntil(this.unsubscribe))
+      .subscribe(params => {
+        const view = params.get('view');
+        if (view === 'graph') this.isGraphView = true;
+      });
+
     this.objectViewSubject.pipe(takeUntil(this.unsubscribe)).subscribe({
       next: (result) => {
         this.renderResult = result;
 
         this.currentObjectID = result?.object_information?.object_id;
+        this.selectedObjectIdForSelector = this.currentObjectID ?? null;
         this.activeRelationTabIndex = 0;
         if (this.currentObjectID) {
           this.loadObjectRelationInstances(this.currentObjectID);
@@ -140,6 +156,20 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
       },
       error: (e) => this.toastService.error(e?.error?.message)
     });
+
+    // Load all type IDs for object selector
+    const params = { filter: '', limit: 0, sort: 'public_id', order: 1, page: 1 } as any;
+    this.typeService.getTypes(params)
+      .pipe(takeUntil(this.unsubscribe), finalize(() => this.changesRef.markForCheck()))
+      .subscribe({
+        next: (resp: any) => {
+          this.allTypeIds = (resp?.results || []).map((t: any) => t.public_id);
+          this.typesLoaded = true;
+        },
+        error: () => {
+          this.typesLoaded = true;
+        }
+      });
   }
 
   ngAfterViewInit(): void {
@@ -851,4 +881,16 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   toggleView(showGraph: boolean): void {
     this.isGraphView = showGraph;
   }
+
+  /** Graph header selector change */
+  public onGraphHeaderObjectChange(ids: number[]): void {
+    this.pendingSelectedId = ids && ids.length ? ids[0] : null;
+  }
+
+  public openSelectedObject(): void {
+    const targetId = this.pendingSelectedId ?? this.currentObjectID;
+    if (!targetId || targetId === this.currentObjectID) return;
+    this.router.navigate([`/framework/object/view/${targetId}`], { queryParams: { view: 'graph' } });
+  }
+
 }
