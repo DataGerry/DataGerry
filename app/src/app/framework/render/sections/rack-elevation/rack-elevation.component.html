@@ -1,0 +1,21 @@
+<div *ngIf="hasRackId" class="card mt-3 mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between" style="cursor: pointer;" (click)="toggleCollapse()">
+    <div>
+      <i class="fas fa-server mr-2"></i>
+      Rack Elevation
+    </div>
+    <i class="fas" [class.fa-chevron-down]="isCollapsed" [class.fa-chevron-up]="!isCollapsed"></i>
+  </div>
+  <div class="card-body" *ngIf="!isCollapsed">
+    <div *ngIf="isLoading" class="text-center py-4">
+      <div class="spinner-border text-primary" role="status"></div>
+      <div class="mt-2">Loading rack elevation…</div>
+    </div>
+
+    <div *ngIf="hasError && !isLoading" class="alert alert-danger mb-0">
+      Failed to load rack elevation from NetBox.
+    </div>
+
+    <div *ngIf="!isLoading && !hasError" [innerHTML]="svgMarkup"></div>
+  </div>
+</div>

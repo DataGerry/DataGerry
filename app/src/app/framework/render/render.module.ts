@@ -59,6 +59,7 @@ import { DateFormatterPipe } from '../../layout/pipes/date-formatter.pipe';
 import { RefSectionSimpleComponent } from './simple/special/ref-section-simple.component';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-data-actions.component';
+import { RackElevationComponent } from './sections/rack-elevation/rack-elevation.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -106,7 +107,8 @@ import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-d
         SectionsFactoryComponent,
         DateFormatterPipe,
         RefSectionSimpleComponent,
-        MultiDataActionsComponent
+        MultiDataActionsComponent,
+        RackElevationComponent
     ],
     exports: [
         RenderElementComponent,
