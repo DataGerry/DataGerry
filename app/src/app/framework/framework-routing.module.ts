@@ -34,6 +34,15 @@ const routes: Routes = [
         component: FrameworkComponent
     },
     {
+        path: 'ci-explorer',
+        canActivate: [PermissionGuard],
+        data: {
+            breadcrumb: 'CI Explorer',
+            right: 'base.framework.ciExplorer.view'
+        },
+        loadChildren: () => import('./launchers/ci-explorer-launch.module').then(m => m.CiExplorerLaunchModule)
+    },
+    {
         path: 'object',
         canActivateChild: [PermissionGuard],
         data: {
