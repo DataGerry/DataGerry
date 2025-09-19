@@ -24,6 +24,8 @@ import {
   ViewChild,
   OnDestroy,
   ChangeDetectorRef,
+  OnChanges,
+  SimpleChanges,
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
@@ -73,7 +75,7 @@ import { CiExplorerExportService } from './services/ci-explorer-export.service';
     GraphPathService
   ]
 })
-export class GraphEditorComponent implements OnInit, OnDestroy {
+export class GraphEditorComponent implements OnInit, OnDestroy, OnChanges {
   @ViewChild('svgContainer') svgContainer!: ElementRef;
   @ViewChild('graphContainer') graphContainer!: ElementRef;
   @ViewChild('graphCanvas') graphCanvas!: ElementRef;       // (entire canvas)
@@ -207,6 +209,13 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.connectionTracker?.clear();
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
+    }
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['rootNodeId'] && !changes['rootNodeId'].firstChange) {
+      // Only reload the graph if the rootNodeId has changed and it's not the initial change
+      this.loadInitialGraph(true);
     }
   }
 
