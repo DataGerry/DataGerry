@@ -14,41 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all Provider errors
+This module contains the classes of all OpenCelium general errors
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ProviderError(Exception):
+class OpenCeliumError(Exception):
     """
-    Raised to catch all Provider related errors
+    Raised to catch all general OpenCelium related errors
     """
     def __init__(self, err: str) -> None:
         """
-        Raised to catch all Provider related errors
+        Raised to catch all general OpenCelium related errors
         """
         super().__init__(err)
 
-# ------------------------------------------------- Provider - ERRORS ------------------------------------------------ #
+# ------------------------------------------------ OpenCelium - ERRORS ----------------------------------------------- #
 
-class GroupMappingError(ProviderError):
+class AuthError(OpenCeliumError):
     """
-    Raised if a LDAP mapping was not found or failed
-    """
-
-
-class AuthenticationProviderNotActivated(ProviderError):
-    """
-    Raised if auth provider is not activated
-    """
-
-
-class AuthenticationProviderNotFoundError(ProviderError):
-    """
-    Raised if auth provider does not exist
-    """
-
-
-class AuthenticationError(ProviderError):
-    """
-    Raised when user could not be authenticated via provider
+    Raised when the authentification with OpenCelium fails
     """

@@ -14,11 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all classes for OpenCelium interaction
+All OpenCelium API blueprints
 """
-from cmdb.open_celium.oc_api_connector import OcApiConnector
+from .oc_connector_routes import oc_connectors_blueprint
+from .oc_invoker_routes import oc_invokers_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'OcApiConnector',
+    'oc_connectors_blueprint',
+    'oc_invokers_blueprint',
 ]

@@ -16,13 +16,16 @@
 """
 Implementation of SystemConfigReader
 """
+# import json
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Optional
 import threading
-from requests import Response, post, get
+from requests import Response, post, get # Session, Request
 from requests.exceptions import Timeout, RequestException
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
+
+from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -36,18 +39,18 @@ AUTH_URL = "/login"
 #     "config_item_count": config_item_count
 # }
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                              OpenCeliumConnector - CLASS                                             #
+#                                                OcApiConnector - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-class OpenCeliumConnector:
+class OcApiConnector:
     """
     Handles the OpenCelium connection
     """
-    _instance: "OpenCeliumConnector" | None = None
+    _instance: Optional["OcApiConnector"] = None
 
     _initialized = False
     _lock = threading.Lock()
 
-    def __new__(cls) -> "OpenCeliumConnector":
+    def __new__(cls) -> "OcApiConnector":
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:  # double-checked locking
@@ -65,7 +68,7 @@ class OpenCeliumConnector:
             self.email = scr.get_value("email", "OpenCelium")
             self.user = scr.get_value("user", "OpenCelium")
             self.password = scr.get_value("password", "OpenCelium")
-            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}"
+            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
             self.jwt_token: str = None
             self._initialized = True
 
@@ -107,11 +110,26 @@ class OpenCeliumConnector:
             if not self.token_is_set and with_auth:
                 self.authenticate()
 
+            # session = Session()
+
+            # req = Request(
+            #     "POST",
+            #     self.build_url(endpoint),
+            #     headers=self.get_headers(with_auth),
+            #     json=payload
+            # )
+
+            # prepped = session.prepare_request(req)
+
+            # prepped.headers.pop("Content-Length", None)
+
+            # response = session.send(prepped, timeout=5)
+
             response: Response = post(
                 self.build_url(endpoint),
                 headers=self.get_headers(with_auth),
                 json=payload,
-                timeout=3
+                timeout=5
             )
 
             return response
@@ -131,10 +149,15 @@ class OpenCeliumConnector:
         TODO: document
         """
         try:
-            if not self.token_is_set:
+            if not self.token_is_set():
                 self.authenticate()
 
-            response: Response = get(self.build_url(endpoint), headers=self.get_headers(), timeout=3)
+            response: Response = get(self.build_url(endpoint), headers=self.get_headers(), timeout=5)
+
+            # LOGGER.debug(f"[Response] response: {response}")
+            # LOGGER.debug(f"[Response] status_code: {response.status_code}")
+            # LOGGER.debug(f"[Response] headers: {response.headers}")
+            # LOGGER.debug(f"[Response] body: {response.text}")
 
             return response
         except Timeout as err:
@@ -155,14 +178,27 @@ class OpenCeliumConnector:
         """
         payload: dict[str, str] = {
             "email": self.get_email(),
-            "password": self.get_password()
+            "password": self.get_password(),
         }
 
+        # LOGGER.debug(f"{self.show_info()}")
         response: Response = self.oc_post(payload, AUTH_URL, False)
-        # LOGGER.debug(f"authenticate response: {response}")
-        # LOGGER.debug(f"authenticate response headers: {response}")
-        # LOGGER.debug(f"authenticate response headers: {response}")
-        #TODO: Set the jwt_token from the response
+
+        # LOGGER.debug(f"[Request] method: {response.request.method}")
+        # LOGGER.debug(f"[Request] url: {response.request.url}")
+        # LOGGER.debug(f"[Request] headers: {response.request.headers}")
+        # LOGGER.debug(f"[Request] payload: {response.request.body}\n\n")
+
+        # LOGGER.debug(f"[Response] response: {response}")
+        # LOGGER.debug(f"[Response] status_code: {response.status_code}")
+        # LOGGER.debug(f"[Response] headers: {response.headers}")
+        # LOGGER.debug(f"[Response] body: {response.text}")
+        # LOGGER.debug(f"[Response] headers: {response.headers['Authorization']}")
+
+        if response.status_code == 200:
+            self.jwt_token = response.headers['Authorization']
+        else:
+            raise AuthError("Authentication on OpenCelium failed!")
 
 
     def get_headers(self, with_auth: bool = True) -> dict[str, Any]:
@@ -191,3 +227,19 @@ class OpenCeliumConnector:
         TODO: document
         """
         return bool(self.get_jwt_token())
+
+
+    def show_info(self) -> dict[str, Any]:
+        """
+        TODO: document
+        """
+        return {
+            "host": self.host,
+            "port": self.port,
+            "protocol": self.protocol,
+            "email": self.email,
+            "user": self.user,
+            "password": self.password,
+            "base_url": self.base_url,
+            "jwt_token": self.jwt_token,
+        }
