@@ -14,22 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of OpenCeliumManager
+This module contains the classes of all OpenCelium Invoker errors
 """
-from logging import Logger, getLogger
-
-from cmdb.open_celium import OpenCeliumConnector
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               OpenCeliumManager - CLASS                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-class OpenCeliumManager:
+class OcInvokerError(Exception):
     """
-    Manages the API communication with OpenCelium
+    Raised to catch all OcInvoker related errors
     """
+    def __init__(self, err: str) -> None:
+        """
+        Raised to catch all OcInvoker related errors
+        """
+        super().__init__(err)
 
-    def __init__(self) -> None:
-        self.oc_connector: OpenCeliumConnector = OpenCeliumConnector()
+# ------------------------------------------------ OcInvoker - ERRORS ------------------------------------------------ #
+
+class OcInvokerGetError(OcInvokerError):
+    """
+    Raised when failing to retrieve OcInvokers
+    """

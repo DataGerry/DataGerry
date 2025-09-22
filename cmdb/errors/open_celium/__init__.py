@@ -14,11 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all classes for OpenCelium interaction
+This module provides all general errors for OpenCelium
 """
-from cmdb.open_celium.oc_api_connector import OcApiConnector
+from .open_celium_errors import (
+    OpenCeliumError,
+    AuthError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'OcApiConnector',
+    'OpenCeliumError',
+    'AuthError',
 ]

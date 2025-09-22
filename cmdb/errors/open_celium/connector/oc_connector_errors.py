@@ -14,41 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all Provider errors
+This module contains the classes of all OpenCelium Connector errors
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ProviderError(Exception):
+class OcConnectorError(Exception):
     """
-    Raised to catch all Provider related errors
+    Raised to catch all OcConnector related errors
     """
     def __init__(self, err: str) -> None:
         """
-        Raised to catch all Provider related errors
+        Raised to catch all OcConnector related errors
         """
         super().__init__(err)
 
-# ------------------------------------------------- Provider - ERRORS ------------------------------------------------ #
+# --------------------------------------------- OcConnectorError - ERRORS -------------------------------------------- #
 
-class GroupMappingError(ProviderError):
+class OcConnectorCreateError(OcConnectorError):
     """
-    Raised if a LDAP mapping was not found or failed
-    """
-
-
-class AuthenticationProviderNotActivated(ProviderError):
-    """
-    Raised if auth provider is not activated
+    Raised when failing to create an OcConnector
     """
 
 
-class AuthenticationProviderNotFoundError(ProviderError):
+class OcConnectorGetError(OcConnectorError):
     """
-    Raised if auth provider does not exist
-    """
-
-
-class AuthenticationError(ProviderError):
-    """
-    Raised when user could not be authenticated via provider
+    Raised when failing to retrieve OcConnectors
     """
