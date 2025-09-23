@@ -19,9 +19,8 @@ All API routes for OpenCelium connectors
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort#, request
+from flask import abort
 from werkzeug import Response
-# from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcConnectorManager
 
@@ -34,6 +33,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.errors.open_celium.connector import (
     OcConnectorCreateError,
     OcConnectorGetError,
+    OcConnectorUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -50,9 +50,10 @@ oc_connectors_blueprint = APIBlueprint('oc_connectors', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 def create_oc_connector(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `POST` route to create an OcConnector into the database
+    POST route to create an OcConnector in OpenCelium
 
     Args:
+        params (dict[str, Any]): the data of the new OcConnector
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -68,7 +69,58 @@ def create_oc_connector(params: dict[str, Any], request_user: CmdbUser) -> Respo
         LOGGER.error("[create_oc_connector] OcConnectorCreateError: %s", err, exc_info=True)
         abort(400, "Failed to create an OpenCelium Connector!")
 
+
+@oc_connectors_blueprint.route('/connectors/check', methods=['POST'])
+@handle_oc_errors("checking the credentials of the OpenCelium Connector!")
+@oc_connectors_blueprint.parse_request_parameters()
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def check_oc_connector(params: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    POST route validate credentials of the Invoker of the Connector
+
+    Args:
+        params (dict[str, Any]): the data of the new OcConnector
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The created OcConnector
+    """
+    oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+    check_oc_connector_response: dict[str, Any] = oc_connector_manager.check_connector(params)
+
+    return DefaultResponse(check_oc_connector_response).make_response()
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
+@oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving the OpenCelium Connector!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
+    """
+    GET/HEAD route to retrive a OcConnector with the given connector_id
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        connector_id (int): connectorId of the OcConnector
+
+    Returns:
+        dict[str, Any]: The OcConnector from OpenCelium
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        connector: dict[str, Any] = oc_connector_manager.get_connector(connector_id)
+
+        # LOGGER.debug(f"connector: {connector}")
+
+        return DefaultResponse(connector).make_response()
+    except OcConnectorGetError as err:
+        LOGGER.error("[get_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
+        abort(500, f"Failed to retrieve OpenCelium Connector with ID:{connector_id}!")
+
 
 @oc_connectors_blueprint.route('/connectors', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Connectors!")
@@ -76,7 +128,7 @@ def create_oc_connector(params: dict[str, Any], request_user: CmdbUser) -> Respo
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 def get_all_oc_connectors(request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for getting multiple OcConnectors
+    **GET**/**HEAD** route for getting multiple OcConnectors
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -93,5 +145,61 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
 
         return DefaultResponse(connectors).make_response()
     except OcConnectorGetError as err:
-        LOGGER.error("[get_all_oc_connectors] OcConnectorGetError: %s.", err, exc_info=True)
+        LOGGER.error("[get_all_oc_connectors] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Connectors!")
+
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
+@oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['PUT'])
+@handle_oc_errors("updating an OpenCelium Connector!")
+@oc_connectors_blueprint.parse_request_parameters()
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def update_oc_connector(params: dict[str, Any], request_user: CmdbUser, connector_id: int) -> Response:
+    """
+    **PUT** route to update an OcConnector
+
+    Args:
+        params (dict[str, Any]): new data of the OcConnector
+        request_user (CmdbUser): User requesting this data
+        connector_id (int): the connectorId of the OcConnector
+
+    Returns:
+        dict[str, Any]: The updated OcConnector
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        updated_oc_connector_response: dict[str, Any] = oc_connector_manager.update_connector(params, connector_id)
+
+        return DefaultResponse(updated_oc_connector_response).make_response()
+    except OcConnectorUpdateError as err:
+        LOGGER.error("[update_oc_connector] %s: %s", type(err), err, exc_info=True)
+        abort(400, f"Failed to update the OpenCelium Connector with ID: {connector_id}!")
+
+# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
+
+@oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['DELETE'])
+@handle_oc_errors("deleting the OpenCelium Connector!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
+    """
+    HTTP `DELETE` route to delete an OcConnector
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        connector_id (int): the connectorId of the OcConnector
+
+    Returns:
+        bool: True if deletion was a success else False
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        delete_oc_connector_response: bool = oc_connector_manager.delete_connector(connector_id)
+
+        return DefaultResponse(delete_oc_connector_response).make_response()
+    except OcConnectorUpdateError as err:
+        LOGGER.error("[delete_oc_connector] %s: %s", type(err), err, exc_info=True)
+        abort(400, f"Failed to delete the OpenCelium Connector with ID: {connector_id}!")

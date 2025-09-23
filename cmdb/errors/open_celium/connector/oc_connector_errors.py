@@ -40,3 +40,9 @@ class OcConnectorGetError(OcConnectorError):
     """
     Raised when failing to retrieve OcConnectors
     """
+
+
+class OcConnectorUpdateError(OcConnectorError):
+    """
+    Raised when failing to update an OcConnector
+    """

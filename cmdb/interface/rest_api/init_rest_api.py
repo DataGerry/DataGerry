@@ -276,7 +276,7 @@ def register_blueprints(app: BaseCmdbApp):
     # LOGGER.debug(f"routes: {app.url_map}")
 
 
-def register_error_pages(app: BaseCmdbApp):
+def register_error_pages(app: BaseCmdbApp) -> None:
     """
     Registers error handlers for the app
 
