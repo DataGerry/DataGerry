@@ -14,19 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all general errors for OpenCelium Connectors
+Provides all constants for OpenCelium interaction
 """
-from .oc_connector_errors import (
-    OcConnectorError,
-    OcConnectorCreateError,
-    OcConnectorGetError,
-    OcConnectorUpdateError,
-)
-# -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'OcConnectorError',
-    'OcConnectorCreateError',
-    'OcConnectorGetError',
-    'OcConnectorUpdateError',
-]
+OC_REQUEST_TIMEOUT: int = 10

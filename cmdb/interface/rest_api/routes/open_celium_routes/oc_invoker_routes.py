@@ -19,9 +19,7 @@ All API routes for OpenCelium invokers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort#, request
-from werkzeug import Response
-# from werkzeug.exceptions import HTTPException
+from flask import abort
 
 from cmdb.manager import OcInvokerManager
 
@@ -48,9 +46,9 @@ oc_invokers_blueprint = APIBlueprint('oc_invokers', __name__)
 @handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_all_oc_invokers(request_user: CmdbUser) -> Response:
+def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
     """
-    HTTP `GET`/`HEAD` route for getting multiple OcInvokers
+    **GET**/**HEAD** route for getting multiple OcInvokers
 
     Args:
         request_user (CmdbUser): User requesting this data
