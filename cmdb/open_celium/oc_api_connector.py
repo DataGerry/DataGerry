@@ -277,24 +277,6 @@ class OcApiConnector:
             raise AuthError("Authentication in OpenCelium failed!")
 
 
-    def is_valid_response(self, response: Response) -> bool:
-        """
-        Determine whether the OpenCelium response indicates success.
-
-        A response is considered valid if its HTTP status code is in the
-        range 200–299 (inclusive). Any status code outside this range is
-        treated as invalid.
-
-        Args:
-            Response: A response from OpenCelium
-
-        Returns:
-            bool: True if the response status code is between 200 and 299,
-                False otherwise.
-        """
-        return response.status_code >= 200 and response.status_code < 300
-
-
     def get_headers(self, with_auth: bool = True) -> dict[str, Any]:
         """
         Sets the headers for requests towards OpenCelium

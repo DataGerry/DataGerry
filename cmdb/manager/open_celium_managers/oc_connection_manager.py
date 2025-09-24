@@ -14,29 +14,28 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all OpenCelium general errors
+Implementation of OpenCelium ConnectionManager
 """
+import json
+from logging import Logger, getLogger
+from typing import Any
+
+from requests import Response
+
+from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
+
+from cmdb.open_celium import OcApiConnector
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OpenCeliumError(Exception):
-    """
-    Raised to catch all general OpenCelium related errors
-    """
-    def __init__(self, err: str) -> None:
-        """
-        Raised to catch all general OpenCelium related errors
-        """
-        super().__init__(err)
+LOGGER: Logger = getLogger(__name__)
 
-# ------------------------------------------------ OpenCelium - ERRORS ----------------------------------------------- #
+CONNECTOR_URL: str = "/connector"
 
-class AuthError(OpenCeliumError):
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              OcConnectionManager - CLASS                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class OcConnectionManager(OcBaseManager):
     """
-    Raised when the authentification with OpenCelium fails
-    """
-
-
-class OcGetError(OpenCeliumError):
-    """
-    Raised when a GET request fails with OpenCelium
+    Manages Connections of OpenCelium
     """

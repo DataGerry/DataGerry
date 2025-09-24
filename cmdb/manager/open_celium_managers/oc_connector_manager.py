@@ -22,7 +22,7 @@ from typing import Any
 
 from requests import Response
 
-from cmdb.open_celium import OcApiConnector
+from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
 from cmdb.errors.open_celium.connector import OcConnectorCreateError, OcConnectorGetError, OcConnectorUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,17 +31,15 @@ LOGGER: Logger = getLogger(__name__)
 
 CONNECTOR_URL: str = "/connector"
 CHECK_CONNECTOR_URL: str = f"{CONNECTOR_URL}/check"
-GET_ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
+ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectorManager - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-class OcConnectorManager:
+class OcConnectorManager(OcBaseManager):
     """
     Manages Connectors of OpenCelium
     """
-    def __init__(self) -> None:
-        self.oc_connector: OcApiConnector = OcApiConnector()
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -60,7 +58,7 @@ class OcConnectorManager:
         """
         create_connector_response: Response = self.oc_connector.oc_post(params, CONNECTOR_URL)
 
-        if self.oc_connector.is_valid_response(create_connector_response):
+        if self.is_valid_response(create_connector_response):
             return json.loads(create_connector_response.text)
 
         raise OcConnectorCreateError("Failed to create the Connector in OpenCelium!")
@@ -78,7 +76,7 @@ class OcConnectorManager:
         """
         check_connector_response: Response = self.oc_connector.oc_post(params, CHECK_CONNECTOR_URL)
 
-        if self.oc_connector.is_valid_response(check_connector_response):
+        if self.is_valid_response(check_connector_response):
             return True
 
         return False
@@ -104,7 +102,7 @@ class OcConnectorManager:
 
         target_connector: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}")
 
-        if self.oc_connector.is_valid_response(target_connector):
+        if self.is_valid_response(target_connector):
             return json.loads(target_connector.text)
 
         raise OcConnectorGetError(f"Failed to retrieve OpenCelium Connector with ID: {connector_id}")
@@ -120,9 +118,9 @@ class OcConnectorManager:
         Returns:
             list[dict[str, Any]]: All Connectors from OpenCelium
         """
-        all_connectors_response: Response = self.oc_connector.oc_get(GET_ALL_CONNECTORS_URL)
+        all_connectors_response: Response = self.oc_connector.oc_get(ALL_CONNECTORS_URL)
 
-        if self.oc_connector.is_valid_response(all_connectors_response):
+        if self.is_valid_response(all_connectors_response):
             return json.loads(all_connectors_response.text)
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
@@ -145,7 +143,7 @@ class OcConnectorManager:
         """
         updated_connector_response: Response = self.oc_connector.oc_put(params, f"{CONNECTOR_URL}/{connector_id}")
 
-        if self.oc_connector.is_valid_response(updated_connector_response):
+        if self.is_valid_response(updated_connector_response):
             return json.loads(updated_connector_response.text)
 
         raise OcConnectorUpdateError(f"Failed to update Connector with ID:{connector_id} in OpenCelium!")
@@ -164,7 +162,7 @@ class OcConnectorManager:
         """
         delete_connector_response: Response = self.oc_connector.oc_delete(f"{CONNECTOR_URL}/{connector_id}")
 
-        if self.oc_connector.is_valid_response(delete_connector_response):
+        if self.is_valid_response(delete_connector_response):
             return True
 
         return False
