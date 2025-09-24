@@ -95,15 +95,15 @@ class OcConnectorManager(OcBaseManager):
             OcConnectorGetError: When the OcConnector could not be retrieved
 
         Returns:
-            dict[str, Any]: _description_The retrieved OcConnector
+            dict[str, Any]: The retrieved OcConnector
         """
         if not connector_id:
-            raise OcConnectorGetError("No connectorId provided!")
+            raise OcConnectorGetError("No connectorId for Connector provided!")
 
-        target_connector: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}")
+        target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}")
 
-        if self.is_valid_response(target_connector):
-            return json.loads(target_connector.text)
+        if self.is_valid_response(target_connector_response):
+            return json.loads(target_connector_response.text)
 
         raise OcConnectorGetError(f"Failed to retrieve OpenCelium Connector with ID: {connector_id}")
 

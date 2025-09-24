@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All API routes for OpenCelium invokers
+All API routes for OpenCelium Invokers
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -37,8 +37,6 @@ from cmdb.errors.open_celium.invoker import (
 LOGGER: Logger = getLogger(__name__)
 
 oc_invokers_blueprint = APIBlueprint('oc_invokers', __name__)
-
-# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -68,3 +66,31 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
     except OcInvokerGetError as err:
         LOGGER.error("[get_all_oc_invokers] OcInvokerGetError: %s.", err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Invokers!")
+
+
+@oc_invokers_blueprint.route('/invokers/<string:name>', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving OpenCelium Invokers!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, Any]]:
+    """
+    **GET**/**HEAD** route to retrieve an Invoker by name
+
+    Args:
+        name (str): name of the Invoker
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The Invoker with the given name
+    """
+    try:
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager()
+
+        invoker: dict[str, Any] = oc_invoker_manager.get_invoker_by_name(name)
+
+        # LOGGER.debug(f"all invoker: {invoker}")
+
+        return DefaultResponse(invoker).make_response()
+    except OcInvokerGetError as err:
+        LOGGER.error("[get_all_oc_invokers] OcInvokerGetError: %s.", err, exc_info=True)
+        abort(500, f"Failed to retrieve OpenCelium Invoker with name: {name}!")

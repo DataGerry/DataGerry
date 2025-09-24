@@ -42,6 +42,31 @@ class OcInvokerManager(OcBaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
+    def get_invoker_by_name(self, name: str) -> dict[str, Any]:
+        """
+        Retrieves a single Invoker from OpenCelium
+
+        Args:
+            name (str): name of the Invoker
+
+        Raises:
+            OcInvokerGetError: When the name was not provided to this method
+            OcInvokerGetError: When  retrieving the Invoker failed
+
+        Returns:
+            dict[str, Any]: The retrieved OcConnector
+        """
+        if not name:
+            raise OcInvokerGetError("No name for Invoker provided!")
+
+        target_invoker_response: Response = self.oc_connector.oc_get(f"{INVOKER_URL}/{name}")
+
+        if self.is_valid_response(target_invoker_response):
+            return json.loads(target_invoker_response.text)
+
+        raise OcInvokerGetError(f"Failed to retrieve OpenCelium Invoker with name: {name}")
+
+
     def get_all_invokers(self) -> list[dict[str, Any]]:
         """
         Retrieves all Invokers from OpenCelium
