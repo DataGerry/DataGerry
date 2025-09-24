@@ -90,15 +90,12 @@ export class NetboxService {
         
         // For cloud mode, we need to handle authentication directly since proxy might not be working
         let headers = new HttpHeaders();
-        if (environment.cloudMode) {
           if (!this.apiToken) {
             throw new Error('NetBox API token is not available');
           }
           headers = headers.set('Authorization', `Token ${this.apiToken}`);
           // console.log('Adding Authorization header for cloud mode');
-        } else {
-          // console.log('Proxy should handle authentication in development mode');
-        }
+
 
         return this.http.get(url, { 
           headers: headers,
