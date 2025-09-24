@@ -51,7 +51,6 @@ export class RackElevationComponent implements OnInit, OnDestroy {
         .pipe(takeUntil(this.destroy$))
         .subscribe({
           next: (raw) => {
-            console.log('Raw SVG received from NetBox:', raw);
             // Ensure links open in a new tab and convert relative xlink hrefs to absolute demo.netbox.dev URLs
             let withTargets = raw.replaceAll('<a ', '<a target="_blank" ');
             withTargets = withTargets.replaceAll('xlink:href="/dcim/', 'xlink:href="https://demo.netbox.dev/dcim/');
@@ -93,6 +92,7 @@ export class RackElevationComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.netbox?.clearApiToken();
     this.destroy$.next();
     this.destroy$.complete();
   }
