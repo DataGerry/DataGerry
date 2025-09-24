@@ -21,12 +21,9 @@ import {NestedTreeControl} from '@angular/cdk/tree';
 /* -------------------------------------------------------------------------- */
 /*                                 INTERFACES                                 */
 /* -------------------------------------------------------------------------- */
-interface LocationNode {
-  name: string;
-  icon: string;
-  parent: number;
+interface TreeNode {
   object_id: number;
-  children?: LocationNode[];
+  children?: TreeNode[];
 }
 /* -------------------------------------------------------------------------- */
 
@@ -46,9 +43,9 @@ export class TreeManagerService {
     /**
      * Extracts all object_ids of expandedNodes which are expanded 
      * 
-     * @param expandedNodes (LocationsNode[]): Expanded nodes from tree control
+     * @param expandedNodes (TreeNode[]): Expanded nodes from tree control
      */
-    public extractExpandedIds(expandedNodes: LocationNode[]){
+    public extractExpandedIds(expandedNodes: TreeNode[]){
       let expandedIds: number[] = [];
 
       for(let node of expandedNodes){
@@ -61,10 +58,10 @@ export class TreeManagerService {
     /**
      * Expands all previously expanded nodes
      * 
-     * @param treeData (LocationNode[]): The current tree data nodes 
-     * @param treeControl (NestedTreeControl<LocationNode>): Control of the tree
+     * @param treeData (TreeNode[]): The current tree data nodes 
+     * @param treeControl (NestedTreeControl<TreeNode>): Control of the tree
      */
-    public expandNodes(treeData: LocationNode[], treeControl:  NestedTreeControl<LocationNode>){
+    public expandNodes(treeData: TreeNode[], treeControl:  NestedTreeControl<TreeNode>){
 
       for (var node of treeData){
         for(var expandedID of this.expandedIds){
