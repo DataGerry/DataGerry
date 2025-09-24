@@ -100,7 +100,7 @@ def check_oc_connector(params: dict[str, Any], request_user: CmdbUser) -> Respon
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     """
-    GET/HEAD route to retrive a OcConnector with the given connector_id
+    GET/HEAD route to retrive an OcConnector with the given connector_id
 
     Args:
         request_user (CmdbUser): User requesting this data

@@ -14,47 +14,47 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of OpenCelium InvokerManager
+Implementation of OpenCelium BaseManager
 """
 import json
 from logging import Logger, getLogger
 from typing import Any
-
 from requests import Response
 
-from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
+from cmdb.open_celium import OcApiConnector
 
-from cmdb.errors.open_celium.invoker import OcInvokerGetError
+from cmdb.errors.open_celium import OcGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-INVOKER_URL: str = "/invoker"
-ALL_INVOKERS_URL: str = f"{INVOKER_URL}/all"
+ALL_TEMPLATES_URL: str = "/template/all"
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               OcInvokerManager - CLASS                                               #
+#                                                 OcBaseManager - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-class OcInvokerManager(OcBaseManager):
+class OcBaseManager:
     """
-    Manages Invokers of OpenCelium
+    Manages Automations of OpenCelium
     """
+    def __init__(self) -> None:
+        self.oc_connector: OcApiConnector = OcApiConnector()
 
-# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+# ------------------------------------------------------ HELPER ------------------------------------------------------ #
 
-    def get_all_invokers(self) -> list[dict[str, Any]]:
+    def is_valid_response(self, response: Response) -> bool:
         """
-        Retrieves all Invokers from OpenCelium
+        Determine whether the OpenCelium response indicates success.
 
-        Raises:
-            OcInvokerGetError: When retrieving the Invokers fails
+        A response is considered valid if its HTTP status code is in the
+        range 200-299 (inclusive). Any status code outside this range is
+        treated as invalid.
+
+        Args:
+            Response: A response from OpenCelium
 
         Returns:
-            list[dict[str, Any]]: All Invokers from OpenCelium
+            bool: True if the response status code is between 200 and 299,
+                False otherwise.
         """
-        all_invokers_response: Response = self.oc_connector.oc_get(ALL_INVOKERS_URL)
-
-        if self.is_valid_response(all_invokers_response):
-            return json.loads(all_invokers_response.text)
-
-        raise OcInvokerGetError("Failed to retrieve Invokers from OpenCelium!")
+        return response.status_code >= 200 and response.status_code < 300

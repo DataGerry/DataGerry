@@ -62,8 +62,10 @@ from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentMana
 from cmdb.manager.isms_manager.control_measure_assignment_manager import ControlMeasureAssignmentManager
 
 # OpenCelium Managers
+from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 from cmdb.manager.open_celium_managers.oc_connector_manager import OcConnectorManager
 from cmdb.manager.open_celium_managers.oc_invoker_manager import OcInvokerManager
+from cmdb.manager.open_celium_managers.oc_template_manager import OcTemplateManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -107,6 +109,8 @@ __all__: list[str] = [
     'RiskAssessmentManager',
     'ControlMeasureAssignmentManager',
     'CachedUserManager',
+    'OcBaseManager',
     'OcConnectorManager',
     'OcInvokerManager',
+    'OcTemplateManager',
 ]

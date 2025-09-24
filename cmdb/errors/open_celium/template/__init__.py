@@ -14,29 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all OpenCelium general errors
+This module provides all errors for OpenCelium Templates
 """
+from .oc_template_errors import (
+    OcTemplateError,
+    OcTemplateGetError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OpenCeliumError(Exception):
-    """
-    Raised to catch all general OpenCelium related errors
-    """
-    def __init__(self, err: str) -> None:
-        """
-        Raised to catch all general OpenCelium related errors
-        """
-        super().__init__(err)
-
-# ------------------------------------------------ OpenCelium - ERRORS ----------------------------------------------- #
-
-class AuthError(OpenCeliumError):
-    """
-    Raised when the authentification with OpenCelium fails
-    """
-
-
-class OcGetError(OpenCeliumError):
-    """
-    Raised when a GET request fails with OpenCelium
-    """
+__all__: list[str] = [
+    'OcTemplateError',
+    'OcTemplateGetError',
+]
