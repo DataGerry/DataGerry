@@ -57,7 +57,7 @@ class OcTemplateManager(OcBaseManager):
             dict[str, Any]: The data of the OcTemplate with the given template_id
         """
         if not template_id:
-            raise OcTemplateGetError("No templateId provided!")
+            raise OcTemplateGetError("No templateId for Template provided!")
 
         target_template_response: Response = self.oc_connector.oc_get(f"{TEMPLATE_URL}/{template_id}")
 
