@@ -51,6 +51,7 @@ export class RackElevationComponent implements OnInit, OnDestroy {
         .pipe(takeUntil(this.destroy$))
         .subscribe({
           next: (raw) => {
+            console.log('Raw SVG received from NetBox:', raw);
             // Ensure links open in a new tab and convert relative xlink hrefs to absolute demo.netbox.dev URLs
             let withTargets = raw.replaceAll('<a ', '<a target="_blank" ');
             withTargets = withTargets.replaceAll('xlink:href="/dcim/', 'xlink:href="https://demo.netbox.dev/dcim/');
@@ -69,25 +70,21 @@ export class RackElevationComponent implements OnInit, OnDestroy {
     const targetFieldName = 'text-e303f08b-e4f3-4a59-a3c5-af2fe6dfbddc';
     
     if (!this.renderResult || !this.renderResult.fields) {
-      console.warn('No render result or fields available, not showing rack elevation');
       return null;
     }
 
     const targetField = this.renderResult.fields.find(field => field.name === targetFieldName);
     
     if (!targetField || !targetField.value) {
-      console.warn(`Field '${targetFieldName}' not found or has no value, not showing rack elevation`);
       return null;
     }
 
     // Convert the value to a number
     const rackId = Number(targetField.value);
     if (isNaN(rackId)) {
-      console.warn(`Field value '${targetField.value}' is not a valid number, not showing rack elevation`);
       return null;
     }
 
-    console.log(`Using rack ID from field '${targetFieldName}': ${rackId}`);
     return rackId;
   }
 

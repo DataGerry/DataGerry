@@ -111,3 +111,81 @@ mat-tree-node {
     margin-right: 10px;
     min-width: 90%;
 }
+
+/* Duplicate node styling */
+.duplicate-node {
+    border: 2px dotted #ff4444 !important;
+    border-radius: 4px;
+    margin: 2px 0;
+    background-color: rgba(255, 68, 68, 0.05);
+}
+
+.duplicate-indicator {
+    color: #ff4444;
+    font-size: 14px;
+    margin-left: 5px;
+    vertical-align: middle;
+}
+
+/* Loading spinner styling */
+.fa-spinner.fa-spin {
+    animation: fa-spin 1s infinite linear;
+    color: #666;
+}
+
+@keyframes fa-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Disabled button styling for duplicates and loading */
+.mat-mdc-icon-button[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed !important;
+}
+
+/* No children message styling */
+.no-children-message {
+    padding-left: 40px;
+    color: #666;
+    font-style: italic;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+/* Ensure proper alignment for nested nodes */
+.child_locations {
+    position: relative;
+}
+
+/* Style for nodes that are loading */
+.location_element.loading {
+    opacity: 0.7;
+}
+
+/* Hover effect for non-duplicate nodes */
+.location_element:not(.duplicate-node):hover {
+    background-color: $dg-hover-background-color;
+}
+
+/* Ensure duplicate nodes are visually distinct even when selected */
+.duplicate-node.location-selected {
+    background-color: rgba(255, 68, 68, 0.1);
+    border: 2px dotted #ff4444 !important;
+}
+
+/* Duplicate warning message styling */
+.duplicate-warning {
+    color: #ff4444;
+    font-size: 12px;
+    margin-left: 5px;
+    font-weight: bold;
+    background-color: rgba(255, 68, 68, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid #ff4444;
+}
