@@ -20,6 +20,7 @@ from .oc_connector_routes import oc_connectors_blueprint
 from .oc_invoker_routes import oc_invokers_blueprint
 from .oc_template_routes import oc_templates_blueprint
 from .oc_connection_routes import oc_connections_blueprint
+from .oc_scheduler_routes import oc_schedulers_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -27,4 +28,5 @@ __all__: list[str] = [
     'oc_invokers_blueprint',
     'oc_templates_blueprint',
     'oc_connections_blueprint',
+    'oc_schedulers_blueprint',
 ]
