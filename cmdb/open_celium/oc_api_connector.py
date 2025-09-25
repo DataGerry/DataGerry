@@ -95,7 +95,7 @@ class OcApiConnector:
         return self.base_url
 
 
-    def get_jwt_token(self) -> str:
+    def get_jwt_token(self) -> Optional[str]:
         """
         Returns:
             str: Jwt Token of OpenCelium
@@ -121,8 +121,10 @@ class OcApiConnector:
         Returns:
             Response: The POST response from OpenCelium
         """
+        # LOGGER.debug("[check_connector] called")
         try:
-            if not self.token_is_set and with_auth:
+            if not self.token_is_set() and with_auth:
+                LOGGER.debug("[need auth]")
                 self.authenticate()
 
             response: Response = post(
@@ -131,6 +133,12 @@ class OcApiConnector:
                 json=payload,
                 timeout=OC_REQUEST_TIMEOUT
             )
+
+            # LOGGER.debug("\n\n")
+            # LOGGER.debug(f"[Request] method: {response.request.method}")
+            # LOGGER.debug(f"[Request] url: {response.request.url}")
+            # LOGGER.debug(f"[Request] headers: {response.request.headers}")
+            # LOGGER.debug(f"[Request] payload: {response.request.body}\n\n")
 
             return response
         except (Timeout, RequestException) as err:
@@ -253,6 +261,7 @@ class OcApiConnector:
         Raises:
             AuthError: When authentication failed
         """
+        LOGGER.debug("[authenticate] called")
         payload: dict[str, str] = {
             "email": self.get_email(),
             "password": self.get_password(),

@@ -19,7 +19,7 @@ All API routes for OpenCelium Connections
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
+from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager import OcConnectionManager
@@ -45,10 +45,9 @@ oc_connections_blueprint = APIBlueprint('oc_connections', __name__)
 
 @oc_connections_blueprint.route('/connections', methods=['POST'])
 @handle_oc_errors("creating an OpenCelium Connection!")
-@oc_connections_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def create_oc_connection(params: dict[str, Any], request_user: CmdbUser) -> Response:
+def create_oc_connection(request_user: CmdbUser) -> Response:
     """
     **POST** route to create an OcConnection in OpenCelium
 
@@ -61,6 +60,8 @@ def create_oc_connection(params: dict[str, Any], request_user: CmdbUser) -> Resp
     """
     try:
         oc_connection_manager: OcConnectionManager = OcConnectionManager()
+
+        params: dict[str, Any] = request.json
 
         create_oc_connection_response: dict[str, Any] = oc_connection_manager.create_connection(params)
 
@@ -102,10 +103,9 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['PUT'])
 @handle_oc_errors("updating an OpenCelium Connection!")
-@oc_connections_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def update_oc_connection(params: dict[str, Any], request_user: CmdbUser, connection_id: int) -> Response:
+def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     **PUT** route to update an OcConnection
 
@@ -119,6 +119,8 @@ def update_oc_connection(params: dict[str, Any], request_user: CmdbUser, connect
     """
     try:
         oc_connection_manager: OcConnectionManager = OcConnectionManager()
+
+        params: dict[str, Any] = request.json
 
         updated_oc_connection_response: dict[str, Any] = oc_connection_manager.update_connection(params, connection_id)
 

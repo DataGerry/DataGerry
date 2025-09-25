@@ -58,6 +58,10 @@ class OcConnectorManager(OcBaseManager):
         """
         create_connector_response: Response = self.oc_connector.oc_post(params, CONNECTOR_URL)
 
+        # LOGGER.debug(f"[create_connector] create_connector_response: {create_connector_response}")
+        # LOGGER.debug(f"[create_connector] create_connector_response status: {create_connector_response.status_code}")
+        # LOGGER.debug(f"[create_connector] create_connector_response body: {create_connector_response.text}")
+
         if self.is_valid_response(create_connector_response):
             return json.loads(create_connector_response.text)
 
@@ -74,7 +78,12 @@ class OcConnectorManager(OcBaseManager):
         Returns:
             bool: True of credentials are valid else False
         """
+        # LOGGER.debug("[check_connector] called")
         check_connector_response: Response = self.oc_connector.oc_post(params, CHECK_CONNECTOR_URL)
+
+        # LOGGER.debug(f"[check_connector] check_connector_response: {check_connector_response}")
+        # LOGGER.debug(f"[check_connector] check_connector_response status: {check_connector_response.status_code}")
+        # LOGGER.debug(f"[check_connector] check_connector_response body: {check_connector_response.text}")
 
         if self.is_valid_response(check_connector_response):
             return True

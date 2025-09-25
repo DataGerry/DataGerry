@@ -16,14 +16,10 @@
 """
 Implementation of OpenCelium BaseManager
 """
-import json
 from logging import Logger, getLogger
-from typing import Any
 from requests import Response
 
 from cmdb.open_celium import OcApiConnector
-
-from cmdb.errors.open_celium import OcGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
