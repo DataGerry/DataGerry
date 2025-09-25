@@ -14,17 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All OpenCelium API blueprints
+Implementation of OpenCelium SchedulerManager
 """
-from .oc_connector_routes import oc_connectors_blueprint
-from .oc_invoker_routes import oc_invokers_blueprint
-from .oc_template_routes import oc_templates_blueprint
-from .oc_connection_routes import oc_connections_blueprint
+import json
+from logging import Logger, getLogger
+from typing import Any
+
+from requests import Response
+
+from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'oc_connectors_blueprint',
-    'oc_invokers_blueprint',
-    'oc_templates_blueprint',
-    'oc_connections_blueprint',
-]
+LOGGER: Logger = getLogger(__name__)
+
+SCHEDULER_URL: str = "/scheduler"
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              OcSchedulerManager - CLASS                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class OcSchedulerManager(OcBaseManager):
+    """
+    Manages Schedulers of OpenCelium
+    """

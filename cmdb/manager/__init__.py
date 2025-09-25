@@ -66,6 +66,7 @@ from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 from cmdb.manager.open_celium_managers.oc_connector_manager import OcConnectorManager
 from cmdb.manager.open_celium_managers.oc_invoker_manager import OcInvokerManager
 from cmdb.manager.open_celium_managers.oc_template_manager import OcTemplateManager
+from cmdb.manager.open_celium_managers.oc_connection_manager import OcConnectionManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -113,4 +114,5 @@ __all__: list[str] = [
     'OcConnectorManager',
     'OcInvokerManager',
     'OcTemplateManager',
+    'OcConnectionManager',
 ]
