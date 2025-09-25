@@ -24,13 +24,12 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
-from cmdb.open_celium import OcApiConnector
-
+from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnectionGetError, OcConnectionUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-CONNECTOR_URL: str = "/connector"
+CONNECTION_URL: str = "/connection"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectionManager - CLASS                                             #
@@ -39,3 +38,93 @@ class OcConnectionManager(OcBaseManager):
     """
     Manages Connections of OpenCelium
     """
+
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+    def create_connection(self, params: dict[str, Any]) -> dict[str, Any]:
+        """
+        Creates a Connection in OpenCelium
+
+        Args:
+            params (dict[str, Any]): params of an OcConnection
+
+        Raises:
+            OcConnectionCreateError: When creating the OcConnection failed
+
+        Returns:
+            dict[str, Any]: The created OcConnection
+        """
+        create_connection_response: Response = self.oc_connector.oc_post(params, CONNECTION_URL)
+
+        if self.is_valid_response(create_connection_response):
+            return json.loads(create_connection_response.text)
+
+        raise OcConnectionCreateError("Failed to create the Connection in OpenCelium!")
+
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
+    def get_connection(self, connection_id: int) -> dict[str, Any]:
+        """
+        Retrieves a single OcConnection from OpenCelium
+
+        Args:
+            connection_id (int): connectionId of the OcConnection
+
+        Raises:
+            OcConnectionGetError: When the connectionId was not provided to this method
+            OcConnectionGetError: When the OcConnection could not be retrieved
+
+        Returns:
+            dict[str, Any]: The retrieved OcConnection
+        """
+        if not connection_id:
+            raise OcConnectionGetError("No connectionId for Connection provided!")
+
+        target_connection_response: Response = self.oc_connector.oc_get(f"{CONNECTION_URL}/{connection_id}")
+
+        if self.is_valid_response(target_connection_response):
+            return json.loads(target_connection_response.text)
+
+        raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connection with ID: {connection_id}")
+
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
+    def update_connection(self, params: dict[str, Any], connection_id: int) -> dict[str, Any]:
+        """
+        Updates an OcConnection with the given connection_id
+
+        Args:
+            params (dict[str, Any]): the new data of the OcConnection
+            connection_id (int): connectionId of the OcConnection
+
+        Raises:
+            OcConnectionUpdateError: When updating the OcConnection fails
+
+        Returns:
+            dict[str, Any]: The updated OcConnection
+        """
+        updated_connection_response: Response = self.oc_connector.oc_put(params, f"{CONNECTION_URL}/{connection_id}")
+
+        if self.is_valid_response(updated_connection_response):
+            return json.loads(updated_connection_response.text)
+
+        raise OcConnectionUpdateError(f"Failed to update Connection with ID:{connection_id} in OpenCelium!")
+
+# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
+
+    def delete_connection(self, connection_id: int) -> bool:
+        """
+        Deletes a Connection in OpenCelium with the given connection_id
+
+        Args:
+            connection_id (int): the connectionId of the OcConnection which should be deleted
+
+        Returns:
+            bool: True if deletion was a success else False
+        """
+        delete_connection_response: Response = self.oc_connector.oc_delete(f"{CONNECTION_URL}/{connection_id}")
+
+        if self.is_valid_response(delete_connection_response):
+            return True
+
+        return False

@@ -14,35 +14,41 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all OpenCelium Connector errors
+This module contains the classes of all OpenCelium Connection errors
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OcConnectorError(Exception):
+class OcConnectionError(Exception):
     """
-    Raised to catch all OcConnector related errors
+    Raised to catch all OcConnection related errors
     """
     def __init__(self, err: str) -> None:
         """
-        Raised to catch all OcConnector related errors
+        Raised to catch all OcConnection related errors
         """
         super().__init__(err)
 
-# ----------------------------------------------- OcConnector - ERRORS ----------------------------------------------- #
+# ----------------------------------------------- OcConnection - ERRORS ---------------------------------------------- #
 
-class OcConnectorCreateError(OcConnectorError):
+class OcConnectionCreateError(OcConnectionError):
     """
-    Raised when failing to create an OcConnector
-    """
-
-
-class OcConnectorGetError(OcConnectorError):
-    """
-    Raised when failing to retrieve OcConnectors
+    Raised when failing to create an OcConnection
     """
 
 
-class OcConnectorUpdateError(OcConnectorError):
+class OcConnectionGetError(OcConnectionError):
     """
-    Raised when failing to update an OcConnector
+    Raised when failing to retrieve OcConnections
+    """
+
+
+class OcConnectionUpdateError(OcConnectionError):
+    """
+    Raised when failing to update an OcConnection
+    """
+
+
+class OcConnectionDeleteError(OcConnectionError):
+    """
+    Raised when failing to delete an OcConnection
     """

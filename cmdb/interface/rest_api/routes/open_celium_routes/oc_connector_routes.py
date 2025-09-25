@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All API routes for OpenCelium connectors
+All API routes for OpenCelium Connectors
 """
 from logging import Logger, getLogger
 from typing import Any

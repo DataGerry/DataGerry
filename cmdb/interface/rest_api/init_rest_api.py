@@ -210,6 +210,7 @@ def register_blueprints(app: BaseCmdbApp):
         oc_connectors_blueprint,
         oc_invokers_blueprint,
         oc_templates_blueprint,
+        oc_connections_blueprint,
     )
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
@@ -270,6 +271,7 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_invokers_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_templates_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_connections_blueprint, url_prefix='/open_celium')
 
     if cmdb.__MODE__ == 'DEBUG':
         from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
