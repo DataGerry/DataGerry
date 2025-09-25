@@ -61,12 +61,13 @@
           <div class="card-body p-0">
             <!-- Graph header selector (left), keeps graph editor untouched -->
             <div class="d-flex align-items-center" style="padding: 8px 12px; gap: 10px; border-bottom: 1px solid #eee;">
-              <span style="font-weight: 600;">Object</span>
-              <app-object-selector *ngIf="typesLoaded" [typeIds]="allTypeIds" [multiple]="false"
+              <span style="font-weight: 600;" *ngIf="!isHeaderSelectorLoading">Object</span>
+              <app-object-selector *ngIf="typesLoaded" [typeIds]="allTypeIds" [multiple]="false"   [useInlineLoader]="true"
                 [selectedIds]="selectedObjectIdForSelector ? [selectedObjectIdForSelector] : []"
-                (selectionChange)="onGraphHeaderObjectChange($event)">
+                (selectionChange)="onGraphHeaderObjectChange($event)"
+                (loadingChange)="isHeaderSelectorLoading = $event">
               </app-object-selector>
-              <button class="btn btn-primary btn-sm" (click)="openSelectedObject()" [disabled]="!pendingSelectedId">
+              <button class="btn btn-primary btn-sm" (click)="openSelectedObject()" [disabled]="!pendingSelectedId" *ngIf="!isHeaderSelectorLoading">
                 Open
               </button>
             </div>

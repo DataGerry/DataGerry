@@ -106,6 +106,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   public relationOrder: number = 1;
 
   public isLoading$ = this.loaderService.isLoading$;
+  public isHeaderSelectorLoading = false;
 
   // Selector for Graph header
   public allTypeIds: number[] = [];
