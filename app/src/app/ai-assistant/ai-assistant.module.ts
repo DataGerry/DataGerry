@@ -19,12 +19,14 @@ import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule } from '@angular/forms';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
+import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 
 import { AiAssistantRoutingModule } from './ai-assistant-routing.module';
 
 import { AiPromptPageComponent } from './components/ai-prompt-page/ai-prompt-page.component';
 import { AiSectionSelectorComponent } from './components/ai-section-selector/ai-section-selector.component';
 import { CoreModule } from '../core/core.module';
+import { SpeechRecognitionService } from './services/speech-recognition.service';
 
 @NgModule({
   declarations: [
@@ -36,7 +38,11 @@ import { CoreModule } from '../core/core.module';
     ReactiveFormsModule,
     NgbModule,
     CoreModule,
-    AiAssistantRoutingModule
+    AiAssistantRoutingModule,
+    FontAwesomeModule
+  ],
+  providers: [
+    SpeechRecognitionService
   ]
 })
 export class AiAssistantModule {}
