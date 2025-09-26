@@ -10,15 +10,61 @@
     }
   }
   
-  .field-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: .35rem .9rem;
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: .35rem .9rem;
+}
+
+app-form-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+/* Speech Recognition Styles */
+.recording-pulse {
+  animation: pulse 1.5s infinite;
+}
+
+.recording-indicator {
+  animation: blink 1s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
   }
-  
-  app-form-checkbox {
-    display: inline-flex;
-    align-items: center;
-    gap: .5rem;
+  70% {
+    box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
   }
-  
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+  }
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0.3;
+  }
+}
+
+/* Speech recognition button styles */
+.btn-speech {
+  transition: all 0.3s ease;
+}
+
+.btn-speech:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Input group adjustments for speech button */
+.input-group-append .btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
+}

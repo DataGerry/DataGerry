@@ -2,12 +2,56 @@
 
   <!-- Prompt -->
   <form [formGroup]="promptForm" class="mb-4" *ngIf="!hasSchema">
-    <app-form-input
-      formControlName="prompt"
-      label="Prompt"
-      [required]="true"
-      errorMessage="Prompt is required">
-    </app-form-input>
+    <div class="form-group">
+      <label for="promptInput">Prompt <span class="required">*</span></label>
+      <div class="input-group">
+        <input
+          type="text"
+          formControlName="prompt"
+          class="form-control"
+          id="promptInput"
+          placeholder="Describe the type you want to create..."
+          [ngClass]="{
+            'is-valid': promptForm.controls.prompt.valid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched),
+            'is-invalid': promptForm.controls.prompt.invalid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched)
+          }">
+        
+        <!-- Speech Recognition Button -->
+        <div class="input-group-append" *ngIf="isSpeechSupported()">
+          <button
+            type="button"
+            class="btn"
+            [ngClass]="getSpeechButtonClass()"
+            [title]="getSpeechButtonTooltip()"
+            (click)="toggleSpeechRecognition()"
+            [disabled]="speechStatus === 'processing'">
+            <fa-icon [icon]="getSpeechButtonIcon()" [spin]="speechStatus === 'processing'"></fa-icon>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Speech Recognition Status -->
+      <div *ngIf="isRecording" class="mt-2">
+        <small class="text-muted">
+          <fa-icon icon="circle" class="text-danger recording-indicator"></fa-icon>
+          Listening... Speak now
+        </small>
+      </div>
+      
+      <div *ngIf="speechStatus === 'processing'" class="mt-2">
+        <small class="text-warning">
+          <fa-icon icon="circle-notch" [spin]="true"></fa-icon>
+          Processing speech...
+        </small>
+      </div>
+
+      <!-- Validation Messages -->
+      <div *ngIf="promptForm.controls.prompt.invalid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched)" class="invalid-feedback">
+        <div *ngIf="promptForm.controls.prompt.errors?.required">
+          Prompt is required
+        </div>
+      </div>
+    </div>
 
     <button
       type="button"

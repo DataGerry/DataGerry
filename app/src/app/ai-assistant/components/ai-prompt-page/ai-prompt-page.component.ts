@@ -24,6 +24,7 @@ import { finalize, take } from 'rxjs/operators';
 import { AiAssistantService } from '../../services/ai-assistant.service';
 import { AiAssistantMessage } from '../../models/ai-suggestion.model';
 import { TypeAssistantResponse } from '../../models/ai-assistant-response.model';
+import { SpeechRecognitionService, SpeechRecognitionResult, SpeechRecognitionError } from '../../services/speech-recognition.service';
 
 import { checkTypeExistsValidator, TypeService } from 'src/app/framework/services/type.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -101,6 +102,11 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
   /** subscription to keep guard counts fresh (optional) */
   private valueSub?: Subscription;
 
+  /** Speech recognition state */
+  isRecording = false;
+  speechStatus = 'idle'; // 'idle', 'recording', 'processing', 'error'
+  speechError = '';
+
 
   constructor(
     private fb: FormBuilder,
@@ -110,14 +116,21 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
     private router: Router,
     private typeService: TypeService,
     private sidebarService: SidebarService,
-    private loaderService: LoaderService) {
+    private loaderService: LoaderService,
+    private speechRecognition: SpeechRecognitionService) {
     this.form = new UntypedFormGroup({
       name: new UntypedFormControl('', [Validators.required, alphanumericValidator()]),
     });
   }
 
-  ngOnInit(): void {}
-  ngOnDestroy(): void { this.valueSub?.unsubscribe(); }
+  ngOnInit(): void {
+    this.setupSpeechRecognition();
+  }
+  
+  ngOnDestroy(): void { 
+    this.valueSub?.unsubscribe();
+    this.speechRecognition.stopListening();
+  }
 
   /** Convenience getter */
   get sectionsFA(): FormArray<FormGroup> {
@@ -156,9 +169,16 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
 
     this.ai.postMessage(message).pipe(take(1), finalize(() => { this.loaderService.hide()})).subscribe({
       next: (resp: TypeAssistantResponse<AiGeneratedType>) => {
+        console.log('AI response:', resp);
         if (!resp?.is_valid_type) {
+          if(resp?.data === null && resp?.error) {
+            // Use the specific error message from the API response
+            this.validationMessage = resp.error;
+          } else {
+            // Fall back 
+            this.validationMessage = 'Something went wrong. The AI did not return a valid type schema.';
+          }
           this.loading = false;
-          this.validationMessage = resp?.message;
           this.toast.warning(this.validationMessage);
           this.cdr.markForCheck();
           return;
@@ -326,5 +346,99 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
     this.selectionForm.reset();
     this.validationMessage = '';
     this.cdr.markForCheck();
+  }
+
+  /** Speech recognition methods */
+  private setupSpeechRecognition(): void {
+    // Subscribe to transcript updates
+    this.speechRecognition.getTranscript().subscribe((result: SpeechRecognitionResult) => {
+      if (result.isFinal) {
+        // Append final transcript to existing prompt text
+        const currentPrompt = this.promptForm.value.prompt || '';
+        const newPrompt = currentPrompt + (currentPrompt ? ' ' : '') + result.transcript;
+        this.promptForm.patchValue({ prompt: newPrompt });
+        this.speechStatus = 'idle';
+      } else {
+        // Show interim results (optional: could show in a temporary area)
+        this.speechStatus = 'processing';
+      }
+      this.cdr.markForCheck();
+    });
+
+    // Subscribe to status updates
+    this.speechRecognition.getStatus().subscribe((status: string) => {
+      this.speechStatus = status;
+      this.isRecording = status === 'recording';
+      this.cdr.markForCheck();
+    });
+
+    // Subscribe to errors
+    this.speechRecognition.getErrors().subscribe((error: SpeechRecognitionError) => {
+      this.speechStatus = 'error';
+      this.speechError = error.message;
+      this.toast.error(this.speechError);
+      this.cdr.markForCheck();
+    });
+  }
+
+  toggleSpeechRecognition(): void {
+    if (this.isRecording) {
+      this.stopSpeechRecognition();
+    } else {
+      this.startSpeechRecognition();
+    }
+  }
+
+  startSpeechRecognition(): void {
+    this.speechError = '';
+    this.speechRecognition.startListening();
+  }
+
+  stopSpeechRecognition(): void {
+    this.speechRecognition.stopListening();
+  }
+
+  getSpeechButtonIcon(): string {
+    switch (this.speechStatus) {
+      case 'recording':
+        return 'microphone-slash';
+      case 'processing':
+        return 'circle-notch';
+      case 'error':
+        return 'exclamation-triangle';
+      default:
+        return 'microphone';
+    }
+  }
+
+  getSpeechButtonClass(): string {
+    switch (this.speechStatus) {
+      case 'recording':
+        return 'btn-danger recording-pulse';
+      case 'processing':
+        return 'btn-warning';
+      case 'error':
+        return 'btn-danger';
+      default:
+        return 'btn-outline-secondary';
+    }
+  }
+
+  getSpeechButtonTooltip(): string {
+    switch (this.speechStatus) {
+      case 'recording':
+        return 'Stop recording';
+      case 'processing':
+        return 'Processing speech...';
+      case 'error':
+        return 'Speech recognition error';
+      default:
+        return 'Start voice input';
+    }
+  }
+
+  isSpeechSupported(): boolean {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    return !!SpeechRecognition;
   }
 }
