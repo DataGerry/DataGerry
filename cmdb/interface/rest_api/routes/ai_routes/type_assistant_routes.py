@@ -77,6 +77,17 @@ def send_message_ai(request_user: CmdbUser):
 
             formatted_data = json.loads(raw_text)
 
+
+            # Hnadle invalid user input
+            if 'ai_error_message' in formatted_data:
+                response_data: dict[str, Any] = {
+                    'data': None,
+                    'error': formatted_data['ai_error_message'],
+                    'is_valid_type': False,
+                }
+
+                return DefaultResponse(response_data).make_response()
+
             try:
                 validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
                 validator.validate(formatted_data)
@@ -102,6 +113,7 @@ def send_message_ai(request_user: CmdbUser):
 
         response_data: dict[str, Any] = {
             'data': formatted_data,
+            'error': None,
             'is_valid_type': is_valid_type
         }
 
@@ -320,74 +332,9 @@ Here's how it works:
         Your output should start with { and end with }.
         The JSON object must contain ONLY the properties of the modeled object directly at the root level.
         Do not inculde \n inside the response.
+
+        if there is no logical connection to a type from the user input then answer with a dict in which the key is
+        'ai_error_message' and the reason why from this input a type could not be created. Here is an example format
+        to the user input of 'hi': {'ai_error_message': '<the reason why it is not possible to create a type from
+        the input>'}
 """
-#         The request is: "I want to document a switch"
-
-# ----------------------------------------------------- previous ----------------------------------------------------- #
-
-# PROMT_TEXT = """You are an assistant for the initial setup of IT documentation in the software "Datagerry".
-
-# Users will describe in natural language which IT components, systems, or assets they want to document.
-
-# Your task is to:
-# - Generate suggestions for suitable object types (e.g., "Server", "Firewall").
-# - Each object type consists of one or more sections. Each section contains attributes (with name and type).
-# - You should provide well-structured, clearly named attribute suggestions grouped thematically.
-
-# Structure:
-# - Every object type starts with a section called Information, which contains the attribute name (type: text).
-# - There are three predefined Global Sections with fixed names and attributes. If they are thematically appropriate, they
-#   should be included in the object type:
-#   - Network: ipAddress, hostname, dns, layer3Net
-#   - Rack mounting: rackUnits, mountingPosition, mountingOrientation
-#   - Model specifications: manufacturer, modelName, serialNumber
-# - If a Global Section is used, its attributes must not be duplicated in regular (custom) sections.
-
-# You may also propose additional custom sections, such as Location, Hardware, Configuration, Software, etc.
-
-# For each proposed object type, also specify:
-# - label: the visible name of the type (e.g., "Firewall")
-# - name: internal machine-readable name, derived from the label: all lowercase, spaces replaced with underscores
-# - icon: a suitable Font Awesome icon name in the format "fa-..." (e.g., "fa-server", "fa-network-wired", "fa-laptop").
-#   Only use freely available icons from the Font Awesome Free Library. If no specific icon fits, use a generic one like
-#   fa-cube, fa-box, fa-toolbox, or fa-question.
-# - isLocationSource: Indicates whether this object type can serve as a location for other objects (true or false)
-
-# Allowed attribute data types:
-# - text, textarea, date, number, checkbox, radio, select, location
-
-# The location type is a special attribute type that may be used at most once per object type.
-# Only use location when it makes sense for the object to have a physical location (e.g., for servers, racks,
-# rooms, buildings). Do not use it for virtual or purely logical objects (e.g., software, user accounts, roles).
-
-# Examples:
-# - Building: location appropriate → isLocationSource: true
-# - Room: location appropriate → isLocationSource: true
-# - Server rack: location appropriate → isLocationSource: true
-# - Server: location appropriate → isLocationSource: false
-# - User account: no location, no isLocationSource
-
-# Your response must be a structured JSON proposal only - no function calls.
-# The user will review and extend the structure.
-# Do not output any explanatory text or comments.
-
-# Rules:
-# - No greetings, explanations, or comments.
-# - Object type names: Singular, factual, in English.
-# - Section names: In English, descriptive.
-# - Attribute names: In English, technically clear (e.g., serialNumber, ipAddress).
-# - Use relation only when the attribute refers to another object type.
-# - Each object type should have at least 1-3 additional sections (excluding Information). Each section should contain
-#   2-6 attributes, except Global Sections which always include only their predefined attributes.
-
-
-# Return your answer as **only** valid JSON.
-# Do not include any explanations, text, or markdown code fences.
-# Do not include triple backticks.
-# Return the result as a single valid JSON object.
-# Do NOT wrap the object in an array.
-# Do NOT include any extra keys other than the ones requested.
-# The JSON must be directly parsable by Python's json.loads().
-# Your output should start with { and end with }.
-# The JSON object must contain ONLY the properties of the modeled object directly at the root level.
-# """
