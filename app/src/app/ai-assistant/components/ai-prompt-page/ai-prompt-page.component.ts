@@ -169,9 +169,16 @@ export class AiPromptPageComponent implements OnInit, OnDestroy {
 
     this.ai.postMessage(message).pipe(take(1), finalize(() => { this.loaderService.hide()})).subscribe({
       next: (resp: TypeAssistantResponse<AiGeneratedType>) => {
+        console.log('AI response:', resp);
         if (!resp?.is_valid_type) {
+          if(resp?.data === null && resp?.error) {
+            // Use the specific error message from the API response
+            this.validationMessage = resp.error;
+          } else {
+            // Fall back 
+            this.validationMessage = 'Something went wrong. The AI did not return a valid type schema.';
+          }
           this.loading = false;
-          this.validationMessage = resp?.message;
           this.toast.warning(this.validationMessage);
           this.cdr.markForCheck();
           return;

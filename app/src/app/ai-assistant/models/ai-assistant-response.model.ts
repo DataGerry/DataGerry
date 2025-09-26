@@ -19,5 +19,6 @@ export interface TypeAssistantResponse<T> {
     data: T;
     is_valid_type: boolean;
     message?: string; //  backend message to display
+    error?: string; //  backend error to display
   }
   
