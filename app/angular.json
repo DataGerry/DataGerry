@@ -130,16 +130,14 @@
                 "serve": {
                     "builder": "@angular-devkit/build-angular:dev-server",
                     "options": {
-                      "buildTarget": "datagerry-app:build",
-                      "proxyConfig": "proxy.conf.js"
+                      "buildTarget": "datagerry-app:build"
                     },
                     "configurations": {
                         "production": {
                           "buildTarget": "datagerry-app:build:production"
                         },
                         "cloud": {
-                          "buildTarget": "datagerry-app:build:cloud",
-                          "proxyConfig": "proxy.conf.js"
+                          "buildTarget": "datagerry-app:build:cloud"
                         }
                     }
                 },
