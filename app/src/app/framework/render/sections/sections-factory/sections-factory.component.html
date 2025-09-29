@@ -36,5 +36,6 @@
     <cmdb-rack-elevation
         *ngIf="i === 0 && renderResult?.type_information?.type_label === 'Rack' && mode !== 'edit'"
         [renderResult]="renderResult"
+        [mode]="mode"
     ></cmdb-rack-elevation>
 </ng-container>

@@ -20,6 +20,9 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subject, takeUntil } from 'rxjs';
 import { NetboxService } from '../../../services/netbox.service';
 import { RenderResult } from '../../../models/cmdb-render';
+import { CmdbMode } from 'src/app/framework/modes.enum';
+import { Toast } from 'bootstrap';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 
 @Component({
   selector: 'cmdb-rack-elevation',
@@ -28,6 +31,8 @@ import { RenderResult } from '../../../models/cmdb-render';
 })
 export class RackElevationComponent implements OnInit, OnDestroy {
   @Input() renderResult: RenderResult;
+  @Input() mode: number;
+  
   public svgMarkup: SafeHtml | null = null;
   public isLoading = false;
   public hasError = false;
@@ -36,18 +41,18 @@ export class RackElevationComponent implements OnInit, OnDestroy {
 
   private destroy$ = new Subject<void>();
 
-  constructor(private netbox: NetboxService, private sanitizer: DomSanitizer) {}
+  constructor(private netbox: NetboxService, private sanitizer: DomSanitizer, private toastService: ToastService) {}
 
   ngOnInit(): void {
     // Extract rack ID from the specific field name
     const rackId = this.extractRackIdFromRenderResult();
     
     // Only make API call if rack ID is found
-    if (rackId !== null) {
+    if (rackId !== null && this.mode === CmdbMode.View) {
       this.hasRackId = true;
       this.isLoading = true;
       this.netbox
-        .getRackElevationSvg(rackId)
+        .getRackElevation(rackId)
         .pipe(takeUntil(this.destroy$))
         .subscribe({
           next: (raw) => {
@@ -57,7 +62,8 @@ export class RackElevationComponent implements OnInit, OnDestroy {
             this.svgMarkup = this.sanitizer.bypassSecurityTrustHtml(withTargets);
             this.isLoading = false;
           },
-          error: () => {
+          error: (err) => {
+            this.toastService.error('Failed to load rack elevation.');
             this.hasError = true;
             this.isLoading = false;
           }
@@ -92,7 +98,6 @@ export class RackElevationComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.netbox?.clearApiToken();
     this.destroy$.next();
     this.destroy$.complete();
   }
