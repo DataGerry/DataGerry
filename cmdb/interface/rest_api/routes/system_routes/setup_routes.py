@@ -17,6 +17,7 @@
 These routes are used to setup databases and the correspondig user in DataGerry
 """
 from logging import Logger, getLogger
+from typing import Any
 from flask import request, abort, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -84,28 +85,32 @@ def delete_subscription() -> Response:
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 def delete_cached_user() -> Response:
     """
-    Deletes a subscription
+    Deletes a single or multiple cached users
 
     Hint:
-    Expects a dict with the following keys:
+    Expects in the payload a dict with the following keys:
     {
-        "email"(str): Email of the cached user
+        "email"(str | list[str]): Email or emails of the cached users
     }
     """
     try:
-        if not request.args:
-            abort(400, "No request arguments provided!")
+        if not request.json:
+            abort(400, "No payload provided!")
 
-        delete_data: dict = request.args.to_dict()
-
-        try:
-            delete_email = delete_data['email']
-        except KeyError:
-            abort(400, "Email of cached User was not provided!")
+        user_emails: dict[str, Any] = request.json
 
         cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
 
-        cached_user_manager.delete_cached_user(delete_email)
+        try:
+            if isinstance(user_emails['email'], str):
+                cached_user_manager.delete_cached_user(user_emails['email'])
+            elif isinstance(user_emails['email'], list[str]):
+                cached_user_manager.delete_multiple_cached_users(user_emails['email'])
+            else:
+                abort(400, "'email' must be a string or list of strings!")
+
+        except KeyError:
+            abort(400, "'email' key not provided in the request payload!")
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
