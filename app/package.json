@@ -69,7 +69,7 @@
     "zxcvbn": "^4.4.2"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "^18.2.20",
+    "@angular-devkit/build-angular": "^20.3.4",
     "@angular/cli": "^18.2.20",
     "@angular/compiler-cli": "^18.2.13",
     "@angular/language-service": "^18.2.13",
