@@ -1,0 +1,208 @@
+// connector-form.component.scss
+
+.page-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    color: #2c3e50;
+  }
+  
+  .card {
+    border: 1px solid #e1e5eb;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.3s ease;
+    height: 100%;
+  
+    &:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+  
+    .card-header {
+      color: #000000;
+      font-weight: 600;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 1rem 1.25rem;
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+    }
+  
+    .card-body {
+      padding: 1.5rem;
+      position: relative;
+    }
+  }
+  
+  // Form controls enhancement
+  .form-group {
+    margin-bottom: 1.25rem;
+  }
+  
+  .form-label {
+    font-weight: 500;
+    color: #495057;
+    margin-bottom: 0.5rem;
+  }
+  
+  .required {
+    color: #dc3545;
+    margin-left: 2px;
+  }
+  
+  // Error messages
+  .text-danger {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    display: block;
+    animation: slideDown 0.2s ease-out;
+  }
+  
+  // Alert styles
+  .alert {
+    border-radius: 6px;
+    border: none;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    
+    &.alert-info {
+      background-color: #e7f3ff;
+      color: #004085;
+      border-left: 3px solid #007bff;
+      
+      i {
+        margin-right: 0.5rem;
+      }
+    }
+    
+    &.alert-light {
+      background-color: #f8f9fa;
+      border-left: 3px solid #6c757d;
+      color: #495057;
+      
+      strong {
+        color: #212529;
+      }
+    }
+    
+    &.alert-success {
+      background-color: #d4edda;
+      color: #155724;
+      border-left: 3px solid #28a745;
+      
+      i {
+        color: #28a745;
+      }
+    }
+    
+    &.alert-warning {
+      background-color: #fff3cd;
+      color: #856404;
+      border-left: 3px solid #ffc107;
+      
+      i {
+        color: #ffc107;
+      }
+    }
+  }
+  
+  // Spinner styles
+  .spinner-border {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+  
+  // Button group
+  .d-flex.gap-2 {
+    gap: 0.75rem !important;
+  }
+  
+  // Smooth transitions
+  form {
+    transition: opacity 0.3s ease;
+  }
+  
+  // Loading state overlay effect
+  .text-center.py-3 {
+    padding: 2rem !important;
+  }
+  
+  // Animation for error messages
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  // Field transition when switching invokers
+  .mb-3 {
+    animation: fadeIn 0.3s ease-out;
+  }
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  // Responsive adjustments
+  @media (max-width: 991px) {
+    .card {
+      margin-bottom: 1rem;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+    }
+  }
+  
+  // Input field focus enhancement
+  :host ::ng-deep {
+    .ng-select.ng-select-focused {
+      .ng-select-container {
+        border-color: #667eea;
+        box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+      }
+    }
+    
+    input:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+    }
+    
+    textarea:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+    }
+  }
+  
+  // Hover effects for interactive elements
+  app-button {
+    transition: transform 0.2s ease;
+    
+    &:active {
+      transform: scale(0.98);
+    }
+  }
+  
+  // Test connection button special styling
+  .btn-outline-secondary {
+    &:not(:disabled) {
+      &:hover {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-color: #667eea;
+        color: white;
+      }
+    }
+  }
