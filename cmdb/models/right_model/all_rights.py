@@ -59,6 +59,10 @@ from cmdb.models.right_model.isms_rights import (
     ControlMeasureAssignmentRight,
     IsmsReportRight,
 )
+from cmdb.models.right_model.oc_rights import (
+    OpenCeliumRight,
+    OcConnectorRight,
+)
 from cmdb.models.right_model.export_rights import ExportRight, ExportObjectRight, ExportTypeRight
 from cmdb.models.right_model.docapi_rights import DocapiRight, DocapiTemplateRight
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -183,7 +187,6 @@ FRAMEWORK_RIGHTS = (
         ),
 )
 
-
 ISMS_RIGHTS = (
     IsmsRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ISMS rights'),
     (
@@ -280,6 +283,18 @@ ISMS_RIGHTS = (
     ),
 )
 
+OC_RIGHTS = (
+    OpenCeliumRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage OpenCelium rights'),
+    (
+        OcConnectorRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Connectors of OpenCelium'),
+        (
+            OcConnectorRight('view', description='View OpenCelium Connectors'),
+            OcConnectorRight('add', description='Add OpenCelium Connectors'),
+            OcConnectorRight('edit', Levels.PROTECTED, description='Edit OpenCelium Connectors'),
+            OcConnectorRight('delete', Levels.SECURE, description='Delete OpenCelium Connectors'),
+        )
+    )
+)
 
 EXPORT_RIGHTS = (
     ExportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage exports'),
@@ -360,6 +375,7 @@ ALL_RIGHTS = (
     USER_MANAGEMENT_RIGHTS,
     DOCAPI_RIGHTS,
     ISMS_RIGHTS,
+    OC_RIGHTS,
 )
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
