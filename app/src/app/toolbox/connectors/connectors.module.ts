@@ -17,19 +17,30 @@
 */
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 
 import { ConnectorsRoutingModule } from './connectors-routing.module';
 import { ConnectorsComponent } from './connectors.component';
+import { ConnectorsListComponent } from './components/connectors-list/connectors-list.component';
+import { ConnectorFormComponent } from './components/connector-form/connector-form.component';
+
+import { CoreModule } from '../../core/core.module';
+import { TableModule } from '../../layout/table/table.module';
 
 @NgModule({
   declarations: [
-    ConnectorsComponent
+    ConnectorsComponent,
+    ConnectorsListComponent,
+    ConnectorFormComponent
   ],
   imports: [
     CommonModule,
     FormsModule,
+    ReactiveFormsModule,
+
+    CoreModule,
+    TableModule,
     ConnectorsRoutingModule
   ]
 })
-export class ConnectorsModule { }
+export class ConnectorsModule {}
