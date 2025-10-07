@@ -19,7 +19,7 @@ All API routes for OpenCelium Invokers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
+from flask import abort, request
 
 from cmdb.manager import OcInvokerManager
 
@@ -55,9 +55,11 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
         list[dict[str, Any]]: All OcInvokers from OpenCelium
     """
     try:
+        with_operations: bool = request.args.get("opsIncluded", type=bool, default=True)
+
         oc_invoker_manager: OcInvokerManager = OcInvokerManager()
 
-        invokers: list[dict[str, Any]] = oc_invoker_manager.get_all_invokers()
+        invokers: list[dict[str, Any]] = oc_invoker_manager.get_all_invokers(with_operations)
 
         # LOGGER.debug(f"count invokers: {len(invokers)}")
         # LOGGER.debug(f"all invokers: {invokers}")

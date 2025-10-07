@@ -63,9 +63,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
-        create_oc_connection_response: dict[str, Any] = oc_connection_manager.create_connection(params)
+        create_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
 
-        return DefaultResponse(create_oc_connection_response).make_response()
+        return DefaultResponse(create_oc_connection).make_response()
     except OcConnectionCreateError as err:
         LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to create an OpenCelium Connection!")
@@ -122,9 +122,9 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
 
         params: dict[str, Any] = request.json
 
-        updated_oc_connection_response: dict[str, Any] = oc_connection_manager.update_connection(params, connection_id)
+        updated_oc_connection: dict[str, Any] = oc_connection_manager.update_connection(params, connection_id)
 
-        return DefaultResponse(updated_oc_connection_response).make_response()
+        return DefaultResponse(updated_oc_connection).make_response()
     except OcConnectionUpdateError as err:
         LOGGER.error("[update_oc_connection] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to update the OpenCelium Connection with ID: {connection_id}!")
