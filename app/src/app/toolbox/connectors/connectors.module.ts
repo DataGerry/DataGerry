@@ -26,6 +26,7 @@ import { ConnectorFormComponent } from './components/connector-form/connector-fo
 
 import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
+import { AuthModule } from 'src/app/modules/auth/auth.module';
 
 @NgModule({
   declarations: [
@@ -40,7 +41,8 @@ import { TableModule } from '../../layout/table/table.module';
 
     CoreModule,
     TableModule,
-    ConnectorsRoutingModule
+    ConnectorsRoutingModule,
+    AuthModule
   ]
 })
 export class ConnectorsModule {}
