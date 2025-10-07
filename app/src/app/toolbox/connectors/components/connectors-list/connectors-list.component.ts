@@ -4,6 +4,7 @@ import { ConnectorsService } from '../../services/connectors.service';
 import { Connector } from '../../models/connector.model';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { finalize } from 'rxjs';
 
 @Component({
@@ -23,7 +24,8 @@ export class ConnectorsListComponent implements OnInit {
     private svc: ConnectorsService,
     private router: Router,
     private toast: ToastService,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+    private deleteModalService: DeleteModalService
   ) { }
 
   ngOnInit(): void {
@@ -50,10 +52,16 @@ export class ConnectorsListComponent implements OnInit {
   edit(row: Connector): void { this.router.navigate(['/connectors/edit', row.connectorId]); }
 
   delete(row: Connector): void {
-    if (!confirm(`Delete connector "${row.title}"?`)) return;
-    this.svc.deleteConnector(row.connectorId!).subscribe({
-      next: () => { this.toast.success('Connector deleted'); this.loadConnectors(); },
-      error: () => this.toast.error('Delete failed')
+    this.deleteModalService.confirmDelete({
+      title: `Delete Connector: ${row.title}`,
+      itemType: 'Connector',
+      itemName: row.title,
+      onConfirm: () => {
+        this.svc.deleteConnector(row.connectorId!).subscribe({
+          next: () => { this.toast.success('Connector deleted'); this.loadConnectors(); },
+          error: () => this.toast.error('Delete failed')
+        });
+      }
     });
   }
 

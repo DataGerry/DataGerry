@@ -169,6 +169,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.inlineLoading = false;
+          this.router.navigate(['../'], { relativeTo: this.route });
           this.toast.error(err?.error?.message);
         }
       });
@@ -281,7 +282,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
               ? 'Connector created successfully'
               : 'Connector updated successfully'
           );
-          this.router.navigate(['../'], { relativeTo: this.route });
+          this.router.navigate(['/connectors']);
         },
         error: (err) => {
           this.toast.error(err?.error?.message);

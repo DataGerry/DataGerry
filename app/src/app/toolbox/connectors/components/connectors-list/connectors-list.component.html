@@ -11,7 +11,25 @@
   </cmdb-table>
 
   <!-- Actions Template -->
-  <ng-template #actionsTemplate let-item="item">
+  <!-- <ng-template #actionsTemplate let-item="item">
     <app-button [bootstrapClass]="'btn-link p-0 me-2'" label="" icon="fas fa-pen" (clicked)="edit(item)"></app-button>
     <app-button [bootstrapClass]="'btn-link p-0 text-danger'" label="" icon="fas fa-trash" (clicked)="delete(item)"></app-button>
+  </ng-template> -->
+
+
+  <ng-template #actionsTemplate let-item="item">
+
+    <span >
+      <i class="far fa-edit icon-margin btn-edit spacing-right" 
+      (click)="edit(item)"
+      title="Edit Connector"></i>
+    </span>
+  
+  <span >
+    <i
+      class="far fa-trash-alt btn-delete"
+      (click)="delete(item)"
+      title="Delete Connector"
+    ></i>
+  </span>
   </ng-template>
