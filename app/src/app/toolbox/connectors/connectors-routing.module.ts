@@ -17,14 +17,31 @@
 */
 import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
-
 import { ConnectorsComponent } from './connectors.component';
+
+import { ConnectorsResolver } from './services/connectors-resolver.service';
+import { ConnectorFormComponent } from './components/connector-form/connector-form.component';
+import { ConnectorsListComponent } from './components/connectors-list/connectors-list.component';
 
 const routes: Routes = [
   {
     path: '',
     component: ConnectorsComponent,
-    data: { breadcrumb: 'Connectors Testing' }
+    children: [
+      { path: '', component: ConnectorsListComponent },
+      {
+        path: 'add',
+        component: ConnectorFormComponent,
+        resolve: { invokers: ConnectorsResolver },
+        data: { mode: 'create' }
+      },
+      {
+        path: 'edit/:id',
+        component: ConnectorFormComponent,
+        resolve: { invokers: ConnectorsResolver },
+        data: { mode: 'edit' }
+      }
+    ]
   }
 ];
 
@@ -32,4 +49,4 @@ const routes: Routes = [
   imports: [RouterModule.forChild(routes)],
   exports: [RouterModule]
 })
-export class ConnectorsRoutingModule { }
+export class ConnectorsRoutingModule {}

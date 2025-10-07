@@ -16,108 +16,51 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
-import { HttpHeaders, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { HttpParams } from '@angular/common/http';
 
-import { ApiCallService, ApiServicePrefix, resp } from 'src/app/services/api-call.service';
+import { ApiCallService } from 'src/app/services/api-call.service';
+import { BaseApiService } from 'src/app/core/services/base-api.service';
+import { Connector } from '../models/connector.model';
+import { Invoker } from '../models/invoker.model';
 
-@Injectable({
-  providedIn: 'root'
-})
-export class ConnectorsService implements ApiServicePrefix {
-  public servicePrefix: string = 'open_celium';
+@Injectable({ providedIn: 'root' })
+export class ConnectorsService extends BaseApiService<Connector> {
+  public servicePrefix = 'open_celium/connectors';
 
-  public options = {
-    headers: new HttpHeaders({ 'Content-Type': 'application/json' }),
-    params: {},
-    observe: resp
-  };
-
-  constructor(private api: ApiCallService) { }
-
-  /**
-   * Get all connectors from OpenCelium
-   */
-  public getAllConnectors(): Observable<any> {
-    const options = { ...this.options };
-    return this.api.callGet<any>(`${this.servicePrefix}/connectors`, options)
-      .pipe(
-        map((res: HttpResponse<any>) => res.body),
-        catchError((error) => {
-          throw error;
-        })
-      );
+  constructor(protected api: ApiCallService) {
+    super(api);
   }
 
-  /**
-   * Get all invokers from OpenCelium
-   */
-  public getAllInvokers(): Observable<any> {
-    const options = { ...this.options };
-    return this.api.callGet<any>(`${this.servicePrefix}/invokers`, options)
-      .pipe(
-        map((res: HttpResponse<any>) => res.body),
-        catchError((error) => {
-          throw error;
-        })
-      );
+  // LIST
+  getConnectors(): Observable<Connector[]> {
+    const params = new HttpParams();
+    return this.handleGetRequest<Connector[]>(`${this.servicePrefix}`, params);
   }
 
-  /**
-   * Test connector credentials
-   */
-  public testConnectorCredentials(connectorData: any): Observable<any> {
-    const options = { ...this.options };
-    return this.api.callPost<any>(`${this.servicePrefix}/connectors/check`, connectorData, options)
-      .pipe(
-        map((res: HttpResponse<any>) => res.body),
-        catchError((error) => {
-          throw error;
-        })
-      );
+  // INVOKERS
+  getInvokers(): Observable<Invoker[]> {
+    return this.handleGetRequest<Invoker[]>('open_celium/invokers', new HttpParams());
   }
 
-  /**
-   * Create a new connector
-   */
-  public createConnector(connectorData: any): Observable<any> {
-    const options = { ...this.options };
-    return this.api.callPost<any>(`${this.servicePrefix}/connectors`, connectorData, options)
-      .pipe(
-        map((res: HttpResponse<any>) => res.body),
-        catchError((error) => {
-          throw error;
-        })
-      );
+  // TEST CREDENTIALS
+  checkConnector(payload: Connector): Observable<boolean> {
+    return this.handlePostRequest<boolean>(`${this.servicePrefix}/check`, payload);
   }
 
-  /**
-   * Update an existing connector
-   */
-  public updateConnector(connectorId: number, connectorData: any): Observable<any> {
-    const options = { ...this.options };
-    const payload = { ...connectorData, connectorId };
-    return this.api.callPut<any>(`${this.servicePrefix}/connectors/${connectorId}`, payload, options)
-      .pipe(
-        map((res: HttpResponse<any>) => res.body),
-        catchError((error) => {
-          throw error;
-        })
-      );
+  // CREATE
+  createConnector(payload: Connector): Observable<Connector> {
+    return this.handlePostRequest<Connector>(`${this.servicePrefix}`, payload);
   }
 
-  /**
-   * Delete a connector
-   */
-  public deleteConnector(connectorId: number): Observable<any> {
-    const options = { ...this.options };
-    return this.api.callDelete<any>(`${this.servicePrefix}/connectors/${connectorId}`, options)
-      .pipe(
-        map((res: HttpResponse<any>) => res.body),
-        catchError((error) => {
-          throw error;
-        })
-      );
+  // UPDATE
+  updateConnector(connectorId: number, payload: Connector): Observable<Connector> {
+    const body: Connector = { ...payload, connectorId };
+    return this.handlePutRequest<Connector>(`${this.servicePrefix}/${connectorId}`, body);
+  }
+
+  // DELETE
+  deleteConnector(connectorId: number) {
+    return this.handleDeleteRequest<void>(`${this.servicePrefix}/${connectorId}`);
   }
 }

@@ -1,15 +1,10 @@
 export interface Connector {
-    connector_id?: number;
-    name: string;
-    type: string;
-    configuration: any;
-    status?: string;
-    created_at?: string;
-    updated_at?: string;
-}
-
-export interface ConnectorTestResult {
-    success: boolean;
-    message: string;
-    details?: any;
-}
+    connectorId?: number;              // present for edit/view
+    title: string;
+    description?: string;
+    invoker: { name: string };
+    sslCert: boolean;
+    timeout: number;
+    requestData: Record<string, any>;  // dynamic credentials per invoker
+  }
+  
