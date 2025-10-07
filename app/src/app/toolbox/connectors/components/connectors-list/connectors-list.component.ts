@@ -3,6 +3,8 @@ import { Router } from '@angular/router';
 import { ConnectorsService } from '../../services/connectors.service';
 import { Connector } from '../../models/connector.model';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { finalize } from 'rxjs';
 
 @Component({
   selector: 'app-connectors-list',
@@ -20,8 +22,9 @@ export class ConnectorsListComponent implements OnInit {
   constructor(
     private svc: ConnectorsService,
     private router: Router,
-    private toast: ToastService
-  ) {}
+    private toast: ToastService,
+    private loaderService: LoaderService
+  ) { }
 
   ngOnInit(): void {
     this.columns = [
@@ -29,14 +32,17 @@ export class ConnectorsListComponent implements OnInit {
       { display: 'Label', name: 'title', data: 'title', sortable: true },
       { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '100px', 'text-align': 'center' } }
     ];
-    this.fetch();
+    this.loadConnectors();
   }
 
-  fetch(): void {
-    this.loading = true;
-    this.svc.getConnectors().subscribe({
+  loadConnectors(): void {
+    this.loaderService.show();
+    this.svc.getConnectors().pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: (res) => { this.rows = res ?? []; this.loading = false; },
-      error: () => { this.loading = false; this.toast.error('Failed to load connectors'); }
+      error: (err) => {
+        this.loading = false;
+        this.toast.error(err?.error?.message);
+      }
     });
   }
 
@@ -46,9 +52,9 @@ export class ConnectorsListComponent implements OnInit {
   delete(row: Connector): void {
     if (!confirm(`Delete connector "${row.title}"?`)) return;
     this.svc.deleteConnector(row.connectorId!).subscribe({
-      next: () => { this.toast.success('Connector deleted'); this.fetch(); },
+      next: () => { this.toast.success('Connector deleted'); this.loadConnectors(); },
       error: () => this.toast.error('Delete failed')
     });
   }
-  
+
 }

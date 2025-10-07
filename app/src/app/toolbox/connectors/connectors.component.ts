@@ -17,6 +17,7 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { ConnectorsService } from './services/connectors.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
   selector: 'app-connectors',
@@ -25,8 +26,9 @@ import { ConnectorsService } from './services/connectors.service';
   standalone: false
 })
 export class ConnectorsComponent implements OnInit {
+  public isLoading$ = this.loaderService.isLoading$;
 
-  constructor() { }
+  constructor(private loaderService: LoaderService) {}
 
   ngOnInit(): void {
   }

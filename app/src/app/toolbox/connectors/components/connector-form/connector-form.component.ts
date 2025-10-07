@@ -1,18 +1,18 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
-  AbstractControl,
   FormBuilder,
   FormControl,
   FormGroup,
   Validators
 } from '@angular/forms';
-import { map, distinctUntilChanged, debounceTime } from 'rxjs/operators';
+import { map, distinctUntilChanged, debounceTime, finalize } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 import { ConnectorsService } from '../../services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../models/connector.model';
 import { Invoker } from '../../models/invoker.model';
 
@@ -32,11 +32,13 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   testing = false;
   isValidCredentials = false;
   inlineLoading = false;
-  
+
   // Add flag to control rendering
   credentialsReady = false;
   selectedInvoker: Invoker | null = null;
-  
+
+  public isLoading$ = this.loaderService.isLoading$;
+
   private destroy$ = new Subject<void>();
 
   constructor(
@@ -44,8 +46,9 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     private route: ActivatedRoute,
     private router: Router,
     private svc: ConnectorsService,
-    private toast: ToastService
-  ) {}
+    private toast: ToastService,
+    private loaderService: LoaderService
+  ) { }
 
   ngOnInit(): void {
     this.mode = (this.route.snapshot.data['mode'] || 'create') as any;
@@ -78,8 +81,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     this.form = this.fb.group({
       title: ['', Validators.required],
       description: [''],
-      invoker: this.fb.group({ 
-        name: [null, Validators.required] 
+      invoker: this.fb.group({
+        name: [null, Validators.required]
       }),
       sslCert: [false],
       timeout: [1000, [Validators.required, Validators.min(0)]],
@@ -91,10 +94,10 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     // First, hide the controls
     this.credentialsReady = false;
     this.isValidCredentials = false;
-    
+
     // Find the invoker
     this.selectedInvoker = this.findInvokerByName(name);
-    
+
     // Use setTimeout to ensure DOM has updated
     setTimeout(() => {
       this.rebuildCredentials(this.selectedInvoker);
@@ -105,17 +108,17 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
   private rebuildCredentials(inv?: Invoker | null): void {
     const newGroup = this.fb.group({});
-    
+
     if (inv?.requiredData) {
       Object.keys(inv.requiredData).forEach((key) => {
         const defaultVal = inv.requiredData[key] ?? '';
         newGroup.addControl(
-          key, 
+          key,
           new FormControl(defaultVal, Validators.required)
         );
       });
     }
-    
+
     // Replace the entire group
     this.form.setControl('requestData', newGroup);
   }
@@ -147,11 +150,11 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
   // Edit mode methods
   private loadForEdit(id: number): void {
-    this.inlineLoading = true;
-    
+    this.loaderService.show();
     this.svc.getConnectors()
       .pipe(
         map((list: Connector[]) => list?.find(c => c.connectorId === id)),
+        finalize(() => this.loaderService.hide()),
         takeUntil(this.destroy$)
       )
       .subscribe({
@@ -164,9 +167,9 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
           }
           this.patchForEdit(c);
         },
-        error: () => {
+        error: (err) => {
           this.inlineLoading = false;
-          this.toast.error('Failed to load connector');
+          this.toast.error(err?.error?.message);
         }
       });
   }
@@ -174,10 +177,10 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   private patchForEdit(c: Connector): void {
     // Set the invoker first and wait for controls to be ready
     this.credentialsReady = false;
-    
+
     // Find and set the selected invoker
     this.selectedInvoker = this.findInvokerByName(c.invoker?.name);
-    
+
     // Patch basic fields
     this.form.patchValue({
       title: c.title,
@@ -190,11 +193,11 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     // Build and patch credentials after a tick
     setTimeout(() => {
       this.rebuildCredentials(this.selectedInvoker);
-      
+
       if (c.requestData) {
         this.requestDataGroup.patchValue(c.requestData);
       }
-      
+
       this.credentialsReady = true;
     }, 0);
   }
@@ -220,28 +223,32 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.loaderService.show();
     this.testing = true;
     this.isValidCredentials = false;
 
     const payload = this.toPayload();
-    
+
     this.svc.checkConnector(payload)
-      .pipe(takeUntil(this.destroy$))
+      .pipe(
+        finalize(() => {
+          this.loaderService.hide();
+        }),
+        takeUntil(this.destroy$))
       .subscribe({
         next: (ok: boolean) => {
           this.testing = false;
           this.isValidCredentials = !!ok;
-          
+
           if (ok) {
             this.toast.success('Connection test successful');
           } else {
             this.toast.error('Connection test failed');
           }
         },
-        error: () => {
-          this.testing = false;
+        error: (err) => {
           this.isValidCredentials = false;
-          this.toast.error('Test request failed');
+          this.toast.error(err?.error?.message);
         }
       });
   }
@@ -263,18 +270,21 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       ? this.svc.createConnector(payload)
       : this.svc.updateConnector(this.id!, payload);
 
-    req$.pipe(takeUntil(this.destroy$))
+    this.loaderService.show();
+
+    req$.pipe(finalize(() => this.loaderService.hide()),
+      takeUntil(this.destroy$))
       .subscribe({
         next: () => {
           this.toast.success(
-            this.mode === 'create' 
-              ? 'Connector created successfully' 
+            this.mode === 'create'
+              ? 'Connector created successfully'
               : 'Connector updated successfully'
           );
           this.router.navigate(['../'], { relativeTo: this.route });
         },
-        error: () => {
-          this.toast.error('Failed to save connector');
+        error: (err) => {
+          this.toast.error(err?.error?.message);
         }
       });
   }
