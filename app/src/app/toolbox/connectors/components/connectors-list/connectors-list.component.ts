@@ -1,3 +1,21 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2025 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { ConnectorsService } from '../../services/connectors.service';
@@ -14,11 +32,12 @@ import { finalize } from 'rxjs';
   standalone: false
 })
 export class ConnectorsListComponent implements OnInit {
+  @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
+
   rows: Connector[] = [];
   loading = false;
   columns: any[];
-
-  @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
+  totalConnectors = 0;
 
   constructor(
     private svc: ConnectorsService,
@@ -30,8 +49,8 @@ export class ConnectorsListComponent implements OnInit {
 
   ngOnInit(): void {
     this.columns = [
-      { display: 'Public ID', name: 'connectorId', data: 'connectorId', sortable: true, style: { width: '100px', 'text-align': 'center' } },
-      { display: 'Label', name: 'title', data: 'title', sortable: true },
+      { display: 'Public ID', name: 'connectorId', data: 'connectorId', sortable: false, style: { width: '120px', 'text-align': 'center' } },
+      { display: 'Label', name: 'title', data: 'title', sortable: false , style: {'text-align': 'center' } },
       { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '100px', 'text-align': 'center' } }
     ];
     this.loadConnectors();
@@ -40,7 +59,9 @@ export class ConnectorsListComponent implements OnInit {
   loadConnectors(): void {
     this.loaderService.show();
     this.svc.getConnectors().pipe(finalize(() => this.loaderService.hide())).subscribe({
-      next: (res) => { this.rows = res ?? []; this.loading = false; },
+      next: (res) => { this.rows = res ?? []; 
+        this.totalConnectors = this.rows.length;
+      },
       error: (err) => {
         this.loading = false;
         this.toast.error(err?.error?.message);

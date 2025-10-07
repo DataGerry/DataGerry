@@ -1,35 +1,19 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="mb-0">Connectors</h3>
-    <app-button [bootstrapClass]="'btn-success'" label="Add" type="button" (clicked)="add()"></app-button>
-  </div>
-  
-  <cmdb-table
-    [items]="rows"
-    [columns]="columns"
-    [loading]="loading"
-  >
-  </cmdb-table>
+  <h3 class="mb-0">Connectors</h3>
+  <app-button [bootstrapClass]="'btn-success'" label="Add" type="button" (clicked)="add()"></app-button>
+</div>
 
-  <!-- Actions Template -->
-  <!-- <ng-template #actionsTemplate let-item="item">
-    <app-button [bootstrapClass]="'btn-link p-0 me-2'" label="" icon="fas fa-pen" (clicked)="edit(item)"></app-button>
-    <app-button [bootstrapClass]="'btn-link p-0 text-danger'" label="" icon="fas fa-trash" (clicked)="delete(item)"></app-button>
-  </ng-template> -->
+<cmdb-table [items]="rows" [columns]="columns" [searchEnabled]="false" [totalItems]="totalConnectors"
+  [paginationEnabled]="false" [pageSizeEnabled]="false">
+</cmdb-table>
 
-
-  <ng-template #actionsTemplate let-item="item">
-
-    <span >
-      <i class="far fa-edit icon-margin btn-edit spacing-right" 
-      (click)="edit(item)"
-      title="Edit Connector"></i>
-    </span>
-  
-  <span >
-    <i
-      class="far fa-trash-alt btn-delete"
-      (click)="delete(item)"
-      title="Delete Connector"
-    ></i>
+<!-- Actions Template -->
+<ng-template #actionsTemplate let-item="item">
+  <span>
+    <i class="far fa-edit icon-margin btn-edit spacing-right" (click)="edit(item)" title="Edit Connector"></i>
   </span>
-  </ng-template>
+
+  <span>
+    <i class="far fa-trash-alt btn-delete" (click)="delete(item)" title="Delete Connector"></i>
+  </span>
+</ng-template>
