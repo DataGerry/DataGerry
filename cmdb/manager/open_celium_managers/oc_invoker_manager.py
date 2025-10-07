@@ -67,7 +67,7 @@ class OcInvokerManager(OcBaseManager):
         raise OcInvokerGetError(f"Failed to retrieve OpenCelium Invoker with name: {name}")
 
 
-    def get_all_invokers(self) -> list[dict[str, Any]]:
+    def get_all_invokers(self, with_operations: bool=True) -> list[dict[str, Any]]:
         """
         Retrieves all Invokers from OpenCelium
 
@@ -77,7 +77,12 @@ class OcInvokerManager(OcBaseManager):
         Returns:
             list[dict[str, Any]]: All Invokers from OpenCelium
         """
-        all_invokers_response: Response = self.oc_connector.oc_get(ALL_INVOKERS_URL)
+        invoker_route: str = ALL_INVOKERS_URL
+
+        if not with_operations:
+            invoker_route = f"{ALL_INVOKERS_URL}?opsIncluded=false"
+
+        all_invokers_response: Response = self.oc_connector.oc_get(invoker_route)
 
         if self.is_valid_response(all_invokers_response):
             return json.loads(all_invokers_response.text)
