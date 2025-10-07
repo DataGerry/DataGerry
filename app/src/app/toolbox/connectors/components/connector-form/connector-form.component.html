@@ -64,14 +64,14 @@
 
       <div class="card-body">
         <!-- Loader for fetching/testing -->
-        <div class="text-center py-3" *ngIf="inlineLoading || testing">
+        <!-- <div class="text-center py-3" *ngIf="inlineLoading || testing">
           <div class="spinner-border spinner-border-sm text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
           </div>
           <div class="mt-2 text-muted small">
             {{ testing ? 'Testing connection...' : 'Loading...' }}
           </div>
-        </div>
+        </div> -->
 
         <!-- Credentials Form -->
         <form [formGroup]="form" *ngIf="!inlineLoading && !testing">

@@ -86,7 +86,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
     if (this.mode === 'edit') {
       this.id = +this.route.snapshot.paramMap.get('id')!;
-      this.loadForEdit(this.id);
+      
+      // Check if connector was passed via state 
+      const connector = history.state?.connector;
+      if (connector) {
+        this.patchForEdit(connector);
+      } 
     }
   }
 
@@ -164,33 +169,6 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   hasErr(path: string, err: string): boolean {
     const c = this.form.get(path);
     return !!c && c.touched && c.hasError(err);
-  }
-
-  // Edit mode methods
-  private loadForEdit(id: number): void {
-    this.loaderService.show();
-    this.svc.getConnectors()
-      .pipe(
-        map((list: Connector[]) => list?.find(c => c.connectorId === id)),
-        finalize(() => this.loaderService.hide()),
-        takeUntil(this.destroy$)
-      )
-      .subscribe({
-        next: (c) => {
-          this.inlineLoading = false;
-          if (!c) {
-            this.toast.error('Connector not found');
-            this.router.navigate(['../'], { relativeTo: this.route });
-            return;
-          }
-          this.patchForEdit(c);
-        },
-        error: (err) => {
-          this.inlineLoading = false;
-          this.router.navigate(['../'], { relativeTo: this.route });
-          this.toast.error(err?.error?.message);
-        }
-      });
   }
 
   private patchForEdit(c: Connector): void {

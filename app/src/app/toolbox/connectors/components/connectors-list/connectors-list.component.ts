@@ -70,7 +70,11 @@ export class ConnectorsListComponent implements OnInit {
   }
 
   add(): void { this.router.navigate(['/connectors/add']); }
-  edit(row: Connector): void { this.router.navigate(['/connectors/edit', row.connectorId]); }
+  edit(row: Connector): void { 
+    this.router.navigate(['/connectors/edit', row.connectorId], {
+      state: { connector: row }
+    });
+  }
 
   delete(row: Connector): void {
     this.deleteModalService.confirmDelete({
