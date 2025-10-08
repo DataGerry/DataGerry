@@ -152,7 +152,7 @@ def get_webhooks(params: CollectionParameters, request_user: CmdbUser) -> Respon
 @webhook_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def update_webhook(params: dict, request_user: CmdbUser) -> Response:
+def update_webhook(params: dict, request_user: CmdbUser, public_id: int) -> Response:
     """
     Updates a CmdbWebhook
 
@@ -172,12 +172,12 @@ def update_webhook(params: dict, request_user: CmdbUser) -> Response:
         params['event_types'] = literal_eval(params['event_types'])
         params['active'] = params['active'] in ["True", "true"]
 
-        current_webhook = webhooks_manager.get_webhook(params['public_id'])
+        current_webhook: CmdbWebhook = webhooks_manager.get_webhook(public_id)
 
         if current_webhook:
             #TODO: REFACTOR-FIX
-            webhooks_manager.update({'public_id': params['public_id']}, params)
-            current_webhook = webhooks_manager.get_webhook(params['public_id'])
+            webhooks_manager.update({'public_id': public_id}, params)
+            current_webhook = webhooks_manager.get_webhook(public_id)
         else:
             raise NoDocumentFoundError(webhooks_manager.collection)
 

@@ -32,6 +32,7 @@ LOGGER: Logger = getLogger(__name__)
 CONNECTOR_URL: str = "/connector"
 CHECK_CONNECTOR_URL: str = f"{CONNECTOR_URL}/check"
 ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
+CHECK_MASTER_PW_URL: str = f"{CONNECTOR_URL}/master-password/status"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectorManager - CLASS                                              #
@@ -76,7 +77,7 @@ class OcConnectorManager(OcBaseManager):
             params (dict[str, Any]): data of the Invoker and Connector
 
         Returns:
-            bool: True of credentials are valid else False
+            bool: True if credentials are valid else False
         """
         # LOGGER.debug("[check_connector] called")
         check_connector_response: Response = self.oc_connector.oc_post(params, CHECK_CONNECTOR_URL)
@@ -86,6 +87,24 @@ class OcConnectorManager(OcBaseManager):
         # LOGGER.debug(f"[check_connector] check_connector_response body: {check_connector_response.text}")
 
         if self.is_valid_response(check_connector_response):
+            return True
+
+        return False
+
+
+    def check_master_pw(self, password: str) -> bool:
+        """
+        Checks the master password of the Connector
+
+        Args:
+            password (str): the master password
+
+        Returns:
+            bool: True if password is correct else False
+        """
+        check_pw_response: Response = self.oc_connector.oc_get(CHECK_MASTER_PW_URL, password)
+
+        if self.is_valid_response(check_pw_response):
             return True
 
         return False

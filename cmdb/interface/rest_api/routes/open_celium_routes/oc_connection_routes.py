@@ -47,6 +47,7 @@ oc_connections_blueprint = APIBlueprint('oc_connections', __name__)
 @handle_oc_errors("creating an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
 def create_oc_connection(request_user: CmdbUser) -> Response:
     """
     **POST** route to create an OcConnection in OpenCelium
@@ -76,6 +77,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 @handle_oc_errors("retrieving the OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
 def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     GET/HEAD route to retrive an OcConnection with the given connection_id
@@ -105,6 +107,7 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 @handle_oc_errors("updating an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.edit')
 def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     **PUT** route to update an OcConnection
