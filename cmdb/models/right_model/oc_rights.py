@@ -38,7 +38,19 @@ class OcConnectorRight(OpenCeliumRight):
     """
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
-    PREFIX = f'{OpenCeliumRight.PREFIX}.connector'
+    PREFIX: str = f'{OpenCeliumRight.PREFIX}.connector'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None) -> None:
+        super().__init__(name, level, description=description)
+
+
+class OcConnectionRight(OpenCeliumRight):
+    """
+    Base class for OcConnection rights
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX: str = f'{OpenCeliumRight.PREFIX}.connection'
 
     def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None) -> None:
         super().__init__(name, level, description=description)

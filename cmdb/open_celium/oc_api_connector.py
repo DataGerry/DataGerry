@@ -124,7 +124,7 @@ class OcApiConnector:
         # LOGGER.debug("[check_connector] called")
         try:
             if not self.token_is_set() and with_auth:
-                LOGGER.debug("[need auth]")
+                # LOGGER.debug("[need auth]")
                 self.authenticate()
 
             response: Response = post(
@@ -148,7 +148,7 @@ class OcApiConnector:
             raise err
 
 
-    def oc_get(self, endpoint: str) -> Response:
+    def oc_get(self, endpoint: str, password: str = None) -> Response:
         """
         Handles GET requests towards OpenCelium API
 
@@ -169,7 +169,7 @@ class OcApiConnector:
 
             response: Response = get(
                 self.build_url(endpoint),
-                headers=self.get_headers(),
+                headers=self.get_headers(password=password),
                 timeout=OC_REQUEST_TIMEOUT
             )
 
@@ -261,7 +261,7 @@ class OcApiConnector:
         Raises:
             AuthError: When authentication failed
         """
-        LOGGER.debug("[authenticate] called")
+        # LOGGER.debug("[authenticate] called")
         payload: dict[str, str] = {
             "email": self.get_email(),
             "password": self.get_password(),
@@ -286,7 +286,7 @@ class OcApiConnector:
             raise AuthError("Authentication in OpenCelium failed!")
 
 
-    def get_headers(self, with_auth: bool = True) -> dict[str, Any]:
+    def get_headers(self, with_auth: bool = True, password: str = None) -> dict[str, Any]:
         """
         Sets the headers for requests towards OpenCelium
 
@@ -302,6 +302,9 @@ class OcApiConnector:
 
         if with_auth:
             headers["Authorization"] = self.jwt_token
+
+        if password:
+            headers["X-Master-Password"] = password
 
         return headers
 

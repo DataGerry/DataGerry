@@ -62,6 +62,7 @@ from cmdb.models.right_model.isms_rights import (
 from cmdb.models.right_model.oc_rights import (
     OpenCeliumRight,
     OcConnectorRight,
+    OcConnectionRight,
 )
 from cmdb.models.right_model.export_rights import ExportRight, ExportObjectRight, ExportTypeRight
 from cmdb.models.right_model.docapi_rights import DocapiRight, DocapiTemplateRight
@@ -292,6 +293,13 @@ OC_RIGHTS = (
             OcConnectorRight('add', description='Add OpenCelium Connectors'),
             OcConnectorRight('edit', Levels.PROTECTED, description='Edit OpenCelium Connectors'),
             OcConnectorRight('delete', Levels.SECURE, description='Delete OpenCelium Connectors'),
+        ),
+        OcConnectionRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Connections of OpenCelium'),
+        (
+            OcConnectionRight('view', description='View OpenCelium Connections'),
+            OcConnectionRight('add', description='Add OpenCelium Connections'),
+            OcConnectionRight('edit', Levels.PROTECTED, description='Edit OpenCelium Connections'),
+            OcConnectionRight('delete', Levels.SECURE, description='Delete OpenCelium Connections'),
         )
     )
 )
