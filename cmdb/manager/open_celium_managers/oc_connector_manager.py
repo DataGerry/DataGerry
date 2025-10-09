@@ -111,7 +111,7 @@ class OcConnectorManager(OcBaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_connector(self, connector_id: int) -> dict[str, Any]:
+    def get_connector(self, connector_id: int, password: str = None) -> dict[str, Any]:
         """
         Retrieves a single OcConnector from OpenCelium
 
@@ -128,7 +128,7 @@ class OcConnectorManager(OcBaseManager):
         if not connector_id:
             raise OcConnectorGetError("No connectorId for Connector provided!")
 
-        target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}")
+        target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}", password)
 
         if self.is_valid_response(target_connector_response):
             return json.loads(target_connector_response.text)
