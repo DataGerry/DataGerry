@@ -70,7 +70,10 @@ export class ConnectorsService extends BaseApiService<Connector> {
   }
 
   // PASSWORD CHECK
-  checkMasterPassword(password: string): Observable<boolean> {
-    return this.handlePostRequest<boolean>(`${this.servicePrefix}/pw_check`, { password });
+  checkMasterPassword(password: string, connectorId: number): Observable<Connector> {
+    return this.handlePostRequest<Connector>(`${this.servicePrefix}/with_pw`, { 
+      password, 
+      connectorId 
+    });
   }
 }
