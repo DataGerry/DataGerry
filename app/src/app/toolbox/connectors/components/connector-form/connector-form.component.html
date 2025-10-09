@@ -43,8 +43,12 @@
               </small>
             </div>
             <div class="col-6 d-flex align-items-end">
-              <app-form-checkbox formControlName="sslCert" label="Disable SSL Validation">
-              </app-form-checkbox>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" formControlName="sslCert" id="sslCert">
+                <label class="form-check-label" for="sslCert">
+                  Disable SSL Validation
+                </label>
+              </div>
             </div>
           </div>
         </form>
@@ -63,18 +67,36 @@
       </div>
 
       <div class="card-body">
-        <!-- Loader for fetching/testing -->
-        <!-- <div class="text-center py-3" *ngIf="inlineLoading || testing">
-          <div class="spinner-border spinner-border-sm text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-          </div>
-          <div class="mt-2 text-muted small">
-            {{ testing ? 'Testing connection...' : 'Loading...' }}
-          </div>
-        </div> -->
-
         <!-- Credentials Form -->
-        <form [formGroup]="form" *ngIf="!inlineLoading && !testing">
+        <form [formGroup]="form" *ngIf="!inlineLoading && !testing" class="credentials-form-container" autocomplete="off">
+          <!-- Master Password Overlay -->
+          <div class="master-password-overlay" *ngIf="showMasterPassword">
+            <div class="master-password-content">
+              <div class="text-center">
+                <div class="mb-3">
+                  <i class="bi bi-shield-lock text-primary" style="font-size: 2.5rem;"></i>
+                </div>
+                <p class="text-muted mb-3">Enter the master password to access the connector credentials.</p>
+                
+                <div class="mb-3">
+                  <input 
+                    type="password" 
+                    class="form-control" 
+                    id="masterPassword"
+                    formControlName="masterPassword"
+                    placeholder="Enter master password"
+                    [disabled]="verifyingPassword">
+                </div>
+                <button 
+                  class="btn btn-primary w-100"
+                  (click)="verifyMasterPassword()"
+                  [disabled]="!form.get('masterPassword')?.value || verifyingPassword">
+                  <span *ngIf="verifyingPassword" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  {{ verifyingPassword ? 'Verifying...' : 'Verify Password' }}
+                </button>
+              </div>
+            </div>
+          </div>
           <!-- Show message when no invoker selected -->
           <div class="alert alert-info" *ngIf="!selectedInvoker">
             <i class="bi bi-info-circle"></i>
@@ -89,8 +111,8 @@
               {{ selectedInvoker.hint }}
             </div>
 
-            <!-- Dynamic credential fields -->
-            <div formGroupName="requestData">
+            <!-- Dynamic credential fields with blur effect -->
+            <div formGroupName="requestData" [class.credentials-blurred]="credentialsBlurred">
               <ng-container *ngFor="let fieldName of getRequestDataControlNames(); trackBy: trackByName">
                 <div class="mb-3">
                   <app-form-input [formControl]="getRequestControl(fieldName)" [label]="fieldName | titlecase"

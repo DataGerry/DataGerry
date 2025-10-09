@@ -55,6 +55,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   credentialsReady = false;
   selectedInvoker: Invoker | null = null;
 
+  // Master password functionality
+  showMasterPassword = false;
+  masterPasswordVerified = false;
+  credentialsBlurred = false;
+  verifyingPassword = false;
+
   public isLoading$ = this.loaderService.isLoading$;
 
   private destroy$ = new Subject<void>();
@@ -109,7 +115,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       }),
       sslCert: [false],
       timeout: [1000, [Validators.required, Validators.min(0)]],
-      requestData: this.fb.group({})
+      requestData: this.fb.group({}),
+      masterPassword: ['']
     });
   }
 
@@ -187,16 +194,119 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       timeout: c.timeout
     });
 
-    // Build and patch credentials after a tick
+    // Check if requestData is missing or has empty values
+    const credentialsMissing = !c.requestData || this.areCredentialsMissing(c.requestData);
+    
+    // Always build credentials so they're visible (but blurred if needed)
     setTimeout(() => {
       this.rebuildCredentials(this.selectedInvoker);
 
-      if (c.requestData) {
+      if (c.requestData && !credentialsMissing) {
         this.requestDataGroup.patchValue(c.requestData);
       }
 
+      // Set flags after building credentials
+      this.showMasterPassword = credentialsMissing;
+      this.credentialsBlurred = credentialsMissing;
       this.credentialsReady = true;
     }, 0);
+  }
+
+  private areCredentialsMissing(requestData: any): boolean {
+    if (!requestData) return true;
+
+    // If no invoker is selected, we can't determine required fields
+    if (!this.selectedInvoker) {
+      return true;
+    }
+
+    // Get the required fields from the selected invoker's configuration
+    const requiredFields = Object.keys(this.selectedInvoker.requiredData || {});
+    
+    // If no required fields are defined, assume credentials are complete
+    if (requiredFields.length === 0) {
+      return false;
+    }
+
+    // Check if any required field is missing or empty
+    for (const field of requiredFields) {
+      const value = requestData[field];
+      // Check if field exists and has a non-empty value
+      if (!value || value.toString().trim() === '') {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Master password verification
+  verifyMasterPassword(): void {
+    const masterPassword = this.form.get('masterPassword')?.value;
+    if (!masterPassword) {
+      this.toast.warning('Please enter the master password');
+      return;
+    }
+
+    this.verifyingPassword = true;
+    this.loaderService.show();
+
+    this.svc.checkMasterPassword(masterPassword)
+      .pipe(
+        finalize(() => {
+          this.loaderService.hide();
+          this.verifyingPassword = false;
+        }),
+        takeUntil(this.destroy$)
+      )
+      .subscribe({
+        next: (isValid: boolean) => {
+          if (isValid) {
+            this.masterPasswordVerified = true;
+            this.showMasterPassword = false;
+            this.credentialsBlurred = false;
+            
+            // Fetch the connector data and populate credentials
+            this.fetchAndPopulateCredentials();
+          } else {
+            this.toast.error('Invalid master password');
+            this.form.get('masterPassword')?.setValue('');
+          }
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+          this.form.get('masterPassword')?.setValue('');
+        }
+      });
+  }
+
+  private fetchAndPopulateCredentials(): void {
+    if (!this.id) return;
+
+    this.loaderService.show();
+
+    this.svc.getConnector(this.id)
+      .pipe(
+        finalize(() => {
+          this.loaderService.hide();
+        }),
+        takeUntil(this.destroy$)
+      )
+      .subscribe({
+        next: (connector: Connector) => {
+          // Patch the form with the actual credential values
+          if (connector.requestData) {
+            this.requestDataGroup.patchValue(connector.requestData);
+          }
+          
+          this.credentialsReady = true;
+          this.toast.success('Credentials loaded successfully');
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+          this.credentialsReady = true;
+        }
+      });
   }
 
   // Action methods
