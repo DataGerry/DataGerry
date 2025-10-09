@@ -21,8 +21,9 @@ from typing import Any
 
 from flask import abort, request
 from werkzeug import Response
+from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import OcSchedulerManager
+from cmdb.manager import OcSchedulerManager, OcConnectionManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
@@ -34,6 +35,10 @@ from cmdb.errors.open_celium.scheduler import (
     OcSchedulerCreateError,
     OcSchedulerGetError,
     OcSchedulerUpdateError,
+)
+from cmdb.errors.open_celium.connection import (
+    OcConnectionCreateError,
+    OcConnectionGetError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -60,15 +65,41 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
     """
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+        oc_connection_manager: OcConnectionManager = OcConnectionManager()
 
         params: dict[str, Any] = request.json
 
-        created_oc_scheduler: dict[str, Any] = oc_scheduler_manager.create_scheduler(params)
+        if not params.get('connection'):
+            abort(400, "No 'connection' data provided to create the Connection of the Automation!")
+
+        if not params.get('scheduler'):
+            abort(400, "No 'scheduler' data provided to create the Automation!")
+
+        created_connection: dict[str, Any] = []
+        conn_title: str = params['connection']['title']
+
+        if not oc_connection_manager.check_connection_name_exists(conn_title):
+            created_connection = oc_connection_manager.create_connection(params['connection'])
+        else:
+            abort(400, f"The connection name: {conn_title} already exists!")
+
+        scheduler_params: dict[str, Any] = params['scheduler']
+        scheduler_params['connectionId'] = created_connection['connectionId']
+
+        created_oc_scheduler: dict[str, Any] = oc_scheduler_manager.create_scheduler(scheduler_params)
 
         return DefaultResponse(created_oc_scheduler).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcConnectionCreateError as err:
+        LOGGER.error("[create_oc_scheduler] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to create Connection of Automation!")
+    except OcConnectionGetError as err:
+        LOGGER.error("[create_oc_scheduler] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to check Connection name uniqueness!")
     except OcSchedulerCreateError as err:
-        LOGGER.error("[create_oc_scheduler] OcSchedulerCreateError: %s", err, exc_info=True)
-        abort(400, "Failed to create an OpenCelium Scheduler!")
+        LOGGER.error("[create_oc_scheduler] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to create the Automation!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

@@ -24,12 +24,15 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
+from cmdb.open_celium.oc_constants import UNIQUE_NEGATIVE, UNIQUE_NEGATIVE, UNIQUE_POSITIVE
+
 from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnectionGetError, OcConnectionUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 CONNECTION_URL: str = "/connection"
+CON_UNIQUE_CHECK_URL: str = f"{CONNECTION_URL}/check"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectionManager - CLASS                                             #
@@ -86,6 +89,32 @@ class OcConnectionManager(OcBaseManager):
             return json.loads(target_connection_response.text)
 
         raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connection with ID: {connection_id}")
+
+
+    def check_connection_name_exists(self, conn_name: str) -> bool:
+        """
+        Checks a connection name for uniqueness
+
+        Args:
+            conn_name (int): name of the OcConnection
+
+        Raises:
+            OcConnectionGetError: When the OcConnection could not be checked
+
+        Returns:
+            dict[str, Any]: The retrieved OcConnection
+        """
+
+        conn_name_check_response: Response = self.oc_connector.oc_get(f"{CONNECTION_URL}/{conn_name}")
+
+        if self.is_valid_response(conn_name_check_response):
+            conn_resp: dict[str, Any] = json.loads(conn_name_check_response.text)
+            if conn_resp['message'] == UNIQUE_POSITIVE:
+                return False
+
+            return True
+
+        raise OcConnectionGetError(f"Failed to check Connection name for uniqueness: {conn_name}")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
