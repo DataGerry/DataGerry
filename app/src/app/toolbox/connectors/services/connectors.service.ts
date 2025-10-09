@@ -38,6 +38,11 @@ export class ConnectorsService extends BaseApiService<Connector> {
     return this.handleGetRequest<Connector[]>(`${this.servicePrefix}`, params);
   }
 
+  // GET SINGLE CONNECTOR
+  getConnector(connectorId: number): Observable<Connector> {
+    return this.handleGetRequest<Connector>(`${this.servicePrefix}/${connectorId}`);
+  }
+
   // INVOKERS
   getInvokers(): Observable<Invoker[]> {
     return this.handleGetRequest<Invoker[]>('open_celium/invokers', new HttpParams());
@@ -62,5 +67,10 @@ export class ConnectorsService extends BaseApiService<Connector> {
   // DELETE
   deleteConnector(connectorId: number) {
     return this.handleDeleteRequest<void>(`${this.servicePrefix}/${connectorId}`);
+  }
+
+  // PASSWORD CHECK
+  checkMasterPassword(password: string): Observable<boolean> {
+    return this.handlePostRequest<boolean>(`${this.servicePrefix}/pw_check`, { password });
   }
 }
