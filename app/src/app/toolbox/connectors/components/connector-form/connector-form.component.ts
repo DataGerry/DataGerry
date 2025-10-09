@@ -60,6 +60,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   masterPasswordVerified = false;
   credentialsBlurred = false;
   verifyingPassword = false;
+  showPassword = false;
+  originalInvokerName: string | null = null;
 
   public isLoading$ = this.loaderService.isLoading$;
 
@@ -128,6 +130,32 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     // Find the invoker
     this.selectedInvoker = this.findInvokerByName(name);
 
+    // Handle master password logic for invoker switching
+    if (this.mode === 'edit' && this.originalInvokerName) {
+      const isOriginalInvoker = name === this.originalInvokerName;
+      
+      if (isOriginalInvoker) {
+        // Switching back to original invoker
+        // Check if we have loaded credentials or if we need master password
+        const currentRequestData = this.requestDataGroup?.value;
+        const credentialsMissing = this.areCredentialsMissing(currentRequestData);
+        
+        if (credentialsMissing && !this.masterPasswordVerified) {
+          // Show master password for original invoker with missing credentials
+          this.showMasterPassword = true;
+          this.credentialsBlurred = true;
+        } else {
+          // Either credentials are loaded or master password was verified
+          this.showMasterPassword = false;
+          this.credentialsBlurred = false;
+        }
+      } else {
+        // Switching to a different invoker - no master password needed
+        this.showMasterPassword = false;
+        this.credentialsBlurred = false;
+      }
+    }
+
     // Use setTimeout to ensure DOM has updated
     setTimeout(() => {
       this.rebuildCredentials(this.selectedInvoker);
@@ -181,6 +209,9 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   private patchForEdit(c: Connector): void {
     // Set the invoker first and wait for controls to be ready
     this.credentialsReady = false;
+
+    // Store the original invoker name
+    this.originalInvokerName = c.invoker?.name || null;
 
     // Find and set the selected invoker
     this.selectedInvoker = this.findInvokerByName(c.invoker?.name);
@@ -248,10 +279,15 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (!this.id) {
+      this.toast.error('Connector ID is missing');
+      return;
+    }
+
     this.verifyingPassword = true;
     this.loaderService.show();
 
-    this.svc.checkMasterPassword(masterPassword)
+    this.svc.checkMasterPassword(masterPassword, this.id)
       .pipe(
         finalize(() => {
           this.loaderService.hide();
@@ -260,40 +296,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
         takeUntil(this.destroy$)
       )
       .subscribe({
-        next: (isValid: boolean) => {
-          if (isValid) {
-            this.masterPasswordVerified = true;
-            this.showMasterPassword = false;
-            this.credentialsBlurred = false;
-            
-            // Fetch the connector data and populate credentials
-            this.fetchAndPopulateCredentials();
-          } else {
-            this.toast.error('Invalid master password');
-            this.form.get('masterPassword')?.setValue('');
-          }
-        },
-        error: (err) => {
-          this.toast.error(err?.error?.message);
-          this.form.get('masterPassword')?.setValue('');
-        }
-      });
-  }
-
-  private fetchAndPopulateCredentials(): void {
-    if (!this.id) return;
-
-    this.loaderService.show();
-
-    this.svc.getConnector(this.id)
-      .pipe(
-        finalize(() => {
-          this.loaderService.hide();
-        }),
-        takeUntil(this.destroy$)
-      )
-      .subscribe({
         next: (connector: Connector) => {
+          // Password is correct, populate the form with connector data
+          this.masterPasswordVerified = true;
+          this.showMasterPassword = false;
+          this.credentialsBlurred = false;
+          
           // Patch the form with the actual credential values
           if (connector.requestData) {
             this.requestDataGroup.patchValue(connector.requestData);
@@ -303,10 +311,19 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
           this.toast.success('Credentials loaded successfully');
         },
         error: (err) => {
-          this.toast.error(err?.error?.message);
-          this.credentialsReady = true;
+          // Handle 403 error specifically for incorrect password
+          if (err.status === 403) {
+            this.toast.error('Incorrect master password');
+          } else {
+            this.toast.error(err?.error?.message);
+          }
         }
       });
+  }
+
+  // Toggle password visibility
+  togglePasswordVisibility(): void {
+    this.showPassword = !this.showPassword;
   }
 
   // Action methods
