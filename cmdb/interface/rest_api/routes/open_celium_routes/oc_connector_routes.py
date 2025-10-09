@@ -97,20 +97,27 @@ def check_oc_connector(request_user: CmdbUser) -> Response:
     return DefaultResponse(check_is_success).make_response()
 
 
-@oc_connectors_blueprint.route('/connectors/pw_check', methods=['POST'])
+@oc_connectors_blueprint.route('/connectors/with_pw', methods=['POST'])
 @handle_oc_errors("checking the master password!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
 def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
     """
-    **POST** route to check the master password for connectors
+    **POST** route to check the master password for connectors. If connectorId is provided
+    then it returns the connector with credentials
 
     Args:
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        bool: True if password correct, else False
+        dict[str, Any] | bool: True if password correct or the Connector with credentials
+
+    Example params:
+        {
+            "password": password,
+            "connectorId": 123, (Optional)
+        }
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
@@ -119,7 +126,15 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
 
         pw_valid: bool = oc_connector_manager.check_master_pw(params['password'])
 
-        return DefaultResponse(pw_valid).make_response()
+        if not pw_valid:
+            abort(403, "Invalid master password!")
+
+        result: dict[str, Any] | bool = True
+
+        if params.get('connectorId'):
+            result: dict[str, Any] = oc_connector_manager.get_connector(params['connectorId'], params['password'])
+
+        return DefaultResponse(result).make_response()
     except OcConnectorGetError as err:
         LOGGER.error("[check_oc_connector_master_pw] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to check the master password!")
