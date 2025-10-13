@@ -14,21 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All OpenCelium API blueprints
+This module provides all errors for OpenCelium Invokers
 """
-from .oc_connector_routes import oc_connectors_blueprint
-from .oc_invoker_routes import oc_invokers_blueprint
-from .oc_template_routes import oc_templates_blueprint
-from .oc_connection_routes import oc_connections_blueprint
-from .oc_scheduler_routes import oc_schedulers_blueprint
-from .oc_license_routes import oc_licenses_blueprint
+from .oc_license_errors import (
+    OcLicenseError,
+    OcLicenseGetError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'oc_connectors_blueprint',
-    'oc_invokers_blueprint',
-    'oc_templates_blueprint',
-    'oc_connections_blueprint',
-    'oc_schedulers_blueprint',
-    'oc_licenses_blueprint',
+    'OcLicenseError',
+    'OcLicenseGetError',
 ]
