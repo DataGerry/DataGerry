@@ -22,7 +22,7 @@ from typing import Any
 from flask import abort, request
 from werkzeug import Response
 
-from cmdb.manager import OcConnectionManager
+from cmdb.manager import OcConnectionManager, OcConnectorManager, OcTemplateManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
@@ -100,6 +100,37 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     except OcConnectionGetError as err:
         LOGGER.error("[get_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Connection with ID:{connection_id}!")
+
+
+@oc_connections_blueprint.route('/connections/init_data', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving initial data for Connections!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
+def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
+    """
+    GET/HEAD route to retrive an OcConnection with the given connection_id
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        connection_id (int): connectionId of the OcConnection
+
+    Returns:
+        dict[str, Any]: The OcConnection from OpenCelium
+    """
+    oc_connector_manager: OcConnectorManager = OcConnectorManager()
+    oc_template_manager: OcTemplateManager = OcTemplateManager()
+
+    connectors: dict[str, Any] = oc_connector_manager.get_all_connectors()
+    templates: dict[str, Any] = oc_template_manager.get_all_templates()
+
+    # LOGGER.debug(f"connection: {connection}")
+    init_data: dict[str, dict[str, Any]] = {
+        'connectors': connectors,
+        'templates': templates,
+    }
+
+    return DefaultResponse(init_data).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
