@@ -35,6 +35,7 @@ from cmdb.errors.open_celium.scheduler import (
     OcSchedulerCreateError,
     OcSchedulerGetError,
     OcSchedulerUpdateError,
+    OcSchedulerDeleteError,
 )
 from cmdb.errors.open_celium.connection import (
     OcConnectionCreateError,
@@ -204,10 +205,18 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+        oc_conection_manager: OcConnectionManager = OcConnectionManager()
 
+        to_delete_scheduler: dict[str, Any] = oc_scheduler_manager.get_scheduler(scheduler_id)
+
+        # First delete the connection
+        target_connection = to_delete_scheduler['connectionId']
+        oc_conection_manager.delete_connection(target_connection)
+
+        # Then delete scheduler
         deleted_oc_scheduler: bool = oc_scheduler_manager.delete_scheduler(scheduler_id)
 
         return DefaultResponse(deleted_oc_scheduler).make_response()
-    except OcSchedulerUpdateError as err:
+    except OcSchedulerDeleteError as err:
         LOGGER.error("[delete_oc_scheduler] %s: %s", type(err), err, exc_info=True)
-        abort(400, f"Failed to delete the OpenCelium Scheduler with ID: {scheduler_id}!")
+        abort(500, f"Failed to delete the OpenCelium Scheduler with ID: {scheduler_id}!")
