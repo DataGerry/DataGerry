@@ -96,3 +96,29 @@ def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, 
     except OcInvokerGetError as err:
         LOGGER.error("[get_all_oc_invokers] OcInvokerGetError: %s.", err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Invoker with name: {name}!")
+
+
+@oc_invokers_blueprint.route('/invokers/exists/<string:name>', methods=['GET', 'HEAD'])
+@handle_oc_errors("checking OpenCelium Invoker exists!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def check_oc_invoker_exists(name: str, request_user: CmdbUser) -> list[dict[str, Any]]:
+    """
+    **GET**/**HEAD** route to check if an Invoker with the given name exists
+
+    Args:
+        name (str): name of the Invoker
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        bool: True if the Invoker exists, else False
+    """
+    try:
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager()
+
+        invoker_exists: bool = oc_invoker_manager.check_invoker_exists(name)
+
+        return DefaultResponse(invoker_exists).make_response()
+    except OcInvokerGetError as err:
+        LOGGER.error("[check_oc_invoker_exists] OcInvokerGetError: %s.", err, exc_info=True)
+        abort(500, f"Failed to check if the OpenCelium Invoker with name: '{name}' exists!")

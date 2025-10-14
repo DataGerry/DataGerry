@@ -88,10 +88,22 @@ def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
 
         templates: list[dict[str, Any]] = oc_template_manager.get_all_templates()
 
+        # Filter only templates using a DataGerry invoker
+
+        datagerry_templates: list[dict[str, Any]] = [
+            t for t in templates
+            if (
+                t.get("connection", {}).get("fromConnector", {})
+                 .get("invoker", {}).get("name") == "DataGerry"
+                or
+                t.get("connection", {}).get("toConnector", {})
+                 .get("invoker", {}).get("name") == "DataGerry"
+            )
+        ]
         # LOGGER.debug(f"count templates: {len(templates)}")
         # LOGGER.debug(f"all templates: {templates}")
 
-        return DefaultResponse(templates).make_response()
+        return DefaultResponse(datagerry_templates).make_response()
     except OcTemplateGetError as err:
         LOGGER.error("[get_all_oc_templates] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Business Templates!")
