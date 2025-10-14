@@ -31,6 +31,7 @@ LOGGER: Logger = getLogger(__name__)
 
 INVOKER_URL: str = "/invoker"
 ALL_INVOKERS_URL: str = f"{INVOKER_URL}/all"
+INVOKER_EXISTS_URL: str = f"{INVOKER_URL}/exists"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               OcInvokerManager - CLASS                                               #
@@ -65,6 +66,35 @@ class OcInvokerManager(OcBaseManager):
             return json.loads(target_invoker_response.text)
 
         raise OcInvokerGetError(f"Failed to retrieve OpenCelium Invoker with name: {name}")
+
+
+    def check_invoker_exists(self, name: str) -> dict[str, Any]:
+        """
+        Retrieves a single Invoker from OpenCelium
+
+        Args:
+            name (str): name of the Invoker
+
+        Raises:
+            OcInvokerGetError: When the name was not provided to this method
+            OcInvokerGetError: When  retrieving the Invoker failed
+
+        Returns:
+            dict[str, Any]: The retrieved OcConnector
+        """
+        if not name:
+            raise OcInvokerGetError("No name for Invoker provided!")
+
+        target_invoker_response: Response = self.oc_connector.oc_get(f"{INVOKER_EXISTS_URL}/{name}")
+
+        if self.is_valid_response(target_invoker_response):
+            data: dict[str, Any] = json.loads(target_invoker_response.text)
+
+            LOGGER.debug(f"[check_invoker_exists] result:{data}")
+
+            return data['result']
+
+        raise OcInvokerGetError(f"Failed to check OpenCelium Invoker with name: {name}")
 
 
     def get_all_invokers(self, with_operations: bool=True) -> list[dict[str, Any]]:
