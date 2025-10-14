@@ -19,7 +19,7 @@ All API routes for OpenCelium Licenses
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
+from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager import OcLicenseManager
@@ -62,5 +62,38 @@ def get_oc_license_activation(request_user: CmdbUser) -> Response:
 
         return DefaultResponse(oc_license).make_response()
     except OcTemplateGetError as err:
-        LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[get_oc_license_activation] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium License activation!")
+
+
+@oc_licenses_blueprint.route('/licenses/info', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving the OpenCelium License info!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def get_oc_license_info(request_user: CmdbUser) -> Response:
+    """
+    **GET**/**HEAD** route to retrive an OpenCelium license info
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The license info
+    """
+    try:
+        params: dict[str, str] = request.args.to_dict()
+
+        page = int(params.get('page', 0))
+        size = int(params.get('size', 5))
+
+        oc_license_manager: OcLicenseManager = OcLicenseManager()
+
+        license_data: dict[str, Any] = {
+            'license': oc_license_manager.get_active_license(),
+            'usage': oc_license_manager.get_license_usage(page, size),
+        }
+
+        return DefaultResponse(license_data).make_response()
+    except OcTemplateGetError as err:
+        LOGGER.error("[get_oc_license_info] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to retrieve OpenCelium License info!")
