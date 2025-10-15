@@ -20,3 +20,4 @@ Provides all constants for OpenCelium interaction
 OC_REQUEST_TIMEOUT: int = 10
 UNIQUE_POSITIVE: str = "NOT_EXISTS"
 UNIQUE_NEGATIVE: str = "EXISTS"
+OC_INTERNAL_CONNECTOR_NAME: str = "DataGerryInternal"
