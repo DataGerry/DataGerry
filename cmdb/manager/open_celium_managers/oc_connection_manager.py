@@ -24,7 +24,7 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
-from cmdb.open_celium.oc_constants import UNIQUE_NEGATIVE, UNIQUE_NEGATIVE, UNIQUE_POSITIVE
+from cmdb.open_celium.oc_constants import UNIQUE_POSITIVE
 
 from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnectionGetError, OcConnectionUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #

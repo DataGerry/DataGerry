@@ -21,8 +21,11 @@ from typing import Any
 
 from flask import abort, request
 from werkzeug import Response
+from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcConnectorManager
+
+from cmdb.open_celium.oc_constants import OC_INTERNAL_CONNECTOR_NAME
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
@@ -64,12 +67,17 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
+        if params['title'] == OC_INTERNAL_CONNECTOR_NAME:
+            abort(400, f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the interal DataGerry connector!")
+
         created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
 
         return DefaultResponse(created_oc_connector).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorCreateError as err:
         LOGGER.error("[create_oc_connector] OcConnectorCreateError: %s", err, exc_info=True)
-        abort(400, "Failed to create an OpenCelium Connector!")
+        abort(500, "Failed to create an OpenCelium Connector!")
 
 
 @oc_connectors_blueprint.route('/connectors/check', methods=['POST'])
@@ -138,6 +146,7 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
     except OcConnectorGetError as err:
         LOGGER.error("[check_oc_connector_master_pw] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to check the master password!")
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['GET', 'HEAD'])
@@ -196,6 +205,33 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
         LOGGER.error("[get_all_oc_connectors] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Connectors!")
 
+
+@oc_connectors_blueprint.route('/connectors/exists/<string:title>', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving the OpenCelium Connector!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+def check_oc_connector_exists(request_user: CmdbUser, title: str) -> Response:
+    """
+    GET/HEAD route to check if a connector with the given title exists
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        title (str): title of the connector
+
+    Returns:
+        bool: True if the connector exists, else False
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        connector_exists: bool = oc_connector_manager.connector_exists(title)
+
+        return DefaultResponse(connector_exists).make_response()
+    except OcConnectorGetError as err:
+        LOGGER.error("[get_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
+        abort(500, f"Failed to check if Connector with title:{title} exists!")
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['PUT'])
@@ -216,6 +252,7 @@ def update_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         dict[str, Any]: The updated OcConnector
     """
     try:
+
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
 
         params: dict[str, Any] = request.json
@@ -254,3 +291,107 @@ def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     except OcConnectorUpdateError as err:
         LOGGER.error("[delete_oc_connector] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to delete the OpenCelium Connector with ID: {connector_id}!")
+
+# -------------------------------------------------- INTERNAL ROUTES ------------------------------------------------- #
+
+@oc_connectors_blueprint.route('/connectors/internal', methods=['POST'])
+@handle_oc_errors("creating the internal DG Connector!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.add')
+def create_oc_internal_connector(request_user: CmdbUser) -> Response:
+    """
+    POST route to create an OcConnector in OpenCelium
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The created OcConnector
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        params: dict[str, Any] = request.json
+
+        params['title'] = OC_INTERNAL_CONNECTOR_NAME
+
+        created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
+
+        return DefaultResponse(created_oc_connector).make_response()
+    except OcConnectorCreateError as err:
+        LOGGER.error("[create_oc_internal_connector] OcConnectorCreateError: %s", err, exc_info=True)
+        abort(400, "Failed to create the internal DG Connector!")
+
+
+@oc_connectors_blueprint.route('/connectors/internal', methods=['PUT'])
+@handle_oc_errors("updating the internal Connector!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.edit')
+def update_internal_oc_connector(request_user: CmdbUser) -> Response:
+    """
+    **PUT** route to update an OcConnector
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The updated OcConnector
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        params: dict[str, Any] = request.json
+
+        params['title'] = OC_INTERNAL_CONNECTOR_NAME
+
+        internal_connector = oc_connector_manager.get_connector_by_name(params['title'])
+
+        updated_oc_connector: dict[str, Any] = oc_connector_manager.update_connector(
+                                                    params,
+                                                    internal_connector['connectorId']
+                                               )
+
+        return DefaultResponse(updated_oc_connector).make_response()
+    except OcConnectorUpdateError as err:
+        LOGGER.error("[update_internal_oc_connector] %s: %s", type(err), err, exc_info=True)
+        abort(400, "Failed to update the internal Connector!")
+
+
+@oc_connectors_blueprint.route('/connectors/internal', methods=['GET'])
+@handle_oc_errors("retrieving the internal Connector!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+def get_internal_oc_connector(request_user: CmdbUser) -> Response:
+    """
+    GET/HEAD route to retrive the internal OC Connector
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The OcConnector from OpenCelium
+    """
+    try:
+        params: dict[str, Any] = request.json
+        password: str = params.get('password', None)
+
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+
+        internal_connector = oc_connector_manager.get_connector_by_name(OC_INTERNAL_CONNECTOR_NAME)
+
+        if not internal_connector:
+            return DefaultResponse({}).make_response()
+
+        if password:
+            internal_connector: dict[str, Any] = oc_connector_manager.get_connector(
+                                                        internal_connector['connectorId'],
+                                                        password
+                                                 )
+
+        return DefaultResponse(internal_connector).make_response()
+    except OcConnectorGetError as err:
+        LOGGER.error("[get_internal_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
+        abort(500, "Failed to retrieve the internal connector!")

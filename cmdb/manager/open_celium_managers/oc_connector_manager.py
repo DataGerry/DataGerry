@@ -24,6 +24,8 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
+from cmdb.open_celium.oc_constants import UNIQUE_POSITIVE
+
 from cmdb.errors.open_celium.connector import OcConnectorCreateError, OcConnectorGetError, OcConnectorUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -33,6 +35,7 @@ CONNECTOR_URL: str = "/connector"
 CHECK_CONNECTOR_URL: str = f"{CONNECTOR_URL}/check"
 ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
 CHECK_MASTER_PW_URL: str = f"{CONNECTOR_URL}/master-password/status"
+CONNECTOR_EXISTS_URL: str = f"{CONNECTOR_URL}/exists"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectorManager - CLASS                                              #
@@ -136,6 +139,56 @@ class OcConnectorManager(OcBaseManager):
         raise OcConnectorGetError(f"Failed to retrieve OpenCelium Connector with ID: {connector_id}")
 
 
+    def get_connector_by_name(self, title: str, password: str = None) -> dict[str, Any]:
+        """
+        Retrieves a single OcConnector from OpenCelium
+
+        Args:
+            title (str): title of the Connector
+
+        Raises:
+            OcConnectorGetError: When the title was not provided to this method
+            OcConnectorGetError: When the OcConnector could not be retrieved
+
+        Returns:
+            dict[str, Any]: The retrieved OcConnector
+        """
+        if not title:
+            raise OcConnectorGetError("No connectorId for Connector provided!")
+
+        target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}?title={title}", password)
+
+        if self.is_valid_response(target_connector_response):
+            return json.loads(target_connector_response.text)
+
+        raise OcConnectorGetError(f"Failed to retrieve OpenCelium Connector with title: {title}")
+
+
+    def connector_exists(self, title: str) -> bool:
+        """
+        Checks if a connector with the given title exists in OpenCelium
+
+        Args:
+            title (str): title of the Connector
+
+        Returns:
+            bool: True if it exists, else False
+        """
+        if not title:
+            raise OcConnectorGetError("No connectorId for Connector provided!")
+
+        target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_EXISTS_URL}/{title}")
+
+        if self.is_valid_response(target_connector_response):
+            conn_resp: dict[str, Any] = json.loads(target_connector_response.text)
+            if conn_resp == UNIQUE_POSITIVE:
+                return False
+
+            return True
+
+        raise OcConnectorGetError(f"Failed to check if Connector with title: {title} exists!")
+
+
     def get_all_connectors(self) -> list[dict[str, Any]]:
         """
         Retrieves all Connectors from OpenCelium
@@ -152,6 +205,8 @@ class OcConnectorManager(OcBaseManager):
             return json.loads(all_connectors_response.text)
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
+
+
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
