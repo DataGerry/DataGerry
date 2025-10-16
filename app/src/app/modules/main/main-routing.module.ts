@@ -97,6 +97,24 @@ const routes: Routes = [
         loadChildren: () => import('../../toolbox/connectors/connectors.module').then(m => m.ConnectorsModule)
     },
     {
+        path: 'automations',
+        data: {
+            breadcrumb: 'Automations'
+        },
+        canActivate: [AuthGuard],
+        canActivateChild: [AuthGuard],
+        loadChildren: () => import('../../toolbox/automations/automations.module').then(m => m.AutomationsModule)
+    },
+    {
+        path: 'licenses',
+        data: {
+            breadcrumb: 'Licenses'
+        },
+        canActivate: [AuthGuard],
+        canActivateChild: [AuthGuard],
+        loadChildren: () => import('../../toolbox/licenses/licenses.module').then(m => m.LicensesModule)
+    },
+    {
         path: 'management',
         data: {
             breadcrumb: 'User-Management'

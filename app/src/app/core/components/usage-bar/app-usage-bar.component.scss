@@ -1,0 +1,212 @@
+:host {
+    display: block;
+    width: 100%;
+}
+
+.usage-wrap {
+    width: 100%;
+    display: block;
+}
+
+/* =================== BAR =================== */
+.track {
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    background: var(--dg-gray-200, #e9ecef);
+    box-shadow:
+        inset 0 2px 4px rgba(15, 23, 42, 0.06),
+        inset 0 1px 2px rgba(15, 23, 42, 0.04);
+
+    /* decorative shimmer (optional) */
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .28) 50%, transparent 100%);
+        animation: shimmer 3s infinite;
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        left: -100%;
+    }
+
+    100% {
+        left: 200%;
+    }
+}
+
+.fill {
+    height: 100%;
+    position: relative;
+    transition: width .6s cubic-bezier(.4, 0, .2, 1);
+    box-shadow:
+        0 2px 8px rgba(59, 130, 246, .25),
+        inset 0 1px 0 rgba(255, 255, 255, .25);
+
+    &::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .22) 45%, rgba(255, 255, 255, .35) 50%, rgba(255, 255, 255, .22) 55%, transparent 100%);
+        transform: translateX(-100%);
+        animation: slide 2.5s ease-in-out infinite;
+    }
+}
+
+@keyframes slide {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    50%,
+    100% {
+        transform: translateX(200%);
+    }
+}
+
+/* Floating badge – follows the end of the fill.
+   Starts exactly at 0% because we removed any left padding. */
+.value-badge {
+    position: absolute;
+    top: -34px;
+    left: clamp(8px, var(--p), calc(100% - 8px));
+    /* clamp to edges */
+    transform: translateX(-50%);
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: var(--badge-bg, #3b82f6);
+    color: #fff;
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1;
+    box-shadow: 0 6px 18px rgba(2, 6, 23, .25);
+    white-space: nowrap;
+}
+
+.value-badge .caret {
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--badge-bg, #3b82f6);
+}
+
+/* =================== TICKS =================== */
+.ticks {
+    display: grid;
+    margin-top: .75rem;
+    position: relative;
+    padding-right: 14px;
+    /* breathing room for pinned edge label */
+}
+
+.tick {
+    position: relative;
+    height: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    /* tick marker above the label */
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 10px;
+        background: linear-gradient(180deg, #94a3b8 0%, #cbd5e1 100%);
+        border-radius: 1px;
+        transition: height .2s ease;
+    }
+
+    &:first-child::before {
+        background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+    }
+
+    &:hover::before {
+        height: 14px;
+    }
+
+    /* Optional dotted vertical guides */
+    .with-guides &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        border-left: 1px dotted rgba(100, 116, 139, .35);
+    }
+
+    .with-guides &:last-child::after {
+        display: none;
+    }
+}
+
+.label {
+    display: block;
+    font-size: .6875rem;
+    font-weight: 600;
+    color: #64748b;
+    margin-top: 12px;
+    letter-spacing: .01em;
+    text-align: center;
+    opacity: .9;
+    transition: transform .2s ease, color .2s ease;
+
+    &.first {
+        text-align: left;
+    }
+
+    &.last {
+        text-align: right;
+    }
+
+    &.hide-last {
+        display: none;
+    }
+
+    .tick:hover & {
+        color: #3b82f6;
+        transform: scale(1.03);
+    }
+}
+
+/* Pinned max label (always at the far right, never crowded) */
+.edge-max {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    transform: translateY(2px);
+    font-size: .6875rem;
+    font-weight: 700;
+    color: var(--max-label-color, #ef4444);
+    pointer-events: none;
+}
+
+@media (max-width: 768px) {
+    .ticks {
+        margin-top: .625rem;
+    }
+
+    .label {
+        font-size: .625rem;
+        margin-top: 10px;
+    }
+
+    .tick::before {
+        height: 8px;
+    }
+}
