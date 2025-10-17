@@ -40,6 +40,12 @@ const routes: Routes = [
         component: ConnectorFormComponent,
         resolve: { invokers: ConnectorsResolver },
         data: { mode: 'edit' }
+      },
+      {
+        path: 'internal',
+        component: ConnectorFormComponent,
+        resolve: { invokers: ConnectorsResolver },
+        data: { mode: 'internal' }
       }
     ]
   }
