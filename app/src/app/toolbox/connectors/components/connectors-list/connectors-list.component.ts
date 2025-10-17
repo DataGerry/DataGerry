@@ -76,6 +76,33 @@ export class ConnectorsListComponent implements OnInit {
     });
   }
 
+  configInternal(): void {
+    this.loaderService.show();
+    this.svc.checkConnectorExists('DataGerryInternal')
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (exists: boolean) => {
+          if (exists) {
+            // Navigate to internal configuration with pre-filled data
+            this.router.navigate(['/connectors/internal'], {
+              state: { 
+                connector: {
+                  title: 'DataGerryInternal',
+                  description: 'Internal DataGerry connector for data query operations',
+                  invoker: { name: 'datagerry' }
+                }
+              }
+            });
+          } else {
+            this.toast.error('Internal connector "datagerry" does not exist');
+          }
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message || 'Failed to check connector existence');
+        }
+      });
+  }
+
   delete(row: Connector): void {
     this.deleteModalService.confirmDelete({
       title: `Delete Connector: ${row.title}`,
