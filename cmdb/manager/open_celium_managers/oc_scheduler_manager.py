@@ -35,6 +35,7 @@ LOGGER: Logger = getLogger(__name__)
 
 SCHEDULER_URL: str = "/scheduler"
 ALL_SCHEDULERS_URL: str = f"{SCHEDULER_URL}/all"
+EXECUTE_SCHEDULER_URL: str = f"{SCHEDULER_URL}/execute"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcSchedulerManager - CLASS                                              #
@@ -109,6 +110,31 @@ class OcSchedulerManager(OcBaseManager):
             return json.loads(all_schedulers_response.text)
 
         raise OcSchedulerGetError("Failed to retrieve Schedulers from OpenCelium!")
+
+
+    def execute_scheduler(self, scheduler_id: int) -> dict[str, Any]:
+        """
+        Executes an OcScheduler in OpenCelium with the given scheduler_id
+
+        Args:
+            scheduler_id (int): schedulerId of the OcScheduler which should be executed
+
+        Raises:
+            OcSchedulerGetError: When the schedulerId was not provided to this method
+            OcSchedulerGetError: When the OcScheduler could not be executed
+
+        Returns:
+            dict[str, Any]: The result of the OcScheduler execution
+        """
+        if not scheduler_id:
+            raise OcSchedulerGetError("No schedulerId for Scheduler execution provided!")
+
+        target_scheduler_response: Response = self.oc_connector.oc_get(f"{EXECUTE_SCHEDULER_URL}/{scheduler_id}")
+
+        if self.is_valid_response(target_scheduler_response):
+            return json.loads(target_scheduler_response.text)
+
+        raise OcSchedulerGetError(f"Failed to retrieve OpenCelium Scheduler with ID: {scheduler_id}")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

@@ -156,6 +156,32 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Schedulers!")
 
+
+@oc_schedulers_blueprint.route('/schedulers/execute/<int:scheduler_id>', methods=['GET', 'HEAD'])
+@handle_oc_errors("executing the OpenCelium Scheduler!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
+    """
+    **GET**/**HEAD** route to execute an OC Scheduler with given scheduler_id
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        scheduler_id (int): schedulerId of the OpenCelium Scheduler which schuld be executed
+
+    Returns:
+        dict[str, Any]: Result of the Scheduler execution
+    """
+    try:
+        oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+
+        scheduler_result: dict[str, Any] = oc_scheduler_manager.execute_scheduler(scheduler_id)
+
+        return DefaultResponse(scheduler_result).make_response()
+    except OcSchedulerGetError as err:
+        LOGGER.error("[execute_oc_scheduler] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, f"Failed to execute OpenCelium Scheduler with ID: {scheduler_id}!")
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['PUT'])
