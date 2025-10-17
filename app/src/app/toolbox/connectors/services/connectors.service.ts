@@ -76,4 +76,14 @@ export class ConnectorsService extends BaseApiService<Connector> {
       connectorId 
     });
   }
+
+  // CHECK CONNECTOR EXISTS
+  checkConnectorExists(name: string): Observable<boolean> {
+    return this.handleGetRequest<boolean>(`${this.servicePrefix}/exists/${name}`);
+  }
+
+  // GET INTERNAL CONNECTOR CREDENTIALS
+  getInternalConnectorCredentials(password: string): Observable<any> {
+    return this.handlePostRequest<any>(`${this.servicePrefix}/internal`, { password });
+  }
 }
