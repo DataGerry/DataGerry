@@ -38,10 +38,11 @@ import { Invoker } from '../../models/invoker.model';
 @Component({
   selector: 'app-connector-form',
   templateUrl: './connector-form.component.html',
-  styleUrls: ['./connector-form.component.scss']
+  styleUrls: ['./connector-form.component.scss'],
+  standalone: false
 })
 export class ConnectorFormComponent implements OnInit, OnDestroy {
-  mode: 'create' | 'edit' = 'create';
+  mode: 'create' | 'edit' | 'internal' = 'create';
   id?: number;
 
   invokers: Invoker[] = [];
@@ -100,6 +101,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       if (connector) {
         this.patchForEdit(connector);
       } 
+    } else if (this.mode === 'internal') {
+      // Handle internal mode - pre-fill with DataGerryInternal data
+      const connector = history.state?.connector;
+      if (connector) {
+        this.patchForInternal(connector);
+      }
     }
   }
 
@@ -271,6 +278,38 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     return false;
   }
 
+  private patchForInternal(c: any): void {
+    // Set the invoker first and wait for controls to be ready
+    this.credentialsReady = false;
+
+    // Store the original invoker name
+    this.originalInvokerName = c.invoker?.name || null;
+
+    // Find and set the selected invoker
+    this.selectedInvoker = this.findInvokerByName(c.invoker?.name);
+
+    // Patch basic fields with internal connector data
+    this.form.patchValue({
+      title: c.title,
+      description: c.description || '',
+      invoker: { name: c.invoker?.name },
+      sslCert: false,
+      timeout: 1000
+    });
+
+    // Disable general data fields in internal mode
+    this.form.get('title')?.disable();
+    this.form.get('description')?.disable();
+    this.form.get('invoker')?.disable();
+    this.form.get('sslCert')?.disable();
+    this.form.get('timeout')?.disable();
+
+    // For internal mode, we need to fetch credentials using the internal endpoint
+    this.showMasterPassword = true;
+    this.credentialsBlurred = true;
+    this.credentialsReady = true;
+  }
+
   // Master password verification
   verifyMasterPassword(): void {
     const masterPassword = this.form.get('masterPassword')?.value;
@@ -390,9 +429,47 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     }
 
     const payload = this.toPayload();
-    const req$ = this.mode === 'create'
-      ? this.svc.createConnector(payload)
-      : this.svc.updateConnector(this.id!, payload);
+    let req$;
+
+    if (this.mode === 'internal') {
+      // For internal mode, we need to find the existing connector ID first
+      this.loaderService.show();
+      this.svc.getConnectors().pipe(
+        finalize(() => this.loaderService.hide()),
+        takeUntil(this.destroy$)
+      ).subscribe({
+        next: (connectors) => {
+          const internalConnector = connectors.find(c => c.title === 'DataGerryInternal');
+          if (internalConnector) {
+            this.id = internalConnector.connectorId;
+            // Update only the credentials for the internal connector
+            const updatePayload = {
+              ...internalConnector,
+              requestData: payload.requestData
+            };
+            this.svc.updateConnector(this.id, updatePayload).subscribe({
+              next: () => {
+                this.toast.success('Internal connector credentials updated successfully');
+                this.router.navigate(['/connectors']);
+              },
+              error: (err) => {
+                this.toast.error(err?.error?.message);
+              }
+            });
+          } else {
+            this.toast.error('Internal connector not found');
+          }
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message || 'Failed to load connectors');
+        }
+      });
+      return;
+    } else {
+      req$ = this.mode === 'create'
+        ? this.svc.createConnector(payload)
+        : this.svc.updateConnector(this.id!, payload);
+    }
 
     this.loaderService.show();
 

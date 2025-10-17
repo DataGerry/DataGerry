@@ -1,6 +1,9 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">Connectors</h3>
-  <app-button [bootstrapClass]="'btn-success'" label="Add" type="button" (clicked)="add()" *permissionLink="'base.openCelium.connector.add'"></app-button>
+  <div>
+    <app-button [bootstrapClass]="'btn-primary'" label="Config Internal connector" type="button" (clicked)="configInternal()" *permissionLink="'base.openCelium.connector.edit'" class="me-2"></app-button>
+    <app-button [bootstrapClass]="'btn-success'" label="Add" type="button" (clicked)="add()" *permissionLink="'base.openCelium.connector.add'"></app-button>
+  </div>
 </div>
 
 <cmdb-table [items]="rows" [columns]="columns" [searchEnabled]="false" [totalItems]="totalConnectors"
