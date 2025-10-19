@@ -22,9 +22,12 @@ import { combineLatest, Subscription } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
 import { AutomationsService } from '../../services/automations.service';
+import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../../connectors/models/connector.model';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { InternalConnectorPasswordModalComponent } from '../internal-connector-password-modal/internal-connector-password-modal.component';
 
 @Component({
   selector: 'app-automation-form',
@@ -42,6 +45,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   showConnectorField = false;
   connectorLabel = '';
 
+  // Internal connector properties
+  internalConnectorExists: boolean = false;
+  internalConnectorDetails: any = null;
+  isCheckingInternalConnector: boolean = false;
+  isGettingInternalConnector: boolean = false;
+
   private formChangesSubscription?: Subscription;
 
   public isLoading$ = this.loaderService.isLoading$;
@@ -51,6 +60,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     private route: ActivatedRoute,
     private router: Router,
     private svc: AutomationsService,
+    private connectorsService: ConnectorsService,
+    private modalService: NgbModal,
     private toast: ToastService,
     private loaderService: LoaderService
   ) { 
@@ -107,6 +118,10 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         console.log('Calling filterTemplates with direction:', currentDirection, 'and connector:', currentConnector);
         this.filterTemplates(currentDirection, currentConnector);
         console.log('Filtered templates count after initial filter:', this.filteredTemplates.length);
+        
+        // Check if internal connector exists
+        console.log('Checking for internal connector...');
+        this.checkInternalConnector();
       },
       error: (err) => {
         this.toast.error(err?.error?.message);
@@ -229,6 +244,91 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Internal connector methods
+  private checkInternalConnector(): void {
+    this.isCheckingInternalConnector = true;
+    console.log('Checking if internal connector exists...');
+
+    this.connectorsService.checkConnectorExists('DataGerryInternal').subscribe({
+      next: (exists) => {
+        console.log('Internal connector exists:', exists);
+        this.internalConnectorExists = exists;
+        this.isCheckingInternalConnector = false;
+        
+        if (exists) {
+          console.log('Internal connector exists, opening password modal...');
+          this.openPasswordModal();
+        } else {
+          console.log('Internal connector does not exist, using hardcoded values');
+        }
+      },
+      error: (err) => {
+        console.error('Error checking internal connector:', err);
+        this.toast.error('Failed to check internal connector existence');
+        this.isCheckingInternalConnector = false;
+        this.internalConnectorExists = false;
+      }
+    });
+  }
+
+  private openPasswordModal(): void {
+    console.log('Opening password modal for internal connector...');
+    const modalRef = this.modalService.open(InternalConnectorPasswordModalComponent, { 
+      size: 'md',
+      backdrop: 'static'
+    });
+
+    modalRef.result.then(
+      (password: string) => {
+        console.log('Password provided, getting internal connector details...');
+        this.getInternalConnector(password);
+      },
+      (reason) => {
+        console.log('Password modal dismissed:', reason);
+        if (reason !== 'cancel') {
+          this.toast.warning('Internal connector authentication cancelled');
+        }
+      }
+    );
+  }
+
+  private getInternalConnector(password: string): void {
+    this.isGettingInternalConnector = true;
+    console.log('Getting internal connector details with password...');
+
+    this.connectorsService.getInternalConnectorCredentials(password).subscribe({
+      next: (connectorDetails) => {
+        console.log('Internal connector details received:', connectorDetails);
+        this.internalConnectorDetails = connectorDetails;
+        this.isGettingInternalConnector = false;
+        this.toast.success('Internal connector authenticated successfully');
+      },
+      error: (err) => {
+        console.error('Error getting internal connector details:', err);
+        this.isGettingInternalConnector = false;
+        this.toast.error('Failed to authenticate internal connector. Please check the password.');
+        
+        // Reopen password modal on error
+        const modalRef = this.modalService.open(InternalConnectorPasswordModalComponent, { 
+          size: 'md',
+          backdrop: 'static'
+        });
+        
+        // Set error message on the modal
+        modalRef.componentInstance.setError('Invalid password. Please try again.');
+        
+        modalRef.result.then(
+          (newPassword: string) => {
+            this.getInternalConnector(newPassword);
+          },
+          () => {
+            this.toast.warning('Internal connector authentication cancelled');
+          }
+        );
+      }
+    });
+  }
+
   // Action methods
   private toPayload(): any {
     const v = this.form.value;
@@ -238,18 +338,33 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       throw new Error('Please select a connector');
     }
 
+    // Determine which connector to use for DATAGerry (internal connector)
+    let datagerryConnector;
+    if (this.internalConnectorDetails) {
+      console.log('Using actual internal connector details:', this.internalConnectorDetails);
+      datagerryConnector = {
+        connectorId: this.internalConnectorDetails.connectorId,
+        invoker: this.internalConnectorDetails.invoker,
+        methods: this.internalConnectorDetails.methods || [],
+        operators: this.internalConnectorDetails.operators || []
+      };
+    } else {
+      console.log('Using hardcoded DATAGerry connector details');
+      datagerryConnector = {
+        connectorId: 1, // DATAGerry connector ID (assuming 1 for DATAGerry)
+        invoker: { name: 'DataGerry' },
+        methods: [],
+        operators: []
+      };
+    }
+
     // Build connection payload
     const connectionPayload = {
       title: v.name,
       description: v.description,
       fieldBinding: [],
       fromConnector: v.direction === 'outgoing' 
-        ? { 
-            connectorId: 1, // DATAGerry connector ID (assuming 1 for DATAGerry)
-            invoker: { name: 'DataGerry' },
-            methods: [],
-            operators: []
-          }
+        ? datagerryConnector
         : {
             connectorId: selectedConnector.connectorId,
             invoker: selectedConnector.invoker,
@@ -263,12 +378,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
             methods: [],
             operators: []
           }
-        : {
-            connectorId: 1, // DATAGerry connector ID (assuming 1 for DATAGerry)
-            invoker: { name: 'DataGerry' },
-            methods: [],
-            operators: []
-          },
+        : datagerryConnector,
       ui: null
     };
 
