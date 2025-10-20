@@ -1,22 +1,24 @@
 <div class="container mt-4">
 
-  <!-- Prompt -->
-  <form [formGroup]="promptForm" class="mb-4" *ngIf="!hasSchema">
+  <!-- ========================= PROMPT STEP ========================= -->
+  <form [formGroup]="promptForm" class="prompt-form mb-4" *ngIf="!hasSchema">
     <div class="form-group">
-      <label for="promptInput">Prompt <span class="required">*</span></label>
+      <label for="promptInput">
+        Describe your type 
+        <span class="required">*</span>
+      </label>
       <div class="input-group">
         <input
           type="text"
-          formControlName="prompt"
-          class="form-control"
           id="promptInput"
-          placeholder="Describe the type you want to create..."
+          class="form-control"
+          formControlName="prompt"
+          placeholder="E.g., 'Create a server type with hardware specs, network info, and maintenance dates...'"
           [ngClass]="{
             'is-valid': promptForm.controls.prompt.valid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched),
             'is-invalid': promptForm.controls.prompt.invalid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched)
-          }">
-        
-        <!-- Speech Recognition Button -->
+          }" />
+
         <div class="input-group-append" *ngIf="isSpeechSupported()">
           <button
             type="button"
@@ -29,111 +31,162 @@
           </button>
         </div>
       </div>
-      
-      <!-- Speech Recognition Status -->
-      <div *ngIf="isRecording" class="mt-2">
-        <small class="text-muted">
-          <fa-icon icon="circle" class="text-danger recording-indicator"></fa-icon>
-          Listening... Speak now
-        </small>
+
+      <!-- Speech Status Indicators with Dynamic Wave Animation -->
+      <div *ngIf="isRecording" class="speech-status-indicator recording mt-2">
+        <div class="voice-icon">🎤</div>
+        <app-voice-wave-visualizer [isActive]="isRecording"></app-voice-wave-visualizer>
+        <span class="voice-text">Listening... Speak now</span>
       </div>
       
-      <div *ngIf="speechStatus === 'processing'" class="mt-2">
-        <small class="text-warning">
-          <fa-icon icon="circle-notch" [spin]="true"></fa-icon>
-          Processing speech...
-        </small>
+      <div *ngIf="speechStatus === 'processing'" class="speech-status-indicator processing mt-2">
+        <div class="processing-icon"></div>
+        <span class="processing-text">Processing your speech...</span>
       </div>
 
-      <!-- Validation Messages -->
-      <div *ngIf="promptForm.controls.prompt.invalid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched)" class="invalid-feedback">
+      <!-- Validation Feedback -->
+      <div *ngIf="promptForm.controls.prompt.invalid && (promptForm.controls.prompt.dirty || promptForm.controls.prompt.touched)" 
+           class="invalid-feedback d-block">
         <div *ngIf="promptForm.controls.prompt.errors?.required">
-          Prompt is required
+          Please describe the type you want to create
         </div>
       </div>
     </div>
 
-    <button
-      type="button"
-      class="btn btn-success"
-      [disabled]="promptForm.invalid || loading"
+    <button 
+      type="button" 
+      class="btn btn-success" 
+      [disabled]="promptForm.invalid || loading" 
       (click)="requestSchema()">
-      <fa-icon *ngIf="loading" icon="spinner" [spin]="true" class="me-2"></fa-icon>
-      Continue
+      <fa-icon *ngIf="loading" icon="spinner" [spin]="true"></fa-icon>
+      <span *ngIf="!loading">✨ Generate Type</span>
+      <span *ngIf="loading">Generating...</span>
     </button>
   </form>
 
-  <!-- Invalid banner -->
+  <!-- Validation Error Banner -->
   <div *ngIf="validationMessage && !hasSchema" class="alert alert-warning">
     {{ validationMessage }}
   </div>
 
-  <!-- Selection -->
+  <!-- ========================= SELECTION STEP ========================= -->
   <ng-container *ngIf="hasSchema; else aiTypeEmptyState">
-    <label for="typeNameInput">Name: <span class="required">*</span></label>
-    <form [formGroup]="form">
-      <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
-          'is-invalid': name.invalid && (name.dirty || name.touched) }" id="typeNameInput" name-guideline required>
-      <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-        <div *ngIf="name.errors.required">
-          Name is required
+    
+    <!-- Type Name Input -->
+    <div class="type-name-section">
+      <label for="typeNameInput">
+        Type Name 
+        <span class="required">*</span>
+      </label>
+      <form [formGroup]="form">
+        <input
+          id="typeNameInput"
+          type="text"
+          formControlName="name"
+          class="form-control"
+          placeholder="Enter a unique name for your type..."
+          [ngClass]="{
+            'is-valid': name?.valid && (name?.dirty || name?.touched),
+            'is-invalid': name?.invalid && (name?.dirty || name?.touched)
+          }"
+          name-guideline 
+          required />
+
+        <div *ngIf="name?.invalid && (name?.dirty || name?.touched)" class="invalid-feedback d-block">
+          <div *ngIf="name?.errors?.required">Type name is required</div>
+          <div *ngIf="name?.errors?.typeExists">A type with this name already exists. Please choose another name.</div>
+          <div *ngIf="name?.errors?.invalidCharacters">
+            Name can only contain letters, numbers, hyphens (-), and underscores (_)
+          </div>
         </div>
-        <div *ngIf="name.errors.typeExists">
-          A type with this name already exists
-        </div>
-        <div *ngIf="name.errors.invalidCharacters">
-          Name can only contain letters, numbers, hyphens (-), and underscores (_)
-        </div>
-      </div>
-    </form>
+      </form>
+    </div>
+
+    <!-- Sections Table -->
     <form [formGroup]="selectionForm" class="mt-3">
       <table class="table table-bordered align-middle ai-type-table">
         <thead>
           <tr>
-            <th style="width:280px">Section</th>
-            <th>Fields</th>
+            <th style="width: 320px">
+              <fa-icon icon="layer-group" class="me-2"></fa-icon>
+              Section
+            </th>
+            <th>
+              <fa-icon icon="list-check" class="me-2"></fa-icon>
+              Fields & Configuration
+            </th>
           </tr>
         </thead>
 
-        <tbody>
-          <tr cmdb-ai-section-selector
-              *ngFor="let row of sectionRows; let ri = index; trackBy: trackByIndex"
-              [row]="row"
-              [rowIndex]="ri"
-              [sectionUncheckDisabled]="isSectionDisabled(ri)"
-              [totalSelectedFields]="totalSelectedFields()"
-              [fieldLabel]="fieldLabel"
-              [fieldKind]="fieldKind">
+        <tbody
+          cdkDropList
+          (cdkDropListDropped)="dropSection($event)"
+          cdkDropListOrientation="vertical">
+
+          <tr
+            cmdb-ai-section-selector
+            *ngFor="let row of sectionRows; let ri = index; trackBy: trackByIndex"
+            cdkDrag
+            [row]="row"
+            [rowIndex]="ri"
+            [sectionUncheckDisabled]="isSectionDisabled(ri)"
+            [totalSelectedFields]="totalSelectedFields()"
+            [fieldLabel]="fieldLabel"
+            [fieldKind]="fieldKind"
+            [summarySelected]="summarySelected"
+            [ciExplorerLabel]="ciExplorerLabel"
+            (selectAll)="onSelectAll(ri, $event)"
+            (dropFieldReorder)="dropField(ri, $event)"
+            (summaryToggle)="toggleSummaryField($event.fieldName, $event.checked)"
+            (pickCiExplorer)="setCiExplorerLabel($event)">
           </tr>
+        
         </tbody>
       </table>
 
-      <div class="d-flex justify-content-between gap-2 mt-3">
-        <button type="button" class="btn btn-secondary" (click)="goBack()">
+      <!-- Footer Actions -->
+      <div class="footer-actions">
+        <button 
+          type="button" 
+          class="btn btn-secondary" 
+          (click)="goBack()">
+          <fa-icon icon="arrow-left"></fa-icon>
           Go Back
         </button>
-        <button type="button" class="btn btn-success" (click)="submitSelection()">
+        
+        <button 
+          type="button" 
+          class="btn btn-success" 
+          [disabled]="form.invalid || totalSelectedFields() === 0"
+          (click)="submitSelection()">
+          <fa-icon icon="check-circle"></fa-icon>
           Create Type
         </button>
       </div>
     </form>
 
-    <hr>
-
-    <pre style="margin-top: 50px;">Backend response: {{schema | json}}</pre>
+    <!-- Debug: Backend Response (optional - remove in production) -->
+    <!-- <hr>
+    <details class="mt-4">
+      <summary style="cursor: pointer; color: #4a5568; font-weight: 600;">
+        🔧 View Backend Response (Debug)
+      </summary>
+      <pre class="mt-3" style="background: #f7fafc; padding: 1rem; border-radius: 8px; font-size: 0.85rem; overflow-x: auto;">{{ schema | json }}</pre>
+    </details> -->
   </ng-container>
 
-  <!-- Empty state when schema hasn't been generated yet -->
+  <!-- Empty State -->
   <ng-template #aiTypeEmptyState>
-    <div *ngIf="!loading" class="text-muted mt-3">
-      Generate a type to review its sections and fields.
+    <div *ngIf="!loading" class="text-muted mt-5">
+      <fa-icon icon="wand-magic-sparkles" style="font-size: 3rem; opacity: 0.3; margin-bottom: 1rem;"></fa-icon>
+      <p style="font-size: 1.1rem;">Describe your type above and our AI will generate it for you</p>
+      <p style="font-size: 0.9rem; opacity: 0.8;">You can then customize sections, fields, and configurations</p>
     </div>
   </ng-template>
-
 </div>
 
-
-<app-loading-popup 
-[isVisible]="isLoading$ | async"
-message="We're Processing the Data..."
+<!-- Loading Overlay -->
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="Our AI is crafting your type schema..."
 ></app-loading-popup>
