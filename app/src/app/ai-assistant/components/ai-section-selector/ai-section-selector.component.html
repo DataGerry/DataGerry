@@ -9,14 +9,14 @@
     <div class="card-header">
 
       <!-- Drag Handle -->
-      <button 
+      <!-- <button 
         class="icon-btn drag-handle" 
         type="button" 
         cdkDragHandle 
         title="Drag to reorder section"
         [attr.aria-label]="'Drag ' + row.meta.label + ' section'">
         <fa-icon icon="grip-vertical"></fa-icon>
-      </button>
+      </button> -->
 
       <!-- Section Toggle Checkbox -->
       <div class="form-check m-0">
@@ -106,7 +106,8 @@
         <div class="col-md-6">
           <div class="input-group input-group-sm">
             <span class="input-group-text">
-              <fa-icon icon="magnifying-glass"></fa-icon>
+              <fa-icon icon="magnifying-glass"
+              ></fa-icon>
             </span>
             <input
               type="search"
@@ -148,14 +149,14 @@
 
         <!-- LEFT: Drag Handle + Checkbox -->
         <div class="d-flex align-items-center gap-2 me-2">
-          <button 
+          <!-- <button 
             class="icon-btn field-drag" 
             type="button" 
             cdkDragHandle 
             [title]="'Drag to reorder ' + fieldLabel(row.meta.fields![idx])"
             [disabled]="disableField(idx)">
             <fa-icon icon="grip-vertical"></fa-icon>
-          </button>
+          </button> -->
 
           <input 
             type="checkbox"

@@ -313,6 +313,8 @@ $shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.12);
     border-radius: $border-radius-sm;
     transition: $transition-base;
 
+    align-items: stretch;
+
     &:focus-within {
       box-shadow: $shadow-md;
       transform: scale(1.01);
@@ -324,6 +326,7 @@ $shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.12);
       color: $text-muted;
       padding: 0.625rem 0.875rem;
       transition: $transition-base;
+      min-height: 45px;
 
       fa-icon {
         font-size: 0.9rem;
@@ -337,6 +340,7 @@ $shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.12);
       padding: 0.625rem 1rem;
       font-size: 0.9rem;
       transition: $transition-base;
+      min-height: 45px;
 
       &:focus {
         outline: none;
