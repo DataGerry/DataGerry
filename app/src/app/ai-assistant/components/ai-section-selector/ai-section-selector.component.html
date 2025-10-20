@@ -1,28 +1,242 @@
-<!-- Section cell -->
-<td class="section-cell">
-  <label class="form-check d-flex align-items-center gap-2 mb-0">
-    <input type="checkbox" class="form-check-input"
-    [formControl]="includeSectionCtrl"
-    [disabled]="sectionUncheckDisabled" />
 
-    <span class="form-check-label">
-      {{ row.meta.label || row.meta.name }}
-    </span>
-  </label>
-</td>
+<td class="p-0" colspan="2">
+  <div 
+    class="ai-section card shadow-sm mb-2"
+    [class.section-active]="includeSectionCtrl.value"
+    [class.section-disabled]="!includeSectionCtrl.value">
 
-<!-- Fields cell -->
-<td class="fields-cell">
-  <div class="field-grid">
-    <label
-      class="form-check d-flex align-items-center gap-2 mb-0"
-      *ngFor="let fc of fieldChecks().controls; let fi = index; trackBy: trackByIdx">
-      <input type="checkbox" class="form-check-input" [formControl]="fc" [disabled]="disableField(fi)" />
-      <span class="form-check-label">
-        {{ fieldLabel(row.meta.fields![fi]) }}
-        <small class="text-muted ms-1">({{ fieldKind(row.meta.fields![fi]) }})</small>
+    <!-- ========================= HEADER ========================= -->
+    <div class="card-header">
+
+      <!-- Drag Handle -->
+      <!-- <button 
+        class="icon-btn drag-handle" 
+        type="button" 
+        cdkDragHandle 
+        title="Drag to reorder section"
+        [attr.aria-label]="'Drag ' + row.meta.label + ' section'">
+        <fa-icon icon="grip-vertical"></fa-icon>
+      </button> -->
+
+      <!-- Section Toggle Checkbox -->
+      <div class="form-check m-0">
+        <input
+          type="checkbox"
+          class="form-check-input"
+          [formControl]="includeSectionCtrl"
+          [disabled]="sectionUncheckDisabled"
+          [title]="sectionUncheckDisabled ? 'Cannot disable the last section' : 'Toggle this section'"
+          [attr.aria-label]="'Include ' + row.meta.label + ' section'" />
+      </div>
+
+      <!-- Editable Section Title -->
+      <div class="section-title flex-grow-1">
+        <div class="input-group input-group-sm section-title-input">
+          <span class="input-group-text bg-white text-muted">
+            <fa-icon icon="layer-group"></fa-icon>
+          </span>
+          <input
+            [readonly]="!editMode"
+            type="text"
+            class="form-control"
+            [class.bg-light]="!editMode"
+            [formControl]="sectionLabelCtrl"
+            [title]="editMode ? 'Edit section label' : row.meta.label"
+            [attr.aria-label]="'Section name: ' + row.meta.label" />
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            (click)="toggleEditMode()"
+            [title]="editMode ? 'Done editing' : 'Edit section name'"
+            [attr.aria-label]="editMode ? 'Done editing section name' : 'Edit section name'">
+            <fa-icon [icon]="editMode ? 'check' : 'pencil'"></fa-icon>
+          </button>
+        </div>
+      </div>
+
+      <!-- Selection Counter Badge -->
+      <span 
+        class="badge"
+        [title]="selectedCount() + ' of ' + totalCount() + ' fields selected'">
+        {{ selectedCount() }}/{{ totalCount() }} selected
       </span>
-    </label>
+
+      <!-- Divider (hidden on mobile) -->
+      <div class="vr mx-2 d-none d-md-block"></div>
+
+      <!-- Bulk Action Buttons -->
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <button 
+          type="button" 
+          class="btn btn-link btn-sm p-0"
+          (click)="selectAll.emit(true)"
+          [disabled]="!includeSectionCtrl.value"
+          title="Select all fields in this section">
+          <fa-icon icon="check-double"></fa-icon>
+          Select all
+        </button>
+        
+        <button 
+          type="button" 
+          class="btn btn-link btn-sm p-0 text-danger"
+          (click)="selectAll.emit(false)"
+          [disabled]="!includeSectionCtrl.value || totalSelectedFields <= 1"
+          [title]="totalSelectedFields <= 1 ? 'Cannot deselect - at least one field required globally' : 'Deselect all fields (will also uncheck section)'">
+          <fa-icon icon="times-circle" style="margin-left: 2px;"></fa-icon>
+          Select none
+        </button>
+      </div>
+
+      <!-- Collapse Toggle -->
+      <button 
+        class="btn btn-sm btn-light ms-auto" 
+        type="button" 
+        (click)="toggleCollapse()"
+        [title]="collapsed ? 'Expand section' : 'Collapse section'"
+        [attr.aria-label]="collapsed ? 'Expand section' : 'Collapse section'">
+        <fa-icon [icon]="collapsed ? 'chevron-down' : 'chevron-up'"></fa-icon>
+      </button>
+    </div>
+
+    <!-- ========================= TOOLS ROW ========================= -->
+    <div class="card-body pb-2" [class.d-none]="collapsed">
+      <div class="row g-2 align-items-center">
+        
+        <!-- Search/Filter Input -->
+        <div class="col-md-6">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text">
+              <fa-icon icon="magnifying-glass"
+              ></fa-icon>
+            </span>
+            <input
+              type="search"
+              class="form-control"
+              placeholder="Filter by field name, label, or type..."
+              [formControl]="filterCtrl"
+              [attr.aria-label]="'Filter fields in ' + row.meta.label" />
+          </div>
+        </div>
+        
+        <!-- Legend for Summary & CI Label -->
+        <div class="col-md-6 text-muted small d-flex gap-3 justify-content-md-end align-items-center">
+          <span class="d-flex align-items-center gap-2">
+            <span style="display: inline-block; width: 14px; height: 14px; background: #4caf50; border-radius: 3px; "></span>
+            <strong style="margin-left: 2px;">Summary</strong>: list cards
+          </span>
+          <span class="d-flex align-items-center gap-2 ml-2">
+            <span style="display: inline-block; width: 14px; height: 14px; background: #ff6b35; border-radius: 50%; "></span>
+            <strong style="margin-left: 2px;">CI Label</strong>: graph node
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= FIELDS LIST ========================= -->
+    <div 
+      class="list-group list-group-flush ai-field-list" 
+      cdkDropList 
+      (cdkDropListDropped)="onDropFields($event)" 
+      [class.d-none]="collapsed">
+
+      <!-- Individual Field Rows -->
+      <div 
+        class="list-group-item d-flex align-items-center field-row"
+        *ngFor="let idx of visibleFieldIndexes(); trackBy: trackByIdx"
+        cdkDrag
+        [class.disabled]="disableField(idx)"
+        [attr.data-field-name]="row.meta.fields![idx]">
+
+        <!-- LEFT: Drag Handle + Checkbox -->
+        <div class="d-flex align-items-center gap-2 me-2">
+          <!-- <button 
+            class="icon-btn field-drag" 
+            type="button" 
+            cdkDragHandle 
+            [title]="'Drag to reorder ' + fieldLabel(row.meta.fields![idx])"
+            [disabled]="disableField(idx)">
+            <fa-icon icon="grip-vertical"></fa-icon>
+          </button> -->
+
+          <input 
+            type="checkbox"
+            class="form-check-input"
+            [formControl]="fieldChecks().at(idx)"
+            [disabled]="disableField(idx)"
+            [title]="disableField(idx) ? 'Cannot remove last field' : 'Include/exclude this field'"
+            [attr.aria-label]="'Include ' + fieldLabel(row.meta.fields![idx])" />
+        </div>
+
+        <!-- CENTER: Field Label + Type Badge + Reset Button -->
+        <div class="field-main flex-grow-1 d-flex align-items-center gap-2">
+          <input
+            type="text"
+            class="form-control form-control-sm field-label"
+            [readonly]="!editMode || disableField(idx)"
+            [formControl]="fieldLabels().at(idx)"
+            [title]="editMode ? 'Edit field label' : fieldLabel(row.meta.fields![idx])"
+            [attr.aria-label]="'Field label: ' + fieldLabel(row.meta.fields![idx])" />
+
+          <span 
+            class="badge"
+            [title]="'Field type: ' + fieldKind(row.meta.fields![idx])">
+            {{ fieldKind(row.meta.fields![idx]) }}
+          </span>
+
+          <button
+            type="button"
+            class="btn btn-xxs btn-outline-secondary"
+            title="Reset label to original"
+            (click)="resetFieldLabel(idx)"
+            [disabled]="!editMode || disableField(idx)"
+            [attr.aria-label]="'Reset ' + fieldLabel(row.meta.fields![idx]) + ' label'">
+            <fa-icon icon="rotate-left"></fa-icon>
+          </button>
+        </div>
+
+        <!-- RIGHT: Summary Toggle + CI Explorer Radio -->
+        <div class="field-actions d-flex align-items-center gap-3 ms-2">
+          
+          <!-- Summary Field Toggle (Checkbox) -->
+          <label 
+            class="form-check m-0" 
+            [title]="fieldChecks().at(idx).value ? 'Show in summary cards' : 'Field must be selected first'">
+            <input 
+              type="checkbox"
+              class="form-check-input"
+              [checked]="isSummaryChecked(row.meta.fields![idx])"
+              (change)="summaryToggle.emit({ fieldName: row.meta.fields![idx], checked: $any($event.target).checked })"
+              [disabled]="!fieldChecks().at(idx).value || disableField(idx)"
+              [attr.aria-label]="'Show ' + fieldLabel(row.meta.fields![idx]) + ' in summary'" />
+          </label>
+
+          <!-- CI Explorer Label Radio -->
+          <label 
+            class="form-check m-0" 
+            [title]="fieldChecks().at(idx).value ? 'Use as CI Explorer label' : 'Field must be selected first'">
+            <input 
+              type="radio"
+              name="ci-explorer-global"
+              class="form-check-input"
+              [checked]="isCiChecked(row.meta.fields![idx])"
+              (change)="pickCiExplorer.emit(row.meta.fields![idx])"
+              [disabled]="!fieldChecks().at(idx).value || disableField(idx)"
+              [attr.aria-label]="'Use ' + fieldLabel(row.meta.fields![idx]) + ' as CI Explorer label'" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Empty State when filter returns no results -->
+      <div 
+        *ngIf="visibleFieldIndexes().length === 0" 
+        class="list-group-item text-center text-muted py-4">
+        <fa-icon icon="filter-circle-xmark" class="mb-2" style="font-size: 2rem;"></fa-icon>
+        <p class="mb-0">No fields match your filter</p>
+        <small>Try a different search term</small>
+      </div>
+    </div>
+
+    <!-- Empty Footer for spacing -->
+    <div class="card-footer" [class.d-none]="collapsed"></div>
   </div>
 </td>
-  

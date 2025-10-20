@@ -27,11 +27,13 @@ import { AiPromptPageComponent } from './components/ai-prompt-page/ai-prompt-pag
 import { AiSectionSelectorComponent } from './components/ai-section-selector/ai-section-selector.component';
 import { CoreModule } from '../core/core.module';
 import { SpeechRecognitionService } from './services/speech-recognition.service';
+import { VoiceWaveVisualizerComponent } from './components/voice-wave-visualizer/voice-wave-visualizer.component';
 
 @NgModule({
   declarations: [
     AiPromptPageComponent,
-    AiSectionSelectorComponent
+    AiSectionSelectorComponent,
+    VoiceWaveVisualizerComponent
   ],
   imports: [
     CommonModule,
