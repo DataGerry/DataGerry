@@ -79,7 +79,7 @@ export class AiSectionSelectorComponent implements OnInit, OnDestroy {
 
   /** UI state */
   editMode = false;
-  collapsed = false;
+  collapsed = true;
 
   private includeSub?: Subscription;
 
