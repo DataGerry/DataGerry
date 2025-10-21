@@ -359,7 +359,7 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
         abort(400, "Failed to update the internal Connector!")
 
 
-@oc_connectors_blueprint.route('/connectors/internal', methods=['GET'])
+@oc_connectors_blueprint.route('/connectors/internal', methods=['POST'])
 @handle_oc_errors("retrieving the internal Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
