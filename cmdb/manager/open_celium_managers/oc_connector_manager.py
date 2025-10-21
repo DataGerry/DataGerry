@@ -24,8 +24,6 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
-from cmdb.open_celium.oc_constants import UNIQUE_POSITIVE
-
 from cmdb.errors.open_celium.connector import OcConnectorCreateError, OcConnectorGetError, OcConnectorUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -181,10 +179,7 @@ class OcConnectorManager(OcBaseManager):
 
         if self.is_valid_response(target_connector_response):
             conn_resp: dict[str, Any] = json.loads(target_connector_response.text)
-            if conn_resp == UNIQUE_POSITIVE:
-                return False
-
-            return True
+            return conn_resp['result']
 
         raise OcConnectorGetError(f"Failed to check if Connector with title: {title} exists!")
 
