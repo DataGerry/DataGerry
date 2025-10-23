@@ -20,12 +20,14 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { combineLatest, Subscription } from 'rxjs';
 import { finalize } from 'rxjs/operators';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { AutomationsService } from '../../services/automations.service';
 import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../../connectors/models/connector.model';
+import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 
 @Component({
   selector: 'app-automation-form',
@@ -62,14 +64,18 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     private svc: AutomationsService,
     private connectorsService: ConnectorsService,
     private toast: ToastService,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+    private modalService: NgbModal
   ) { 
   }
 
   ngOnInit(): void {
     this.mode = (this.route.snapshot.data['mode'] || 'create') as any;
     this.buildForm();
-    this.loadInitData();
+
+    // First check if internal connector exists
+    console.log('Checking internal connector existence...');
+    this.checkInternalConnector();
 
     if (this.mode === 'edit') {
       this.id = +this.route.snapshot.paramMap.get('id')!;
@@ -102,6 +108,17 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         console.log('Loaded external connectors count:', this.externalConnectors.length, this.externalConnectors);
         console.log('Loaded templates count:', this.templates.length, this.templates);
         
+        // Set internal connector details from init data
+        const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
+        if (internalConnector) {
+          console.log('Internal connector details set from init data:', internalConnector);
+          this.internalConnectorDetails = internalConnector;
+        } else {
+          console.log('Internal connector not found in init data, redirecting to setup...');
+          this.redirectToInternalConnectorSetup();
+          return;
+        }
+        
         // Set up form changes after data is loaded
         console.log('Setting up form changes subscription...');
         this.setupFormChanges();
@@ -120,14 +137,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         console.log('Calling filterTemplates with direction:', currentDirection, 'and connector:', currentConnector);
         this.filterTemplates(currentDirection, currentConnector);
         console.log('Filtered templates count after initial filter:', this.filteredTemplates.length);
-        
-        // Check if internal connector exists
-        console.log('Checking for internal connector...');
-        this.checkInternalConnector();
       },
       error: (err) => {
-        this.toast.error(err?.error?.message);
+        this.toast.error(err?.error?.message || 'Failed to load initial data');
         console.log('Error loading initial data:', err?.error?.message);
+        this.router.navigate(['/automations']);
       }
     });
   }
@@ -268,11 +282,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         this.isCheckingInternalConnector = false;
         
         if (exists) {
-          console.log('Internal connector exists, getting details...');
-          this.getInternalConnectorDetails();
+          console.log('Internal connector exists, loading init data...');
+          this.loadInitData();
         } else {
-          console.log('Internal connector does not exist, redirecting to connector form...');
-          this.redirectToInternalConnectorSetup();
+          console.log('Internal connector does not exist, showing configuration modal...');
+          this.showInternalConnectorModal();
         }
       },
       error: (err) => {
@@ -280,44 +294,40 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         this.toast.error('Failed to check internal connector existence');
         this.isCheckingInternalConnector = false;
         this.internalConnectorExists = false;
+        this.router.navigate(['/automations']);
       }
     });
   }
 
-  private getInternalConnectorDetails(): void {
-    this.isGettingInternalConnector = true;
-    console.log('Getting internal connector details...');
 
-    this.connectorsService.getConnectors().subscribe({
-      next: (connectors) => {
-        // Find the internal connector by name
-        const internalConnector = connectors.find(c => c.title === 'DataGerryInternal');
-        
-        if (internalConnector) {
-          console.log('Internal connector details received:', internalConnector);
-          this.internalConnectorDetails = internalConnector;
-          this.isGettingInternalConnector = false;
-          this.toast.success('Internal connector details loaded successfully');
-        } else {
-          console.log('Internal connector not found in connectors list');
-          this.isGettingInternalConnector = false;
+  private showInternalConnectorModal(): void {
+    const modalRef = this.modalService.open(CoreConfirmationModalComponent, {
+      centered: true,
+      backdrop: 'static'
+    });
+
+    modalRef.componentInstance.title = 'Internal Connector Required';
+    modalRef.componentInstance.message = 'Internal connector is not configured. Do you want to configure it now?';
+    modalRef.componentInstance.confirmButtonText = 'Configure';
+    modalRef.componentInstance.cancelButtonText = 'Cancel';
+    modalRef.componentInstance.confirmButtonClass = 'btn-primary';
+
+    modalRef.result.then(
+      (result) => {
+        if (result === 'confirmed') {
           this.redirectToInternalConnectorSetup();
         }
       },
-      error: (err) => {
-        console.error('Error getting internal connector details:', err);
-        this.isGettingInternalConnector = false;
-        this.toast.error('Failed to load internal connector details');
-        
-        // If we can't get the internal connector details, redirect to setup
-        this.redirectToInternalConnectorSetup();
+      (dismissReason) => {
+        // User dismissed the modal (clicked cancel or outside)
+        this.router.navigate(['/automations']);
       }
-    });
+    );
   }
 
   private redirectToInternalConnectorSetup(): void {
     console.log('Redirecting to connector form for internal connector setup...');
-    this.router.navigate(['/connectors/internal'], { 
+    this.router.navigate(['/automations/connectors/internal'], { 
       state: { 
         connectorExists: false, // Internal connector doesn't exist, so we're creating it
         connector: {
