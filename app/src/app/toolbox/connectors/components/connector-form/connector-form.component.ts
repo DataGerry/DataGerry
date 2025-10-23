@@ -332,14 +332,16 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
                 this.requestDataGroup.updateValueAndValidity({ emitEvent: false });
               }
 
-              // Check if we have request data values - if we do, don't show master password
+              // Check if we have request data values - if values are empty, show master password
               const hasRequestData = rd && Object.keys(rd).length > 0;
-              console.log('patchForInternal: has request data:', hasRequestData, 'requestData:', rd);
+              const hasEmptyValues = hasRequestData && Object.values(rd).every(value => !value || value.toString().trim() === '');
+              console.log('patchForInternal: has request data:', hasRequestData, 'has empty values:', hasEmptyValues, 'requestData:', rd);
               
-              // Only show master password if we don't have request data values
-              this.showMasterPassword = !hasRequestData;
-              this.credentialsBlurred = !hasRequestData;
-              this.masterPasswordVerified = hasRequestData;
+              // Show master password if we have empty values OR no request data
+              const shouldShowMasterPassword = !hasRequestData || hasEmptyValues;
+              this.showMasterPassword = shouldShowMasterPassword;
+              this.credentialsBlurred = shouldShowMasterPassword;
+              this.masterPasswordVerified = !shouldShowMasterPassword;
   
               // Disable fixed fields in internal mode (after patching)
               this.form.get('title')?.disable({ emitEvent: false });
