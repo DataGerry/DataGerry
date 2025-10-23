@@ -44,7 +44,6 @@ const routes: Routes = [
       {
         path: 'internal',
         component: ConnectorFormComponent,
-        resolve: { invokers: ConnectorsResolver },
         data: { mode: 'internal' }
       }
     ]

@@ -106,16 +106,16 @@
               </div>
             </div>
           </div>
-          <!-- Show message when no invoker selected -->
-          <div class="alert alert-info" *ngIf="!selectedInvoker">
+          <!-- Show message when no invoker selected (only for non-internal modes) -->
+          <div class="alert alert-info" *ngIf="!selectedInvoker && mode !== 'internal'">
             <i class="bi bi-info-circle"></i>
             Select an invoker to configure its credentials
           </div>
 
-          <!-- Show credentials fields when invoker is selected and ready -->
-          <ng-container *ngIf="selectedInvoker && credentialsReady">
+          <!-- Show credentials fields when invoker is selected and ready, OR in internal mode -->
+          <ng-container *ngIf="(selectedInvoker || mode === 'internal') && credentialsReady">
             <!-- Show invoker hint if available -->
-            <div class="alert alert-light small mb-3" *ngIf="selectedInvoker.hint">
+            <div class="alert alert-light small mb-3" *ngIf="selectedInvoker?.hint">
               <strong>Configuration Help:</strong><br>
               {{ selectedInvoker.hint }}
             </div>
@@ -125,7 +125,7 @@
               <ng-container *ngFor="let fieldName of getRequestDataControlNames(); trackBy: trackByName">
                 <div class="mb-3">
                   <app-form-input [formControl]="getRequestControl(fieldName)" [label]="fieldName | titlecase"
-                    [type]="fieldName.toLowerCase().includes('password') ? 'password' : 'text'" [required]="true">
+                     [required]="true">
                   </app-form-input>
                   <small class="text-danger" *ngIf="getRequestControl(fieldName)?.touched && 
                                 getRequestControl(fieldName)?.hasError('required')">

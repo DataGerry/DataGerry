@@ -23,6 +23,7 @@ import { AutomationsRoutingModule } from './automations-routing.module';
 import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
+import { InternalConnectorPasswordModalComponent } from './components/internal-connector-password-modal/internal-connector-password-modal.component';
 
 import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
@@ -32,7 +33,8 @@ import { AuthModule } from 'src/app/modules/auth/auth.module';
   declarations: [
     AutomationsComponent,
     AutomationsListComponent,
-    AutomationFormComponent
+    AutomationFormComponent,
+    InternalConnectorPasswordModalComponent
   ],
   imports: [
     CommonModule,
