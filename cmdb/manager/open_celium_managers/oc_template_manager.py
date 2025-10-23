@@ -18,7 +18,7 @@ Implementation of OpenCelium TemplateManager
 """
 import json
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Optional
 
 from requests import Response
 
@@ -67,7 +67,7 @@ class OcTemplateManager(OcBaseManager):
         raise OcTemplateGetError(f"Failed to retrieve OpenCelium Template with ID: {template_id}")
 
 
-    def get_all_templates(self) -> list[dict[str, Any]]:
+    def get_all_templates(self) -> Optional[list[dict[str, Any]]]:
         """
         Retrieves all busines templates from OpenCelium
 
@@ -75,11 +75,19 @@ class OcTemplateManager(OcBaseManager):
             OcTemplateGetError: When retrieving the OcTemplates failed
 
         Returns:
-            list[dict[str, Any]]: list of all business templates from OpenCelium
+            Optional[list[dict[str, Any]]]: list of all business templates from OpenCelium
         """
         all_templates_response: Response = self.oc_connector.oc_get(ALL_TEMPLATES_URL)
 
+        # LOGGER.debug(f"[get_all_templates] response: {all_templates_response}")
+        # LOGGER.debug(f"[get_all_templates] status_code: {all_templates_response.status_code}")
+        # LOGGER.debug(f"[get_all_templates] headers: {all_templates_response.headers}")
+        # LOGGER.debug(f"[get_all_templates] body: {all_templates_response.text}")
+
         if self.is_valid_response(all_templates_response):
-            return json.loads(all_templates_response.text)
+            if all_templates_response.text:
+                return json.loads(all_templates_response.text)
+
+            return None
 
         raise OcTemplateGetError("Failed to retrieve Business Templates from OpenCelium!")
