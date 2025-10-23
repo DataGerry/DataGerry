@@ -28,23 +28,27 @@ const routes: Routes = [
     path: '',
     component: ConnectorsComponent,
     children: [
-      { path: '', component: ConnectorsListComponent },
+      { 
+        path: '', 
+        component: ConnectorsListComponent,
+        data: { breadcrumb: 'Connectors' }
+      },
       {
         path: 'add',
         component: ConnectorFormComponent,
         resolve: { invokers: ConnectorsResolver },
-        data: { mode: 'create' }
+        data: { mode: 'create', breadcrumb: 'Create Connector' }
       },
       {
         path: 'edit/:id',
         component: ConnectorFormComponent,
         resolve: { invokers: ConnectorsResolver },
-        data: { mode: 'edit' }
+        data: { mode: 'edit', breadcrumb: 'Edit Connector' }
       },
       {
         path: 'internal',
         component: ConnectorFormComponent,
-        data: { mode: 'internal' }
+        data: { mode: 'internal', breadcrumb: 'DataGerry Internal' }
       }
     ]
   }
