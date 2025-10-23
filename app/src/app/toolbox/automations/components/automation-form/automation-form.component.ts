@@ -352,19 +352,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       console.log('Using actual internal connector details:', this.internalConnectorDetails);
       datagerryConnector = {
         connectorId: this.internalConnectorDetails.connectorId,
-        invoker: this.internalConnectorDetails.invoker,
+        invoker: { name: this.internalConnectorDetails.invoker.name },
+        icon: "",
         methods: this.internalConnectorDetails.methods || [],
         operators: this.internalConnectorDetails.operators || []
       };
-    } else {
-      console.log('No internal connector details available, using fallback');
-      datagerryConnector = {
-        connectorId: 1, // Fallback DataGerry connector ID
-        invoker: { name: 'DataGerry' },
-        methods: [],
-        operators: []
-      };
-    }
+    } 
 
     // Build connection payload
     const connectionPayload = {
@@ -375,14 +368,16 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         ? datagerryConnector
         : {
             connectorId: selectedConnector.connectorId,
-            invoker: selectedConnector.invoker,
+            invoker: { name: selectedConnector.invoker.name },
+            icon: "",
             methods: [],
             operators: []
           },
       toConnector: v.direction === 'outgoing'
         ? {
             connectorId: selectedConnector.connectorId,
-            invoker: selectedConnector.invoker,
+            invoker: { name: selectedConnector.invoker.name },
+            icon: "",
             methods: [],
             operators: []
           }
