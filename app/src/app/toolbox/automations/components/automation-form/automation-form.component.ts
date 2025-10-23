@@ -1,5 +1,5 @@
 /*
-* DATAGERRY - OpenSource Enterprise CMDB
+* DataGerry - OpenSource Enterprise CMDB
 * Copyright (C) 2025 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
@@ -41,6 +41,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   templates: any[] = [];
   filteredTemplates: any[] = [];
   connectors: Connector[] = [];
+  externalConnectors: Connector[] = []; // Connectors excluding the internal one
   showConnectorField = false;
   connectorLabel = '';
 
@@ -93,9 +94,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       next: (initData) => {
         console.log('Initial data loaded successfully');
         this.connectors = initData.connectors || [];
+        // Filter out the internal connector from the list of selectable connectors
+        this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
         this.templates = initData.templates || [];
         this.filteredTemplates = [...this.templates];
         console.log('Loaded connectors count:', this.connectors.length, this.connectors);
+        console.log('Loaded external connectors count:', this.externalConnectors.length, this.externalConnectors);
         console.log('Loaded templates count:', this.templates.length, this.templates);
         
         // Set up form changes after data is loaded
@@ -167,6 +171,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       this.connectorLabel = '';
     }
     console.log('connectorLabel set to:', this.connectorLabel);
+    
+    // Reset connector selection when direction changes to prevent auto-selection issues
+    this.form.patchValue({ connector: '' });
   }
 
   private filterTemplates(direction: string, connectorId: number): void {
@@ -190,7 +197,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     console.log('Filtering templates for direction:', direction, 'and connector:', selectedConnector.invoker.name);
     
-    this.filteredTemplates = this.templates.filter(template => {
+    const filtered = this.templates.filter(template => {
       if (!template.connection) {
         console.log('Template has no connection:', template);
         return false;
@@ -199,25 +206,32 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       console.log('Checking template:', template.name, 'with connection:', template.connection);
       
       if (direction === 'outgoing') {
-        const matches = template.connection.fromConnector?.invoker?.name === 'DATAGerry' &&
+        const matches = template.connection.fromConnector?.invoker?.name === 'DataGerry' &&
                template.connection.toConnector?.invoker?.name === selectedConnector.invoker.name;
         console.log('Outgoing template match:', matches, 'for template:', template.name);
-        console.log('  - From:', template.connection.fromConnector?.invoker?.name, 'Expected: DATAGerry');
+        console.log('  - From:', template.connection.fromConnector?.invoker?.name, 'Expected: DataGerry');
         console.log('  - To:', template.connection.toConnector?.invoker?.name, 'Expected:', selectedConnector.invoker.name);
         return matches;
       } else if (direction === 'incoming') {
-        const matches = template.connection.toConnector?.invoker?.name === 'DATAGerry' &&
+        const matches = template.connection.toConnector?.invoker?.name === 'DataGerry' &&
                template.connection.fromConnector?.invoker?.name === selectedConnector.invoker.name;
         console.log('Incoming template match:', matches, 'for template:', template.name);
-        console.log('  - To:', template.connection.toConnector?.invoker?.name, 'Expected: DATAGerry');
+        console.log('  - To:', template.connection.toConnector?.invoker?.name, 'Expected: DataGerry');
         console.log('  - From:', template.connection.fromConnector?.invoker?.name, 'Expected:', selectedConnector.invoker.name);
         return matches;
       }
       return false;
     });
     
+    // Map filtered templates to the expected format for the select component
+    this.filteredTemplates = filtered.map(template => ({
+      label: template.name,
+      value: template.templateId,
+      ...template // Keep the full template object for any other needs
+    }));
+    
     console.log('Final filtered templates count:', this.filteredTemplates.length);
-    console.log('Final filtered templates:', this.filteredTemplates.map(t => t.name));
+    console.log('Final filtered templates:', this.filteredTemplates.map(t => t.label));
   }
   
 
@@ -308,7 +322,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         connectorExists: false, // Internal connector doesn't exist, so we're creating it
         connector: {
           title: 'DataGerryInternal',
-          description: 'Internal DATAGerry connector for automations',
+          description: 'Internal DataGerry connector for automations',
           invoker: { name: 'DataGerry' },
           sslCert: false,
           timeout: 1000
@@ -320,13 +334,19 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   // Action methods
   private toPayload(): any {
     const v = this.form.value;
-    const selectedConnector = this.connectors.find(c => c.connectorId === v.connector?.connectorId);
+    console.log('toPayload - Form values:', v);
+    console.log('toPayload - Available connectors:', this.connectors);
+    console.log('toPayload - Looking for connector with ID:', v.connector);
+    
+    const selectedConnector = this.connectors.find(c => c.connectorId === v.connector);
+    console.log('toPayload - Found connector:', selectedConnector);
     
     if (!selectedConnector) {
+      console.log('toPayload - No connector found with ID:', v.connector);
       throw new Error('Please select a connector');
     }
 
-    // Determine which connector to use for DATAGerry (internal connector)
+    // Determine which connector to use for DataGerry (internal connector)
     let datagerryConnector;
     if (this.internalConnectorDetails) {
       console.log('Using actual internal connector details:', this.internalConnectorDetails);
@@ -337,9 +357,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         operators: this.internalConnectorDetails.operators || []
       };
     } else {
-      console.log('Using hardcoded DATAGerry connector details');
+      console.log('No internal connector details available, using fallback');
       datagerryConnector = {
-        connectorId: 1, // DATAGerry connector ID (assuming 1 for DATAGerry)
+        connectorId: 1, // Fallback DataGerry connector ID
         invoker: { name: 'DataGerry' },
         methods: [],
         operators: []
@@ -379,6 +399,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       status: 1 // Active
     };
 
+    console.log('toPayload - Final connection payload:', connectionPayload);
+    console.log('toPayload - Final scheduler payload:', schedulerPayload);
+
     return {
       connection: connectionPayload,
       scheduler: schedulerPayload
@@ -386,7 +409,14 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   save(): void {
+    console.log('SAVE METHOD CALLED - Form values:', this.form.value);
+    console.log('SAVE - showConnectorField:', this.showConnectorField);
+    console.log('SAVE - connector value:', this.form.get('connector')?.value);
+    console.log('SAVE - form valid:', this.form.valid);
+    console.log('SAVE - form invalid:', this.form.invalid);
+    
     if (this.form.invalid) {
+      console.log('SAVE - Form is invalid, marking all as touched');
       this.form.markAllAsTouched();
       this.toast.warning('Please fill in all required fields');
       return;
@@ -394,12 +424,16 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     // Additional validation for connector when direction is selected
     if (this.showConnectorField && !this.form.get('connector')?.value) {
+      console.log('SAVE - No connector selected, showing warning');
       this.toast.warning('Please select a connector');
       return;
     }
 
     try {
+      console.log('SAVE - Building payload...');
       const payload = this.toPayload();
+      console.log('SAVE - Payload built successfully:', payload);
+      
       const req$ = this.mode === 'create'
         ? this.svc.createAutomation(payload)
         : this.svc.updateAutomation(this.id!, payload);
@@ -421,6 +455,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
           }
         });
     } catch (error) {
+      console.log('SAVE - Error in toPayload:', error);
       this.toast.error((error as Error).message);
     }
   }

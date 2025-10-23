@@ -42,10 +42,7 @@ export class AutomationsService extends BaseApiService<any> {
     return this.handleGetRequest<any>(`${this.servicePrefix}/connections/init_data`, new HttpParams()).pipe(
       map((initData) => ({
         connectors: initData.connectors || [],
-        templates: (initData.templates || []).map((template: any) => ({
-          label: template.name,
-          value: template.templateId
-        }))
+        templates: initData.templates || []
       }))
     );
   }
