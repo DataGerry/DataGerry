@@ -19,8 +19,8 @@ import { Component } from '@angular/core';
 import { RouterModule } from '@angular/router';
 
 @Component({
-  selector: 'app-automations',
+  selector: 'app-automations-wrapper',
   template: '<router-outlet></router-outlet>',
   standalone: false
 })
-export class AutomationsComponent {}
+export class AutomationsWrapperComponent {}

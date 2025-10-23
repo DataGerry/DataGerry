@@ -83,7 +83,7 @@ export class ConnectorsListComponent implements OnInit {
       .subscribe({
         next: (exists: boolean) => {
           // Redirect to internal route without resolver
-          this.router.navigate(['/connectors/internal'], {
+          this.router.navigate(['automations/connectors/internal'], {
             state: { 
               connectorExists: exists,
               connector: {

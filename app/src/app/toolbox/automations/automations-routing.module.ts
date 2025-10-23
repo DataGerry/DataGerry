@@ -37,7 +37,8 @@ const routes: Routes = [
         component: AutomationsListComponent,
         canActivate: [AuthGuard],
         data: {
-          right: 'automation.view'
+          right: 'automation.view',
+          breadcrumb: 'Automations'
         }
       },
       {
@@ -45,7 +46,8 @@ const routes: Routes = [
         component: AutomationFormComponent,
         canActivate: [AuthGuard],
         data: {
-          right: 'automation.create'
+          right: 'automation.create',
+          breadcrumb: 'Create Automation'
         }
       }
     ]

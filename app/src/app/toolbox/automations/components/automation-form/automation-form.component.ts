@@ -30,7 +30,8 @@ import { Connector } from '../../../connectors/models/connector.model';
 @Component({
   selector: 'app-automation-form',
   templateUrl: './automation-form.component.html',
-  styleUrls: ['./automation-form.component.scss']
+  styleUrls: ['./automation-form.component.scss'],
+  standalone: false
 })
 export class AutomationFormComponent implements OnInit, OnDestroy {
   mode: 'create' | 'edit' = 'create';

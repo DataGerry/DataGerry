@@ -18,12 +18,14 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 
 import { AutomationsRoutingModule } from './automations-routing.module';
 import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
 import { InternalConnectorPasswordModalComponent } from './components/internal-connector-password-modal/internal-connector-password-modal.component';
+import { AutomationsWrapperComponent } from './components/automations-wrapper/automations-wrapper.component';
 
 import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
@@ -31,6 +33,7 @@ import { AuthModule } from 'src/app/modules/auth/auth.module';
 
 @NgModule({
   declarations: [
+    AutomationsWrapperComponent,
     AutomationsComponent,
     AutomationsListComponent,
     AutomationFormComponent,
