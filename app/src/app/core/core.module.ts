@@ -17,6 +17,7 @@ import { FormDateComponent } from './components/base/date/form-date.component';
 import { CoreDeleteConfirmationModalComponent } from './components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 import { CoreWarningModalComponent } from './components/dialog/core-warning-modal/core-warning-modal.component';
 import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
+import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
 
 @NgModule({
   declarations: [
@@ -34,7 +35,8 @@ import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.compo
     FormDateComponent,
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
-    AppUsageBarComponent
+    AppUsageBarComponent,
+    CoreConfirmationModalComponent
   ],
   imports: [
     CommonModule,
@@ -55,7 +57,8 @@ import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.compo
     FormDateComponent,
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
-    AppUsageBarComponent
+    AppUsageBarComponent,
+    CoreConfirmationModalComponent
   ]
 })
 export class CoreModule { }
