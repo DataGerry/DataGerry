@@ -18,7 +18,7 @@ Implementation of OpenCelium ConnectorManager
 """
 import json
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Optional
 
 from requests import Response
 
@@ -105,6 +105,11 @@ class OcConnectorManager(OcBaseManager):
         """
         check_pw_response: Response = self.oc_connector.oc_get(CHECK_MASTER_PW_URL, password)
 
+        # LOGGER.debug(f"[check_master_pw] response: {check_pw_response}")
+        # LOGGER.debug(f"[check_master_pw] status_code: {check_pw_response.status_code}")
+        # LOGGER.debug(f"[check_master_pw] headers: {check_pw_response.headers}")
+        # LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
+
         if self.is_valid_response(check_pw_response):
             return True
 
@@ -184,7 +189,7 @@ class OcConnectorManager(OcBaseManager):
         raise OcConnectorGetError(f"Failed to check if Connector with title: {title} exists!")
 
 
-    def get_all_connectors(self) -> list[dict[str, Any]]:
+    def get_all_connectors(self) -> Optional[list[dict[str, Any]]]:
         """
         Retrieves all Connectors from OpenCelium
 
@@ -192,12 +197,20 @@ class OcConnectorManager(OcBaseManager):
             OcConnectorGetError: When retrieving the OcConnectors fails
 
         Returns:
-            list[dict[str, Any]]: All Connectors from OpenCelium
+            Optional[list[dict[str, Any]]]: All Connectors from OpenCelium
         """
         all_connectors_response: Response = self.oc_connector.oc_get(ALL_CONNECTORS_URL)
 
+        # LOGGER.debug(f"[get_all_connectors] response: {all_connectors_response}")
+        # LOGGER.debug(f"[get_all_connectors] status_code: {all_connectors_response.status_code}")
+        # LOGGER.debug(f"[get_all_connectors] headers: {all_connectors_response.headers}")
+        # LOGGER.debug(f"[get_all_connectors] body: {all_connectors_response.text}")
+
         if self.is_valid_response(all_connectors_response):
-            return json.loads(all_connectors_response.text)
+            if all_connectors_response.text:
+                return json.loads(all_connectors_response.text)
+
+            return None
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
 
