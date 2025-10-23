@@ -26,8 +26,6 @@ import { ConnectorsService } from '../../../connectors/services/connectors.servi
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../../connectors/models/connector.model';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { InternalConnectorPasswordModalComponent } from '../internal-connector-password-modal/internal-connector-password-modal.component';
 
 @Component({
   selector: 'app-automation-form',
@@ -61,7 +59,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     private router: Router,
     private svc: AutomationsService,
     private connectorsService: ConnectorsService,
-    private modalService: NgbModal,
     private toast: ToastService,
     private loaderService: LoaderService
   ) { 
@@ -256,10 +253,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         this.isCheckingInternalConnector = false;
         
         if (exists) {
-          console.log('Internal connector exists, opening password modal...');
-          this.openPasswordModal();
+          console.log('Internal connector exists, getting details...');
+          this.getInternalConnectorDetails();
         } else {
-          console.log('Internal connector does not exist, using hardcoded values');
+          console.log('Internal connector does not exist, redirecting to connector form...');
+          this.redirectToInternalConnectorSetup();
         }
       },
       error: (err) => {
@@ -271,60 +269,49 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
   }
 
-  private openPasswordModal(): void {
-    console.log('Opening password modal for internal connector...');
-    const modalRef = this.modalService.open(InternalConnectorPasswordModalComponent, { 
-      size: 'md',
-      backdrop: 'static'
-    });
-
-    modalRef.result.then(
-      (password: string) => {
-        console.log('Password provided, getting internal connector details...');
-        this.getInternalConnector(password);
-      },
-      (reason) => {
-        console.log('Password modal dismissed:', reason);
-        if (reason !== 'cancel') {
-          this.toast.warning('Internal connector authentication cancelled');
-        }
-      }
-    );
-  }
-
-  private getInternalConnector(password: string): void {
+  private getInternalConnectorDetails(): void {
     this.isGettingInternalConnector = true;
-    console.log('Getting internal connector details with password...');
+    console.log('Getting internal connector details...');
 
-    this.connectorsService.getInternalConnectorCredentials(password).subscribe({
-      next: (connectorDetails) => {
-        console.log('Internal connector details received:', connectorDetails);
-        this.internalConnectorDetails = connectorDetails;
-        this.isGettingInternalConnector = false;
-        this.toast.success('Internal connector authenticated successfully');
+    this.connectorsService.getConnectors().subscribe({
+      next: (connectors) => {
+        // Find the internal connector by name
+        const internalConnector = connectors.find(c => c.title === 'DataGerryInternal');
+        
+        if (internalConnector) {
+          console.log('Internal connector details received:', internalConnector);
+          this.internalConnectorDetails = internalConnector;
+          this.isGettingInternalConnector = false;
+          this.toast.success('Internal connector details loaded successfully');
+        } else {
+          console.log('Internal connector not found in connectors list');
+          this.isGettingInternalConnector = false;
+          this.redirectToInternalConnectorSetup();
+        }
       },
       error: (err) => {
         console.error('Error getting internal connector details:', err);
         this.isGettingInternalConnector = false;
-        this.toast.error('Failed to authenticate internal connector. Please check the password.');
+        this.toast.error('Failed to load internal connector details');
         
-        // Reopen password modal on error
-        const modalRef = this.modalService.open(InternalConnectorPasswordModalComponent, { 
-          size: 'md',
-          backdrop: 'static'
-        });
-        
-        // Set error message on the modal
-        modalRef.componentInstance.setError('Invalid password. Please try again.');
-        
-        modalRef.result.then(
-          (newPassword: string) => {
-            this.getInternalConnector(newPassword);
-          },
-          () => {
-            this.toast.warning('Internal connector authentication cancelled');
-          }
-        );
+        // If we can't get the internal connector details, redirect to setup
+        this.redirectToInternalConnectorSetup();
+      }
+    });
+  }
+
+  private redirectToInternalConnectorSetup(): void {
+    console.log('Redirecting to connector form for internal connector setup...');
+    this.router.navigate(['/connectors/internal'], { 
+      state: { 
+        connectorExists: false, // Internal connector doesn't exist, so we're creating it
+        connector: {
+          title: 'DataGerryInternal',
+          description: 'Internal DATAGerry connector for automations',
+          invoker: { name: 'DataGerry' },
+          sslCert: false,
+          timeout: 1000
+        }
       }
     });
   }

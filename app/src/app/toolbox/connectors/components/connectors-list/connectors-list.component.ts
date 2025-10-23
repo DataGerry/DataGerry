@@ -82,20 +82,19 @@ export class ConnectorsListComponent implements OnInit {
       .pipe(finalize(() => this.loaderService.hide()))
       .subscribe({
         next: (exists: boolean) => {
-          if (exists) {
-            // Navigate to internal configuration with pre-filled data
-            this.router.navigate(['/connectors/internal'], {
-              state: { 
-                connector: {
-                  title: 'DataGerryInternal',
-                  description: 'Internal DataGerry connector for data query operations',
-                  invoker: { name: 'datagerry' }
-                }
+          // Redirect to internal route without resolver
+          this.router.navigate(['/connectors/internal'], {
+            state: { 
+              connectorExists: exists,
+              connector: {
+                title: 'DataGerryInternal',
+                description: 'Internal DATAGerry connector for automations',
+                invoker: { name: 'DataGerry' },
+                sslCert: false,
+                timeout: 1000
               }
-            });
-          } else {
-            this.toast.error('Internal connector "datagerry" does not exist');
-          }
+            }
+          });
         },
         error: (err) => {
           this.toast.error(err?.error?.message || 'Failed to check connector existence');

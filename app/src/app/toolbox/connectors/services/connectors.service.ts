@@ -86,4 +86,22 @@ export class ConnectorsService extends BaseApiService<Connector> {
   getInternalConnectorCredentials(password: string): Observable<any> {
     return this.handlePostRequest<any>(`${this.servicePrefix}/internal`, { password });
   }
+
+  // CREATE INTERNAL CONNECTOR
+  createInternalConnector(payload: Connector): Observable<Connector> {
+    return this.handlePostRequest<Connector>(`${this.servicePrefix}/internal`, payload);
+  }
+
+  // UPDATE INTERNAL CONNECTOR
+  updateInternalConnector(payload: Connector): Observable<Connector> {
+    return this.handlePutRequest<Connector>(`${this.servicePrefix}/internal`, payload);
+  }
+
+  // GET INTERNAL CONNECTOR
+  getInternalConnector(payload?: any): Observable<Connector> {
+    // Default to empty dict if no payload provided
+    const requestPayload = payload || {};
+    // Use POST request with new /internal/get endpoint
+    return this.handlePostRequest<Connector>(`${this.servicePrefix}/internal/get`, requestPayload);
+  }
 }
