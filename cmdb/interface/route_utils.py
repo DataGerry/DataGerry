@@ -166,6 +166,8 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
+            except HTTPException as http_err:
+                raise http_err
             except AuthError as err:
                 LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
                 abort(500, str(err))

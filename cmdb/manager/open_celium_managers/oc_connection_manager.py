@@ -118,7 +118,7 @@ class OcConnectionManager(OcBaseManager):
 
             return True
 
-        raise OcConnectionGetError(f"Failed to check Connection name for uniqueness: {conn_name}")
+        raise OcConnectionGetError(f"Failed to check Connection name for uniqueness: {conn_name} !")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
