@@ -34,7 +34,7 @@ export class AutomationsService extends BaseApiService<any> {
   // LIST
   getAutomations(): Observable<any[]> {
     const params = new HttpParams();
-    return this.handleGetRequest<any[]>(`${this.servicePrefix}`, params);
+    return this.handleGetRequest<any[]>(`${this.servicePrefix}/schedulers`, params);
   }
 
   // INITIAL DATA

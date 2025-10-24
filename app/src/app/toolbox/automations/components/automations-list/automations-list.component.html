@@ -20,3 +20,81 @@
     </a>
   </div>
 </div>
+
+<!-- CMDB Table -->
+<cmdb-table 
+  [items]="automations" 
+  [columns]="columns" 
+  [totalItems]="totalAutomations" 
+  [pageSize]="limit" 
+  [page]="page"
+  [loading]="loading" 
+  [paginationEnabled]="false" 
+  [pageSizeEnabled]="true" 
+  [searchEnabled]="false"
+  [infoEnabled]="false"  
+  (pageChange)="onPageChange($event)" 
+  (pageSizeChange)="onPageSizeChange($event)">
+</cmdb-table>
+
+<!-- Direction Template -->
+<ng-template #directionTemplate let-item="item">
+  <span class="badge" [ngClass]="{
+    'bg-primary': item.direction === 'incoming',
+    'bg-success': item.direction === 'outgoing',
+    'bg-secondary': item.direction === 'unknown'
+  }">
+    {{ item.direction === 'incoming' ? 'Incoming' : 
+       item.direction === 'outgoing' ? 'Outgoing' : 
+       'Unknown' }}
+  </span>
+</ng-template>
+
+<!-- Status Template -->
+<ng-template #statusTemplate let-item="item">
+  <span class="badge" [ngClass]="{
+    'bg-success': item.status === true,
+    'bg-secondary': item.status === false
+  }">
+    {{ item.status === true ? 'Active' : 'Inactive' }}
+  </span>
+</ng-template>
+
+<!-- Last Success Template -->
+<ng-template #lastSuccessTemplate let-item="item">
+  <div class="text-center">
+    <div>{{ getLastSuccessDisplay(item).date }}</div>
+    <div class="text-muted small">{{ getLastSuccessDisplay(item).taId }}</div>
+  </div>
+</ng-template>
+
+<!-- Last Fail Template -->
+<ng-template #lastFailTemplate let-item="item">
+  <div class="text-center">
+    <div>{{ getLastFailDisplay(item).date }}</div>
+    <div class="text-muted small">{{ getLastFailDisplay(item).taId }}</div>
+  </div>
+</ng-template>
+
+<!-- Last Duration Template -->
+<ng-template #lastDurationTemplate let-item="item">
+  <div class="text-center">
+    {{ getLastDuration(item) }}
+  </div>
+</ng-template>
+
+<!-- Actions Template -->
+<ng-template #actionsTemplate let-item="item">
+  <div class="btn-group btn-group-sm">
+    <button class="btn" 
+            (click)="editAutomation(item)"
+            title="Edit Automation">
+      <i class="fas fa-edit"></i>
+    </button>
+    <button class="btn" 
+            (click)="deleteAutomation(item)"
+            title="Delete Automation">
+      <i class="fas fa-trash"></i>
+    </button>
+  </div>
+</ng-template>
