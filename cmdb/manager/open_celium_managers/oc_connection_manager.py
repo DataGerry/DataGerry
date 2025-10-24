@@ -104,8 +104,12 @@ class OcConnectionManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved OcConnection
         """
+        conn_name_check_response: Response = self.oc_connector.oc_get(f"{CON_UNIQUE_CHECK_URL}/{conn_name}")
 
-        conn_name_check_response: Response = self.oc_connector.oc_get(f"{CONNECTION_URL}/{conn_name}")
+        # LOGGER.debug(f"[check_connection_name_exists] check_connector_response: {conn_name_check_response}")
+        # LOGGER.debug(f"[check_connection_name_exists] check_connector_response status: {conn_name_check_response.status_code}")
+        # LOGGER.debug(f"[check_connection_name_exists] headers: {conn_name_check_response.headers}")
+        # LOGGER.debug(f"[check_connection_name_exists] check_connector_response body: {conn_name_check_response.text}")
 
         if self.is_valid_response(conn_name_check_response):
             conn_resp: dict[str, Any] = json.loads(conn_name_check_response.text)

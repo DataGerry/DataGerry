@@ -80,11 +80,11 @@ class OcConnectorManager(OcBaseManager):
         Returns:
             bool: True if credentials are valid else False
         """
-        # LOGGER.debug("[check_connector] called")
         check_connector_response: Response = self.oc_connector.oc_post(params, CHECK_CONNECTOR_URL)
 
         # LOGGER.debug(f"[check_connector] check_connector_response: {check_connector_response}")
         # LOGGER.debug(f"[check_connector] check_connector_response status: {check_connector_response.status_code}")
+        # LOGGER.debug(f"[check_connector] headers: {check_connector_response.headers}")
         # LOGGER.debug(f"[check_connector] check_connector_response body: {check_connector_response.text}")
 
         if self.is_valid_response(check_connector_response):
@@ -211,6 +211,11 @@ class OcConnectorManager(OcBaseManager):
                 return json.loads(all_connectors_response.text)
 
             return None
+
+        # LOGGER.debug(f"[get_all_connectors] response: {all_connectors_response}")
+        # LOGGER.debug(f"[get_all_connectors] status_code: {all_connectors_response.status_code}")
+        # LOGGER.debug(f"[get_all_connectors] headers: {all_connectors_response.headers}")
+        # LOGGER.debug(f"[get_all_connectors] body: {all_connectors_response.text}")
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
 
