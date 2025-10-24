@@ -49,6 +49,15 @@ const routes: Routes = [
           right: 'automation.create',
           breadcrumb: 'Create Automation'
         }
+      },
+      {
+        path: 'edit/:schedulerId',
+        component: AutomationFormComponent,
+        canActivate: [AuthGuard],
+        data: {
+          right: 'automation.edit',
+          breadcrumb: 'Edit Automation'
+        }
       }
     ]
   }
