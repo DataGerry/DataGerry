@@ -1,0 +1,23 @@
+<div class="modal-header bg-primary text-white">
+  <h4 class="modal-title">{{ title }}</h4>
+  <button type="button" class="close" (click)="activeModal.dismiss('cancel')">
+    <span>&times;</span>
+  </button>
+</div>
+<div class="modal-body">
+  <div id="confirmation-message">
+    {{ message }}
+  </div>
+
+  <ng-container *ngIf="warningMessage">
+    <app-warning-alert
+      [title]="warningTitle"
+      [message]="warningMessage"
+      [iconClass]="warningIconClass">
+    </app-warning-alert>
+  </ng-container>
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss()">{{ cancelButtonText }}</button>
+  <button type="button" class="btn" [class]="confirmButtonClass" (click)="confirm()">{{ confirmButtonText }}</button>
+</div>
