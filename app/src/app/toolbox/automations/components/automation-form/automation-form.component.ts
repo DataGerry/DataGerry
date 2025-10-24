@@ -408,7 +408,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     const schedulerPayload = {
       title: v.name,
       debugMode: false,
-      connectionId: this.id || 0, // Will be set by backend for create, existing ID for edit
       cronExp: '0 1 * * * ?', // Default cron expression (1 AM daily)
       status: 1 // Active
     };
