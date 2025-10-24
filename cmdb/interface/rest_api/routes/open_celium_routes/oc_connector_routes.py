@@ -132,6 +132,8 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
+        # LOGGER.debug(f"master_pw: {params['password']}")
+
         pw_valid: bool = oc_connector_manager.check_master_pw(params['password'])
 
         if not pw_valid:
@@ -141,6 +143,8 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
 
         if params.get('connectorId'):
             result: dict[str, Any] = oc_connector_manager.get_connector(params['connectorId'], params['password'])
+
+        # LOGGER.debug(f"master pw result: {result}")
 
         return DefaultResponse(result).make_response()
     except OcConnectorGetError as err:

@@ -64,9 +64,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
-        create_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
+        created_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
 
-        return DefaultResponse(create_oc_connection).make_response()
+        return DefaultResponse(created_oc_connection).make_response()
     except OcConnectionCreateError as err:
         LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to create an OpenCelium Connection!")

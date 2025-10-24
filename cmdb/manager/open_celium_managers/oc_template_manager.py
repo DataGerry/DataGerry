@@ -86,7 +86,21 @@ class OcTemplateManager(OcBaseManager):
 
         if self.is_valid_response(all_templates_response):
             if all_templates_response.text:
-                return json.loads(all_templates_response.text)
+                templates = json.loads(all_templates_response.text)
+
+                # Filter DataGerry templates
+                datagerry_templates: list[dict[str, Any]] = [
+                    t for t in templates
+                    if (
+                        t.get("connection", {}).get("fromConnector", {})
+                        .get("invoker", {}).get("name") == "DataGerry"
+                        or
+                        t.get("connection", {}).get("toConnector", {})
+                        .get("invoker", {}).get("name") == "DataGerry"
+                    )
+                ]
+
+                return datagerry_templates
 
             return None
 

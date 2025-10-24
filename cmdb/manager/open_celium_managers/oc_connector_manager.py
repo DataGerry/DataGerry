@@ -134,7 +134,13 @@ class OcConnectorManager(OcBaseManager):
         if not connector_id:
             raise OcConnectorGetError("No connectorId for Connector provided!")
 
+        # LOGGER.debug(f"[get_connector] password: {password}")
+
         target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}", password)
+
+        # LOGGER.debug(f"[get_connector] status_code: {target_connector_response.status_code}")
+        # LOGGER.debug(f"[get_connector] headers: {target_connector_response.headers}")
+        # LOGGER.debug(f"[get_connector] body: {target_connector_response.text}")
 
         if self.is_valid_response(target_connector_response):
             return json.loads(target_connector_response.text)
