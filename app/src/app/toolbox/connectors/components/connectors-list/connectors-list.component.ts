@@ -59,7 +59,8 @@ export class ConnectorsListComponent implements OnInit {
   loadConnectors(): void {
     this.loaderService.show();
     this.svc.getConnectors().pipe(finalize(() => this.loaderService.hide())).subscribe({
-      next: (res) => { this.rows = res ?? []; 
+      next: (res) => { this.rows = res.filter(r => r.title !== 'DataGerryInternal') ?? []; 
+        console.log(this.rows);
         this.totalConnectors = this.rows.length;
       },
       error: (err) => {
@@ -69,7 +70,7 @@ export class ConnectorsListComponent implements OnInit {
     });
   }
 
-  add(): void { this.router.navigate(['/connectors/add']); }
+  add(): void { this.router.navigate(['automations/connectors/add']); }
   edit(row: Connector): void { 
     this.router.navigate(['automations/connectors/edit', row.connectorId], {
       state: { connector: row }

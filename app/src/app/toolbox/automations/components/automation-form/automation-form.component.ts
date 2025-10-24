@@ -18,8 +18,8 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { combineLatest, Subscription } from 'rxjs';
-import { finalize } from 'rxjs/operators';
+import { combineLatest, Subscription, BehaviorSubject } from 'rxjs';
+import { finalize, map } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { AutomationsService } from '../../services/automations.service';
@@ -54,6 +54,15 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   isGettingInternalConnector: boolean = false;
 
   private formChangesSubscription?: Subscription;
+
+  // Combined loading state for all operations
+  public combinedLoading$ = combineLatest([
+    this.loaderService.isLoading$,
+    new BehaviorSubject(this.isCheckingInternalConnector),
+    new BehaviorSubject(this.isGettingInternalConnector)
+  ]).pipe(
+    map(([loaderLoading, checking, getting]) => loaderLoading || checking || getting)
+  );
 
   public isLoading$ = this.loaderService.isLoading$;
 
