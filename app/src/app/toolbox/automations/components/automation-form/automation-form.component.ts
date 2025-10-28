@@ -87,13 +87,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.checkInternalConnector();
 
     if (this.mode === 'edit') {
-      this.id = +this.route.snapshot.paramMap.get('id')!;
-      
-      // Check if automation was passed via state 
-      const automation = history.state?.automation;
-      if (automation) {
-        this.patchForEdit(automation);
-      } 
+      console.log('Edit mode detected, getting automation ID from route...');
+      this.id = +this.route.snapshot.paramMap.get('connectorId')!;
     }
   }
 
@@ -132,20 +127,34 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         console.log('Setting up form changes subscription...');
         this.setupFormChanges();
         
-        // Trigger initial update based on current form values
-        const currentDirection = this.form.get('direction')?.value;
-        const currentConnector = this.form.get('connector')?.value;
-        console.log('Current direction value:', currentDirection);
-        console.log('Current connector value:', currentConnector);
-        
-        console.log('Calling updateConnectorFieldVisibility with direction:', currentDirection);
-        this.updateConnectorFieldVisibility(currentDirection);
-        console.log('showConnectorField after update:', this.showConnectorField);
-        console.log('connectorLabel after update:', this.connectorLabel);
-        
-        console.log('Calling filterTemplates with direction:', currentDirection, 'and connector:', currentConnector);
-        this.filterTemplates(currentDirection, currentConnector);
-        console.log('Filtered templates count after initial filter:', this.filteredTemplates.length);
+        // Handle edit mode after data is loaded
+        if (this.mode === 'edit') {
+          // Check if automation was passed via state 
+          const automation = history.state?.automation;
+          console.log('Edit mode detected after data load, automation from state:', automation);
+          if (automation) {
+            console.log('Patching form for edit with automation from state after data load:', automation);
+            this.patchForEdit(automation);
+          } else {
+            console.log('No automation data found in state for edit mode');
+            this.toast.warning('Automation data not found. Please try editing again.');
+          }
+        } else {
+          // For create mode, trigger initial update based on current form values
+          const currentDirection = this.form.get('direction')?.value;
+          const currentConnector = this.form.get('connector')?.value;
+          console.log('Create mode - current direction value:', currentDirection);
+          console.log('Create mode - current connector value:', currentConnector);
+          
+          console.log('Calling updateConnectorFieldVisibility with direction:', currentDirection);
+          this.updateConnectorFieldVisibility(currentDirection);
+          console.log('showConnectorField after update:', this.showConnectorField);
+          console.log('connectorLabel after update:', this.connectorLabel);
+          
+          console.log('Calling filterTemplates with direction:', currentDirection, 'and connector:', currentConnector);
+          this.filterTemplates(currentDirection, currentConnector);
+          console.log('Filtered templates count after initial filter:', this.filteredTemplates.length);
+        }
       },
       error: (err) => {
         this.toast.error(err?.error?.message || 'Failed to load initial data');
@@ -271,12 +280,51 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   private patchForEdit(automation: any): void {
+    console.log('Patching form for edit with automation:', automation);
+    
+    // Patch basic fields - use root level fields from automation
     this.form.patchValue({
-      name: automation.name,
-      description: automation.description || '',
+      name: automation.title || automation.connection?.title || '', // Use title from root or connection
+      description: automation.description || automation.connection?.description || '',
       direction: automation.direction,
-      business_template: automation.business_template
+      business_template: '' // Set to empty since it's not in automation data, will be selected by user
     });
+
+    this.id = automation.schedulerId;
+
+    // Determine and set the connector value based on direction and connection data
+    let connectorId: number | null = null;
+    
+    if (automation.direction === 'outgoing') {
+      // For outgoing, connector is the toConnector
+      connectorId = automation.connection?.toConnector?.connectorId;
+      console.log('Outgoing automation - setting connector to toConnector ID:', connectorId);
+    } else if (automation.direction === 'incoming') {
+      // For incoming, connector is the fromConnector  
+      connectorId = automation.connection?.fromConnector?.connectorId;
+      console.log('Incoming automation - setting connector to fromConnector ID:', connectorId);
+    }
+
+    // Only set connector if we found a valid connector ID and it's not the internal connector
+    if (connectorId) {
+      const selectedConnector = this.connectors.find(c => c.connectorId === connectorId);
+      if (selectedConnector && selectedConnector.title !== 'DataGerryInternal') {
+        console.log('Setting connector value to:', connectorId);
+        this.form.patchValue({ connector: connectorId });
+        
+        // Trigger template filtering with the selected connector
+        setTimeout(() => {
+          console.log('Triggering template filtering after connector set');
+          this.filterTemplates(automation.direction, connectorId);
+        }, 100);
+      } else {
+        console.log('Connector not found or is internal connector, skipping connector patch');
+      }
+    } else {
+      console.log('No connector ID found for automation direction:', automation.direction);
+    }
+
+    console.log('Form after patching:', this.form.value);
   }
 
   // Internal connector methods
@@ -443,6 +491,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
 
     try {
+      console.log('id', this.id);
       console.log('SAVE - Building payload...');
       const payload = this.toPayload();
       console.log('SAVE - Payload built successfully:', payload);
@@ -474,6 +523,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   cancel(): void {
-    this.router.navigate(['../'], { relativeTo: this.route });
+    this.router.navigate(['/automations'], { relativeTo: this.route });
   }
 }

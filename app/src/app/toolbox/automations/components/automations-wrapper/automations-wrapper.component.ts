@@ -16,7 +16,6 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component } from '@angular/core';
-import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-automations-wrapper',

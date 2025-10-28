@@ -1,52 +1,34 @@
-<div class="page-header">
-  <div class="title-wrapper">
-    <div class="title">
-      Automations
-    </div>
-  </div>
-  <div class="buttons-wrapper">
-    <a class="dg-btn dg-btn-secondary" [routerLink]="['/automations/connectors']">
-      <i class="fa-solid fa-plug"></i>
-      View Connectors
-    </a>
-    <a class="dg-btn dg-btn-primary" [routerLink]="['/automations/add']">
-      <i class="fa-solid fa-plus"></i>
-      Add Automation
-    </a>
-    
-    <a class="dg-btn dg-btn-primary" [routerLink]="['/automations/licenses']">
-      <i class="fa-solid fa-plus"></i>
-      View licenses
-    </a>
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Automations</h1>
+  <div>
+    <button type="button" class="btn btn-sm btn-connectors ml-2 text-white" [routerLink]="['/automations/connectors']">
+      <i class="fa-solid fa-plug"></i> View Connectors
+    </button>
+
+    <button type="button" class="btn btn-sm btn-add ml-2 text-white" [routerLink]="['/automations/add']">
+      <i class="fas fa-plus"></i> Add Automation
+    </button>
+
+    <button type="button" class="btn btn-sm btn-licenses ml-2 text-white" [routerLink]="['/automations/licenses']">
+      <i class="fa-solid fa-key"></i> View Licenses
+    </button>
   </div>
 </div>
+<hr />
 
 <!-- CMDB Table -->
-<cmdb-table 
-  [items]="automations" 
-  [columns]="columns" 
-  [totalItems]="totalAutomations" 
-  [pageSize]="limit" 
-  [page]="page"
-  [loading]="loading" 
-  [paginationEnabled]="false" 
-  [pageSizeEnabled]="true" 
-  [searchEnabled]="false"
-  [infoEnabled]="false"  
-  (pageChange)="onPageChange($event)" 
-  (pageSizeChange)="onPageSizeChange($event)">
+<cmdb-table [items]="automations" [columns]="columns" [totalItems]="totalAutomations" [pageSize]="limit" [page]="page"
+  [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="true" [searchEnabled]="false" [infoEnabled]="false"
+  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)">
 </cmdb-table>
 
 <!-- Direction Template -->
 <ng-template #directionTemplate let-item="item">
   <span class="badge" [ngClass]="{
     'bg-primary': item.direction === 'incoming',
-    'bg-success': item.direction === 'outgoing',
-    'bg-secondary': item.direction === 'unknown'
-  }">
-    {{ item.direction === 'incoming' ? 'Incoming' : 
-       item.direction === 'outgoing' ? 'Outgoing' : 
-       'Unknown' }}
+    'bg-success': item.direction === 'outgoing'
+  }" style="color: white;">
+    {{ item.direction}}
   </span>
 </ng-template>
 
@@ -55,7 +37,7 @@
   <span class="badge" [ngClass]="{
     'bg-success': item.status === true,
     'bg-secondary': item.status === false
-  }">
+  }" style="color: white;">
     {{ item.status === true ? 'Active' : 'Inactive' }}
   </span>
 </ng-template>
@@ -84,17 +66,25 @@
 </ng-template>
 
 <!-- Actions Template -->
-<ng-template #actionsTemplate let-item="item">
+<!-- <ng-template #actionsTemplate let-item="item">
   <div class="btn-group btn-group-sm">
-    <button class="btn" 
-            (click)="editAutomation(item)"
-            title="Edit Automation">
+    <button class="btn" (click)="editAutomation(item)" title="Edit Automation">
       <i class="fas fa-edit"></i>
     </button>
-    <button class="btn" 
-            (click)="deleteAutomation(item)"
-            title="Delete Automation">
+    <button class="btn" (click)="deleteAutomation(item)" title="Delete Automation">
       <i class="fas fa-trash"></i>
     </button>
+  </div>
+</ng-template> -->
+
+
+<ng-template #actionsTemplate let-item="item">
+  <div class="action-buttons">
+    <i class="fas fa-play icon-margin btn-run" 
+    [title]="'Execute Scheduler'"
+    (click)="executeScheduler(item.schedulerId)">
+ </i>
+    <i class="far fa-edit icon-margin btn-edit" (click)="editAutomation(item)" title="Edit Automation"></i>
+    <i class="far fa-trash-alt btn-delete" (click)="deleteAutomation(item)" title="Delete Automation"></i>
   </div>
 </ng-template>

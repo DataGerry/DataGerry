@@ -118,6 +118,7 @@ export class AutomationsListComponent implements OnInit {
     this.loadAutomations();
   }
 
+
   loadAutomations(): void {
     this.loading = true;
     this.loaderService.show();
@@ -142,10 +143,11 @@ export class AutomationsListComponent implements OnInit {
     });
   }
 
+
   private getDirection(automation: any): string {
     const fromConnector = automation.connection?.fromConnector;
     const toConnector = automation.connection?.toConnector;
-    
+
     if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title !== 'DataGerryInternal') {
       return 'outgoing';
     } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
@@ -154,11 +156,14 @@ export class AutomationsListComponent implements OnInit {
     return 'unknown';
   }
 
+
   editAutomation(automation: any): void {
+    console.log('Editing automation:', automation);
     this.router.navigate(['/automations/edit', automation.schedulerId], {
       state: { automation }
     });
   }
+
 
   deleteAutomation(automation: any): void {
     const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
@@ -183,25 +188,41 @@ export class AutomationsListComponent implements OnInit {
     );
   }
 
+
   private performDelete(automation: any): void {
     const schedulerId = automation.schedulerId;
-    
+
     this.automationsService.deleteAutomation(schedulerId).subscribe({
       next: () => {
         this.toast.success('Automation deleted successfully');
         this.loadAutomations(); // Refresh the list
       },
       error: (err) => {
-        this.toast.error('Failed to delete automation');
-        console.error('Error deleting automation:', err);
+        this.toast.error(err?.error?.message);
       }
     });
   }
+
+
+  private executeScheduler(schedulerId: any): void {
+    console.log('Executing automation with schedulerId:', schedulerId);
+
+    this.automationsService.executeScheduler(schedulerId).subscribe({
+      next: () => {
+        this.toast.success('Automation execution started');
+      },
+      error: (err) => {
+        this.toast.error(err?.error?.message);
+      }
+    });
+  }
+
 
   onPageChange(newPage: number): void {
     this.page = newPage;
     this.loadAutomations();
   }
+
 
   onPageSizeChange(newLimit: number): void {
     this.limit = newLimit;
@@ -209,11 +230,13 @@ export class AutomationsListComponent implements OnInit {
     this.loadAutomations();
   }
 
+
   // Helper method to format Unix timestamp to readable date
   private formatDate(timestamp: number): string {
     if (!timestamp) return 'Never';
     return new Date(timestamp).toLocaleString();
   }
+
 
   // Helper method to extract the value after dash from taId
   private getTaIdNumber(taId: string): string {
@@ -221,6 +244,7 @@ export class AutomationsListComponent implements OnInit {
     const parts = taId.split('-');
     return parts.length > 1 ? `#${parts[1]}` : '';
   }
+
 
   // Helper method to get last success display data
   getLastSuccessDisplay(automation: any): { date: string, taId: string } {
@@ -234,11 +258,12 @@ export class AutomationsListComponent implements OnInit {
     };
   }
 
+
   // Helper method to get last fail display data
   getLastFailDisplay(automation: any): { date: string, taId: string } {
     const fail = automation.lastExecution?.fail;
     if (!fail) {
-      return { date: 'Never', taId: '' };
+      return { date: '-', taId: '' };
     }
     return {
       date: this.formatDate(fail.startTime),
@@ -246,11 +271,12 @@ export class AutomationsListComponent implements OnInit {
     };
   }
 
+
   // Helper method to get last duration
   getLastDuration(automation: any): string {
     const success = automation.lastExecution?.success;
     const fail = automation.lastExecution?.fail;
-    
+
     if (success?.duration) {
       return `${success.duration}ms`;
     } else if (fail?.duration) {

@@ -47,7 +47,8 @@ const routes: Routes = [
         canActivate: [AuthGuard],
         data: {
           right: 'automation.create',
-          breadcrumb: 'Create Automation'
+          breadcrumb: 'Create Automation',
+          mode: 'create'
         }
       },
       {
@@ -56,7 +57,8 @@ const routes: Routes = [
         canActivate: [AuthGuard],
         data: {
           right: 'automation.edit',
-          breadcrumb: 'Edit Automation'
+          breadcrumb: 'Edit Automation',
+          mode: 'edit'
         }
       }
     ]
