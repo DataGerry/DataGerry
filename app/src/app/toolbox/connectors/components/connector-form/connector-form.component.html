@@ -158,7 +158,7 @@
           <app-button 
             *ngIf="isValidCredentials"
             [bootstrapClass]="'btn-success'" 
-            [label]="mode === 'create' ? 'Create' : 'Update'"
+            [label]="saveButtonLabel"
             [disabled]="form.invalid || !credentialsReady" 
             (clicked)="save()">
           </app-button>

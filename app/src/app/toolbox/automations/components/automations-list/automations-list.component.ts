@@ -22,7 +22,6 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 
 @Component({
@@ -47,6 +46,7 @@ export class AutomationsListComponent implements OnInit {
   public limit = 0;
   public columns: Array<any>;
   public isLoading$ = this.loaderService.isLoading$;
+  public isExecuting: string | null = null;
 
   constructor(
     private automationsService: AutomationsService,
@@ -167,30 +167,6 @@ export class AutomationsListComponent implements OnInit {
   }
 
 
-  // deleteAutomation(automation: any): void {
-  //   const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
-  //     centered: true,
-  //     backdrop: 'static'
-  //   });
-
-  //   modalRef.componentInstance.title = 'Delete Automation';
-  //   modalRef.componentInstance.itemType = 'automation';
-  //   modalRef.componentInstance.itemName = automation.connection?.title || automation.scheduler?.title || automation.name;
-  //   modalRef.componentInstance.description = 'This action cannot be undone.';
-
-  //   modalRef.result.then(
-  //     (result) => {
-  //       if (result === 'confirmed') {
-  //         this.performDelete(automation);
-  //       }
-  //     },
-  //     (dismissReason) => {
-  //       // User dismissed the modal
-  //     }
-  //   );
-  // }
-
-
     delete(automation: any): void {
       const schedulerId = automation.schedulerId;
 
@@ -208,30 +184,21 @@ export class AutomationsListComponent implements OnInit {
     }
 
 
-  // private performDelete(automation: any): void {
-  //   const schedulerId = automation.schedulerId;
 
-  //   this.automationsService.deleteAutomation(schedulerId).subscribe({
-  //     next: () => {
-  //       this.toast.success('Automation deleted successfully');
-  //       this.loadAutomations(); // Refresh the list
-  //     },
-  //     error: (err) => {
-  //       this.toast.error(err?.error?.message);
-  //     }
-  //   });
-  // }
-
-
-  private executeScheduler(schedulerId: any): void {
+  executeScheduler(schedulerId: any): void {
     console.log('Executing automation with schedulerId:', schedulerId);
+    this.isExecuting = schedulerId;
 
     this.automationsService.executeScheduler(schedulerId).subscribe({
       next: () => {
         this.toast.success('Automation execution started');
+        this.isExecuting = null;
+        // Optionally reload automations to update last execution times
+        this.loadAutomations();
       },
       error: (err) => {
         this.toast.error(err?.error?.message);
+        this.isExecuting = null;
       }
     });
   }
