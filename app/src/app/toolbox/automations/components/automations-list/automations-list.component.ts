@@ -23,6 +23,7 @@ import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 
 @Component({
   selector: 'app-automations-list',
@@ -52,7 +53,8 @@ export class AutomationsListComponent implements OnInit {
     private router: Router,
     private modalService: NgbModal,
     private toast: ToastService,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+      private deleteModalService: DeleteModalService
   ) { }
 
   ngOnInit(): void {
@@ -165,43 +167,60 @@ export class AutomationsListComponent implements OnInit {
   }
 
 
-  deleteAutomation(automation: any): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
-      centered: true,
-      backdrop: 'static'
-    });
+  // deleteAutomation(automation: any): void {
+  //   const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+  //     centered: true,
+  //     backdrop: 'static'
+  //   });
 
-    modalRef.componentInstance.title = 'Delete Automation';
-    modalRef.componentInstance.itemType = 'automation';
-    modalRef.componentInstance.itemName = automation.connection?.title || automation.scheduler?.title || automation.name;
-    modalRef.componentInstance.description = 'This action cannot be undone.';
+  //   modalRef.componentInstance.title = 'Delete Automation';
+  //   modalRef.componentInstance.itemType = 'automation';
+  //   modalRef.componentInstance.itemName = automation.connection?.title || automation.scheduler?.title || automation.name;
+  //   modalRef.componentInstance.description = 'This action cannot be undone.';
 
-    modalRef.result.then(
-      (result) => {
-        if (result === 'confirmed') {
-          this.performDelete(automation);
+  //   modalRef.result.then(
+  //     (result) => {
+  //       if (result === 'confirmed') {
+  //         this.performDelete(automation);
+  //       }
+  //     },
+  //     (dismissReason) => {
+  //       // User dismissed the modal
+  //     }
+  //   );
+  // }
+
+
+    delete(automation: any): void {
+      const schedulerId = automation.schedulerId;
+
+      this.deleteModalService.confirmDelete({
+        title: `Delete Automation:`,
+        itemType: 'Automation',
+        itemName: automation.connection?.title || automation.scheduler?.title || automation.name,
+        onConfirm: () => {
+          this.automationsService.deleteAutomation(schedulerId).subscribe({
+            next: () => { this.toast.success('Automation deleted successfully'); this.loadAutomations(); },
+            error: () => this.toast.error('Delete failed')
+          });
         }
-      },
-      (dismissReason) => {
-        // User dismissed the modal
-      }
-    );
-  }
+      });
+    }
 
 
-  private performDelete(automation: any): void {
-    const schedulerId = automation.schedulerId;
+  // private performDelete(automation: any): void {
+  //   const schedulerId = automation.schedulerId;
 
-    this.automationsService.deleteAutomation(schedulerId).subscribe({
-      next: () => {
-        this.toast.success('Automation deleted successfully');
-        this.loadAutomations(); // Refresh the list
-      },
-      error: (err) => {
-        this.toast.error(err?.error?.message);
-      }
-    });
-  }
+  //   this.automationsService.deleteAutomation(schedulerId).subscribe({
+  //     next: () => {
+  //       this.toast.success('Automation deleted successfully');
+  //       this.loadAutomations(); // Refresh the list
+  //     },
+  //     error: (err) => {
+  //       this.toast.error(err?.error?.message);
+  //     }
+  //   });
+  // }
 
 
   private executeScheduler(schedulerId: any): void {
