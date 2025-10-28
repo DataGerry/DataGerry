@@ -96,6 +96,20 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
         this.handleInvokerChange(name);
       });
 
+    // Reset connection test status when form values change
+    this.form.valueChanges
+      .pipe(
+        distinctUntilChanged(),
+        debounceTime(300),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(() => {
+        // Reset connection test status when form is modified (except during initialization)
+        if (!this.initializing && this.isValidCredentials) {
+          this.isValidCredentials = false;
+        }
+      });
+
     if (this.mode === 'edit') {
       this.id = +this.route.snapshot.paramMap.get('id')!;
       
@@ -443,7 +457,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     } else {
       // For regular connectors, use checkMasterPassword
       if (!this.id) {
-        this.toast.error('Connector ID is missing');
+        this.toast.error('Something went wrong');
         this.loaderService.hide();
         this.verifyingPassword = false;
         return;
@@ -585,7 +599,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
               ? 'Connector created successfully'
               : 'Connector updated successfully'
           );
-          this.router.navigate(['/connectors']);
+          this.router.navigate(['/automations/connectors']);
         },
         error: (err) => {
           this.toast.error(err?.error?.message);
@@ -596,4 +610,6 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   cancel(): void {
     this.router.navigate(['../'], { relativeTo: this.route });
   }
+
+  
 }
