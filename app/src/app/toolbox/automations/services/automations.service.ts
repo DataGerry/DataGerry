@@ -55,11 +55,16 @@ export class AutomationsService extends BaseApiService<any> {
   // UPDATE
   updateAutomation(automationId: number, payload: any): Observable<any> {
     const body: any = { ...payload, automationId };
-    return this.handlePutRequest<any>(`${this.servicePrefix}/connections`, body);
+    return this.handlePutRequest<any>(`${this.servicePrefix}/schedulers/${automationId}`, body);
   }
 
   // DELETE
   deleteAutomation(automationId: number) {
-    return this.handleDeleteRequest<void>(`${this.servicePrefix}/${automationId}`);
+    return this.handleDeleteRequest<void>(`${this.servicePrefix}/schedulers/${automationId}`);
+  }
+
+  // EXECUTE SCHEDULER
+  executeScheduler(automationId: number){
+    return this.handleGetRequest<void>(`${this.servicePrefix}/schedulers/execute/${automationId}`, new HttpParams());
   }
 }

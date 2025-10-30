@@ -22,7 +22,7 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 
 @Component({
   selector: 'app-automations-list',
@@ -46,13 +46,15 @@ export class AutomationsListComponent implements OnInit {
   public limit = 0;
   public columns: Array<any>;
   public isLoading$ = this.loaderService.isLoading$;
+  public isExecuting: string | null = null;
 
   constructor(
     private automationsService: AutomationsService,
     private router: Router,
     private modalService: NgbModal,
     private toast: ToastService,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+      private deleteModalService: DeleteModalService
   ) { }
 
   ngOnInit(): void {
@@ -118,6 +120,7 @@ export class AutomationsListComponent implements OnInit {
     this.loadAutomations();
   }
 
+
   loadAutomations(): void {
     this.loading = true;
     this.loaderService.show();
@@ -142,10 +145,11 @@ export class AutomationsListComponent implements OnInit {
     });
   }
 
+
   private getDirection(automation: any): string {
     const fromConnector = automation.connection?.fromConnector;
     const toConnector = automation.connection?.toConnector;
-    
+
     if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title !== 'DataGerryInternal') {
       return 'outgoing';
     } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
@@ -154,54 +158,57 @@ export class AutomationsListComponent implements OnInit {
     return 'unknown';
   }
 
+
   editAutomation(automation: any): void {
+    console.log('Editing automation:', automation);
     this.router.navigate(['/automations/edit', automation.schedulerId], {
       state: { automation }
     });
   }
 
-  deleteAutomation(automation: any): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
-      centered: true,
-      backdrop: 'static'
-    });
 
-    modalRef.componentInstance.title = 'Delete Automation';
-    modalRef.componentInstance.itemType = 'automation';
-    modalRef.componentInstance.itemName = automation.connection?.title || automation.scheduler?.title || automation.name;
-    modalRef.componentInstance.description = 'This action cannot be undone.';
+    delete(automation: any): void {
+      const schedulerId = automation.schedulerId;
 
-    modalRef.result.then(
-      (result) => {
-        if (result === 'confirmed') {
-          this.performDelete(automation);
+      this.deleteModalService.confirmDelete({
+        title: `Delete Automation:`,
+        itemType: 'Automation',
+        itemName: automation.connection?.title || automation.scheduler?.title || automation.name,
+        onConfirm: () => {
+          this.automationsService.deleteAutomation(schedulerId).subscribe({
+            next: () => { this.toast.success('Automation deleted successfully'); this.loadAutomations(); },
+            error: () => this.toast.error('Delete failed')
+          });
         }
-      },
-      (dismissReason) => {
-        // User dismissed the modal
-      }
-    );
-  }
+      });
+    }
 
-  private performDelete(automation: any): void {
-    const schedulerId = automation.schedulerId;
-    
-    this.automationsService.deleteAutomation(schedulerId).subscribe({
+
+
+  executeScheduler(schedulerId: any): void {
+    console.log('Executing automation with schedulerId:', schedulerId);
+    this.isExecuting = schedulerId;
+
+    this.automationsService.executeScheduler(schedulerId).subscribe({
       next: () => {
-        this.toast.success('Automation deleted successfully');
-        this.loadAutomations(); // Refresh the list
+        this.toast.success('Automation execution started');
+        this.isExecuting = null;
+        // Optionally reload automations to update last execution times
+        this.loadAutomations();
       },
       error: (err) => {
-        this.toast.error('Failed to delete automation');
-        console.error('Error deleting automation:', err);
+        this.toast.error(err?.error?.message);
+        this.isExecuting = null;
       }
     });
   }
+
 
   onPageChange(newPage: number): void {
     this.page = newPage;
     this.loadAutomations();
   }
+
 
   onPageSizeChange(newLimit: number): void {
     this.limit = newLimit;
@@ -209,11 +216,13 @@ export class AutomationsListComponent implements OnInit {
     this.loadAutomations();
   }
 
+
   // Helper method to format Unix timestamp to readable date
   private formatDate(timestamp: number): string {
     if (!timestamp) return 'Never';
     return new Date(timestamp).toLocaleString();
   }
+
 
   // Helper method to extract the value after dash from taId
   private getTaIdNumber(taId: string): string {
@@ -221,6 +230,7 @@ export class AutomationsListComponent implements OnInit {
     const parts = taId.split('-');
     return parts.length > 1 ? `#${parts[1]}` : '';
   }
+
 
   // Helper method to get last success display data
   getLastSuccessDisplay(automation: any): { date: string, taId: string } {
@@ -234,11 +244,12 @@ export class AutomationsListComponent implements OnInit {
     };
   }
 
+
   // Helper method to get last fail display data
   getLastFailDisplay(automation: any): { date: string, taId: string } {
     const fail = automation.lastExecution?.fail;
     if (!fail) {
-      return { date: 'Never', taId: '' };
+      return { date: '-', taId: '' };
     }
     return {
       date: this.formatDate(fail.startTime),
@@ -246,11 +257,12 @@ export class AutomationsListComponent implements OnInit {
     };
   }
 
+
   // Helper method to get last duration
   getLastDuration(automation: any): string {
     const success = automation.lastExecution?.success;
     const fail = automation.lastExecution?.fail;
-    
+
     if (success?.duration) {
       return `${success.duration}ms`;
     } else if (fail?.duration) {

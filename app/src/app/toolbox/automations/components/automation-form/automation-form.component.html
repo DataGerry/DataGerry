@@ -3,8 +3,8 @@
 
   <form [formGroup]="form" novalidate>
     <!-- Name Field -->
-    <div class="form-group">
-      <label for="name">Name <span class="required">*</span></label>
+    <div class="form-group mt-4">
+      <label for="name">Name: <span class="required">*</span></label>
       <app-form-input
         id="name"
         label=""
@@ -16,18 +16,21 @@
 
     <!-- Description Field -->
     <div class="form-group">
-      <label for="description">Description</label>
-      <app-form-input
+      <!-- <label for="description">Description</label> -->
+      <!-- <app-form-input
         id="description"
         label=""
         placeholder="Enter automation description"
         formControlName="description"
-      ></app-form-input>
+      ></app-form-input> -->
+
+      <app-form-textarea formControlName="description" label="Description:" [rows]="3">
+      </app-form-textarea>
     </div>
 
     <!-- Direction Field -->
     <div class="form-group">
-      <label for="direction">Direction <span class="required">*</span></label>
+      <label for="direction">Direction: <span class="required">*</span></label>
       <app-form-select
         id="direction"
         label=""
@@ -45,7 +48,7 @@
 
     <!-- Connector Field (Conditional) -->
     <div class="form-group" *ngIf="showConnectorField">
-      <label for="connector">{{ connectorLabel }} <span class="required">*</span></label>
+      <label for="connector">{{ connectorLabel }}: <span class="required">*</span></label>
       <app-form-select
         id="connector"
         label=""
@@ -60,7 +63,7 @@
 
     <!-- Business Template Field -->
     <div class="form-group">
-      <label for="business_template">Business Template <span class="required">*</span></label>
+      <label for="business_template">Business Template: <span class="required">*</span></label>
       <app-form-select
         id="business_template"
         label=""
