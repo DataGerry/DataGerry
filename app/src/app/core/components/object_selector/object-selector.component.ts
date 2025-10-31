@@ -19,7 +19,7 @@ import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { finalize } from 'rxjs';
+import { BehaviorSubject, delay, finalize } from 'rxjs';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -34,10 +34,13 @@ export class ObjectSelectorComponent implements OnInit {
   @Input() multiple = false;
   @Input() selectedIds: any[] = [];
   @Input() isViewMode = false;
+  @Input() useInlineLoader = false;
   @Output() selectionChange = new EventEmitter<number[]>();
+  @Output() loadingChange = new EventEmitter<boolean>();
 
   public objectList: RenderResult[] = [];
   public selectedObjects: RenderResult[] | RenderResult | null = null; // Updated type
+  private inlineLoading$ = new BehaviorSubject<boolean>(false);
   public isLoading$ = this.loaderService.isLoading$;
   private params: CollectionParameters = null;
 
@@ -48,6 +51,9 @@ export class ObjectSelectorComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    this.isLoading$ = this.useInlineLoader ? this.inlineLoading$.asObservable()
+    : this.loaderService.isLoading$;
+    
     this.fetchObjects();
   }
 
@@ -77,8 +83,8 @@ export class ObjectSelectorComponent implements OnInit {
       page: 1
     };
 
-    this.loaderService.show();
-    this.objectService.getObjects(this.params).pipe(finalize(() => this.loaderService.hide())).subscribe({
+    this.setLoading(true); // CHANGED
+    this.objectService.getObjects(this.params).pipe(delay(10000),finalize(() =>  this.setLoading(false))).subscribe({
       next: (response: APIGetMultiResponse<RenderResult>) => {
         this.objectList = response.results || [];
         this.initSelectedObjects();
@@ -137,6 +143,15 @@ export class ObjectSelectorComponent implements OnInit {
       } else {
         console.error('Expected a single object for single selection, but got an array');
       }
+    }
+  }
+
+  private setLoading(isLoading: boolean): void {
+    if (this.useInlineLoader) {
+      this.inlineLoading$.next(isLoading);
+      this.loadingChange.emit(isLoading);
+    } else {
+      isLoading ? this.loaderService.show() : this.loaderService.hide();
     }
   }
 

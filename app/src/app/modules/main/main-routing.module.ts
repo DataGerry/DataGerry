@@ -122,6 +122,16 @@ const routes: Routes = [
         ]
     },
     {
+        path: 'ci-explorer',
+        canActivate: [AuthGuard],
+        canActivateChild: [AuthGuard],
+        data: {
+            breadcrumb: 'CI Explorer',
+            right: 'base.framework.ciExplorer.view'
+        },
+        loadChildren: () => import('../../toolbox/ci-explorer-launcher/ci-explorer-launch.module').then(m => m.CiExplorerLaunchModule)
+    },
+    {
         path: 'management',
         data: {
             breadcrumb: 'User-Management'

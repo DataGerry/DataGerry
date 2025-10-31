@@ -1,0 +1,11 @@
+<div class="container" style="max-width: 900px; padding-top: 24px;">
+    <h3 class="mb-3">CI Explorer</h3>
+    <p class="text-muted">Select an object to view the CI Explorer mode.</p>
+    <div style="display: flex; flex-direction: row; justify-content: space-between; width: 100%;">
+      <div style="width: 99%;">
+      <app-object-selector *ngIf="typeIds.length>0" [typeIds]="typeIds" [multiple]="false"
+        (selectionChange)="onSelect($event)"></app-object-selector>
+      </div>
+      <button class="btn btn-primary" [disabled]="!selectedId" (click)="open()">Open</button>
+    </div>
+  </div>
