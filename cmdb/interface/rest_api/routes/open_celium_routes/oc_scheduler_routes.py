@@ -235,8 +235,10 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 
         to_delete_scheduler: dict[str, Any] = oc_scheduler_manager.get_scheduler(scheduler_id)
 
+        # LOGGER.debug(f"[delete_oc_scheduler] to_delete_scheduler: {to_delete_scheduler}")
+
         # First delete the connection
-        target_connection = to_delete_scheduler['connectionId']
+        target_connection = to_delete_scheduler['connection']['connectionId']
         oc_conection_manager.delete_connection(target_connection)
 
         # Then delete scheduler
