@@ -1,7 +1,16 @@
+<div class="object-select-wrapper">
+  <!-- inline loader -->
+  <div *ngIf="useInlineLoader && (isLoading$ | async)" class="inline-loader text-warning" aria-label="Object is loading">
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <small>Loading objects…</small>
+  </div>
+  <ng-container *ngIf="!(useInlineLoader && (isLoading$ | async))">
 <ng-select
   [items]="objectList"
   [(ngModel)]="selectedObjects"
   (ngModelChange)="onSelectionChange($event)"
+  (scrollToEnd)="onScrollToEnd()"
+  (search)="onSearch($event.term)"
   [multiple]="multiple"
   [groupBy]="groupByFn"
   [groupValue]="groupValueFn"
@@ -10,6 +19,8 @@
   [searchable]="true"
   [clearable]="true"
   [disabled]="isViewMode"
+  [loading]="isLoading$ | async"
+  [typeahead]="searchSubject"
   class="w-100"
 >
   <ng-template ng-optgroup-tmp let-item="item">
@@ -33,9 +44,11 @@
     {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
   </ng-template>
 </ng-select>
-
+</ng-container>
+</div>
 
 <app-loading-popup 
+*ngIf="!useInlineLoader"
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>
