@@ -17,7 +17,7 @@
 */
 import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 
-import { finalize, ReplaySubject, Subscription, takeUntil } from 'rxjs';
+import { finalize, ReplaySubject, Subscription, switchMap, takeUntil } from 'rxjs';
 
 import { ObjectService } from '../../framework/services/object.service';
 import { ToastService } from '../../layout/toast/toast.service';
@@ -49,6 +49,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     @ViewChild('dateTemplate', { static: true }) dateTemplate: TemplateRef<any>;
 
     private unSubscribe: ReplaySubject<void> = new ReplaySubject();
+
+    public isCloudMode: boolean = environment.cloudMode;
 
     public objectCount: number = 0;
     public typeCount: number = 0;
@@ -185,7 +187,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.latestTableColumns = [activeColumn, publicColumn, typeColumn, editorColumn, lastModColumn, actionColumn];
 
         this.countObjects();
-        this.countTotalObjects();
+        if (this.isCloudMode) {
+            this.countTotalObjects();
+        }
         this.loadNewestObjects();
         this.loadLatestObjects();
 
@@ -208,21 +212,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
      * Returns the number of objects
      */
     private countObjects(): void {
-        this.loaderService.show();
-        const apiParameters: CollectionParameters = {
-            limit: 1, sort: 'public_id', order: 1, page: 1,
-            filter: [{ $match: {} }]
-        };
-        this.objectService.getObjects(apiParameters).pipe(takeUntil(this.unSubscribe),
-        finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: (apiResponse: APIGetMultiResponse<RenderResult>) => {
-                    this.objectCount = apiResponse.total;
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
+        this.objectService.countObjects().pipe(
+            switchMap(() => this.objectService.getLastObjectCount()),
+        ).subscribe(count => {
+            this.objectCount = count;
+        });
     }
     
 

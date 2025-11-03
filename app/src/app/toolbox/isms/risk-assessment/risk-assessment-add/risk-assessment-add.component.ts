@@ -29,7 +29,7 @@ import {
   FormGroup,
   Validators
 } from '@angular/forms';
-import { BehaviorSubject, forkJoin, Observable } from 'rxjs';
+import { BehaviorSubject, forkJoin, Observable, of } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -111,6 +111,8 @@ export class RiskAssessmentAddComponent implements OnInit {
 
   public loading = false;
   public configurationIsValid: boolean = true;
+  private initialized = false;
+
 
   /* ──────────────────────────────────────────────────────────────────────────
    *  Flags derived from route
@@ -166,6 +168,8 @@ export class RiskAssessmentAddComponent implements OnInit {
   constructor(private location: Location) { }
 
   ngOnInit(): void {
+    if (this.initialized) return;
+    this.initialized = true;
     this.ismsValidationService.checkConfigSilently().subscribe({
       next: (isValid) => {
         this.configurationIsValid = isValid;
@@ -199,50 +203,6 @@ export class RiskAssessmentAddComponent implements OnInit {
   * Handles the save action.
   * @returns {void}
   */
-  // onSave(): void {
-
-  //   // Prevent saving in view mode
-  //   if (this.isView) return;
-
-  //   const payload = this.form.getRawValue() as RiskAssessment;
-
-
-  //   payload.control_measure_assignments =
-  //     this.treatmentBlock.buildAssignmentsPayload();
-  //   // Handle edit mode
-  //   if (this.isEditMode && this.riskAssessmentId) {
-  //     this
-  //       .doWithLoader(
-  //         this.riskAssessmentSrv.updateRiskAssessment(this.riskAssessmentId, payload)
-  //       )
-  //       .subscribe({
-  //         next: () => {
-  //           this.toast.success('Risk Assessment updated!');
-  //           // this.router.navigate(['/isms/risk-assessments']);
-
-  //           this.location.back();
-  //         },
-  //         error: this.handleError('Update error')
-  //       });
-  //   } else {
-  //     delete payload.public_id;
-  //     delete payload.risk_calculation_before.risk_level_value;
-  //     delete payload.risk_calculation_after.risk_level_value;
-  //     const parsedCost = parseFloat(String(payload.costs_for_implementation));
-  //     payload.costs_for_implementation = parsedCost;
-  //     this
-  //       .doWithLoader(this.riskAssessmentSrv.createRiskAssessment(payload))
-  //       .subscribe({
-  //         next: () => {
-  //           this.toast.success('Risk Assessment created!');
-  //           this.location.back();
-  //         },
-  //         error: this.handleError('Creation error')
-  //       });
-  //   }
-  // }
-
-
   onSave(): void {
 
     // Prevent saving in view mode
@@ -403,11 +363,13 @@ export class RiskAssessmentAddComponent implements OnInit {
       order: SortDirection.ASCENDING
     };
 
+    const shouldLoadObjects = !(this.fromObject || this.fromObjectGroup || this.isView);
+
     this
       .doWithLoader(
         forkJoin({
           risks: this.riskSrv.getRisks(baseParams),
-          objects: this.objectSrv.getObjects(baseParams),
+          // objects: shouldLoadObjects ? this.objectSrv.getObjects(baseParams) : of({ results: [] }),
           objectGroups: this.objectGroupSrv.getObjectGroups(baseParams),
           persons: this.personSrv.getPersons(baseParams),
           personGroups: this.personGroupSrv.getPersonGroups(baseParams),
@@ -424,7 +386,7 @@ export class RiskAssessmentAddComponent implements OnInit {
         next: (res: any) => {
           /* reference data */
           this.allRisks = res.risks.results;
-          this.allObjects = res.objects.results;
+          // this.allObjects = res.objects.results;
           this.allObjectGroups = res.objectGroups.results;
           this.allPersons = res.persons.results;
           this.allPersonGroups = res.personGroups.results;
@@ -567,6 +529,4 @@ export class RiskAssessmentAddComponent implements OnInit {
       error: this.handleError('Failed to load control-measure assignments')
     });
   }
-  
-  
 }

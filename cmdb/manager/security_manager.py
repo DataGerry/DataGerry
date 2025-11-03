@@ -51,7 +51,7 @@ class SecurityManager:
     DEFAULT_ALG = 'HS512'
     DEFAULT_EXPIRES = int(10)
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the SecurityManager with a given database manager and optional database selection
 

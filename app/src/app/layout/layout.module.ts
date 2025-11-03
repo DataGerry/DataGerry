@@ -90,7 +90,6 @@ import { QrCodeComponent } from './helpers/qrcode/qr-code.component';
 import { BlockComponent } from './components/block/block.component';
 import { TypeSelectComponent } from './components/type-select/type-select.component';
 import { CoreModule } from '../core/core.module';
-import { AiAssistantModule } from '../ai-assistant/ai-assistant.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -188,9 +187,6 @@ import { AiAssistantModule } from '../ai-assistant/ai-assistant.module';
         MatButtonModule,
         MatIconModule,
         CoreModule,
-        AiAssistantModule
-        
-
         ],
     providers: [
         BreadcrumbService,

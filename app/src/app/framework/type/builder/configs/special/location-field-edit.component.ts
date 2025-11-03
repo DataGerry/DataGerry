@@ -20,7 +20,7 @@ import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms
 import { ActivatedRoute } from '@angular/router';
 
 import { ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 import { ToastService } from '../../../../../layout/toast/toast.service';
 import { TypeService } from '../../../../services/type.service';
@@ -48,6 +48,7 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
     public typeControl: UntypedFormControl = new UntypedFormControl(undefined);
     public requiredControl: UntypedFormControl = new UntypedFormControl(false);
     public summaryControl: UntypedFormControl = new UntypedFormControl(undefined);
+    public selectableAsParentControl = new UntypedFormControl(false);
 
     public referenceGroup: UntypedFormGroup = new UntypedFormGroup({ type_id: this.typeControl });
 
@@ -55,7 +56,7 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
         filter: undefined, limit: 0, sort: 'public_id', order: 1, page: 1
     };
 
-    public selectable_as_parent: boolean = true;
+    public selectable_as_parent: boolean;
     public currentTypeID: number;
 
     private initialValue: string;
@@ -74,26 +75,55 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
     }
 
 
-    public ngOnInit(): void {
+    ngOnInit(): void {
         this.setDraggable("false");
         this.form.addControl('required', this.requiredControl);
         this.form.addControl('name', this.nameControl);
         this.form.addControl('label', this.labelControl);
-
-        this.currentTypeID = this.activeRoute.data['_value']?.type?.public_id;
+        this.form.addControl('selectable_as_parent', this.selectableAsParentControl);
+      
         this.disableControlOnEdit(this.nameControl);
         this.patchData(this.data, this.form);
-
-        if (this.currentTypeID) {
-            this.triggerAPICall();
-        }
-
+      
         this.initialValue = this.nameControl.value;
-
-        if (this.form.controls['label'].invalid) {
-            this.isValid$ = false;
-        }
-    }
+      
+        // Get the initial value from the TYPE (edit mode), fallback to field (create), then to false.
+        const initialSelectable =
+          this.data?.selectable_as_parent ??
+          this.activeRoute.snapshot?.data?.type?.selectable_as_parent ??
+          false;
+      
+        // Patch once without firing valueChanges
+        this.selectableAsParentControl.setValue(!!initialSelectable, { emitEvent: false });
+      
+        if (this.form.controls['label'].invalid) this.isValid$ = false;
+      
+        // Let the parent know the current value even if the user never touches it
+        this.fieldChanges$.next({
+          newValue: this.selectableAsParentControl.value,
+          inputName: 'selectable_as_parent',
+          fieldName: this.nameControl.value,
+          previousName: this.initialValue,
+          elementType: 'location'
+        });
+      
+        // Normal change propagation if the user toggles
+        this.selectableAsParentControl.valueChanges
+          .pipe(distinctUntilChanged(), takeUntil(this.subscriber))
+          .subscribe((value: boolean) => {
+            this.fieldChanges$.next({
+              newValue: value,
+              inputName: 'selectable_as_parent',
+              fieldName: this.nameControl.value,
+              previousName: this.initialValue,
+              elementType: 'location'
+            });
+            this.cd.markForCheck();
+          });
+      }
+      
+      
+      
 
 
     public ngOnDestroy(): void {
@@ -103,19 +133,6 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
         this.validationService?.cleanup();
     }
 
-
-    /* ---------------------------------------------------- API CALLS --------------------------------------------------- */
-
-    public triggerAPICall() {
-        this.typeService.getType(this.currentTypeID).pipe(takeUntil(this.subscriber))
-            .subscribe({
-                next: (apiResponse: CmdbType) => {
-                    this.selectable_as_parent = apiResponse.selectable_as_parent;
-                    this.cd.markForCheck();
-                },
-                error: (error) => this.toast.error(error?.error?.message)
-            });
-    }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 

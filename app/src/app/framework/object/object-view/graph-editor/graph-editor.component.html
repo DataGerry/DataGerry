@@ -16,6 +16,9 @@
         <button class="control-btn" [class.active]="focusMode" (click)="toggleFocusMode()" title="Focus Mode">
           <span class="material-icons">filter_center_focus</span>
         </button>
+        <button class="control-btn" (click)="exportGraphAsImage()" title="Export full graph as PNG">
+          <span class="material-icons">download</span>
+        </button>
       </div>
       <div class="toggle-controls">
         <!-- Filter Toggle Button -->
@@ -49,45 +52,6 @@
           </button>
         </div>
       </div>
-
-      <!-- <div *ngIf="filterMode === 'manual'">
-        <form [formGroup]="filterForm" class="enhanced-filter-content">
-          <div class="filter-section">
-            <div class="filter-group">
-              <label class="filter-label">
-                <span class="material-icons">category</span>
-                CI Types
-              </label>
-              <app-form-select formControlName="types" [items]="typeOptionList" bindLabel="display_name"
-                bindValue="public_id" [multiple]="true" placeholder="Select CI type(s)" class="filter-select">
-              </app-form-select>
-            </div>
-            <div class="filter-group">
-              <label class="filter-label">
-                <span class="material-icons">share</span>
-                Relations
-              </label>
-              <app-form-select formControlName="relations" [items]="relationOptionList" bindLabel="display_name"
-                bindValue="public_id" [multiple]="true" placeholder="Select relation type(s)" class="filter-select">
-              </app-form-select>
-            </div>
-            <div class="filter-actions" style="justify-content: space-evenly;">
-              <div>
-                <label class="filter-label" style="height: 22px !important; ">
-
-                </label>
-                <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" (clicked)="applyFilters()">
-                </app-button>
-                <app-button [bootstrapClass]="'btn-secondary ms-2'" label="Save as Profile" type="button" (clicked)="saveCurrentFiltersAsProfile()">
-              </app-button>
-                <app-button [bootstrapClass]="'btn-outline-danger ms-2'" [label]="'Clear'" type="button"
-                  (clicked)="clearFilters()">
-                </app-button>
-              </div>
-            </div>
-          </div>
-        </form>
-      </div> -->
 
       <div *ngIf="filterMode === 'manual'" class="enhanced-filter-content">
         <form [formGroup]="filterForm">
@@ -174,7 +138,7 @@
       [style.--focus-x]="focusedNodeId ? getNodeById(focusedNodeId).x + 'px' : '50%'"
       [style.--focus-y]="focusedNodeId ? getNodeById(focusedNodeId).y + 'px' : '50%'"></div>
 
-    <div class="graph-canvas" [class.smooth-transition]="smoothTransitions && !isDragging && !isPanning"
+    <div class="graph-canvas" #graphCanvas [class.smooth-transition]="smoothTransitions && !isDragging && !isPanning"
       [style.transform]="'translate(' + viewportX + 'px, ' + viewportY + 'px) scale(' + zoom + ')'">
       <!--  SVG Connections Layer -->
       <svg class="connections-svg" #svgContainer>
@@ -216,20 +180,6 @@
           </marker>
         </defs>
 
-
-        <!-- Connection Paths -->
-        <!-- <g class="connections-group">
-          <path *ngFor="let conn of getVisibleConnections(); trackBy: trackByConnKey" [attr.d]="calculatePath(conn)"
-            class="connection-path" [class.valid]="conn.isValid" [class.invalid]="!conn.isValid"
-            [class.data-flow]="conn.dataFlow && showDataFlow"
-            [class.selected]="selectedConnection?.from === conn.from && selectedConnection?.to === conn.to"
-            [class.highlighted]="isConnectionHighlighted(conn)"
-            [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
-            [attr.stroke-width]="getConnectionStrokeWidth(conn)"
-            [attr.marker-end]="conn.isValid ? (conn.dataFlow && showDataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
-            (click)="selectConnection(conn)" (mouseenter)="hoveredConnection = conn"
-            (mouseleave)="hoveredConnection = null" />
-        </g> -->
         <!-- Connection Paths -->
         <g class="connections-group">
           <!-- Invisible wider paths for easier hovering -->
@@ -252,21 +202,6 @@
             [attr.cx]="getArrowPosition(conn).x" [attr.cy]="getArrowPosition(conn).y" r="15" fill="transparent"
             stroke="transparent" (click)="onConnectionClick(conn, $event)" style="cursor: pointer;" />
         </g>
-
-        <!-- Connection Paths -->
-        <!-- <g class="connections-group">
-          <path *ngFor="let conn of getVisibleConnections(); trackBy: trackByConnKey" [attr.d]="calculatePath(conn)"
-            class="connection-path clickable-connection" [class.valid]="conn.isValid" [class.invalid]="!conn.isValid"
-            [class.data-flow]="conn.dataFlow && showDataFlow"
-            [class.selected]="selectedConnection?.from === conn.from && selectedConnection?.to === conn.to"
-            [class.highlighted]="isConnectionHighlighted(conn)"
-            [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
-            [attr.stroke-width]="getConnectionStrokeWidth(conn)"
-            [attr.marker-end]="conn.isValid ? (conn.dataFlow && showDataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
-            (click)="onConnectionClick(conn, $event)" (mouseenter)="hoveredConnection = conn"
-            (mouseleave)="hoveredConnection = null" style="cursor: pointer;" />
-        </g> -->
-
 
         <!-- Connection Labels -->
         <g class="connection-labels">

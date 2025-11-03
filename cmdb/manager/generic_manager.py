@@ -153,7 +153,7 @@ class GenericManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_item(self, public_id: int, data: CmdbDAO | dict) -> None:
+    def update_item(self, public_id: int, data: CmdbDAO | dict[str, Any]) -> None:
         """
         Updates an item in the database
 

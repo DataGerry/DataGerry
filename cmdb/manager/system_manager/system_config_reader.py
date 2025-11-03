@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -38,7 +38,7 @@ class SystemConfigReader:
     instance = None
 
 
-    def __new__(cls, config_name=None, config_location=None):
+    def __new__(cls, config_name: str | None = None, config_location=None) -> ConfigFileReader:
         if not SystemConfigReader.instance:
             SystemConfigReader.instance = ConfigFileReader(config_name, config_location)
 
@@ -49,5 +49,5 @@ class SystemConfigReader:
         return getattr(self.instance, name)
 
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name, value) -> None:
         return setattr(self.instance, name, value)

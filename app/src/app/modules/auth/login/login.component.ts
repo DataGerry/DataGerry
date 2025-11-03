@@ -157,7 +157,10 @@ export class LoginComponent implements OnInit, OnDestroy {
                 },
                 error: (err) => {
                     const isNullPath = err.url?.includes('/null/rest');
-                    if (!environment.cloudMode && err?.status === 404 || err?.status === 0) {
+                    if (
+                        !environment.cloudMode &&
+                        (err?.status === 404 || err?.status === 0)
+                    ) {
                         this.router?.navigate(['/connect']);
                         this.isLoading = false;
                     } else if (environment.cloudMode && isNullPath) {

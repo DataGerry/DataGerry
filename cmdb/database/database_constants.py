@@ -26,3 +26,6 @@ MIN_CLOUD_UPDATER_VERSION = 20240603
 
 # Retry up to x times if duplicate key occurs while creating a document in the database
 MAX_DUPLICATE_KEY_RETRIES = 10
+
+# Name of the database handling caches
+DG_CACHE_DB = "dg_caches"

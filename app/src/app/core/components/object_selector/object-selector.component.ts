@@ -13,7 +13,7 @@
 * GNU Affero General Public License for more details.
 
 * You should have received a copy of the GNU Affero General Public License
-* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
@@ -40,6 +40,7 @@ export class ObjectSelectorComponent implements OnInit {
   public objectList: RenderResult[] = [];
   public selectedObjects: RenderResult[] | RenderResult | null = null; // Updated type
   public isLoading$ = this.loaderService.isLoading$;
+  private params: CollectionParameters = null;
 
   constructor(
     private objectService: ObjectService,
@@ -57,8 +58,20 @@ export class ObjectSelectorComponent implements OnInit {
       return;
     }
 
-    const params: CollectionParameters = {
-      filter: [{ $match: { type_id: { $in: this.typeIds } } }],
+
+    const filters: any[] = [{ $match: { type_id: { $in: this.typeIds } } }];
+    if (this.isViewMode && this.selectedIds?.length) {
+      filters.push({ $match: { public_id: { $in: this.selectedIds } } });
+    }
+
+    this.params = {
+      filter: filters,
+      projection: {
+        'object_information.object_id': 1,
+        'object_information.public_id': 1,
+        'summary_line': 1,
+        'type_information': 1
+      },
       limit: 0,
       sort: 'public_id',
       order: 1,
@@ -66,7 +79,7 @@ export class ObjectSelectorComponent implements OnInit {
     };
 
     this.loaderService.show();
-    this.objectService.getObjects(params).pipe(finalize(() => this.loaderService.hide())).subscribe({
+    this.objectService.getObjects(this.params).pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: (response: APIGetMultiResponse<RenderResult>) => {
         this.objectList = response.results || [];
         this.initSelectedObjects();

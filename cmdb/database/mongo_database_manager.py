@@ -16,7 +16,9 @@
 """
 This module provides the MongoDatabaseManager
 """
-import logging
+from logging import Logger, getLogger
+import time
+import threading
 from typing import Any
 from collections.abc import MutableMapping
 from pymongo.database import Database
@@ -59,7 +61,7 @@ from cmdb.errors.database import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             MongoDatabaseManager - CLASS                                             #
@@ -69,25 +71,23 @@ class MongoDatabaseManager:
     PyMongo (MongoDB) implementation of the Database Manager
     """
     def __init__(self, host: str, port: int, database_name: str, mode: str = 'local') -> None:
+        self._keepalive_thread = None
         self.host = host
         self.port = int(port)
         self.db_name = database_name
         self.mode = mode  # Define the mode ('local' or 'cloud')
 
         self.client_options: dict[str, Any] = {
-            # 'ssl': True,  # Enable SSL connection by default (for Azure Cosmos DB, for example)
-            'connectTimeoutMS': 40000,  # Timeout after 30 seconds if no connection is made
-            'socketTimeoutMS': 40000,  # Socket timeout (set to 30 seconds)
-            'serverSelectionTimeoutMS': 40000, 
-            # 'heartbeatFrequencyMS': 30000,       # reduce background chatter
+            'connectTimeoutMS': 10000,  # Timeout after 10 seconds if no connection is made
+            'socketTimeoutMS': 30000,  # Socket timeout (set to 30 seconds)
+            'serverSelectionTimeoutMS': 10000, # Timeout for finding a suitable server in the cluster
+            'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
-            'minPoolSize': 10,
+            'minPoolSize': 5,
             'maxPoolSize': 100,  # Maximum number of connections in the connection pool
-            # 'w': 'majority',  # Ensure write operations are acknowledged by a majority of replica set members
             'wtimeoutMS': 2500,  # Timeout for waiting for write acknowledgment
             'readPreference': 'primaryPreferred',  # Read from the primary node by default
-            # 'readConcernLevel': 'local',  # Level of consistency required for reads
         }
 
         # Only enable SSL if in cloud mode
@@ -97,6 +97,9 @@ class MongoDatabaseManager:
             self.client_options['ssl'] = False  # Disable SSL for local mode
 
         self.connector = MongoConnector(self.host, self.port, self.client_options)
+
+        # Start keep-alive thread
+        self._start_keepalive()
 
 
     @retry_operation
@@ -108,6 +111,8 @@ class MongoDatabaseManager:
         # self.connector = MongoConnector(self.host, self.port, self.db_name, self.client_options)
         self.connector = MongoConnector(self.host, self.port, self.client_options)
 
+        # Restart keep-alive for the new client
+        self._start_keepalive()
 
     def __enter__(self):
         """
@@ -127,6 +132,28 @@ class MongoDatabaseManager:
             str: If mode is 'local' then use the database name from the config file, else the given database name
         """
         return db_name if db_name else self.db_name
+
+
+    def _start_keepalive(self) -> None:
+        """
+        Start a background thread that pings the MongoDB client every 50s
+        """
+
+        # Avoid multiple threads
+        if self._keepalive_thread and self._keepalive_thread.is_alive():
+            return
+
+        def _keepalive():
+            while True:
+                try:
+                    self.connector.client.admin.command("ping")
+                except Exception as e:
+                    print(f"[MongoDB KeepAlive] Ping failed: {e}")
+                time.sleep(50)
+
+        t = threading.Thread(target=_keepalive, daemon=True)
+        t.start()
+        self._keepalive_thread = t
 
 # ---------------------------------------------- BASE DATABSE OPERATIONS --------------------------------------------- #
 
@@ -444,15 +471,16 @@ class MongoDatabaseManager:
 
     @retry_operation
     def update(
-            self,
-            collection: str,
-            db_name: str,
-            criteria: dict,
-            data: dict[str, Any],
-            *args: Any,
-            add_to_set: bool = True,
-            plain: bool = False,
-            **kwargs: Any) -> UpdateResult:
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+        *args: Any,
+        add_to_set: bool = True,
+        plain: bool = False,
+        **kwargs: Any
+    ) -> UpdateResult:
         """
         Updates a document inside the specified collection
 
@@ -715,7 +743,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor:
+    def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor[Any]:
         """
         Retrieves documents from the specified collection with optional filters and projections
         
@@ -741,7 +769,7 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def find_one_by(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> dict:
+    def find_one_by(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
         """
         Find one specific document by special requirements
 
@@ -913,7 +941,7 @@ class MongoDatabaseManager:
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     @retry_operation
-    def delete(self, collection: str, db_name: str, criteria: dict) -> DeleteResult:
+    def delete(self, collection: str, db_name: str, criteria: dict[str, Any]) -> DeleteResult:
         """
         Deletes a document from the specified collection based on the given criteria
 
@@ -936,13 +964,13 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def delete_many(self, collection: str, db_name: str, **requirements: dict) -> DeleteResult:
+    def delete_many(self, collection: str, db_name: str, **requirements: Any) -> DeleteResult:
         """
         Removes all documents that match the filter from the collection
 
         Args:
             collection (str): Name of the database collection
-            requirements (dict): Specifies the deletion criteria using query operators
+            requirements (Any): Specifies the deletion criteria using query operators
 
         Raises:
             DocumentDeleteError: When documents could not be deleted

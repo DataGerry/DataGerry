@@ -16,7 +16,9 @@
 """
 Implementation of LoginResponse
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.models.user_model import CmdbUser
@@ -24,7 +26,7 @@ from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 LoginResponse - CLASS                                                #
@@ -46,9 +48,9 @@ class LoginResponse(BaseAPIResponse):
             token_expire (int): The UNIX timestamp indicating when the token will expire
         """
         self.user: CmdbUser = user
-        self.token = token
-        self.token_issued_at = token_issued_at
-        self.token_expire = token_expire
+        self.token: bytes = token
+        self.token_issued_at: int = token_issued_at
+        self.token_expire: int = token_expire
 
         super().__init__(OperationType.GET)
 
@@ -63,12 +65,12 @@ class LoginResponse(BaseAPIResponse):
         Returns:
             Response: An HTTP response instance containing the login data
         """
-        response = self.make_api_response(self.export(), status)
+        response: Response = self.make_api_response(self.export(), status)
 
         return response
 
 
-    def export(self) -> dict:
+    def export(self) -> dict[str, Any]:
         """
         Exports the login response data as a dictionary
 

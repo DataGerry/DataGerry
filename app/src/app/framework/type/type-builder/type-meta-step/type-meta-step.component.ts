@@ -88,7 +88,7 @@ export class TypeMetaStepComponent extends TypeBuilderStepComponent implements D
             label: new UntypedFormControl('', Validators.required),
             icon: new UntypedFormControl(''),
             href: new UntypedFormControl('', [Validators.required]),
-            fields: new UntypedFormControl('')
+            fields: new UntypedFormControl([])
         });
     }
 

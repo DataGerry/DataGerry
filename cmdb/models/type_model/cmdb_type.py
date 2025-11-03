@@ -16,7 +16,8 @@
 """
 Implementation of CmdbType
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
@@ -36,7 +37,7 @@ from cmdb.errors.models.cmdb_type import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbType - CLASS                                                   #
@@ -49,34 +50,37 @@ class CmdbType(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.types"
-    MODEL = 'Type'
     DEFAULT_VERSION = '1.0.0'
-    SCHEMA: dict = get_cmdb_type_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
-    INDEX_KEYS = [{
+    INDEX_KEYS: list[dict[str, Any]] = [{
         'keys': [('name', CmdbDAO.DAO_ASCENDING)],
         'name': 'name',
         'unique': True
     }]
 
-    #pylint: disable=too-many-arguments
-    #pylint: disable=too-many-locals
-    def __init__(self, public_id: int,
-                 name: str,
-                 author_id: int,
-                 render_meta: TypeRenderMeta,
-                 creation_time: datetime = None,
-                 last_edit_time: datetime = None,
-                 editor_id: int = None,
-                 active: bool = True,
-                 selectable_as_parent: bool = True,
-                 global_template_ids: list[int] = None,
-                 fields: list = None, version: str = None,
-                 label: str = None,
-                 description: str = None,
-                 ci_explorer_label: str = None,
-                 ci_explorer_color: str = None,
-                 acl: AccessControlList = None):
+
+    #pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
+    def __init__(
+        self,
+        public_id: int,
+        name: str,
+        author_id: int,
+        render_meta: TypeRenderMeta,
+        creation_time: datetime | None = None,
+        last_edit_time: datetime | None = None,
+        editor_id: int | None = None,
+        active: bool = True,
+        selectable_as_parent: bool = True,
+        global_template_ids: list[int] | None = None,
+        fields: list[dict[str, Any]] | None = None,
+        version: str | None = None,
+        label: str | None = None,
+        description: str | None = None,
+        ci_explorer_label: str | None = None,
+        ci_explorer_color: str | None = None,
+        acl: AccessControlList | None = None
+    ) -> None:
         """
         Initializes a CmdbType
 
@@ -104,31 +108,31 @@ class CmdbType(CmdbDAO):
             CmdbTypeInitError: If initialization fails due to an error
         """
         try:
-            self.name = name
-            self.label = label or self.name.title()
-            self.description = description
-            self.version = version or CmdbType.DEFAULT_VERSION
-            self.selectable_as_parent = selectable_as_parent
-            self.global_template_ids = global_template_ids or []
-            self.active = active
-            self.author_id = author_id
-            self.creation_time = creation_time or datetime.now(timezone.utc)
-            self.editor_id = editor_id
-            self.last_edit_time = last_edit_time
+            self.name: str = name
+            self.label: str = label or self.name.title()
+            self.description: str | None = description
+            self.version: str = version or CmdbType.DEFAULT_VERSION
+            self.selectable_as_parent: bool = selectable_as_parent
+            self.global_template_ids: list[int] = global_template_ids or []
+            self.active: bool = active
+            self.author_id: int = author_id
+            self.creation_time: datetime = creation_time or datetime.now(timezone.utc)
+            self.editor_id: int | None = editor_id
+            self.last_edit_time: datetime | None = last_edit_time
             self.render_meta = render_meta
-            self.fields = fields or []
-            self.ci_explorer_label = ci_explorer_label
-            self.ci_explorer_color = ci_explorer_color
-            self.acl = acl
+            self.fields: list[dict[str, Any]] = fields or []
+            self.ci_explorer_label: str | None = ci_explorer_label
+            self.ci_explorer_color: str | None = ci_explorer_color
+            self.acl: AccessControlList | None = acl
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbTypeInitError(err) from err
+            raise CmdbTypeInitError(str(err)) from err
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbType":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbType":
         """
         Initialises a CmdbType from a dict
 
@@ -142,23 +146,25 @@ class CmdbType(CmdbDAO):
             CmdbType: CmdbType with the given data
         """
         try:
-            creation_time = data.get('creation_time')
+            creation_time: datetime | None = data.get('creation_time')
             if isinstance(creation_time, str):
                 creation_time = parse(creation_time, fuzzy=True)
 
-            last_edit_time = data.get('last_edit_time')
+            last_edit_time: datetime | None = data.get('last_edit_time')
             if isinstance(last_edit_time, str):
                 last_edit_time = parse(last_edit_time, fuzzy=True)
 
+            raw_editor_id: Any | None = data.get('editor_id')
+
             return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                selectable_as_parent = data.get('selectable_as_parent'),
+                public_id = int(data["public_id"]),
+                name = data['name'],
+                selectable_as_parent = data.get('selectable_as_parent', True),
                 global_template_ids = data.get('global_template_ids', []),
-                active = data.get('active'),
-                author_id = data.get('author_id'),
+                active = data.get('active', True),
+                author_id = int(data["author_id"]),
                 creation_time = creation_time,
-                editor_id = data.get('editor_id'),
+                editor_id = int(raw_editor_id) if raw_editor_id is not None else None,
                 last_edit_time = last_edit_time,
                 label = data.get('label'),
                 version = data.get('version'),
@@ -170,11 +176,11 @@ class CmdbType(CmdbDAO):
                 acl = AccessControlList.from_data(data.get('acl', {})),
             )
         except Exception as err:
-            raise CmdbTypeInitFromDataError(err) from err
+            raise CmdbTypeInitFromDataError(str(err)) from err
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbType") -> dict:
+    def to_json(cls, instance: "CmdbType") -> dict[str, Any]:
         """
         Converts a CmdbType into a json compatible dict
 
@@ -208,7 +214,7 @@ class CmdbType(CmdbDAO):
                 'acl': AccessControlList.to_json(instance.acl),
             }
         except Exception as err:
-            raise CmdbTypeToJsonError(err) from err
+            raise CmdbTypeToJsonError(str(err)) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -418,7 +424,7 @@ class CmdbType(CmdbDAO):
         return len(self.get_sections()) > 0
 
 
-    def get_fields(self) -> list:
+    def get_fields(self) -> list[dict[str, Any]]:
         """
         Retrieves all fields of the CmdbType
 
@@ -430,7 +436,7 @@ class CmdbType(CmdbDAO):
         return self.fields
 
 
-    def get_field(self, name: str) -> dict:
+    def get_field(self, name: str) -> dict[str, Any]:
         """
         Retrieves a field by its name
 
@@ -451,7 +457,7 @@ class CmdbType(CmdbDAO):
         raise CmdbTypeFieldNotFoundError(f"Field '{name}' was not found!")
 
 
-    def get_all_mds_fields(self) -> list:
+    def get_all_mds_fields(self) -> list[dict[str, Any]]:
         """
         Retrieves all fields from multi-data sections
 
@@ -461,7 +467,7 @@ class CmdbType(CmdbDAO):
         Returns:
             list: A list containing all fields from multi-data sections
         """
-        mds_fields = []
+        mds_fields: list[dict[str, Any]] = []
 
         for section in self.render_meta.sections:
             if section.type == "multi-data-section":

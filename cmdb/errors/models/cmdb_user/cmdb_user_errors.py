@@ -28,7 +28,7 @@ class CmdbUserError(Exception):
         """
         super().__init__(err)
 
-# ----------------------------------------------- CmdbRelation - ERRORS ---------------------------------------------- #
+# ------------------------------------------------- CmdbUser - ERRORS ------------------------------------------------ #
 
 class CmdbUserInitError(CmdbUserError):
     """

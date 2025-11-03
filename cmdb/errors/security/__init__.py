@@ -24,10 +24,13 @@ from .security_errors import (
     MinLevelRightError,
     MaxLevelRightError,
     NoAccessTokenError,
+    MissingApiKeyError,
     InvalidCloudUserError,
     RequestTimeoutError,
     RequestError,
     DisallowedActionError,
+    WrongPasswordError,
+    NoValidSubscriptionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -39,8 +42,11 @@ __all__: list[str] = [
     'MinLevelRightError',
     'MaxLevelRightError',
     'NoAccessTokenError',
+    'MissingApiKeyError',
     'InvalidCloudUserError',
     'RequestTimeoutError',
     'RequestError',
     'DisallowedActionError',
+    'WrongPasswordError',
+    'NoValidSubscriptionError',
 ]

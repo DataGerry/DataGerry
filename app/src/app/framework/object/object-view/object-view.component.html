@@ -89,8 +89,8 @@
               </li>
 
               <!-- "Add Relation" tab => index relationGroups.length + 1 -->
-              <li class="nav-item d-inline-block ms-1">
-                <button type="button" class="btn btn-sm btn-success ms-2"
+              <li class="nav-item d-inline-block" style="margin-left: 5px;">
+                <button type="button" class="btn btn-sm btn-success ml-2" *permissionLink="'base.framework.objectRelation.add'"
                   style="display: inline-flex; align-items: center;" (click)="onClickAddRelationTab()">
                   <i class="fas fa-plus me-1"></i> Add Relation
                 </button>

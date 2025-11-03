@@ -16,6 +16,7 @@
 """
 The schema of a CmdbUser
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
@@ -25,7 +26,7 @@ DEFAULT_CONFIG_ITEMS_LIMIT = 1000
 
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
-def get_cmdb_user_schema() -> dict:
+def get_cmdb_user_schema() -> dict[str, Any]:
     """
     Returns the CmdbUserSchema
 

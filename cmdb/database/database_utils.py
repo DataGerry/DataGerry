@@ -49,7 +49,7 @@ DESCENDING = -1
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def object_hook(dct: dict):
+def object_hook(dct: dict[str, Any]) -> Any:
     """Helper function for converting json to mongo bson
     Args:
         dct: json data
@@ -148,9 +148,7 @@ def default(obj: Any) -> Any:
     except Exception as err:
         raise TypeError(f"{obj} not JSON serializable - Type: {type(obj)}. Error: {err}") from err
 
-
 # ---------------------------------------------- MONGODB RETRY DECORATOR --------------------------------------------- #
-
 
 # Retry settings
 MAX_RETRIES = 5

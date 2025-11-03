@@ -95,16 +95,13 @@ export class RiskAddComponent implements OnInit {
         private protectionGoalService: ProtectionGoalService,
         private extendableOptionService: ExtendableOptionService,
     ) {
-        // Check navigation state to see if we're editing an existing risk
-        // const navState = this.router.getCurrentNavigation()?.extras?.state;
-        // if (navState && navState['risk']) {
-        //     this.isEditMode = true;
-        //     this.risk = navState['risk'] as Risk;
-        // }
-        const navState = this.router.getCurrentNavigation()?.extras?.state;
+        const navState = this.router.getCurrentNavigation()?.extras?.state as any;
+        const histState = (history.state || {}) as any;
 
-        if (navState && navState['risk']) {
-            this.risk = navState['risk'] as Risk;
+        const passedRisk: Risk | undefined = (navState && navState['risk']) || (histState && histState['risk']);
+
+        if (passedRisk) {
+            this.risk = passedRisk as Risk;
 
             if (this.router.url.includes('/view')) {
                 this.isViewMode = true;

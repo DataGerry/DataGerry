@@ -16,11 +16,14 @@
 """
 Implementation of GroupACL
 """
-from typing import TypeVar
+from logging import Logger, getLogger
+from typing import TypeVar, Any
 
 from cmdb.security.acl.access_control_list_section import AccessControlListSection
 from cmdb.security.acl.access_control_section_dict import AccessControlSectionDict
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -33,7 +36,7 @@ class GroupACL(AccessControlListSection[int]):
 
     This class enforces that the `includes` dictionary uses integer keys
     """
-    def __init__(self, includes: AccessControlSectionDict[T]):
+    def __init__(self, includes: AccessControlSectionDict[T]) -> None:
         """
         Initializes the GroupACL
 
@@ -52,7 +55,7 @@ class GroupACL(AccessControlListSection[int]):
 
 
     @includes.setter
-    def includes(self, value: AccessControlSectionDict):
+    def includes(self, value: AccessControlSectionDict) -> None:
         """
         Sets the includes dictionary, ensuring all keys are integers
 
@@ -69,7 +72,7 @@ class GroupACL(AccessControlListSection[int]):
 
 
     @classmethod
-    def from_data(cls, data: dict) -> "GroupACL":
+    def from_data(cls, data: dict[str, Any]) -> "GroupACL":
         """
         Initialises a GroupACL from a dict
 
@@ -83,7 +86,7 @@ class GroupACL(AccessControlListSection[int]):
 
 
     @classmethod
-    def to_json(cls, section: "AccessControlListSection[T]") -> dict:
+    def to_json(cls, section: "AccessControlListSection[T]") -> dict[str, Any]:
         """
         Converts a AccessControlListSection[T] into a json compatible dict
 

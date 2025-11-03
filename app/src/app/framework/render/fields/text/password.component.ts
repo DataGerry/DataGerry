@@ -48,10 +48,49 @@ export class PasswordComponent extends RenderFieldComponent implements OnInit {
     }
   }
 
-  public generatePassword() {
-    this.passWordToggle.nativeElement.value = Math.random().toString(36).slice(-8);
-    this.controller.setValue(this.passWordToggle.nativeElement.value);
+
+  /**
+   * Generates a secure random password with 16 characters including:
+   * - Uppercase letters
+   * - Lowercase letters
+   * - Numbers
+   * - Special characters
+   * @returns void
+   */
+  public generatePassword(): void {
+    const length = 16;
+    const charset = "abcdefghijklmnopqrstuvwxyz" +
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+      "0123456789" +
+      "!@#$%^&*()_+[]{}|;:,.<>?";
+
+    let password = "";
+    const charsetLength = charset.length;
+
+    for (let i = 0; i < length; i++) {
+      // Use rejection sampling to avoid modulo bias
+      let randomValue;
+      do {
+        randomValue = window.crypto.getRandomValues(new Uint32Array(1))[0];
+      } while (randomValue >= Math.floor(0x100000000 / charsetLength) * charsetLength);
+
+      const randomIndex = randomValue % charsetLength;
+      password += charset.charAt(randomIndex);
+    }
+
+    // Ensure password contains at least one character from each category
+    const hasLower = /[a-z]/.test(password);
+    const hasUpper = /[A-Z]/.test(password);
+    const hasDigit = /[0-9]/.test(password);
+    const hasSpecial = /[!@#$%^&*()_+\[\]{}|;:,.<>?]/.test(password);
+
+    // If missing any category, regenerate (very rare with 16 chars)
+    if (!hasLower || !hasUpper || !hasDigit || !hasSpecial) {
+      this.generatePassword();
+      return;
+    }
+
+    this.passWordToggle.nativeElement.value = password;
+    this.controller.setValue(password);
   }
-
-
 }

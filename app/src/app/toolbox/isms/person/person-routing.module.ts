@@ -40,6 +40,13 @@ const routes: Routes = [
                 },
             },
             {
+                path: 'view', component: PersonAddEditComponent,
+                data: {
+                    breadcrumb: 'View Person',
+                    right: 'base.user-management.person.view'
+                },
+            },
+            {
                 path: 'edit', component: PersonAddEditComponent,
                 data: {
                     breadcrumb: 'Edit Person',

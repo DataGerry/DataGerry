@@ -30,4 +30,16 @@
     />
 </ng-template>
 
+<ng-template #passwordTemplate let-item="item" let-column="column">
+    <div class="d-flex justify-content-between align-items-center">
+        <span class="mr-2 ml-2">
+            {{ getPasswordDisplayValue(item, column.name) }}
+        </span>
+        <button type="button" class="btn btn-sm" (click)="togglePasswordVisibility(item, column.name)">
+            <i class="far fa-eye"></i>
+        </button>
+    </div>
+    
+</ng-template>
+
 <hr/>

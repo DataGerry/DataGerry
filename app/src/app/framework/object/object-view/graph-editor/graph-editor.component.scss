@@ -2429,3 +2429,9 @@ defs {
 
 .connection-hit   { stroke: #F44336 !important; fill: none; }
 .arrow-hitbox     { cursor: pointer !important; }
+.graph-canvas.ci-exporting, .ci-exporting * {
+  animation: none !important;
+  transition: none !important;
+}
+.graph-canvas.ci-exporting svg .connection-labels { display: none !important; }
+.graph-canvas.ci-exporting svg path[stroke="transparent"] { display: none !important; }

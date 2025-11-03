@@ -144,7 +144,22 @@ export class ObjectGroupsAddComponent implements OnInit {
     }
 
     this.loaderService.show();
-    const params = { filter: '', limit: 0, sort: 'sort', order: 1, page: 1 };
+
+    const params = {
+      filter:
+        (this.isViewMode &&
+          this.group.group_type === ObjectGroupMode.DYNAMIC &&
+          Array.isArray(this.group.assigned_ids) &&
+          this.group.assigned_ids.length > 0)
+          ? { public_id: { $in: this.group.assigned_ids } }
+          : '',
+      limit: 0,
+      sort: 'sort',
+      order: 1,
+      page: 1,
+      projection: ['public_id', 'label', 'name'],
+    };
+
     this.typeService.getTypes(params)
       .pipe(finalize(() => this.loaderService.hide()))
       .subscribe({

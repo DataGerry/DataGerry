@@ -812,9 +812,9 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
         name: 'type_label',
         data: 'type_label',
         template: this.counterpartTypeTemplate,
-        style: { width: 'auto', 'text-align': 'center' }
+        style: { width: 'auto', 'text-align': 'left' }
       },
-      { display: 'Relation Object', name: 'counterpart_id', data: 'counterpart_id', sortable: true, template: this.counterpartIdTemplate, style: { width: 'auto', 'text-align': 'center' } },
+      { display: 'Relation Object', name: 'counterpart_id', data: 'counterpart_id', sortable: true, template: this.counterpartIdTemplate, style: { width: 'auto', 'text-align': 'left' } },
       // { display: group.isParent ? 'Type Parent' : 'Type Child', name: 'type', data: 'type', sortable: false },
       { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '150px', 'text-align': 'center' } }
     ];

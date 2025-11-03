@@ -19,15 +19,17 @@
       </td>
       <td>{{item.filename}}</td>
       <td>{{item.size | fileSize}}</td>
-      <td>{{item.upload_date.$date | dateFormatter}}</td>
+      <td>{{item.upload_date | dateFormatter}}</td>
       <td><p class="thumbnail">{{item.metadata?.mime_type}}</p></td>
       <td>
+
         <div class="text-center">
-          <i class="fas fa-download me-1" title="dowload" (click)="downloadFile(item)"></i>
-          <i class="far fa-edit me-1" title="rename" (click)="renameFile(item)"></i>
-          <i class="fas fa-expand-arrows-alt me-1" title="move to" (click)="moveFile(item)"></i>
-          <i class="far fa-trash-alt" title="delete" (click)="deleteFile(item)"></i>
+          <i class="fas fa-download mr-1 icon-download" title="Download" (click)="downloadFile(item)"></i>
+          <i class="far fa-edit mr-1 icon-edit" title="Rename" (click)="renameFile(item)"></i>
+          <i class="fas fa-expand-arrows-alt mr-1 icon-move" title="Move to" (click)="moveFile(item)"></i>
+          <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteFile(item)"></i>
         </div>
+        
       </td>
     </tr>
     </tbody>

@@ -26,8 +26,9 @@
                 <i class="fa fa-cube"></i>
                 <div class="count-section">
                     <div id="count-numbers">
-                        {{objectCount}}<ng-container *ngIf="isCloudMode">/{{totalObjects}} </ng-container>
-                      </div>                      
+                        {{ objectCount }}
+                        <span *ngIf="isCloudMode">/{{ totalObjects }}</span>
+                    </div>
                     <div id="count-name">Objects</div>
                 </div>
             </div>

@@ -16,19 +16,25 @@
 """
 This class represents a type reference section entry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               TypeReferenceSectionEntry                                              #
+#                                           TypeReferenceSectionEntry - CLASS                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-
 class TypeReferenceSectionEntry:
     """This class represents a type reference section entry"""
 
-    def __init__(self, type_id: int, section_name: str, selected_fields: list[str] = None):
+    def __init__(
+        self,
+        type_id: int,
+        section_name: str,
+        selected_fields: list[str] | None = None
+    ) -> None:
+        # TODO: document
         self.type_id: int = type_id
         self.section_name: str = section_name
         self.selected_fields: list[str] = selected_fields or []
@@ -36,29 +42,31 @@ class TypeReferenceSectionEntry:
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeReferenceSectionEntry":
+    def from_data(cls, data: dict[str, Any]) -> "TypeReferenceSectionEntry":
         """
         Generates a TypeReferenceSectionEntry object from a dict
 
         Args:
             data (dict): Data with which the TypeReferenceSectionEntry should be instantiated
+
         Returns:
             TypeReferenceSectionEntry: TypeReferenceSectionEntry class with given data
         """
         return cls(
             type_id = data.get('type_id'),
             section_name = data.get('section_name'),
-            selected_fields = data.get('selected_fields', None)
+            selected_fields = data.get('selected_fields')
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeReferenceSectionEntry") -> dict:
+    def to_json(cls, instance: "TypeReferenceSectionEntry") -> dict[str, Any]:
         """
         Returns a TypeReferenceSectionEntry as JSON representation
 
         Args:
             instance (TypeReferenceSectionEntry): TypeReferenceSectionEntry which should be transformed
+
         Returns:
             dict: JSON representation of the given TypeReferenceSectionEntry
         """
@@ -69,7 +77,8 @@ class TypeReferenceSectionEntry:
         }
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        # TODO: document
         return (f"{self.__class__.__name__}(\n"
                 f"type_id={self.type_id}\n "
                 f"section_name={repr(self.section_name)}\n "

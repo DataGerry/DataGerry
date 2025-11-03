@@ -17,7 +17,7 @@
 Definition of all routes for CmdbSectionTemplates
 """
 import json
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
@@ -46,7 +46,7 @@ from cmdb.errors.manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 section_template_blueprint = APIBlueprint('section_templates', __name__)
 
@@ -68,7 +68,7 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     """
     try:
         template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                            request_user)
+                                                                                request_user)
 
         params['public_id'] = template_manager.get_next_public_id(inc_id=True)
         params['is_global'] = params['is_global'] in ['true', 'True', True]
@@ -234,7 +234,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to update SectionTemplate with ID: {params['public_id']}!")
     except NoDocumentFoundError:
-        abort(404, f"SectionTemplate with ID:{params.get("public_id")} not found!")
+        abort(404, f"SectionTemplate with ID:{params.get('public_id')} not found!")
     except Exception as err:
         LOGGER.error("[update_section_template] Exception: %s, Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating SectionTemplate with ID:{params['public_id']}!")

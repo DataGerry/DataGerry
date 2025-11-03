@@ -66,6 +66,12 @@ class NoAccessTokenError(SecurityError):
     """
 
 
+class MissingApiKeyError(SecurityError):
+    """
+    Raised when an API key is required but missing
+    """
+
+
 class InvalidCloudUserError(SecurityError):
     """
     Raised when Cloud Login failed
@@ -87,4 +93,16 @@ class RequestError(SecurityError):
 class DisallowedActionError(SecurityError):
     """
     Raised when an illegal action is requested
+    """
+
+
+class WrongPasswordError(SecurityError):
+    """
+    Raised when the password is not matching
+    """
+
+
+class NoValidSubscriptionError(SecurityError):
+    """
+    Raised when no subscription matches the given API-KEY
     """

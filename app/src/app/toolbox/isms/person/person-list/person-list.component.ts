@@ -185,7 +185,7 @@ export class PersonListComponent implements OnInit {
    * @returns void
    */
   public onView(item: CmdbPerson): void {
-    this.router.navigate(['/framework/persons/edit'], {
+    this.router.navigate(['/framework/persons/view'], {
       state: { person: item, mode: 'view' }
     });
   }

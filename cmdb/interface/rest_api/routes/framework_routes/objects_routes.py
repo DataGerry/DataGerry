@@ -18,7 +18,7 @@ Implementation of all API routes for CmdbObjects
 """
 import json
 import copy
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 from bson import json_util
@@ -41,14 +41,14 @@ from cmdb.manager import (
     ObjectRelationLogsManager,
 )
 
-from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.models.log_model import LogInteraction
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.object_link_model import CmdbObjectLink
@@ -80,7 +80,7 @@ from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsM
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 objects_blueprint = APIBlueprint('objects', __name__)
 
@@ -121,7 +121,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         if "public_id" not in new_object_data:
             new_object_data['public_id'] = objects_manager.get_new_object_public_id()
         else:
-            existing_object = objects_manager.get_object(new_object_data['public_id'])
+            existing_object: dict[str, Any] | None = objects_manager.get_object(new_object_data['public_id'])
 
             if existing_object:
                 abort(400, f'Object with ID: {new_object_data["public_id"]} already exists!')
@@ -141,7 +141,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         if not current_object:
             abort(404, "Could not retrieve the created object from the database!")
 
-        current_object = CmdbObject.from_data(current_object)
+        current_object: CmdbObject = CmdbObject.from_data(current_object)
 
         # Handle Webhook Events
         try:
@@ -186,13 +186,12 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         # Generate new insert log
         try:
             log_params: dict[str, Any] = {
-                'object_id': new_object_id,
-                'user_id': request_user.get_public_id(),
-                'user_name': request_user.get_display_name(),
-                'comment': 'Object was created',
-                'render_state': json.dumps(current_object_render_result,
-                                           default=default).encode('UTF-8'),
-                'version': current_object.version
+                "object_id": new_object_id,
+                "user_id": request_user.get_public_id(),
+                "user_name": request_user.get_display_name(),
+                "comment": "Object created",
+                "render_state": json.dumps(current_object_render_result, default=default).encode('UTF-8'),
+                "version": current_object.version
             }
 
             logs_manager.insert_log(action=LogAction.CREATE, log_type=CmdbObjectLog.__name__, **log_params)
@@ -349,7 +348,8 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        if not _fetch_only_active_objs():
+
+        if _fetch_only_active_objs():
             count_of_objects: int = objects_manager.count_objects({"active": True})
         else:
             count_of_objects = objects_manager.count_objects()
@@ -361,6 +361,7 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[get_cmdb_object_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "Internal server error while retrieving the number of Objects stored in database!")
+
 
 #TODO: API-Documentation-FIX
 @objects_blueprint.route('/count/<int:type_id>', methods=['GET'])
@@ -1021,12 +1022,13 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.type.clean')
-def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser):
+def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route for a multi resources which will be formatted based on the CmdbType
 
     Args:
-        public_id (int): Public ID of the type.
+        public_id (int): public_id of the CmdbType
+        request_user (CmdbUser): The user making the update request
 
     Returns:
         UpdateMultiResponse: Which includes the json data of multiple updated objects.
@@ -1038,27 +1040,25 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser):
         update_type_instance = objects_manager.get_object_type(public_id)
 
         if not update_type_instance:
-            abort(500, "Type not found in database!")
+            abort(500, f"Type with ID:{public_id} not found!")
 
-        type_fields = update_type_instance.fields
+        type_fields: list[dict[str, Any]] = update_type_instance.fields
 
-        builder_params = BuilderParameters({'type_id': public_id},
-                                           limit=0,
-                                           skip=0,
-                                           sort='public_id',
-                                           order=1)
+        builder_params = BuilderParameters({'type_id': public_id})
 
-        objects_by_type = objects_manager.iterate(builder_params, request_user).results
-        reports_for_type = objects_manager.get_many_from_other_collection(CmdbReport.COLLECTION,
-                                                                          type_id=public_id)
+        objects_by_type: list[CmdbObject] = objects_manager.iterate(builder_params, request_user).results
+        reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
+                                                    CmdbReport.COLLECTION,
+                                                    type_id=public_id
+                                                 )
 
         for obj in objects_by_type:
-            incorrect = []
-            correct = []
-            obj_fields = obj.get_all_fields()
+            incorrect: list[str] = []
+            correct: list[str] = []
+            obj_fields: list[dict[str, Any]] = obj.get_all_fields()
 
             for t_field in type_fields:
-                name = t_field["name"]
+                name: str = t_field["name"]
 
                 for field in obj_fields:
                     if name == field["name"]:
@@ -1066,33 +1066,36 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser):
                     else:
                         incorrect.append(field["name"])
 
-            removed_type_fields = [item for item in incorrect if not item in correct]
+            removed_type_fields: list[str] = [item for item in incorrect if not item in correct]
 
             for field in removed_type_fields:
                 try:
-                    objects_manager.update(criteria={'public_id': obj.public_id},
-                                           data={'$pull': {'fields': {"name": field}}},
-                                           add_to_set=False)
+                    objects_manager.update(
+                        criteria={'public_id': obj.public_id},
+                        data={'$pull': {'fields': {"name": field}}},
+                        add_to_set=False
+                    )
                 except Exception as error:
                     LOGGER.debug(
                         "[update_unstructured_cmdb_objects] Clean objects Exception: %s, Type: %s", error, type(error)
                     )
-                    abort(500, "Could not clean objects!")
+                    abort(500, "An interlal server error occured while cleaning objects!")
 
                 # Check all reports and clear selected_fields and conditions
                 try:
                     for a_report in reports_for_type:
-                        a_report = CmdbReport.from_data(a_report)
-                        a_report.remove_field_occurences(field)
-                        a_report.report_query = {'data': str(MongoDBQueryBuilder(a_report.conditions,
-                                                            update_type_instance).build())}
+                        tmp_report: CmdbReport = CmdbReport.from_data(a_report)
+                        tmp_report.remove_field_occurences(field)
+                        tmp_report.report_query = {
+                            'data': str(MongoDBQueryBuilder(tmp_report.conditions, update_type_instance).build())
+                        }
 
-                        reports_manager.update_item(a_report.public_id, a_report.__dict__)
+                        reports_manager.update_item(tmp_report.public_id, tmp_report.__dict__)
                 except Exception as error:
                     LOGGER.debug(
                         "[update_unstructured_cmdb_objects] Clean Reports Exception: %s, Type: %s", error, type(error)
                     )
-                    abort(500, "Could not clean reports!")
+                    abort(500, "An interlal server error occured while cleaning reports!")
 
         objects_by_type = objects_manager.iterate(builder_params, request_user).results
 

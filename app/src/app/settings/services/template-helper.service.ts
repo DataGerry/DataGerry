@@ -19,7 +19,7 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { TypeService } from '../../framework/services/type.service';
 import { TemplateHelpdataElement } from '../models/template-helpdata-element';
-import { ReplaySubject } from 'rxjs';
+import { firstValueFrom, ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { CmdbType } from '../../framework/models/cmdb-type';
 
@@ -35,7 +35,7 @@ export class TemplateHelperService implements OnDestroy {
   }
 
   private async getSectionReferenceType(typeID: number) {
-    return this.typeService.getType(typeID).pipe(takeUntil(this.subscriber)).toPromise();
+    return firstValueFrom(this.typeService.getType(typeID).pipe(takeUntil(this.subscriber)));
   }
 
   public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3) {

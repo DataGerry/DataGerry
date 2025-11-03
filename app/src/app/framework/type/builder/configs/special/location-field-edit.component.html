@@ -34,14 +34,13 @@
                 <span class="input-group-text pe-1">
                     <div class="form-check custom-checkbox">
                         <input
-                            type="checkbox" 
-                            [(ngModel)]=" this.selectable_as_parent" 
-                            (click)="updateSelectableAsParent()" 
-                            [ngModelOptions]="{standalone: true}" 
-                            class="form-check-input"
-                            [id]="data.name+'_selectable'"
-                        />
-                        <label class="form-check-label" [for]="data.name+'_selectable'"></label>
+                        type="checkbox"
+                        class="custom-control-input"
+                        [formControl]="selectableAsParentControl"
+                        [id]="data.name+'_selectable'"
+                      />
+                      <label class="custom-control-label" [for]="data.name+'_selectable'"></label>
+                      
                     </div>
                 </span>
             </div>

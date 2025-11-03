@@ -186,7 +186,6 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
     from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes import ci_explorer_blueprint
-    from cmdb.interface.rest_api.routes.ai_routes.type_assistant_routes import type_assistant_blueprint
     from cmdb.interface.rest_api.routes.framework_routes import (
         extendable_option_blueprint,
         object_group_blueprint,
@@ -206,6 +205,14 @@ def register_blueprints(app: BaseCmdbApp):
         risk_assessment_blueprint,
         control_measure_assignment_blueprint,
         isms_report_blueprint,
+    )
+    from cmdb.interface.rest_api.routes.open_celium_routes import (
+        oc_connectors_blueprint,
+        oc_invokers_blueprint,
+        oc_templates_blueprint,
+        oc_connections_blueprint,
+        oc_schedulers_blueprint,
+        oc_licenses_blueprint,
     )
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
@@ -244,7 +251,6 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(person_blueprint, url_prefix='/persons')
     app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
     app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
-    app.register_blueprint(type_assistant_blueprint, url_prefix='/ai/type_assistant')
 
     # ISMS Blueprints
     app.register_blueprint(isms_config_blueprint, url_prefix='/isms/config')
@@ -263,6 +269,14 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(isms_importer_blueprint, url_prefix='/isms/importer')
     app.register_blueprint(isms_report_blueprint, url_prefix='/isms/reports')
 
+    # OpenCelium routes
+    app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_invokers_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_templates_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_connections_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_schedulers_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_licenses_blueprint, url_prefix='/open_celium')
+
     if cmdb.__MODE__ == 'DEBUG':
         from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
         app.register_blueprint(debug_blueprint)
@@ -270,7 +284,7 @@ def register_blueprints(app: BaseCmdbApp):
     # LOGGER.debug(f"routes: {app.url_map}")
 
 
-def register_error_pages(app: BaseCmdbApp):
+def register_error_pages(app: BaseCmdbApp) -> None:
     """
     Registers error handlers for the app
 

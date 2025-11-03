@@ -110,7 +110,7 @@ export class DuplicateRiskAssessmentModalComponent implements OnInit {
         error: err  => this.toast.error(err?.error?.message || 'Load failed')
       });
     } else {
-      const tp = { filter: '', limit: 0, page: 1, sort: 'sort', order: 1 };
+      const tp = { filter: '', limit: 0, page: 1, sort: 'sort', order: 1, projection: ['public_id', 'label', 'name'],};
       this.typeService.getTypes(tp).pipe(
         map((r: APIGetMultiResponse<any>) => r.results.map((t: any) => t.public_id)),
         finalize(() => { this.typesLoaded = true; this.loader.hide(); this.loading = false; }),
