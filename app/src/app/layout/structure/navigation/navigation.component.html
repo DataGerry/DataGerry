@@ -152,6 +152,12 @@
                           <span>Webhooks</span>
                         </a>
                       </div>
+                      <div class="col">
+                        <a class="dropdown-icon-item" *permissionLink="['base.framework.ciExplorer.view']" [routerLink]="['/ci-explorer']">
+                          <i class="fas fa-project-diagram"></i>
+                          <span>CI Explorer</span>
+                        </a>
+                      </div>
                       <div class="col" *ngIf="!isCloudMode">
                         <a [routerLink]="['/automations']" class="dropdown-icon-item">
                           <fa-icon class="fas fa-robot"></fa-icon>

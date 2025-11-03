@@ -24,6 +24,7 @@ import {
   ViewChild,
   OnDestroy,
   ChangeDetectorRef,
+  SimpleChanges,
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
@@ -200,6 +201,13 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.loadInitialGraph();
     this.setupEventListeners();
     this.startPerformanceMonitoring();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['rootNodeId'] && !changes['rootNodeId'].firstChange) {
+      // Only reload the graph if the rootNodeId has changed and it's not the initial change
+      this.loadInitialGraph(true);
+    }
   }
 
   ngOnDestroy(): void {

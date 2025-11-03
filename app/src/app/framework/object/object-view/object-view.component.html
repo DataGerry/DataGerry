@@ -57,9 +57,42 @@
       <hr>
 
       <!-- Graph View -->
+      <!-- <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
+        <div class="card">
+          <div class="card-body p-0">
+            <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor>
+          </div>
+        </div>
+      </div> -->
       <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
         <div class="card">
           <div class="card-body p-0">
+            <!--  graph header selector -->
+            <div class="premium-header-container d-flex align-items-center justify-content-between py-3 px-4">
+              <div class="d-flex align-items-center gap-3 flex-grow-1">
+                <span class="premium-label fw-semibold text-dark" *ngIf="!isHeaderSelectorLoading">Select Object: </span>
+                <div class="flex-grow-1" style="min-width: 200px; margin-left: 5px;">
+                  <app-object-selector 
+                    *ngIf="typesLoaded" 
+                    [typeIds]="allTypeIds" 
+                    [multiple]="false"   
+                    [useInlineLoader]="true"
+                    [selectedIds]="selectedObjectIdForSelector ? [selectedObjectIdForSelector] : []"
+                    (selectionChange)="onGraphHeaderObjectChange($event)"
+                    (loadingChange)="isHeaderSelectorLoading = $event">
+                  </app-object-selector>
+                </div>
+              </div>
+              
+              <button 
+                class="btn btn-primary d-flex align-items-center gap-2" 
+                (click)="openSelectedObject()" 
+                [disabled]="!pendingSelectedId || isHeaderSelectorLoading"
+                *ngIf="!isHeaderSelectorLoading">
+                <i class="fas fa-external-link-alt"></i>
+                Open
+              </button>
+            </div>
             <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor>
           </div>
         </div>
