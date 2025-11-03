@@ -9,6 +9,8 @@
   [items]="objectList"
   [(ngModel)]="selectedObjects"
   (ngModelChange)="onSelectionChange($event)"
+  (scrollToEnd)="onScrollToEnd()"
+  (search)="onSearch($event.term)"
   [multiple]="multiple"
   [groupBy]="groupByFn"
   [groupValue]="groupValueFn"
@@ -17,6 +19,8 @@
   [searchable]="true"
   [clearable]="true"
   [disabled]="isViewMode"
+  [loading]="isLoading$ | async"
+  [typeahead]="searchSubject"
   class="w-100"
 >
   <ng-template ng-optgroup-tmp let-item="item">
