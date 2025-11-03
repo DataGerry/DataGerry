@@ -3,7 +3,8 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
   selector: 'core-confirmation-modal',
-  templateUrl: './core-confirmation-modal.component.html'
+  templateUrl: './core-confirmation-modal.component.html',
+  standalone: false
 })
 export class CoreConfirmationModalComponent {
   @Input() title: string;

@@ -54,7 +54,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     public objectCount: number = 0;
     public typeCount: number = 0;
-    public isCloudMode: boolean = environment.cloudMode;
 
     public newestObjects: Array<RenderResult> = [];
     public newestTableColumns: Array<Column> = [];
