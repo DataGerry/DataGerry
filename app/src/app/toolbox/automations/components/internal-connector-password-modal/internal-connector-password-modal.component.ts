@@ -23,7 +23,8 @@ import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms
 @Component({
   selector: 'app-internal-connector-password-modal',
   templateUrl: './internal-connector-password-modal.component.html',
-  styleUrls: ['./internal-connector-password-modal.component.scss']
+  styleUrls: ['./internal-connector-password-modal.component.scss'],
+  standalone: false
 })
 export class InternalConnectorPasswordModalComponent {
 
