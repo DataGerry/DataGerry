@@ -16,7 +16,8 @@
 """
 Implementation of CmdbObjectGroup in DataGerry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
@@ -29,7 +30,7 @@ from cmdb.errors.models.cmdb_object_group import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CmdbObjectGroup - CLASS                                               #
@@ -71,12 +72,13 @@ class CmdbObjectGroup(CmdbDAO):
 
     #pylint: disable=R0917
     def __init__(
-            self,
-            public_id: int,
-            name: str,
-            group_type: ObjectGroupMode,
-            assigned_ids: list[int],
-            categories: list[int]):
+        self,
+        public_id: int,
+        name: str,
+        group_type: ObjectGroupMode,
+        assigned_ids: list[int],
+        categories: list[int]
+    ) -> None:
         """
         Initialises a CmdbObjectGroup
 
@@ -98,7 +100,7 @@ class CmdbObjectGroup(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbObjectGroupInitError(err) from err
+            raise CmdbObjectGroupInitError(str(err)) from err
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
@@ -125,11 +127,11 @@ class CmdbObjectGroup(CmdbDAO):
                 categories = data.get('categories', []),
             )
         except Exception as err:
-            raise CmdbObjectGroupInitFromDataError(err) from err
+            raise CmdbObjectGroupInitFromDataError(str(err)) from err
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbObjectGroup") -> dict:
+    def to_json(cls, instance: "CmdbObjectGroup") -> dict[str, Any]:
         """
         Converts a CmdbObjectGroup into a json compatible dict
 
@@ -151,4 +153,4 @@ class CmdbObjectGroup(CmdbDAO):
                 'categories': instance.categories,
             }
         except Exception as err:
-            raise CmdbObjectGroupToJsonError(err) from err
+            raise CmdbObjectGroupToJsonError(str(err)) from err

@@ -17,6 +17,7 @@
 Represents a CmdbCategory in DataGerry
 """
 import logging
+from typing import Any
 
 from cmdb.class_schema.cmdb_category_schema import get_cmdb_category_schema
 
@@ -52,13 +53,15 @@ class CmdbCategory(CmdbDAO):
     ]
 
     #pylint: disable=too-many-arguments
-    def __init__(self,
-                 public_id: int,
-                 name: str,
-                 label: str = None,
-                 meta: CategoryMeta = None,
-                 parent: int = None,
-                 types: list[int] = None):
+    def __init__(
+        self,
+        public_id: int,
+        name: str,
+        label: str = None,
+        meta: CategoryMeta = None,
+        parent: int = None,
+        types: list[int] = None
+    ) -> None:
         """
         Initialises a CmdbCategory
 
@@ -87,12 +90,12 @@ class CmdbCategory(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbCategoryInitError(err) from err
+            raise CmdbCategoryInitError(str(err)) from err
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbCategory":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbCategory":
         """
         Initialises a CmdbCategory from a dict
 
@@ -126,7 +129,7 @@ class CmdbCategory(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbCategory") -> dict:
+    def to_json(cls, instance: "CmdbCategory") -> dict[str, Any]:
         """
         Converts a CmdbCategory into a json compatible dict
 
@@ -140,7 +143,7 @@ class CmdbCategory(CmdbDAO):
             dict: Json compatible dict of the CmdbCategory values
         """
         try:
-            meta = instance.get_meta()
+            meta: CategoryMeta = instance.get_meta()
 
             return {
                 'public_id': instance.get_public_id(),
