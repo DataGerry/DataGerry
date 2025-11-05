@@ -1,0 +1,15 @@
+<response>
+    <success status="200">
+        <header/>
+        <!-- <body data="raw" format="json" type="integer"/>
+        <body data="raw" format="json" type="string"/>
+        <body data="raw" format="json" type="boolean"/>
+        <body data="raw" format="json" type="object">
+
+        </body> -->
+    </success>
+    <fail status="500">
+        <header/>
+        <body/>
+    </fail>
+</response>

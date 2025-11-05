@@ -24,3 +24,4 @@ class DocapiTemplateType(str, Enum):
     The different Types for which the DocapiTemplate is created for
     """
     OBJECT = "OBJECT"
+    DEFAULT = "DEFAULT"
