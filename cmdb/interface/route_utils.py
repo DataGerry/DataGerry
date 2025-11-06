@@ -26,6 +26,7 @@ import time
 import hashlib
 from typing import Any, Callable
 import requests
+from requests.exceptions import ConnectTimeout, Timeout
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
@@ -61,6 +62,7 @@ from cmdb.errors.security import (
 from cmdb.errors.database import SetDatabaseError, DatabaseNotFoundError, DocumentNetworkError, DocumentLockTimeoutError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.manager.groups_manager import GroupsManagerGetError
+from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -149,6 +151,39 @@ def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
             abort(500, "Database collection currently in use. Please try again!")
 
     return wrapper
+
+
+def handle_oc_errors(context: str = "") -> Callable[..., Any]:
+    """
+    Decorator to catch OpenCelium-related errors and return proper HTTP responses
+
+    Args:
+        context (str): Extra description for generic exceptions,
+                       appended to the default message prefix
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except HTTPException as http_err:
+                raise http_err
+            except AuthError as err:
+                LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
+                abort(500, str(err))
+            except ConnectTimeout as err:
+                LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
+                abort(500, "Connection to OpenCelium could not be established!")
+            except Timeout as err:
+                LOGGER.error("[OC General Error] Timeout: %s", err, exc_info=True)
+                abort(500, "Connecting to OpenCelium failed due to a timeout!")
+            except Exception as err:
+                LOGGER.error("[OC General Error] Exception: %s. Type: %s", err, type(err), exc_info=True)
+                message = f"An internal server error occurred while {context}" if context\
+                                else "An internal server error occurred!"
+                abort(500, message)
+        return wrapper
+    return decorator
 
 
 def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:

@@ -24,7 +24,7 @@ class ProviderError(Exception):
     """
     def __init__(self, err: str) -> None:
         """
-        Raised to catch all RelationsManager related errors
+        Raised to catch all Provider related errors
         """
         super().__init__(err)
 

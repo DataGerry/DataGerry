@@ -20,7 +20,7 @@ from .pdf_document_type import PdfDocumentType
 from .docapi_template_type_enum import DocapiTemplateType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'PdfDocumentType',
     'DocapiTemplateType',
 ]

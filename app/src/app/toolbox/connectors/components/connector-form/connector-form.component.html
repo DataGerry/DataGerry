@@ -1,0 +1,169 @@
+<div class="page-title">
+  {{ mode === 'create' ? 'Add Connector' : 'Edit Connector' }}
+</div>
+
+<div class="row g-3">
+  <!-- Left: General Data -->
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header">GENERAL DATA</div>
+      <div class="card-body">
+        <form [formGroup]="form">
+          <!-- Title -->
+          <app-form-input formControlName="title" label="Title" [required]="true">
+          </app-form-input>
+          <small class="text-danger" *ngIf="hasErr('title','required')">
+            Title is required
+          </small>
+
+          <!-- Description -->
+          <app-form-textarea formControlName="description" label="Description" [rows]="3">
+          </app-form-textarea>
+
+          <!-- Invoker Selection -->
+          <div formGroupName="invoker">
+            <app-form-select formControlName="name" [items]="invokers" bindLabel="name" bindValue="name"
+              placeholder="Select Invoker" [required]="true" label="Invoker">
+            </app-form-select>
+          </div>
+          <small class="text-danger" *ngIf="hasErr('invoker.name','required')">
+            Invoker is required
+          </small>
+
+          <!-- Timeout and SSL -->
+          <div class="row mt-3" style="align-items: center;">
+            <div class="col-6">
+              <app-form-input formControlName="timeout" label="Timeout (ms)" type="number" [required]="true">
+              </app-form-input>
+              <small class="text-danger" *ngIf="hasErr('timeout','required')">
+                Timeout is required
+              </small>
+              <small class="text-danger" *ngIf="hasErr('timeout','min')">
+                Timeout must be at least 0
+              </small>
+            </div>
+            <div class="col-6 d-flex align-items-end mt-1">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" formControlName="sslCert" id="sslCert">
+                <label class="form-check-label" for="sslCert">
+                  Disable SSL Validation
+                </label>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Credentials -->
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header">CREDENTIALS</div>
+
+      <div class="card-body">
+        <!-- Credentials Form -->
+        <form [formGroup]="form" *ngIf="!inlineLoading && !testing" class="credentials-form-container"
+          autocomplete="off">
+          <!-- Master Password Overlay -->
+          <div class="master-password-overlay" *ngIf="showMasterPassword">
+            <div class="master-password-content">
+              <div class="text-center">
+                <div class="mb-3">
+                  <i class="bi bi-shield-lock text-primary" style="font-size: 2.5rem;"></i>
+                </div>
+                <p class="text-muted mb-3">Enter the master password to access the connector credentials.</p>
+
+                <div class="mb-3">
+                  <label for="masterPassword" class="form-label">Master Password</label>
+                  <div class="input-group">
+                    <input [type]="showPassword ? 'text' : 'password'" class="form-control" id="masterPassword"
+                      formControlName="masterPassword" placeholder="Enter master password"
+                      [disabled]="verifyingPassword">
+                    <button class="btn btn-outline-secondary" type="button" (click)="togglePasswordVisibility()"
+                      [disabled]="verifyingPassword">
+                      <i class="fas" [ngClass]="{
+                        'fa-eye': !showPassword,
+                        'fa-eye-slash': showPassword
+                      }"></i>
+                    </button>
+                  </div>
+                </div>
+                <button class="btn btn-primary w-100" (click)="verifyMasterPassword()"
+                  [disabled]="!form.get('masterPassword')?.value || verifyingPassword">
+                  <span *ngIf="verifyingPassword" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  {{ verifyingPassword ? 'Verifying...' : 'Verify Password' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <!-- Show message when no invoker selected (only for non-internal modes) -->
+          <div class="alert alert-info" *ngIf="!selectedInvoker && mode !== 'internal'">
+            <i class="bi bi-info-circle"></i>
+            Select an invoker to configure its credentials
+          </div>
+
+          <!-- Show credentials fields when invoker is selected and ready, OR in internal mode -->
+          <ng-container *ngIf="(selectedInvoker || mode === 'internal') && credentialsReady">
+            <!-- Show invoker hint if available -->
+            <div class="alert alert-light small mb-3" *ngIf="selectedInvoker?.hint">
+              <strong>Configuration Help:</strong><br>
+              {{ selectedInvoker.hint }}
+            </div>
+
+            <!-- Dynamic credential fields with blur effect -->
+            <div formGroupName="requestData" [class.credentials-blurred]="credentialsBlurred">
+              <ng-container *ngFor="let fieldName of getRequestDataControlNames(); trackBy: trackByName">
+                <div class="mb-3">
+                  <app-form-input [formControl]="getRequestControl(fieldName)" [label]="fieldName | titlecase"
+                    [required]="true">
+                  </app-form-input>
+                  <small class="text-danger" *ngIf="getRequestControl(fieldName)?.touched && 
+                                getRequestControl(fieldName)?.hasError('required')">
+                    {{ fieldName | titlecase }} is required
+                  </small>
+                </div>
+              </ng-container>
+            </div>
+          </ng-container>
+
+          <!-- Test Status -->
+          <div class="mt-3" *ngIf="selectedInvoker && credentialsReady">
+            <div class="alert alert-success d-flex align-items-center" *ngIf="isValidCredentials">
+              <i class="bi bi-check-circle-fill me-2"></i>
+              Connection test passed. Ready to save.
+            </div>
+            <div class="alert alert-warning d-flex align-items-center"
+              *ngIf="!isValidCredentials && form.get('invoker.name')?.value">
+              <i class="bi bi-exclamation-triangle-fill me-2"></i>
+              Please test the connection before saving.
+            </div>
+          </div>
+        </form>
+
+        <!-- Action Buttons -->
+        <div class="d-flex justify-content-end gap-2 mt-4">
+          <app-button [bootstrapClass]="'btn-outline-secondary'" label="Cancel" (clicked)="cancel()">
+          </app-button>
+
+          <!-- Show Test Connection button until successful test, then show Create/Update -->
+          <app-button 
+            *ngIf="!isValidCredentials"
+            [bootstrapClass]="'btn-primary'" 
+            label="Test Connection"
+            [disabled]="testing || form.invalid || !credentialsReady" 
+            (clicked)="test()">
+          </app-button>
+
+          <app-button 
+            *ngIf="isValidCredentials"
+            [bootstrapClass]="'btn-success'" 
+            [label]="saveButtonLabel"
+            [disabled]="form.invalid || !credentialsReady" 
+            (clicked)="save()">
+          </app-button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

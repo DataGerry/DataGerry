@@ -1,0 +1,25 @@
+<!-- EMPTY BODY REQUEST -->
+<request>
+    <method>GET</method>
+    <endpoint>{url}/rest/object_groups/</endpoint>
+    <header>
+        <item name="Authorization" type="string">{token}</item>
+        <item name="Content-Type" type="string">application/json</item>
+        <item name="x-api-key" type="string">{x-api-key}</item>
+    </header>
+    <body/>
+</request>
+
+<!-- WITH BODY REQUEST -->
+<request>
+    <method>DELETE</method>
+    <endpoint>{url}/rest/categories/{public_id}</endpoint>
+    <header>
+        <item name="Authorization" type="string">{token}</item>
+        <item name="Content-Type" type="string">application/json</item>
+        <item name="x-api-key" type="string">{x-api-key}</item>
+    </header>
+    <body data="raw" format="json" type="object">
+        <!-- -->
+    </body>
+</request>

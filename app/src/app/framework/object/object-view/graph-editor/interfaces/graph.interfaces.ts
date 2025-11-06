@@ -149,3 +149,11 @@ export interface FilterProfile {
       source: 'initial' | 'expansion';
       instanceId: number; // Unique identifier for each edge instance
   }
+
+  export interface CiExportPngOptions {
+   fileNamePrefix?: string;      // default: 'ci-explorer'
+   backgroundColor?: string;     // default: computed bg or white
+   currentZoom?: number;         // used by viewport export for crispness
+   pixelRatioMax?: number;       // cap DPR multiplier (default: 3)
+   padding?: number;             // extra px around content (default: 24)
+  }

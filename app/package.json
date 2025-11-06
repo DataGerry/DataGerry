@@ -43,6 +43,7 @@
     "chartjs-plugin-datalabels": "^2.2.0",
     "core-js": "^3.37.1",
     "file-saver": "^2.0.5",
+    "html-to-image": "^1.11.11",
     "html2canvas": "^1.4.1",
     "jquery": "^3.7.1",
     "jspdf": "^3.0.1",

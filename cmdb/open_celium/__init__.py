@@ -16,9 +16,9 @@
 """
 Provides all classes for OpenCelium interaction
 """
-from cmdb.open_celium.oc_connector import OpenCeliumConnector
+from cmdb.open_celium.oc_api_connector import OcApiConnector
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'OpenCeliumConnector',
+    'OcApiConnector',
 ]

@@ -50,7 +50,13 @@ class CachedUserManager(GenericManager):
 
     def insert_cached_user(self, user_data: dict[str, Any])  -> int:
         """
-        Insert a CmdbCachedUser entry with TTL
+        Inserts a cached user in the  user cache database
+
+        Args:
+            user_data (dict[str, Any]): data of the cached user
+
+        Returns:
+            int: public_id of the created cached user
         """
         user_data['creation_time'] = datetime.now(timezone.utc)
 
@@ -172,6 +178,19 @@ class CachedUserManager(GenericManager):
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
             criteria={"email": email}
+        )
+
+        return result.deleted_count > 0
+
+
+    def delete_multiple_cached_users(self, emails: list[str]) -> bool:
+        """
+        Removes multiple cached users
+        """
+        result = self.dbm.delete_many(
+            collection=CmdbCachedUser.COLLECTION,
+            db_name=self.db_name,
+            **{"email": {'$in': emails}}
         )
 
         return result.deleted_count > 0

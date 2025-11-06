@@ -1,0 +1,7 @@
+<field name="public_id" type="integer"/>
+<field name="is_global" type="boolean"/>
+<field name="predefined" type="boolean"/>
+<field name="name" type="string"/>
+<field name="label" type="string"/>
+<field name="type" type="string"/>
+<field name="fields" type="array"/>

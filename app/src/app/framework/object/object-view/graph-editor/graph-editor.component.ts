@@ -24,6 +24,7 @@ import {
   ViewChild,
   OnDestroy,
   ChangeDetectorRef,
+  SimpleChanges,
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
@@ -58,6 +59,7 @@ import { ProfileManagerModalComponent } from './modals/profile-manager/profile-m
 import { GraphProfileService } from './services/graph-profile.service';
 import { ConnectionDetailsModalComponent } from './modals/connection-details/connection-details-modal.component';
 import { ConnectionTrackerService } from './services/connection-tracker.service';
+import { CiExplorerExportService } from './services/ci-explorer-export.service';
 
 @Component({
   selector: 'app-graph-editor',
@@ -74,6 +76,7 @@ import { ConnectionTrackerService } from './services/connection-tracker.service'
 })
 export class GraphEditorComponent implements OnInit, OnDestroy {
   @ViewChild('svgContainer') svgContainer!: ElementRef;
+  @ViewChild('graphCanvas') graphCanvas!: ElementRef;
   @ViewChild('graphContainer') graphContainer!: ElementRef;
   @Input() rootNodeId: number = null;
 
@@ -181,7 +184,9 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     private loaderService: LoaderService,
     private profileService: GraphProfileService,
     private modalService: NgbModal,
-    private connectionTracker: ConnectionTrackerService
+    private connectionTracker: ConnectionTrackerService,
+    private exportService: CiExplorerExportService,
+
   ) {
     this.filterForm = this.fb?.group({
       types: [[]],
@@ -195,6 +200,13 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.loadInitialGraph();
     this.setupEventListeners();
     this.startPerformanceMonitoring();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['rootNodeId'] && !changes['rootNodeId'].firstChange) {
+      // Only reload the graph if the rootNodeId has changed and it's not the initial change
+      this.loadInitialGraph(true);
+    }
   }
 
   ngOnDestroy(): void {
@@ -311,69 +323,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   }
 
 
-  // private paintInitial(r: GraphRespWithRoot): void {
-  //   this.nodes = [];
-  //   this.connections = [];
-  //   this.graphData?.clearAllData();
-
-  //   // Set root node
-  //   r.root_node.level = 0;
-  //   (r.root_node as any).direction = 'root';
-  //   (r.root_node as any).isRoot = true;
-
-  //   // Get parent and child nodes
-  //   const parentNodes = this.graphData?.getNodes(r, 'parent');
-  //   const childNodes = this.graphData?.getNodes(r, 'child');
-
-  //   // Deduplicate nodes that appear in both arrays
-  //   const processedNodeIds = new Set<number>();
-  //   const finalParentNodes: CINode[] = [];
-  //   const finalChildNodes: CINode[] = [];
-
-  //   // Process parent nodes first
-  //   parentNodes?.forEach((n) => {
-  //     const id = n?.linked_object?.public_id;
-  //     if (!processedNodeIds?.has(id)) {
-  //       n.level = -1;
-  //       (n as any).direction = 'parent';
-  //       finalParentNodes.push(n);
-  //       processedNodeIds?.add(id);
-  //     }
-  //   });
-
-  //   // Process child nodes
-  //   childNodes?.forEach((n) => {
-  //     const id = n?.linked_object?.public_id;
-  //     if (!processedNodeIds?.has(id)) {
-  //       n.level = 1;
-  //       (n as any).direction = 'child';
-  //       finalChildNodes.push(n);
-  //       processedNodeIds.add(id);
-  //     }
-  //   });
-
-  //   // Merge all nodes
-  //   this.graphData.mergeNodes(this.nodes, [r.root_node, ...finalParentNodes, ...finalChildNodes], this.nodeTypeConfigs);
-
-  //   // Merge all edges
-  //   this.graphData?.mergeEdges(
-  //     this.connections,
-  //     this.nodes,
-  //     [...this.graphData?.getEdges(r, 'parent'), ...this.graphData?.getEdges(r, 'child')]
-  //   );
-
-  //   // Validate connections
-  //   this.connections = this.graphPath?.validateConnections(this.connections, this.graphData?.getNodeInstanceMap());
-
-  //   this.debugNodeStates();
-  //   this.graphData.addExpandedNode(r?.root_node?.linked_object?.public_id);
-  //   // this.updateBreadcrumbs(r.root_node);
-  //   this.performHierarchicalLayout();
-  //   this.updateNodeStates();
-  //   this.centerViewport();
-  // }
-
-
   /**
     * Paints the initial graph data based on the response from the server.
     * @param r The graph response containing the root node and other data.
@@ -435,8 +384,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       [r.root_node, ...finalParentNodes, ...finalChildNodes],
       this.nodeTypeConfigs
     );
-
-
 
     this.graphData.mergeEdges(
       this.connections,
@@ -578,26 +525,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     // Implement particle animation along connections
   }
 
-  // Node state management
-  // private updateNodeStates(): void {
-  //   this.nodes?.forEach(node => {
-  //     node.connectionCount = {
-  //       parents: this.connections?.filter(conn =>
-  //         conn?.toUid === node?.uid && conn?.isValid
-  //       ).length,
-  //       children: this.connections?.filter(conn =>
-  //         conn?.fromUid === node?.uid && conn?.isValid
-  //       )?.length,
-  //     };
-
-  //     node.hasParents = node?.connectionCount?.parents > 0;
-  //     node.hasChildren = node?.connectionCount?.children > 0;
-
-  //     if (Math.random() < 0.1) {
-  //       this.simulateNodeStatus(node);
-  //     }
-  //   });
-  // }
 
   /**
    * Updates the states of all nodes based on their connections.
@@ -669,12 +596,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     //     // }
     //     // node.lastUpdated = new Date();
   }
-
-  // Node expansion/collapse
-  // private toggleExpand(node: GraphNode): void {
-  //   if (node.isRoot || node.isLoading) return;
-  //   node.expanded ? this.collapseNodeInstance(node) : this.expandNodeInstance(node);
-  // }
 
   /**
    * Toggles the expansion state of a node.
@@ -830,16 +751,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   getVisibleConnections(): Connection[] {
     return this.graphFilter?.getVisibleConnections(this.filteredNodes, this.connections);
   }
-
-  // Node selection
-  // selectNode(node: GraphNode): void {
-  //   if (!this.isMultiSelecting) {
-  //     this.clearSelection();
-  //   }
-  //   this.selectedNode = node;
-  //   this.selectedNodes.add(node?.id);
-  //   // this.updateBreadcrumbs(node.ciNode!);
-  // }
 
 
   /**
@@ -1799,5 +1710,22 @@ getArrowPosition(conn: Connection): { x: number; y: number } {
     x: toCenterX - normalX * offsetDistance,
     y: toCenterY - normalY * offsetDistance
   };
+}
+
+exportGraphAsImage(): void {
+  const canvas = this.graphCanvas?.nativeElement as HTMLElement;
+  if (!canvas) return;
+
+  this.loaderService.show();
+  
+  this.exportService.exportFullCanvasToPng(canvas, {
+    fileNamePrefix: 'ci-explorer',
+    backgroundColor: '#ffffff',
+    pixelRatioMax: 3,
+    padding: 32
+  })
+  .then(() => this.showNotification('PNG export completed', 'success'))
+  .catch(err => this.showErrorNotification(err?.message || 'Export failed'))
+  .finally(() => this.loaderService.hide());
 }
 }

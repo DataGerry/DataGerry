@@ -206,6 +206,14 @@ def register_blueprints(app: BaseCmdbApp):
         control_measure_assignment_blueprint,
         isms_report_blueprint,
     )
+    from cmdb.interface.rest_api.routes.open_celium_routes import (
+        oc_connectors_blueprint,
+        oc_invokers_blueprint,
+        oc_templates_blueprint,
+        oc_connections_blueprint,
+        oc_schedulers_blueprint,
+        oc_licenses_blueprint,
+    )
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
@@ -261,6 +269,14 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(isms_importer_blueprint, url_prefix='/isms/importer')
     app.register_blueprint(isms_report_blueprint, url_prefix='/isms/reports')
 
+    # OpenCelium routes
+    app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_invokers_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_templates_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_connections_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_schedulers_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_licenses_blueprint, url_prefix='/open_celium')
+
     if cmdb.__MODE__ == 'DEBUG':
         from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
         app.register_blueprint(debug_blueprint)
@@ -268,7 +284,7 @@ def register_blueprints(app: BaseCmdbApp):
     # LOGGER.debug(f"routes: {app.url_map}")
 
 
-def register_error_pages(app: BaseCmdbApp):
+def register_error_pages(app: BaseCmdbApp) -> None:
     """
     Registers error handlers for the app
 
