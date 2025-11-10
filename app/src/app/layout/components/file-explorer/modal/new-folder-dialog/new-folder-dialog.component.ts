@@ -26,9 +26,10 @@ import { BehaviorSubject } from 'rxjs';
 import { ToastService } from '../../../../toast/toast.service';
 
 @Component({
-  selector: 'cmdb-new-folder-dialog',
-  templateUrl: './new-folder-dialog.component.html',
-  styleUrls: ['./new-folder-dialog.component.scss']
+    selector: 'cmdb-new-folder-dialog',
+    templateUrl: './new-folder-dialog.component.html',
+    styleUrls: ['./new-folder-dialog.component.scss'],
+    standalone: false
 })
 export class NewFolderDialogComponent implements OnInit {
 

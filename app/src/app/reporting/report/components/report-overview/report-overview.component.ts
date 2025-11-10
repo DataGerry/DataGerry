@@ -30,9 +30,10 @@ import { Router } from '@angular/router';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'app-report-overview',
-  templateUrl: './report-overview.component.html',
-  styleUrls: ['./report-overview.component.scss']
+    selector: 'app-report-overview',
+    templateUrl: './report-overview.component.html',
+    styleUrls: ['./report-overview.component.scss'],
+    standalone: false
 })
 export class ReportOverviewComponent implements OnInit, OnDestroy {
   private unsubscribe$ = new ReplaySubject<void>(1);

@@ -3,7 +3,7 @@
 <div class="row">
   <div class="col-md-8">
     <form [formGroup]="regionalForm" (ngSubmit)="onSave()" class="needs-validation" novalidate>
-      <div class="form-group row mb-3">
+      <div class="mb-3 row mb-3">
         <label class="col-sm-3 col-form-label" for="date-format">Current Format:</label>
         <div class="col-sm-9">
           <div class="input-group">
@@ -15,7 +15,7 @@
           </div>
         </div>
       </div>
-      <div class="form-group row mb-3">
+      <div class="mb-3 row mb-3">
         <label class="col-sm-3 col-form-label" for="date-format-dropdown">Date Format (ISO 8601):</label>
         <div class="col-sm-9">
           <ng-select id="date-format-dropdown"
@@ -26,7 +26,7 @@
           </ng-select>
         </div>
       </div>
-      <div class="form-group row mb-3">
+      <div class="mb-3 row mb-3">
         <label class="col-sm-3 col-form-label" for="time-zone">Time Zone:</label>
         <div class="col-sm-9">
             <ng-select id="time-zone"
@@ -42,7 +42,7 @@
         </div>
       </div>
       <hr/>
-      <button type="submit" class="btn btn-success float-right" [disabled]="!regionalForm.valid">
+      <button type="submit" class="btn btn-success text-end" [disabled]="!regionalForm.valid">
         <i class="far fa-save"></i> Save
       </button>
       <div class="clearfix"></div>
@@ -76,31 +76,31 @@
               </thead>
               <tbody>
               <tr>
-                <th scope="row"><span class="badge badge-warning">YYYY</span></th>
+                <th scope="row"><span class="badge bg-warning">YYYY</span></th>
                 <td>four-digit year</td>
               </tr>
               <tr>
-                <th scope="row"><span class="badge badge-warning">MM</span></th>
+                <th scope="row"><span class="badge bg-warning">MM</span></th>
                 <td>two-digit month (01=January, etc.)</td>
               </tr>
               <tr>
-                <th scope="row"><span class="badge badge-warning">DD</span></th>
+                <th scope="row"><span class="badge bg-warning">DD</span></th>
                 <td>two-digit day of month (01 through 31)</td>
               </tr>
               <tr>
-                <th scope="row"><span class="badge badge-warning">HH</span></th>
+                <th scope="row"><span class="badge bg-warning">HH</span></th>
                 <td>two digits of hour (00 through 23)</td>
               </tr>
               <tr>
-                <th scope="row"><span class="badge badge-warning">mm</span></th>
+                <th scope="row"><span class="badge bg-warning">mm</span></th>
                 <td>two digits of minute (00 through 59)</td>
               </tr>
               <tr>
-                <th scope="row"><span class="badge badge-warning">ss</span></th>
+                <th scope="row"><span class="badge bg-warning">ss</span></th>
                 <td>two digits of second (00 through 59)</td>
               </tr>
               <tr>
-                <th scope="row"><span class="badge badge-warning">T</span></th>
+                <th scope="row"><span class="badge bg-warning">T</span></th>
                 <td>indicates the beginning of the time element (directly following the date element)</td>
               </tr>
               </tbody>

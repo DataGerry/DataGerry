@@ -22,9 +22,10 @@ import { FileMetadata } from '../../model/metadata';
 import { BehaviorSubject } from 'rxjs';
 
 @Component({
-  selector: 'cmdb-folder-tree',
-  templateUrl: './folder-tree.component.html',
-  styleUrls: ['./folder-tree.component.scss']
+    selector: 'cmdb-folder-tree',
+    templateUrl: './folder-tree.component.html',
+    styleUrls: ['./folder-tree.component.scss'],
+    standalone: false
 })
 export class FolderTreeComponent implements OnInit, OnChanges {
 

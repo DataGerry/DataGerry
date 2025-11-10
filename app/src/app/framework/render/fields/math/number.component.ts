@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  selector: 'cmdb-number',
-  templateUrl: './number.component.html',
-  styleUrls: ['./number.component.scss']
+    selector: 'cmdb-number',
+    templateUrl: './number.component.html',
+    styleUrls: ['./number.component.scss'],
+    standalone: false
 })
 export class NumberComponent extends RenderFieldComponent {
 

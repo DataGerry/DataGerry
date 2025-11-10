@@ -24,8 +24,9 @@ import { UserService } from '../../../services/user.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
 
 @Component({
-  templateUrl: './users-passwd-modal.component.html',
-  styleUrls: ['./users-passwd-modal.component.scss']
+    templateUrl: './users-passwd-modal.component.html',
+    styleUrls: ['./users-passwd-modal.component.scss'],
+    standalone: false
 })
 export class UsersPasswdModalComponent {
 

@@ -35,7 +35,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-docapi-template-list',
     templateUrl: './docapi-list.component.html',
-    styleUrls: ['./docapi-list.component.scss']
+    styleUrls: ['./docapi-list.component.scss'],
+    standalone: false
 })
 export class DocapiListComponent implements OnInit, OnDestroy {
 
@@ -209,7 +210,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
             if (result) {
                 this.loaderService?.show();
                 this.docapiService?.deleteDocTemplate(publicId)?.pipe(finalize(() => this.loaderService?.hide())).subscribe({
-                    next: resp => console.log(resp),
+                    next: resp => {},
                     error: error => console.log(error),
                     complete: () => this.loadTemplatesFromAPI()
                 });

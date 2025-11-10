@@ -24,7 +24,8 @@ import { FileConfig } from '../file-config/file-config';
 @Component({
     selector: 'cmdb-json-config',
     templateUrl: './json-config.component.html',
-    styleUrls: ['./json-config.component.scss']
+    styleUrls: ['./json-config.component.scss'],
+    standalone: false
 })
 export class JsonConfigComponent extends FileConfig implements OnInit {
 

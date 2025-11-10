@@ -1,8 +1,8 @@
 import { Component } from '@angular/core';
 
 @Component({
-  selector: 'app-reports-overview',
-  template: `
+    selector: 'app-reports-overview',
+    template: `
     <div class="container">
       <div class="row">
         <div class="col-md-3 mb-4" *ngFor="let card of reportCards">
@@ -18,7 +18,8 @@ import { Component } from '@angular/core';
       </div>
     </div>
   `,
-  styles: []
+    styles: [],
+    standalone: false
 })
 export class ReportsOverviewComponent {
   public reportCards = [

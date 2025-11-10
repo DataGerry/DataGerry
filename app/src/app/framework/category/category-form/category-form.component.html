@@ -7,9 +7,7 @@
             <div class="card-body">
                 <div class="alert alert-warning alert-dismissible fade show mb-0" role="alert" *ngIf="unAssignedTypes.length == 0">
                     <strong>No types!</strong> All existing types are assigned.
-                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
                 <div *ngIf="unAssignedTypes.length > 0" class="list-group">
                     <ng-container *ngFor="let type of unAssignedTypes">
@@ -43,8 +41,8 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-name">Identifier<span class="required">*</span>:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-name">Identifier<span class="required">*</span>:</label>
                             <input
                                 [formControl]="name"
                                 type="text"
@@ -55,12 +53,12 @@
                                 [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                                         'is-invalid': name.invalid && (name.dirty || name.touched)}"
                             >
-                            <small class="form-text text-muted float-left">Unique identifier for the category</small>
+                            <small class="form-text text-muted text-start">Unique identifier for the category</small>
                             <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                                <div class="float-right" *ngIf="name.errors.required">
+                                <div class="text-end" *ngIf="name.errors.required">
                                     This field is required
                                 </div>
-                                <div class="float-right" *ngIf="name.errors.categoryExists">
+                                <div class="text-end" *ngIf="name.errors.categoryExists">
                                     A category with this name already exists
                                 </div>
                             </div>
@@ -68,8 +66,8 @@
                         </div>
                     </div>
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-label">Label:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-label">Label:</label>
                             <input
                                 formControlName="label"
                                 type="text"
@@ -85,17 +83,15 @@
                         </div>
                     </div>
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-meta-icon">Icon:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-meta-icon">Icon:</label>
                             <div class="input-group" formGroupName="meta">
-                                <div class="input-group-prepend">
                                     <span
                                         class="input-group-text"
                                         id="category-meta-icon-addon"
                                     >
                                         <i [ngClass]="icon.value"></i>
                                     </span>
-                                </div>
                                 <input
                                     [iconPicker]
                                     [ipPosition]="'bottom'"
@@ -117,8 +113,8 @@
                         </div>
                     </div>
                     <div class="col-md-12">
-                        <div class="form-group">
-                            <label for="category-name">Parent:</label>
+                        <div class="mb-3">
+                            <label class="mb-2" for="category-name">Parent:</label>
                             <ng-select
                                 formControlName="parent"
                                 placeholder="No parent category"
@@ -128,7 +124,7 @@
                                 bindValue="public_id"
                                 bindLabel="label"
                                 class="form-control"
-                                appendTo="body"
+                            
                                 (scrollToEnd)="onScrollToEnd()"
                                 [ngClass]="{ 'is-valid': parent.valid && (parent.dirty || parent.touched),
                                             'is-invalid': parent.invalid && (parent.dirty || parent.touched)}"
@@ -145,7 +141,7 @@
                 <hr/>
                 <div class="row">
                     <div class="col-md-12 dnd">
-                        <label for="category-types">Types:</label>
+                        <label class="mb-3 mt-2" for="category-types">Types:</label>
                         <section
                             id="category-types"
                             dndDropzone
@@ -161,16 +157,16 @@
                                     [dndDraggable]="type"
                                     [dndEffectAllowed]="effect"
                                     (dndMoved)="onDragged(type, assignedTypes, 'move', true)"
-                                    class="list-group-item"
+                                    class="card p-3 mb-2"
                                 >
                                     <div class="container">
                                         <div class="row">
-                                            <div class="col-auto mr-auto">
+                                            <div class="col-auto me-auto">
                                                 {{type?.label}} # {{type?.public_id}}
                                             </div>
                                             <div class="col-auto">
                                                 <i class="fa fa-arrows-alt dnd-handle" dndHandle></i>
-                                                <i class="fa fa-trash-alt ml-2 pointer" (click)="clickRemoveAssignedType(type)"></i>
+                                                <i class="fa fa-trash-alt ms-2 pointer" (click)="clickRemoveAssignedType(type)"></i>
                                             </div>
                                         </div>
                                     </div>
@@ -181,9 +177,9 @@
                 </div>
             </div>
             <div class="card-footer">
-                <div class="btn-group float-right" role="group">
+                <div class="btn-group text-end" role="group">
                     <button
-                        class="btn btn-outline-danger mr-2"
+                        class="btn btn-warning me-2"
                         type="button"
                         routerLink="/framework/category"
                     >

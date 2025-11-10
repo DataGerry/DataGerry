@@ -41,7 +41,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-type-builder',
     templateUrl: './type-builder.component.html',
-    styleUrls: ['./type-builder.component.scss']
+    styleUrls: ['./type-builder.component.scss'],
+    standalone: false
 })
 export class TypeBuilderComponent implements OnInit, OnDestroy {
 

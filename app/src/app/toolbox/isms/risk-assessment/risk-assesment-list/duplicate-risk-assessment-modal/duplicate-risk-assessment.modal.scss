@@ -1,6 +1,4 @@
-/* ---------------------------------------------------------------------
-   duplicate-risk-assessment.modal.scss  (self-contained)
-   ------------------------------------------------------------------ */
+@use "sass:color";
 
 /* ---------- ᴠᴀʀɪᴀʙʟᴇꜱ (fallback if not defined globally) ---------- */
 $dg-primary-color: #e94d18 !default;
@@ -9,7 +7,9 @@ $dg-error-message-color: #dc3545 !default;
 
 /* ═════════════════ MODAL HEADER ═════════════════ */
 .modal-header {
-  background: linear-gradient(195deg, darken($dg-primary-color, 5%), $dg-primary-color);
+  background: linear-gradient(195deg,
+        color.scale($dg-primary-color, $lightness: -5%),
+        $dg-primary-color );
   color: #fff;
   padding: 1.5rem 2rem;
   border-bottom: none;
@@ -82,7 +82,6 @@ $dg-error-message-color: #dc3545 !default;
 
 /* ═════════════════ EXTRA for duplicate modal ═════════════════ */
 
-/* summary line (“Risk #32 – Unauthorized Access…”) */
 .summary {
   font-size: .95rem;
   font-weight: 600;

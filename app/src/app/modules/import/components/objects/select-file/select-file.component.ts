@@ -27,7 +27,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-select-file',
     templateUrl: './select-file.component.html',
-    styleUrls: ['./select-file.component.scss']
+    styleUrls: ['./select-file.component.scss'],
+    standalone: false
 })
 export class SelectFileComponent implements OnInit, OnDestroy {
 

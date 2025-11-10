@@ -28,9 +28,10 @@ import { NgSelectComponent } from '@ng-select/ng-select';
 import { ToastService } from '../../toast/toast.service';
 
 @Component({
-  selector: 'cmdb-type-select',
-  templateUrl: './type-select.component.html',
-  styleUrls: ['./type-select.component.scss']
+    selector: 'cmdb-type-select',
+    templateUrl: './type-select.component.html',
+    styleUrls: ['./type-select.component.scss'],
+    standalone: false
 })
 export class TypeSelectComponent<T = CmdbType> implements OnInit, OnDestroy {
 

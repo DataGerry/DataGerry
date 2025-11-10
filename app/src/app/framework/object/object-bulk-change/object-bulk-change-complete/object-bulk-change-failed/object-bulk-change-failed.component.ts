@@ -20,9 +20,10 @@ import { Component, Input, OnInit, TemplateRef, ViewChild } from '@angular/core'
 import { Column } from '../../../../../layout/table/table.types';
 
 @Component({
-  selector: 'cmdb-object-bulk-change-failed',
-  templateUrl: './object-bulk-change-failed.component.html',
-  styleUrls: ['./object-bulk-change-failed.component.scss']
+    selector: 'cmdb-object-bulk-change-failed',
+    templateUrl: './object-bulk-change-failed.component.html',
+    styleUrls: ['./object-bulk-change-failed.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeFailedComponent implements OnInit {
 

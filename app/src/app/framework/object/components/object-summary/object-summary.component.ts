@@ -27,6 +27,7 @@ import { DateFormatterPipe } from "src/app/layout/pipes/date-formatter.pipe";
     selector: "cmdb-object-summary",
     templateUrl: "./object-summary.component.html",
     styleUrls: ["./object-summary.component.scss"],
+    standalone: false
 })
 export class ObjectSummaryComponent {
     @Input() summaries: any = [];

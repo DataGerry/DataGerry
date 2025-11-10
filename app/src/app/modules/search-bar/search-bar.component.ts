@@ -29,7 +29,6 @@ import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { ReplaySubject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
 
-import $ from 'jquery';
 import { ValidatorService } from '../../services/validator.service';
 import { TypeService } from '../../framework/services/type.service';
 import { CategoryService } from '../../framework/services/category.service';
@@ -45,7 +44,8 @@ import { NumberSearchResults } from '../search/models/search-result';
 @Component({
     selector: 'cmdb-search-bar',
     templateUrl: './search-bar.component.html',
-    styleUrls: ['./search-bar.component.scss']
+    styleUrls: ['./search-bar.component.scss'],
+    standalone: false
 })
 export class SearchBarComponent implements OnInit, OnDestroy {
 
@@ -54,6 +54,11 @@ export class SearchBarComponent implements OnInit, OnDestroy {
     @ViewChild('inputDropdown') inputDropdown: ElementRef;
     @ViewChild('inputSubDropdown') inputSubDropdown: ElementRef;
     @ViewChildren(SearchBarTagComponent) searchBarTagComponents: QueryList<SearchBarTagComponent>;
+
+    // Template references for dropdown navigation
+    @ViewChild('tabText', { read: ElementRef }) tabTextElement: ElementRef;
+    @ViewChild('tabType', { read: ElementRef }) tabTypeElement: ElementRef;
+    @ViewChild('tabCate', { read: ElementRef }) tabCateElement: ElementRef;
 
     // Tabs
     private currentFocus: number = 0;
@@ -256,43 +261,39 @@ export class SearchBarComponent implements OnInit, OnDestroy {
 
 
     public openDropdown(currentIDx: number) {
-        $('[tabindex=' + (currentIDx) + ']').find('[data-toggle="collapse"]').first().trigger('click');
-    }
-
-
-
-    public arrowUp(currentIDx?: number) {
-        const nextElement = $('[tabindex=' + (currentIDx - 1) + ']');
-
-        if (nextElement.length > 0) {
-            this.setFocusOnElement(+nextElement.attr('tabindex'));
-        } else {
-            for (let i = (currentIDx - 1); i >= 0; i--) {
-                const subElement = $('[tabindex=' + (i - 1) + ']');
-
-                if (subElement.length > 0) {
-                    this.setFocusOnElement(+subElement.attr('tabindex'));
-                    break;
-                }
+        const element = this.getElementByTabIndex(currentIDx);
+        if (element) {
+            const collapseButton = element.querySelector('[data-bs-toggle="collapse"]') as HTMLElement;
+            if (collapseButton) {
+                collapseButton.click();
             }
         }
     }
 
 
-    public arrowDown(currentIDx?: number) {
-        const nextElement = $('[tabindex=' + (currentIDx + 1) + ']');
 
-        if (nextElement.length > 0) {
-            this.setFocusOnElement(+nextElement.attr('tabindex'));
-        } else {
-            for (let i = (currentIDx + 1); i <= this.maxTabLength; i++) {
-                const subElement = $('[tabindex=' + (i + 1) + ']');
-
-                if (subElement.length > 0) {
-                    this.setFocusOnElement(+subElement.attr('tabindex'));
-                    break;
-                }
+    public arrowUp(currentIDx?: number) {
+        let nextIndex = currentIDx - 1;
+        while (nextIndex >= 0) {
+            const nextElement = this.getElementByTabIndex(nextIndex);
+            if (nextElement) {
+                this.setFocusOnElement(nextIndex);
+                break;
             }
+            nextIndex--;
+        }
+    }
+
+
+    public arrowDown(currentIDx?: number) {
+        let nextIndex = currentIDx + 1;
+        while (nextIndex <= this.maxTabLength + 10) { // Add buffer for dynamic elements
+            const nextElement = this.getElementByTabIndex(nextIndex);
+            if (nextElement) {
+                this.setFocusOnElement(nextIndex);
+                break;
+            }
+            nextIndex++;
         }
     }
 
@@ -302,7 +303,18 @@ export class SearchBarComponent implements OnInit, OnDestroy {
             this.currentFocus = tabIdx;
         }
         setTimeout(() => { // this will make the execution after the above boolean has changed
-            $('[tabindex=' + this.currentFocus + ']').trigger('focus');
+            const element = this.getElementByTabIndex(this.currentFocus);
+            if (element) {
+                element.focus();
+            }
         }, 0);
+    }
+
+    /**
+     * Helper method to get element by tabindex using native DOM API
+     * @private
+     */
+    private getElementByTabIndex(tabIndex: number): HTMLElement | null {
+        return document.querySelector(`[tabindex="${tabIndex}"]`);
     }
 }

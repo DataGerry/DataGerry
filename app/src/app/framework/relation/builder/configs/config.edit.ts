@@ -29,7 +29,8 @@ import { nameConvention } from '../../../../layout/directives/name.directive';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  template: ``
+    template: ``,
+    standalone: false
 })
 export abstract class ConfigEditBaseComponent {
 

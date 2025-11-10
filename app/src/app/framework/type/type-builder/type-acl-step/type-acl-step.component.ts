@@ -29,7 +29,8 @@ import { CmdbType } from '../../../models/cmdb-type';
 @Component({
     selector: 'cmdb-type-acl-step',
     templateUrl: './type-acl-step.component.html',
-    styleUrls: ['./type-acl-step.component.scss']
+    styleUrls: ['./type-acl-step.component.scss'],
+    standalone: false
 })
 export class TypeAclStepComponent extends TypeBuilderStepComponent implements OnInit, OnDestroy {
 

@@ -25,7 +25,8 @@ import { CmdbMode } from '../../../../modes.enum';
 @Component({
     selector: 'cmdb-preview-modal',
     templateUrl: './preview-modal.component.html',
-    styleUrls: ['./preview-modal.component.scss']
+    styleUrls: ['./preview-modal.component.scss'],
+    standalone: false
 })
 export class PreviewModalComponent {
     @Input() sections: any[];

@@ -41,7 +41,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-object-add',
     templateUrl: './object-add.component.html',
-    styleUrls: ['./object-add.component.scss']
+    styleUrls: ['./object-add.component.scss'],
+    standalone: false
 })
 export class ObjectAddComponent implements OnInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();

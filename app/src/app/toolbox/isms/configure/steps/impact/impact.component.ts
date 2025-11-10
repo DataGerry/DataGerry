@@ -12,9 +12,10 @@ import { ImpactModalComponent } from './modal/impact-modal.component';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-isms-impact',
-  templateUrl: './impact.component.html',
-  styleUrls: ['./impact.component.scss']
+    selector: 'app-isms-impact',
+    templateUrl: './impact.component.html',
+    styleUrls: ['./impact.component.scss'],
+    standalone: false
 })
 export class ImpactComponent implements OnInit {
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;

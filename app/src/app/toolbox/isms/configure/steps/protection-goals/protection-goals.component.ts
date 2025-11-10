@@ -11,9 +11,10 @@ import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/di
 import { ProtectionGoalModalComponent } from './modal/protection-goal-modal.component';
 
 @Component({
-  selector: 'app-isms-protection-goals',
-  templateUrl: './protection-goals.component.html',
-  styleUrls: ['./protection-goals.component.scss']
+    selector: 'app-isms-protection-goals',
+    templateUrl: './protection-goals.component.html',
+    styleUrls: ['./protection-goals.component.scss'],
+    standalone: false
 })
 export class ProtectionGoalsComponent implements OnInit {
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;

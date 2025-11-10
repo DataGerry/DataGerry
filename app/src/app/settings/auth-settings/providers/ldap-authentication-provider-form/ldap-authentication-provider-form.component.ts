@@ -25,7 +25,8 @@ import { Group } from '../../../../management/models/group';
 @Component({
     selector: 'cmdb-ldap-authentication-provider-form',
     templateUrl: './ldap-authentication-provider-form.component.html',
-    styleUrls: ['./ldap-authentication-provider-form.component.scss']
+    styleUrls: ['./ldap-authentication-provider-form.component.scss'],
+    standalone: false
 })
 export class LdapAuthenticationProviderFormComponent {
 

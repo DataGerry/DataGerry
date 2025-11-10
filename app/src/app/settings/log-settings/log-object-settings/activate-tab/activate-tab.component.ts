@@ -37,9 +37,10 @@ import { UserSetting } from '../../../../management/user-settings/models/user-se
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-activate-tab',
-  templateUrl: './activate-tab.component.html',
-  styleUrls: ['./activate-tab.component.scss']
+    selector: 'cmdb-activate-tab',
+    templateUrl: './activate-tab.component.html',
+    styleUrls: ['./activate-tab.component.scss'],
+    standalone: false
 })
 export class ActivateTabComponent implements OnInit, OnDestroy {
 

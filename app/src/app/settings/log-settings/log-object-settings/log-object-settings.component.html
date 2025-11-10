@@ -1,9 +1,9 @@
 <ul class="nav nav-tabs" id="myTab" role="tablist">
     <li class="nav-item">
-        <a class="nav-link active" 
+        <a class="nav-link" 
+           [class.active]="showExistingObjectsLogs"
            id="log-object-activate-tab" 
-           data-toggle="tab" 
-           href="#activate" 
+           href="javascript:void(0)" 
            role="tab" 
            (click)="handleClick(1)">
             Existing Objects Logs
@@ -11,9 +11,9 @@
     </li>
     <li class="nav-item">
         <a class="nav-link" 
+           [class.active]="showDeletedObjectsLogs"
            id="log-object-deactivate-tab" 
-           data-toggle="tab" 
-           href="#deactivate" 
+           href="javascript:void(0)" 
            role="tab" 
            (click)="handleClick(2)">
             Deleted Objects Logs
@@ -21,9 +21,9 @@
     </li>
     <li class="nav-item">
         <a class="nav-link" 
+           [class.active]="showDeleteLogs"
            id="log-object-delete-tab" 
-           data-toggle="tab" 
-           href="#delete-logs" 
+           href="javascript:void(0)" 
            role="tab" 
            (click)="handleClick(3)">
             Delete Logs
@@ -40,30 +40,21 @@
                          [striped]="true">
         </ngb-progressbar>
     </div>
-    <div class="tab-pane fade show active" 
-         id="activate" 
-         role="tabpanel" 
-         *ngIf="showExistingObjectsLogs">
+    <div *ngIf="showExistingObjectsLogs">
         <cmdb-activate-tab 
             [reloadLogs]="reloadActiveLogs" 
             (deleteEmitter)="deleteLog($event, 'active')" 
             (cleanUpEmitter)="cleanup($event, 'active')">
         </cmdb-activate-tab>
     </div>
-    <div class="tab-pane fade" 
-         id="deactivate" 
-         role="tabpanel" 
-         *ngIf="showDeletedObjectsLogs">
+    <div *ngIf="showDeletedObjectsLogs">
         <cmdb-deactivate-tab 
             [reloadLogs]="reloadDeActiveLogs" 
             (deleteEmitter)="deleteLog($event, 'deactive')" 
             (cleanUpEmitter)="cleanup($event, 'deactive')">
         </cmdb-deactivate-tab>
     </div>
-    <div class="tab-pane fade" 
-         id="delete-logs" 
-         role="tabpanel" 
-         *ngIf="showDeleteLogs">
+    <div *ngIf="showDeleteLogs">
         <cmdb-delete-tab 
             [reloadLogs]="reloadDeleteLogs" 
             (deleteEmitter)="deleteLog($event, 'delete')" 

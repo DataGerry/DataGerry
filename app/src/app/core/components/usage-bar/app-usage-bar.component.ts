@@ -11,7 +11,8 @@ type ColorPair = readonly [string, string];
     selector: 'app-usage-bar',
     templateUrl: './app-usage-bar.component.html',
     styleUrls: ['./app-usage-bar.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class AppUsageBarComponent {
     /* ===================== Range & Value ===================== */

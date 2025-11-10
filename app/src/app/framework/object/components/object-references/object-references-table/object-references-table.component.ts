@@ -37,9 +37,10 @@ import {
 import {UserSettingsDBService} from '../../../../../management/user-settings/services/user-settings-db.service';
 
 @Component({
-  selector: 'cmdb-object-references-table',
-  templateUrl: './object-references-table.component.html',
-  styleUrls: ['./object-references-table.component.scss']
+    selector: 'cmdb-object-references-table',
+    templateUrl: './object-references-table.component.html',
+    styleUrls: ['./object-references-table.component.scss'],
+    standalone: false
 })
 export class ObjectReferencesTableComponent implements OnDestroy {
 

@@ -17,9 +17,10 @@ import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { Subject } from 'rxjs';
 
 @Component({
-  selector: 'app-isms-impact-categories',
-  templateUrl: './impact-categories.component.html',
-  styleUrls: ['./impact-categories.component.scss']
+    selector: 'app-isms-impact-categories',
+    templateUrl: './impact-categories.component.html',
+    styleUrls: ['./impact-categories.component.scss'],
+    standalone: false
 })
 export class ImpactCategoriesComponent implements OnInit {
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;

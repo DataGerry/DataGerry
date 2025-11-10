@@ -36,9 +36,10 @@ import { environment } from 'src/environments/environment';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 @Component({
-  selector: 'cmdb-users',
-  templateUrl: './users.component.html',
-  styleUrls: ['./users.component.scss']
+    selector: 'cmdb-users',
+    templateUrl: './users.component.html',
+    styleUrls: ['./users.component.scss'],
+    standalone: false
 })
 export class UsersComponent implements OnInit, OnDestroy {
 

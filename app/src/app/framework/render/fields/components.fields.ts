@@ -24,7 +24,8 @@ import { CmdbMode } from '../../modes.enum';
 import { CmdbMultiDataSection, CmdbTypeSection } from '../../models/cmdb-type';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
-    template: ''
+    template: '',
+    standalone: false
 })
 export class RenderFieldComponent {
     // Section of this field

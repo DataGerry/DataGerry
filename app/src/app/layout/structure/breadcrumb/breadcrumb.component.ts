@@ -26,10 +26,11 @@ import { SidebarService } from '../../services/sidebar.service';
 export const COOCKIENAME = 'onlyActiveObjCookie';
 
 @Component({
-  selector: 'cmdb-breadcrumb',
-  templateUrl: './breadcrumb.component.html',
-  styleUrls: ['./breadcrumb.component.scss'],
-  encapsulation: ViewEncapsulation.None
+    selector: 'cmdb-breadcrumb',
+    templateUrl: './breadcrumb.component.html',
+    styleUrls: ['./breadcrumb.component.scss'],
+    encapsulation: ViewEncapsulation.None,
+    standalone: false
 })
 export class BreadcrumbComponent implements OnInit {
 

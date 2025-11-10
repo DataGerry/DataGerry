@@ -28,7 +28,8 @@ import { SectionIdentifierService } from '../../../services/SectionIdentifierSer
 
 @Component({
     selector: 'cmdb-section-multi-field-edit',
-    templateUrl: './section-multi-field-edit.component.html'
+    templateUrl: './section-multi-field-edit.component.html',
+    standalone: false
 })
 export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

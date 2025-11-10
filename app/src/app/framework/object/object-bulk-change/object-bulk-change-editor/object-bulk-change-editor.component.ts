@@ -23,9 +23,10 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { CmdbType } from '../../../models/cmdb-type';
 
 @Component({
-  selector: 'cmdb-object-bulk-change-editor',
-  templateUrl: './object-bulk-change-editor.component.html',
-  styleUrls: ['./object-bulk-change-editor.component.scss']
+    selector: 'cmdb-object-bulk-change-editor',
+    templateUrl: './object-bulk-change-editor.component.html',
+    styleUrls: ['./object-bulk-change-editor.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeEditorComponent {
 

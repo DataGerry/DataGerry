@@ -22,9 +22,10 @@ import { LogMode } from '../../../../modes.enum';
 export const isArray = Array.isArray || (<T>(x: any): x is T[] => x && typeof x.length === 'number');
 
 @Component({
-  selector: 'cmdb-object-log-change-view',
-  templateUrl: './object-log-change-view.component.html',
-  styleUrls: ['./object-log-change-view.component.scss']
+    selector: 'cmdb-object-log-change-view',
+    templateUrl: './object-log-change-view.component.html',
+    styleUrls: ['./object-log-change-view.component.scss'],
+    standalone: false
 })
 export class ObjectLogChangeViewComponent {
 

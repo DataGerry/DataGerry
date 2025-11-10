@@ -20,9 +20,10 @@ import { ActivatedRoute } from '@angular/router';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-    selector:'section-template-add',
+    selector: 'section-template-add',
     templateUrl: './section-template-add.component.html',
-    styleUrls: ['./section-template-add.component.scss']
+    styleUrls: ['./section-template-add.component.scss'],
+    standalone: false
 })
 export class SectionTemplateAddComponent implements OnInit {
 

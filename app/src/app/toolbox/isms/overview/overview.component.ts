@@ -30,9 +30,10 @@ import { ISMSService } from "../services/isms.service";
 import { ActivatedRoute, Router } from "@angular/router";
 
 @Component({
-  selector: 'app-isms-overview',
-  templateUrl: './overview.component.html',
-  styleUrls: ['./overview.component.scss']
+    selector: 'app-isms-overview',
+    templateUrl: './overview.component.html',
+    styleUrls: ['./overview.component.scss'],
+    standalone: false
 })
 export class OverviewComponent implements OnInit {
 

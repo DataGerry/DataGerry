@@ -38,9 +38,10 @@ interface SelectOption { public_id: number; name: string; }
 type Ctx = 'OBJECT' | 'GROUP' | 'RISK';
 
 @Component({
-  selector   : 'app-duplicate-risk-assessment-modal',
-  templateUrl: './duplicate-risk-assessment.modal.html',
-  styleUrls  : ['./duplicate-risk-assessment.modal.scss']
+    selector: 'app-duplicate-risk-assessment-modal',
+    templateUrl: './duplicate-risk-assessment.modal.html',
+    styleUrls: ['./duplicate-risk-assessment.modal.scss'],
+    standalone: false
 })
 export class DuplicateRiskAssessmentModalComponent implements OnInit {
 

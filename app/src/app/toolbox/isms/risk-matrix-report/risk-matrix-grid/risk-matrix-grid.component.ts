@@ -27,7 +27,8 @@ import { ReportMatrixCell } from '../../models/risk-matrix-report.model';
 @Component({
     selector: 'app-risk-matrix-grid',
     templateUrl: './risk-matrix-grid.component.html',
-    styleUrls: ['./risk-matrix-grid.component.scss']
+    styleUrls: ['./risk-matrix-grid.component.scss'],
+    standalone: false
 })
 export class RiskMatrixGridComponent {
 

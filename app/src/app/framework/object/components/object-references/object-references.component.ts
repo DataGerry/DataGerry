@@ -39,7 +39,8 @@ interface TypeRef {
 @Component({
     selector: 'cmdb-object-references',
     templateUrl: './object-references.component.html',
-    styleUrls: ['./object-references.component.scss']
+    styleUrls: ['./object-references.component.scss'],
+    standalone: false
 })
 
 export class ObjectReferencesComponent implements OnChanges {

@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { Group } from '../../../models/group';
 
 @Component({
-  selector: 'cmdb-group-table-actions',
-  templateUrl: './group-table-actions.component.html',
-  styleUrls: ['./group-table-actions.component.scss']
+    selector: 'cmdb-group-table-actions',
+    templateUrl: './group-table-actions.component.html',
+    styleUrls: ['./group-table-actions.component.scss'],
+    standalone: false
 })
 export class GroupTableActionsComponent {
 

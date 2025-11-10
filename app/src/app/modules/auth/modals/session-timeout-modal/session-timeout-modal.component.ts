@@ -29,7 +29,8 @@ import { environment } from 'src/environments/environment';
 @Component({
     selector: 'cmdb-session-timeout-modal',
     templateUrl: './session-timeout-modal.component.html',
-    styleUrls: ['./session-timeout-modal.component.scss']
+    styleUrls: ['./session-timeout-modal.component.scss'],
+    standalone: false
 })
 export class SessionTimeoutModalComponent implements OnInit, OnDestroy {
 

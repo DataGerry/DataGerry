@@ -26,9 +26,10 @@ import { Right } from '../../../models/right';
 import { environment } from 'src/environments/environment';
 
 @Component({
-  selector: 'cmdb-user-form',
-  templateUrl: './user-form.component.html',
-  styleUrls: ['./user-form.component.scss']
+    selector: 'cmdb-user-form',
+    templateUrl: './user-form.component.html',
+    styleUrls: ['./user-form.component.scss'],
+    standalone: false
 })
 export class UserFormComponent implements OnInit, OnChanges, OnDestroy {
 

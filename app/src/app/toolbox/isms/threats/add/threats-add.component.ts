@@ -31,9 +31,10 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 
 @Component({
-  selector: 'app-threats-add',
-  templateUrl: './threats-add.component.html',
-  styleUrls: ['./threats-add.component.scss']
+    selector: 'app-threats-add',
+    templateUrl: './threats-add.component.html',
+    styleUrls: ['./threats-add.component.scss'],
+    standalone: false
 })
 export class ThreatsAddComponent implements OnInit {
   public isEditMode = false;

@@ -19,9 +19,10 @@
 import { Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-active-badge',
-  templateUrl: './active-badge.component.html',
-  styleUrls: ['./active-badge.component.scss']
+    selector: 'cmdb-active-badge',
+    templateUrl: './active-badge.component.html',
+    styleUrls: ['./active-badge.component.scss'],
+    standalone: false
 })
 export class ActiveBadgeComponent {
 

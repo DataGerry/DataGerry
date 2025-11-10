@@ -51,7 +51,8 @@ const GREY = '#f5f5f5';
 @Component({
     selector: 'app-risk-assessment-list',
     templateUrl: './risk-assessment-list.component.html',
-    styleUrls: ['./risk-assessment-list.component.scss']
+    styleUrls: ['./risk-assessment-list.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentListComponent implements OnInit, OnChanges {
 

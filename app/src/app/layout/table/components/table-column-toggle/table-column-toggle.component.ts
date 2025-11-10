@@ -20,9 +20,10 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { Column } from '../../table.types';
 
 @Component({
-  selector: 'table-column-toggle',
-  templateUrl: './table-column-toggle.component.html',
-  styleUrls: ['./table-column-toggle.component.scss']
+    selector: 'table-column-toggle',
+    templateUrl: './table-column-toggle.component.html',
+    styleUrls: ['./table-column-toggle.component.scss'],
+    standalone: false
 })
 export class TableColumnToggleComponent {
 

@@ -26,7 +26,8 @@ import { CmdbType } from '../../../models/cmdb-type';
     selector: 'cmdb-object-bulk-change-preview',
     templateUrl: './object-bulk-change-preview.component.html',
     styleUrls: ['./object-bulk-change-preview.component.scss'],
-    changeDetection: ChangeDetectionStrategy.Default
+    changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class ObjectBulkChangePreviewComponent {
 

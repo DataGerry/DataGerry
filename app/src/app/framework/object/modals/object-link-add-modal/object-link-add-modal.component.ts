@@ -29,7 +29,8 @@ import { RenderResult } from '../../../models/cmdb-render';
 
 @Component({
     templateUrl: './object-link-add-modal.component.html',
-    styleUrls: ['./object-link-add-modal.component.scss']
+    styleUrls: ['./object-link-add-modal.component.scss'],
+    standalone: false
 })
 export class ObjectLinkAddModalComponent implements OnInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();

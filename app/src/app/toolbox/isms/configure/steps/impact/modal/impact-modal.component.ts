@@ -20,7 +20,8 @@ import { nonZeroValidator, numericOrDecimalValidator, uniqueCalculationBasisVali
 @Component({
     selector: 'app-impact-modal',
     templateUrl: './impact-modal.component.html',
-    styleUrls: ['./impact-modal.component.scss']
+    styleUrls: ['./impact-modal.component.scss'],
+    standalone: false
 })
 export class ImpactModalComponent implements OnInit {
     @Input() impact?: Impact;                  // If provided => Edit mode

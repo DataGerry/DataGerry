@@ -20,7 +20,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 import { ArchwizardModule } from '@rg-software/angular-archwizard';
-import { QRCodeModule } from 'angularx-qrcode';
+import { QRCodeComponent } from 'angularx-qrcode';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
@@ -81,7 +81,7 @@ import { CoreModule } from 'src/app/core/core.module';
         LayoutModule,
         ReactiveFormsModule,
         ArchwizardModule,
-        QRCodeModule,
+        QRCodeComponent,
         NgSelectModule,
         RenderModule,
         BuilderModule,

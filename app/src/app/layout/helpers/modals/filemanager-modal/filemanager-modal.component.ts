@@ -25,9 +25,10 @@ import { FileService } from '../../../components/file-explorer/service/file.serv
 import { ToastService } from '../../../toast/toast.service';
 
 @Component({
-  selector: 'cmdb-filemanager-modal',
-  templateUrl: './filemanager-modal.component.html',
-  styleUrls: ['./filemanager-modal.component.scss']
+    selector: 'cmdb-filemanager-modal',
+    templateUrl: './filemanager-modal.component.html',
+    styleUrls: ['./filemanager-modal.component.scss'],
+    standalone: false
 })
 export class FilemanagerModalComponent implements OnInit {
 

@@ -23,9 +23,10 @@ import { ObjectService } from '../../../framework/services/object.service';
 import { SidebarService } from '../../services/sidebar.service';
 
 @Component({
-  selector: 'cmdb-sidebar-type',
-  templateUrl: './sidebar-type.component.html',
-  styleUrls: ['./sidebar-type.component.scss']
+    selector: 'cmdb-sidebar-type',
+    templateUrl: './sidebar-type.component.html',
+    styleUrls: ['./sidebar-type.component.scss'],
+    standalone: false
 })
 export class SidebarTypeComponent implements OnInit, OnDestroy {
 

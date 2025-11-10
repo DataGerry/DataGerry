@@ -19,9 +19,10 @@
 import { Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-type-table-actions',
-  templateUrl: './type-table-actions.component.html',
-  styleUrls: ['./type-table-actions.component.scss']
+    selector: 'cmdb-type-table-actions',
+    templateUrl: './type-table-actions.component.html',
+    styleUrls: ['./type-table-actions.component.scss'],
+    standalone: false
 })
 export class TypeTableActionsComponent {
 

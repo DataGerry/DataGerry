@@ -26,9 +26,10 @@ import { RightGroupsModalComponent } from '../../modals/right-groups-modal/right
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-right-table-groups-cell',
-  templateUrl: './right-table-groups-cell.component.html',
-  styleUrls: ['./right-table-groups-cell.component.scss']
+    selector: 'cmdb-right-table-groups-cell',
+    templateUrl: './right-table-groups-cell.component.html',
+    styleUrls: ['./right-table-groups-cell.component.scss'],
+    standalone: false
 })
 export class RightTableGroupsCellComponent implements OnDestroy {
 

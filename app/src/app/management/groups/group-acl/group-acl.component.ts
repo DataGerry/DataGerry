@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-group-acl',
     templateUrl: './group-acl.component.html',
-    styleUrls: ['./group-acl.component.scss']
+    styleUrls: ['./group-acl.component.scss'],
+    standalone: false
 })
 export class GroupAclComponent implements OnInit, OnDestroy {
 

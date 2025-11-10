@@ -46,7 +46,8 @@ import { IsmsValidationService } from '../services/isms-validation.service';
 @Component({
     selector: 'app-risk-matrix-report',
     templateUrl: './risk-matrix-report.component.html',
-    styleUrls: ['./risk-matrix-report.component.scss']
+    styleUrls: ['./risk-matrix-report.component.scss'],
+    standalone: false
 })
 export class RiskMatrixReportComponent implements OnInit {
 

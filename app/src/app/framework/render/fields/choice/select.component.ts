@@ -20,8 +20,9 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  templateUrl: './select.component.html',
-  styleUrls: ['./select.component.scss']
+    templateUrl: './select.component.html',
+    styleUrls: ['./select.component.scss'],
+    standalone: false
 })
 export class SelectComponent extends RenderFieldComponent {
 

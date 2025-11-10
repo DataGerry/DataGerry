@@ -38,13 +38,13 @@
 </ng-template>
 
 <ng-template #exportTemplate>
-    <span class="mr-1 ml-1" *permissionLink="'base.export.type.*'">
+    <span class="me-1 ms-1" *permissionLink="'base.export.type.*'">
     <div class="btn-group">
       <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle"
-              data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+              data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
         <fa-icon icon="file-export"></fa-icon> Export
       </button>
-      <ul class="dropdown-menu dropdown-menu-right dropdown-menu-lg-left" aria-labelledby="exportButton">
+      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-start" aria-labelledby="exportButton">
         <li id="export-type" [className]="'dropdown-item'"
             (click)="exportingFiles()">
           <fa-icon icon="file-code"></fa-icon> JSON
@@ -59,7 +59,7 @@
 <ng-template #addTemplate>
   <button type="button"
           *permissionLink="['base.framework.type.add']"
-          class="btn btn-success btn-sm mr-1 ml-1"
+          class="btn btn-success btn-sm me-1 ms-1"
           [routerLink]="['/framework/type/add']">
     <i class="fas fa-plus"></i> Add
   </button>

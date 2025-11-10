@@ -21,7 +21,8 @@ import { QueryBuilderConfig, QueryBuilderClassNames } from 'shout-angular-query-
 @Component({
     selector: 'app-filter-builder',
     templateUrl: './filter-builder.component.html',
-    styleUrls: ['./filter-builder.component.scss']
+    styleUrls: ['./filter-builder.component.scss'],
+    standalone: false
 })
 export class FilterBuilderComponent implements OnInit, OnChanges {
     @Input() fields: Array<{ name: string; label: string; type?: string; options?: Array<{ name: string; value: any }> }> = [];

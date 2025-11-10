@@ -23,7 +23,8 @@ import { BaseSectionComponent } from '../base-section/base-section.component';
 @Component({
     selector: 'cmdb-field-section',
     templateUrl: './field-section.component.html',
-    styleUrls: ['./field-section.component.scss']
+    styleUrls: ['./field-section.component.scss'],
+    standalone: false
 })
 export class FieldSectionComponent extends BaseSectionComponent {
     @Input() objectID: number;

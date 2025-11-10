@@ -19,7 +19,8 @@
 import { Directive, ElementRef, Input, OnChanges, Renderer2, SimpleChanges } from '@angular/core';
 
 @Directive({
-  selector: '[rightLevelColor]'
+    selector: '[rightLevelColor]',
+    standalone: false
 })
 export class RightLevelColorDirective implements OnChanges {
 

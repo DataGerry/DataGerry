@@ -37,7 +37,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
     providers: [
         { provide: NgbDateAdapter, useClass: NgbStringAdapter },
         { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-    ]
+    ],
+    standalone: false
 })
 export class DateFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

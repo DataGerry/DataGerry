@@ -19,9 +19,10 @@
 import { Component, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-mode-error',
-  templateUrl: './mode-error.component.html',
-  styleUrls: ['./mode-error.component.scss']
+    selector: 'cmdb-mode-error',
+    templateUrl: './mode-error.component.html',
+    styleUrls: ['./mode-error.component.scss'],
+    standalone: false
 })
 export class ModeErrorComponent implements OnInit {
 

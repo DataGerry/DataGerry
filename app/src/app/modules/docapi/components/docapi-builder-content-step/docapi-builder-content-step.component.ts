@@ -28,7 +28,8 @@ declare var tinymce;
 @Component({
     selector: 'cmdb-docapi-builder-content-step',
     templateUrl: './docapi-builder-content-step.component.html',
-    styleUrls: ['./docapi-builder-content-step.component.scss']
+    styleUrls: ['./docapi-builder-content-step.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderContentStepComponent {
 

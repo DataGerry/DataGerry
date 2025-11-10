@@ -19,7 +19,8 @@
 import { Directive, HostBinding, Input } from '@angular/core';
 
 @Directive({
-  selector: 'thead[table-head]'
+    selector: 'thead[table-head]',
+    standalone: false
 })
 export class TableHeadDirective {
 

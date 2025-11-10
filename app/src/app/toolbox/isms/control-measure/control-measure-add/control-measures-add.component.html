@@ -12,7 +12,7 @@
 
     <!-- Control Measure Type (Radio Buttons) -->
     <div class="form-group mt-3">
-      <label>Type:<span class="required">*</span></label>
+      <label class="mt-2 mb-2">Type:<span class="required">*</span></label>
       <app-radio label="Control" [value]="'CONTROL'" name="cmTypeGroup" id="typeControl"
         formControlName="control_measure_type"></app-radio>
       <app-radio label="Requirement" [value]="'REQUIREMENT'" name="cmTypeGroup" id="typeRequirement"
@@ -97,7 +97,7 @@
     <!-- Footer Buttons -->
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
-      <!-- <button class="btn btn-secondary mr-2" type="button" (click)="onCancel()">
+      <!-- <button class="btn btn-secondary me-2" type="button" (click)="onCancel()">
         Cancel
       </button> -->
       <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()"

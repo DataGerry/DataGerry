@@ -33,7 +33,8 @@ import { SearchResultList } from '../../models/search-result';
 @Component({
     selector: 'cmdb-search-result-bar',
     templateUrl: './search-result-bar.component.html',
-    styleUrls: ['./search-result-bar.component.scss']
+    styleUrls: ['./search-result-bar.component.scss'],
+    standalone: false
 })
 
 export class SearchResultBarComponent implements OnInit, OnChanges {

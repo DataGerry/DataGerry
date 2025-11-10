@@ -5,7 +5,7 @@
 }
 
 .bg-image {
-  background-image: linear-gradient(to right, rgba(theme-color('primary'), 0.2), rgba(theme-color('secondary'), 0.2)), url('/assets/img/login-bg.jpeg');
+  background-image: linear-gradient(to right, rgba($primary, 0.2), rgba($secondary, 0.2)), url('/assets/img/login-bg.jpeg');
   background-size: cover;
   background-position: center;
 }

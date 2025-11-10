@@ -21,9 +21,10 @@ import { User } from '../../../../../management/models/user';
 import { UserService } from '../../../../../management/services/user.service';
 
 @Component({
-  selector: 'cmdb-object-log-user',
-  templateUrl: './object-log-user.component.html',
-  styleUrls: ['./object-log-user.component.scss']
+    selector: 'cmdb-object-log-user',
+    templateUrl: './object-log-user.component.html',
+    styleUrls: ['./object-log-user.component.scss'],
+    standalone: false
 })
 export class ObjectLogUserComponent implements OnChanges {
 

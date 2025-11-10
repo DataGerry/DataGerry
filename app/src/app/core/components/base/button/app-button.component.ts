@@ -1,9 +1,27 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2025 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+
+* You should have received a copy of the GNU Affero General Public License
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'app-button',
-  templateUrl: './app-button.component.html',
-  styleUrls: ['./app-button.component.scss']
+    selector: 'app-button',
+    templateUrl: './app-button.component.html',
+    styleUrls: ['./app-button.component.scss'],
+    standalone: false
 })
 export class ButtonComponent implements OnInit {
   /**
@@ -18,7 +36,7 @@ export class ButtonComponent implements OnInit {
   @Input() type: 'button' | 'submit' | 'reset' = 'button';
 
   /**
-   * Pass in any Bootstrap class(es) you like, e.g. 'btn-success', 'btn-secondary mr-2'.
+   * Pass in any Bootstrap class(es) you like, e.g. 'btn-success', 'btn-secondary me-2'.
    * This will be applied along with the default 'btn' class.
    */
   @Input() bootstrapClass: string = 'btn-secondary';

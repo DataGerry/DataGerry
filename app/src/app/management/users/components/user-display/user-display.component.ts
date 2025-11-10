@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { User } from '../../../models/user';
 
 @Component({
-  selector: 'cmdb-user-display',
-  templateUrl: './user-display.component.html',
-  styleUrls: ['./user-display.component.scss']
+    selector: 'cmdb-user-display',
+    templateUrl: './user-display.component.html',
+    styleUrls: ['./user-display.component.scss'],
+    standalone: false
 })
 export class UserDisplayComponent {
 

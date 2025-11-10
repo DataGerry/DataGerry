@@ -22,9 +22,10 @@ import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-templ
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-section-template-clone-modal',
-  templateUrl: './section-template-clone-modal.component.html',
-  styleUrls: ['./section-template-clone-modal.component.scss']
+    selector: 'cmdb-section-template-clone-modal',
+    templateUrl: './section-template-clone-modal.component.html',
+    styleUrls: ['./section-template-clone-modal.component.scss'],
+    standalone: false
 })
 export class SectionTemplateCloneModalComponent {
 

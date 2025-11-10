@@ -36,9 +36,10 @@ import { PersonGroupService } from '../../services/person-group.service';
 import { IsmsValidationService } from '../../services/isms-validation.service';
 
 @Component({
-  selector: 'app-control-measure-assignment-add',
-  templateUrl: './control-measure-assignment-add.component.html',
-  styleUrls: ['./control-measure-assignment-add.component.scss']
+    selector: 'app-control-measure-assignment-add',
+    templateUrl: './control-measure-assignment-add.component.html',
+    styleUrls: ['./control-measure-assignment-add.component.scss'],
+    standalone: false
 })
 export class ControlMeasureAssignmentAddComponent implements OnInit {
 

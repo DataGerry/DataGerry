@@ -19,9 +19,10 @@
 import {Component, Input} from '@angular/core';
 
 @Component({
-  selector: 'cmdb-object-bulk-change-complete',
-  templateUrl: './object-bulk-change-complete.component.html',
-  styleUrls: ['./object-bulk-change-complete.component.scss']
+    selector: 'cmdb-object-bulk-change-complete',
+    templateUrl: './object-bulk-change-complete.component.html',
+    styleUrls: ['./object-bulk-change-complete.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeCompleteComponent {
 

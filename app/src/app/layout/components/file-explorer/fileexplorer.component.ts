@@ -36,9 +36,10 @@ import { MetadataInfoComponent } from './modal/metadata-info/metadata-info.compo
 import { LoaderService } from '../../../core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-fileexplorer',
-  templateUrl: './fileexplorer.component.html',
-  styleUrls: ['./fileexplorer.component.scss']
+    selector: 'cmdb-fileexplorer',
+    templateUrl: './fileexplorer.component.html',
+    styleUrls: ['./fileexplorer.component.scss'],
+    standalone: false
 })
 export class FileExplorerComponent implements OnInit, OnDestroy {
 

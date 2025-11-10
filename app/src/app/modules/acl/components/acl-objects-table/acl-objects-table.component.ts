@@ -33,7 +33,8 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 @Component({
     selector: 'cmdb-acl-objects-table',
     templateUrl: './acl-objects-table.component.html',
-    styleUrls: ['./acl-objects-table.component.scss']
+    styleUrls: ['./acl-objects-table.component.scss'],
+    standalone: false
 })
 export class AclObjectsTableComponent implements OnInit, OnDestroy {
 

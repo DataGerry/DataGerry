@@ -21,7 +21,8 @@ import { Component, Input, OnInit} from '@angular/core';
 @Component({
     selector: 'cmdb-risk-assessment-footer',
     templateUrl: './risk-assessment-footer.component.html',
-    styleUrls: ['./risk-assessment-footer.component.scss']
+    styleUrls: ['./risk-assessment-footer.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentFooterComponent implements OnInit {
 

@@ -33,8 +33,7 @@
       {{ modalMode==='add' ? 'Add' : modalMode==='edit' ? 'Edit' : 'View' }}
       control
     </h4>
-    <button type="button" class="close" (click)="closeModal()">
-      <span aria-hidden="true">&times;</span>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeModal()">
     </button>
   </div>
 
@@ -43,7 +42,7 @@
       <div class="row g-3">
 
         <div class="col-md-6">
-          <label>Control <span class="required">*</span></label>
+          <label class="mb-1">Control <span class="required">*</span></label>
           <!-- <app-form-select class="w-100" [items]="availableControlMeasures" bindLabel="title" bindValue="public_id"
             formControlName="control_measure_id">
           </app-form-select> -->
@@ -54,31 +53,31 @@
         </div>
 
         <div class="col-md-6">
-          <label>Planned Implementation Date</label>
+          <label class="mb-1">Planned Implementation Date</label>
           <app-form-date formControlName="planned_implementation_date"></app-form-date>
         </div>
 
         <div class="col-md-6">
-          <label>Status <span class="required">*</span></label>
+          <label class="mb-1">Status <span class="required">*</span></label>
           <app-form-select class="w-100" [items]="implementationStates" bindLabel="value" bindValue="public_id"
             formControlName="implementation_status">
           </app-form-select>
         </div>
 
         <div class="col-md-6">
-          <label>Finished Implementation Date</label>
+          <label class="mb-1">Finished Implementation Date</label>
           <app-form-date formControlName="finished_implementation_date"></app-form-date>
         </div>
 
         <div class="col-md-6">
-          <label>Priority</label>
+          <label class="mb-1">Priority</label>
           <app-form-select class="w-100" [items]="priorityOptions" bindLabel="label" bindValue="value"
             formControlName="priority">
           </app-form-select>
         </div>
 
         <div class="col-md-6">
-          <label>Responsible</label>
+          <label class="mb-1">Responsible</label>
           <app-form-select class="w-100" [items]="responsibleOptions" bindLabel="display_name" bindValue="public_id"
             groupBy="group" formControlName="responsible_for_implementation_id">
           </app-form-select>

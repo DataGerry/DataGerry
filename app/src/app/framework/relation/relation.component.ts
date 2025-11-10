@@ -31,7 +31,8 @@ import { ReplaySubject } from 'rxjs';
 @Component({
     selector: 'cmdb-relation',
     templateUrl: './relation.component.html',
-    styleUrls: ['./relation.component.scss']
+    styleUrls: ['./relation.component.scss'],
+    standalone: false
 })
 export class RelationComponent implements OnInit, OnDestroy {
 

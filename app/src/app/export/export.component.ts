@@ -20,7 +20,8 @@ import { Component } from '@angular/core';
 @Component({
     selector: 'cmdb-export',
     templateUrl: './export.component.html',
-    styleUrls: ['./export.component.scss']
+    styleUrls: ['./export.component.scss'],
+    standalone: false
 })
 export class ExportComponent {
 

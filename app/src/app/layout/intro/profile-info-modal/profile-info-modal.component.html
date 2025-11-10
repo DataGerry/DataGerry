@@ -11,7 +11,7 @@
         <br>
         <form [formGroup]="profileForm">
             <div class="checkbox-section">
-                <div class="form-group" *ngFor="let profileName of activeProfiles">
+                <div class="mb-3" *ngFor="let profileName of activeProfiles">
                     <input formControlName="{{profileName}}" type="checkbox" id="{{profileName}}">
                     <label class="profile-label" for="{{profileName}}">{{branchProfileNames[profileName]}}</label>
                 </div>

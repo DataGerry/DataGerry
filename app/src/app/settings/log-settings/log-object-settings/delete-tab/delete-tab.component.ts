@@ -40,7 +40,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-delete-tab',
     templateUrl: './delete-tab.component.html',
-    styleUrls: ['./delete-tab.component.scss']
+    styleUrls: ['./delete-tab.component.scss'],
+    standalone: false
 })
 export class DeleteTabComponent implements OnInit, OnDestroy {
 

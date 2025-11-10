@@ -84,7 +84,7 @@
             (keyup.arrowRight)="openDropdown(tabType.tabIndex)"
         >
             <span>
-                <button class="btn btn-link" type="button" data-toggle="collapse" data-target="#search-bar-collapse-type">
+                <button class="btn btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#search-bar-collapse-type">
                     <i class="fas fa-angle-right"></i>
                 </button>
                 <span
@@ -94,7 +94,7 @@
                     <i>Types</i>: {{inputControl.value}} - <i>({{possibleTypes.length}})</i>
                 </span>
             </span>
-            <ul #inputSubDropdown id="search-bar-collapse-type" class="collapse" data-parent="#search-bar-accordion">
+            <ul #inputSubDropdown id="search-bar-collapse-type" class="collapse" data-bs-parent="#search-bar-accordion">
                 <li
                     #subTabType
                     *ngFor="let possibleType of possibleTypes; let i = index"
@@ -116,7 +116,7 @@
             (keyup.arrowRight)="openDropdown(tabCate.tabIndex)"
         >
             <span>
-                <button class="btn btn-link" type="button" data-toggle="collapse" data-target="#search-bar-collapse-categories">
+                <button class="btn btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#search-bar-collapse-categories">
                     <i class="fas fa-angle-right"></i>
                 </button>
                 <span
@@ -126,7 +126,7 @@
                     <i>Categories</i>: {{inputControl.value}} - <i>({{possibleCategories.length}})</i>
                 </span>
             </span>
-            <ul id="search-bar-collapse-categories" class="collapse" data-parent="#search-bar-accordion">
+            <ul id="search-bar-collapse-categories" class="collapse" data-bs-parent="#search-bar-accordion">
                 <li
                     #subTabCate
                     *ngFor="let possibleCategory of possibleCategories; let i = index"
@@ -143,11 +143,10 @@
         <li class="alert alert-info alert-dismissible fade show mb-0">
             <strong><fa-icon icon="info-circle" class="text-primary"></fa-icon></strong>
             Enter your search terms, after each search term use
-            <span class="badge badge-warning w-auto">TAB</span>
-            to <span class="badge badge-warning w-auto">ENTER</span>
-            the next term, press <span class="badge badge-warning w-auto">ENTER</span> to start the search
-            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                <span aria-hidden="true">X</span>
+            <span class="badge bg-warning w-auto">TAB</span>
+            to <span class="badge bg-warning w-auto">ENTER</span>
+            the next term, press <span class="badge bg-warning w-auto">ENTER</span> to start the search
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close">
             </button>
         </li>
     </ul>

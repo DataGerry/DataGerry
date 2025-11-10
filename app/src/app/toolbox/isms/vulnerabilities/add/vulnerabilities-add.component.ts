@@ -30,9 +30,10 @@ import { Vulnerability } from '../../models/vulnerability.model';
 import { VulnerabilityService } from '../../services/vulnerability.service';
 
 @Component({
-  selector: 'app-vulnerabilities-add',
-  templateUrl: './vulnerabilities-add.component.html',
-  styleUrls: ['./vulnerabilities-add.component.scss']
+    selector: 'app-vulnerabilities-add',
+    templateUrl: './vulnerabilities-add.component.html',
+    styleUrls: ['./vulnerabilities-add.component.scss'],
+    standalone: false
 })
 export class VulnerabilitiesAddComponent implements OnInit {
   public isEditMode = false;

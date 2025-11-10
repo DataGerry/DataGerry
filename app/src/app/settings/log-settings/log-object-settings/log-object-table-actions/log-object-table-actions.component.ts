@@ -20,9 +20,10 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-log-object-table-actions',
-  templateUrl: './log-object-table-actions.component.html',
-  styleUrls: ['./log-object-table-actions.component.scss']
+    selector: 'cmdb-log-object-table-actions',
+    templateUrl: './log-object-table-actions.component.html',
+    styleUrls: ['./log-object-table-actions.component.scss'],
+    standalone: false
 })
 export class LogObjectTableActionsComponent {
 

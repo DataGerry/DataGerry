@@ -27,7 +27,8 @@ export function nameConvention(input: string): string {
 }
 
 @Directive({
-  selector: '[name-guideline]'
+    selector: '[name-guideline]',
+    standalone: false
 })
 export class NameDirective {
 

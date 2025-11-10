@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { SecurityLevel } from '../../../models/right';
 
 @Component({
-  selector: 'cmdb-right-level-card',
-  templateUrl: './right-level-card.component.html',
-  styleUrls: ['./right-level-card.component.scss']
+    selector: 'cmdb-right-level-card',
+    templateUrl: './right-level-card.component.html',
+    styleUrls: ['./right-level-card.component.scss'],
+    standalone: false
 })
 export class RightLevelCardComponent {
 

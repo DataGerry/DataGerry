@@ -1,15 +1,15 @@
-<div class="d-flex">
-    <div class="container limit-width" style="margin-bottom: 10px;">
-        <div class="btn-group float-left">
+
+    <div class="d-flex justify-content-between align-items-center mb-2 w-100">
+        <div class="btn-group text-start">
             <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
                 <i class="fas fa-arrow-left"></i> Go Back
             </button>                       
             </div>
-        <div class="btn-group float-right">
-            <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" data-toggle="dropdown">
+        <div class="btn-group text-end">
+            <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
             <i class="fas fa-list"></i> Show Tabs
             </button>
-            <div class="dropdown-menu dropdown-menu-right">
+            <div class="dropdown-menu dropdown-menu-end">
                 <button
                     *ngFor="let item of referencedTypes"
                     type="button"
@@ -39,31 +39,31 @@
             </div>
         </div>
     </div>
-</div>
+
 
 <div class="container limit-width">
     <nav class="scrollable">
         <div class="nav nav-tabs" id="nav-tab" role="tablist">
             <a
                 class="nav-item nav-link active"
-                data-toggle="tab"
+                data-bs-toggle="tab"
                 href="#object-references"
                 role="tab"
             >
                 All References
-                <span class="badge badge-pill badge-primary">{{totalReferences}}</span>
+                <span class="badge rounded-pill bg-primary">{{totalReferences}}</span>
             </a>
             <ng-container *ngFor="let item of referencedTypes">
                 <a
                     *ngIf="!item.hidden"
                     class="nav-item nav-link"
-                    data-toggle="tab"
+                    data-bs-toggle="tab"
                     href="#{{item.typeName}}"
                     role="tab"
                     (click)="onClick(item.typeID)"
                 >
                     {{item?.typeLabel}}
-                    <span class="badge badge-pill badge-primary">{{item?.occurences}}</span>
+                    <span class="badge rounded-pill bg-primary">{{item?.occurences}}</span>
                 </a>
             </ng-container>
         </div>

@@ -1,10 +1,15 @@
 <ng-container *ngIf="categoryNode">
-  <a href="#{{categoryNode.category.name}}" class="list-group-item collapsed" data-toggle="collapse"
-     (click)="isCollapsed = !isCollapsed" [attr.aria-expanded]="isCollapsed" data-parent="#sidebar-categories" >
+  <a role="button"
+     class="list-group-item collapsed"
+     [attr.data-bs-toggle]="'collapse'"
+     [attr.data-bs-target]="'#' + categoryNode.category.name"
+     [attr.aria-expanded]="isCollapsed"
+     (click)="isCollapsed = !isCollapsed">
     <span class="shorten-long-text"
-          data-toggle="tooltip" title="{{categoryNode.category.label}}">
-        <i [ngClass]="categoryNode.category.meta.icon ? categoryNode.category.meta.icon : 'far fa-folder-open'"></i>
-      {{categoryNode.category.label}}
+          data-bs-toggle="tooltip"
+          [attr.title]="categoryNode.category.label">
+      <i [ngClass]="categoryNode.category.meta.icon || 'far fa-folder-open'"></i>
+      {{ categoryNode.category.label }}
     </span>
   </a>
   <ul class="collapse collapse-element" id="{{categoryNode.category.name}}">

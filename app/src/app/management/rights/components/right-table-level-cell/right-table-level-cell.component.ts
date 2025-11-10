@@ -20,9 +20,10 @@ import { Component, Input, OnInit } from '@angular/core';
 import { SecurityLevel } from '../../../models/right';
 
 @Component({
-  selector: 'cmdb-right-table-level-cell',
-  templateUrl: './right-table-level-cell.component.html',
-  styleUrls: ['./right-table-level-cell.component.scss']
+    selector: 'cmdb-right-table-level-cell',
+    templateUrl: './right-table-level-cell.component.html',
+    styleUrls: ['./right-table-level-cell.component.scss'],
+    standalone: false
 })
 export class RightTableLevelCellComponent implements OnInit {
 

@@ -2,7 +2,7 @@
     <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading>
 
     <div class="table-header d-flex mb-3" *ngIf="pageSizeEnabled || stateEnabled || toggleable || searchEnabled">
-        <div class="mr-auto" *ngIf="pageSizeEnabled">
+        <div class="me-auto" *ngIf="pageSizeEnabled">
             <table-page-size
                 [pageSize]="pageSize"
                 [pageSizeList]="pageSizeList"
@@ -16,7 +16,7 @@
 
         <div
             *ngIf="stateEnabled"
-            class="table-config-switch mr-1 ml-1 border-right"
+            class="table-config-switch me-1 ms-1 border-end"
             [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
         >
             <table-state
@@ -32,7 +32,7 @@
 
         <div
             *ngIf="toggleable"
-            class="table-toggle mr-1 ml-1 border-right" 
+            class="table-toggle me-1 ms-1 border-end" 
             [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
         >
             <table-column-toggle
@@ -42,13 +42,13 @@
             />
         </div>
 
-        <div *ngIf="columnSearchEnabled" class="btn-group mr-1 ml-1 border-right">
+        <div *ngIf="columnSearchEnabled" class="btn-group me-1 ms-1 border-end">
             <button class="btn btn-secondary btn-sm" type="button" (click)="onColumnSearchVisibilityChange()">
                 <i class="fas fa-filter"></i> Filter
             </button>
         </div>
 
-        <div class="table-search ml-1" *ngIf="searchEnabled">
+        <div class="table-search ms-1" *ngIf="searchEnabled">
             <table-search
                 [debounceTime]="debounceTime"
                 (searchChange)="searchChange.emit($event)"
@@ -191,7 +191,7 @@
     </table>
 
     <div class="table-footer d-flex">
-        <div class="mr-auto">
+        <div class="me-auto">
             <table-info
                 *ngIf="infoEnabled"
                 [show]="items?.length"

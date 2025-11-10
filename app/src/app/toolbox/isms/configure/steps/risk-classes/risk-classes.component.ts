@@ -23,9 +23,10 @@ import { Warning } from 'src/app/core/models/warning.model';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 
 @Component({
-  selector: 'app-isms-risk-classes',
-  templateUrl: './risk-classes.component.html',
-  styleUrls: ['./risk-classes.component.scss']
+    selector: 'app-isms-risk-classes',
+    templateUrl: './risk-classes.component.html',
+    styleUrls: ['./risk-classes.component.scss'],
+    standalone: false
 })
 export class RiskClassesComponent implements OnInit {
 

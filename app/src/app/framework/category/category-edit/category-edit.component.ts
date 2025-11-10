@@ -28,9 +28,10 @@ import { SidebarService } from '../../../layout/services/sidebar.service';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 
 @Component({
-  selector: 'cmdb-category-edit',
-  templateUrl: './category-edit.component.html',
-  styleUrls: ['./category-edit.component.scss']
+    selector: 'cmdb-category-edit',
+    templateUrl: './category-edit.component.html',
+    styleUrls: ['./category-edit.component.scss'],
+    standalone: false
 })
 export class CategoryEditComponent implements OnInit, OnDestroy {
 

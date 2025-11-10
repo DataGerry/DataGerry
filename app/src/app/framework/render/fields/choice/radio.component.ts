@@ -20,8 +20,9 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  templateUrl: './radio.component.html',
-  styleUrls: ['./radio.component.scss']
+    templateUrl: './radio.component.html',
+    styleUrls: ['./radio.component.scss'],
+    standalone: false
 })
 export class RadioComponent extends RenderFieldComponent {
 

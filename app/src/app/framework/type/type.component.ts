@@ -43,7 +43,8 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 @Component({
     selector: 'cmdb-type',
     templateUrl: './type.component.html',
-    styleUrls: ['./type.component.scss']
+    styleUrls: ['./type.component.scss'],
+    standalone: false
 })
 export class TypeComponent implements OnInit, OnDestroy {
 

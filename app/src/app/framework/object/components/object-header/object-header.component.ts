@@ -23,9 +23,10 @@ import { ToastService } from '../../../../layout/toast/toast.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 @Component({
-  selector: 'cmdb-object-header',
-  templateUrl: './object-header.component.html',
-  styleUrls: ['./object-header.component.scss']
+    selector: 'cmdb-object-header',
+    templateUrl: './object-header.component.html',
+    styleUrls: ['./object-header.component.scss'],
+    standalone: false
 })
 export class ObjectHeaderComponent {
 

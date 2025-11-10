@@ -38,7 +38,8 @@ import { UserSetting } from '../../../../../management/user-settings/models/user
 @Component({
     selector: 'cmdb-object-references-by-type',
     templateUrl: './object-references-by-type.component.html',
-    styleUrls: ['./object-references-by-type.component.scss']
+    styleUrls: ['./object-references-by-type.component.scss'],
+    standalone: false
 })
 export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
     // Table Template: active column

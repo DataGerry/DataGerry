@@ -31,9 +31,10 @@ import { RiskMatrixService } from '../../../services/risk-matrix.service';
 import { IsmsRiskMatrix, RiskMatrixCell } from 'src/app/toolbox/isms/models/risk-matrix.model';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 @Component({
-  selector: 'app-isms-risk-calculation',
-  templateUrl: './risk-calculation.component.html',
-  styleUrls: ['./risk-calculation.component.scss']
+    selector: 'app-isms-risk-calculation',
+    templateUrl: './risk-calculation.component.html',
+    styleUrls: ['./risk-calculation.component.scss'],
+    standalone: false
 })
 export class RiskCalculationComponent implements OnInit {
   @Input() config: IsmsConfig;

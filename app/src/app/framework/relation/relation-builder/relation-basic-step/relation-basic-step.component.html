@@ -7,7 +7,7 @@
     autocomplete="off"
   >
     <!-- Main Relation Section -->
-    <div class="form-group mb-4">
+    <div class="mb-3 mb-4">
       <label for="relationNameInput" class="form-label fw-semibold text-primary-dark">
         Relation Name <span class="text-danger">*</span>
       </label>
@@ -22,7 +22,7 @@
           'is-invalid': relation_name.invalid && (relation_name.dirty || relation_name.touched)
         }"
       />
-      <small class="form-text text-muted mt-1">
+      <small class="form-text mt-1">
         <i class=" me-1"></i>Use letters, numbers, and hyphens only
       </small>
       <div *ngIf="relation_name.invalid && (relation_name.dirty || relation_name.touched)"
@@ -43,7 +43,7 @@
             </h4>
           </div>
           <div class="card-body">
-            <div class="form-group mb-4">
+            <div class="mb-3 mb-4">
               <label class="form-label fw-semibold">
                 Label <span class="text-danger">*</span>
               </label>
@@ -79,11 +79,12 @@
                   formControlName="relation_color_parent"
                   class="form-control form-control-color"
                   title="Choose color"
+                  style="width: 100%; padding: 5px;"
                 />
               </div>
             </div>
 
-            <div class="form-group">
+            <div class="mb-3">
               <label class="form-label fw-semibold">
                 Allowed Parent Types <span class="text-danger">*</span>
               </label>
@@ -98,7 +99,7 @@
                 [closeOnSelect]="false"
               >
               </ng-select>
-              <small class="form-text text-muted mt-1 d-block">
+              <small class="form-text mt-1">
                 Allowed parent types in this relation
               </small>
             </div>
@@ -114,7 +115,7 @@
             </h4>
           </div>
           <div class="card-body">
-            <div class="form-group mb-4">
+            <div class="mb-3 mb-4">
               <label class="form-label fw-semibold">
                 Label <span class="text-danger">*</span>
               </label>
@@ -150,11 +151,12 @@
                   formControlName="relation_color_child"
                   class="form-control form-control-color"
                   title="Choose color"
+                  style="width: 100%; padding: 5px;"
                 />
               </div>
             </div>
 
-            <div class="form-group">
+            <div class="mb-3">
               <label class="form-label fw-semibold">
                 Allowed Child Types <span class="text-danger">*</span>
               </label>
@@ -169,7 +171,7 @@
                 [closeOnSelect]="false"
               >
               </ng-select>
-              <small class="form-text text-muted mt-1 d-block">
+              <small class="form-text mt-1">
                 Allowed child types in this relation
               </small>
             </div>
@@ -179,7 +181,7 @@
     </div>
 
     <!-- Description -->
-    <div class="form-group">
+    <div class="mb-3">
       <div class="card border-neutral-20 shadow-sm">
         <div class="card-header bg-neutral-10 border-bottom border-neutral-20 py-3">
           <h3 class="h6 mb-0 text-neutral-80">

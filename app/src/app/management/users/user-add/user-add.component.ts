@@ -31,7 +31,8 @@ import { User } from '../../models/user';
 @Component({
     selector: 'cmdb-user-add',
     templateUrl: './user-add.component.html',
-    styleUrls: ['./user-add.component.scss']
+    styleUrls: ['./user-add.component.scss'],
+    standalone: false
 })
 export class UserAddComponent implements AfterViewInit, OnDestroy {
 

@@ -22,9 +22,10 @@ import { debounceTime, takeUntil } from 'rxjs/operators';
 import { ReplaySubject } from 'rxjs';
 
 @Component({
-  selector: 'table-search',
-  templateUrl: './table-search.component.html',
-  styleUrls: ['./table-search.component.scss']
+    selector: 'table-search',
+    templateUrl: './table-search.component.html',
+    styleUrls: ['./table-search.component.scss'],
+    standalone: false
 })
 export class TableSearchComponent implements OnInit, OnDestroy {
 

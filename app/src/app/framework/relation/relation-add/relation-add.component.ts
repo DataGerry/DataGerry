@@ -24,9 +24,10 @@ import { RelationService } from '../../services/relaion.service';
 
 
 @Component({
-  selector: 'cmdb-relation-add',
-  templateUrl: './relation-add.component.html',
-  styleUrls: ['./relation-add.component.scss']
+    selector: 'cmdb-relation-add',
+    templateUrl: './relation-add.component.html',
+    styleUrls: ['./relation-add.component.scss'],
+    standalone: false
 })
 export class RelationAddComponent {
   public relationInstance: CmdbRelation;

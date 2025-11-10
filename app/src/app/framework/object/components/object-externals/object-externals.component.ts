@@ -21,9 +21,10 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { DomSanitizer } from '@angular/platform-browser';
 
 @Component({
-  selector: 'cmdb-object-externals',
-  templateUrl: './object-externals.component.html',
-  styleUrls: ['./object-externals.component.scss']
+    selector: 'cmdb-object-externals',
+    templateUrl: './object-externals.component.html',
+    styleUrls: ['./object-externals.component.scss'],
+    standalone: false
 })
 export class ObjectExternalsComponent {
 

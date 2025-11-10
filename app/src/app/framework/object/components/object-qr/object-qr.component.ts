@@ -19,9 +19,10 @@
 import { Component, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-object-qr',
-  templateUrl: './object-qr.component.html',
-  styleUrls: ['./object-qr.component.scss']
+    selector: 'cmdb-object-qr',
+    templateUrl: './object-qr.component.html',
+    styleUrls: ['./object-qr.component.scss'],
+    standalone: false
 })
 export class ObjectQrComponent implements OnInit {
   public urlContent: string = null;

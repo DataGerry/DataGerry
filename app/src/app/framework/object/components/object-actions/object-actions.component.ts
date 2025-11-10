@@ -33,9 +33,10 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-actions',
-  templateUrl: './object-actions.component.html',
-  styleUrls: ['./object-actions.component.scss']
+    selector: 'cmdb-object-actions',
+    templateUrl: './object-actions.component.html',
+    styleUrls: ['./object-actions.component.scss'],
+    standalone: false
 })
 export class ObjectActionsComponent implements OnDestroy {
 

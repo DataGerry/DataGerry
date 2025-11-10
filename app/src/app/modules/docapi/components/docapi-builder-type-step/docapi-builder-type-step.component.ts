@@ -25,7 +25,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 @Component({
     selector: 'cmdb-docapi-settings-builder-type-step',
     templateUrl: './docapi-builder-type-step.component.html',
-    styleUrls: ['./docapi-builder-type-step.component.scss']
+    styleUrls: ['./docapi-builder-type-step.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderTypeStepComponent implements OnInit {
 

@@ -23,7 +23,8 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'cmdb-delete-entry-modal',
     templateUrl: './delete-entry-modal.component.html',
-    styleUrls: ['./delete-entry-modal.component.scss']
+    styleUrls: ['./delete-entry-modal.component.scss'],
+    standalone: false
 })
 export class DeleteEntryModalComponent {
 

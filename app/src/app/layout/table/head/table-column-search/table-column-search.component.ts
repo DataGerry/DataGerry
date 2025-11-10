@@ -32,11 +32,12 @@ import { ReplaySubject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'thead[table-column-search]',
-  templateUrl: './table-column-search.component.html',
-  styleUrls: ['./table-column-search.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  encapsulation: ViewEncapsulation.Emulated
+    selector: 'thead[table-column-search]',
+    templateUrl: './table-column-search.component.html',
+    styleUrls: ['./table-column-search.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    encapsulation: ViewEncapsulation.Emulated,
+    standalone: false
 })
 export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
 

@@ -1,7 +1,11 @@
-<div class="modal-header">
+<div class="modal-header" style="background-color: #e94d18; color: white;">
   <h4 class="modal-title">Preview</h4>
-  <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss()">
-    <span aria-hidden="true">&times;</span>
+  <button 
+    type="button" 
+    class="btn-close" 
+    aria-label="Close" 
+    style="filter: invert(1) brightness(200%);" 
+    (click)="activeModal.dismiss()">
   </button>
 </div>
 <div class="modal-body">
@@ -10,5 +14,5 @@
   </div>
 </div>
 <div class="modal-footer">
-  <button type="button" class="btn btn-outline-dark" (click)="activeModal.close()">Close</button>
+  <button type="button" class="btn btn-warning" (click)="activeModal.close()">Close</button>
 </div>

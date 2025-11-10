@@ -29,6 +29,7 @@ import { finalize } from 'rxjs';
     selector: 'app-webhook-form',
     templateUrl: './webhook-form.component.html',
     styleUrls: ['./webhook-form.component.scss'],
+    standalone: false
 })
 export class WebhookFormComponent implements OnInit {
     public webhookForm: FormGroup;

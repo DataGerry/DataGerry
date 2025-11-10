@@ -1,3 +1,4 @@
+@use "sass:color";
 
 // Enhanced Variables
 $primary: #e94d18;
@@ -289,7 +290,7 @@ $gray-900: #212121;
       box-shadow: 0 4px 12px rgba($primary, 0.3);
 
       &:hover {
-        background: darken($primary, 5%);
+        background: color.scale($primary, $lightness: -5%);
         transform: translateY(-2px) scale(1.05);
       }
     }
@@ -1238,7 +1239,7 @@ defs {
     &:hover {
       .connection-label-bg {
         fill: $primary;
-        stroke: darken($primary, 10%);
+        stroke: color.scale($primary, $lightness: -10%);
       }
 
       .connection-label {

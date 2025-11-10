@@ -26,9 +26,10 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-link-delete-modal',
-  templateUrl: './object-link-delete-modal.component.html',
-  styleUrls: ['./object-link-delete-modal.component.scss']
+    selector: 'cmdb-object-link-delete-modal',
+    templateUrl: './object-link-delete-modal.component.html',
+    styleUrls: ['./object-link-delete-modal.component.scss'],
+    standalone: false
 })
 export class ObjectLinkDeleteModalComponent implements OnInit, OnDestroy {
 

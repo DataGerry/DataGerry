@@ -26,9 +26,10 @@ import { BehaviorSubject, Observable, ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-object-links-table-partner-cell',
-  templateUrl: './object-links-table-partner-cell.component.html',
-  styleUrls: ['./object-links-table-partner-cell.component.scss']
+    selector: 'cmdb-object-links-table-partner-cell',
+    templateUrl: './object-links-table-partner-cell.component.html',
+    styleUrls: ['./object-links-table-partner-cell.component.scss'],
+    standalone: false
 })
 export class ObjectLinksTablePartnerCellComponent implements OnInit, OnDestroy {
 

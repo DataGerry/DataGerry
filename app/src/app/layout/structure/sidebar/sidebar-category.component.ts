@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { CmdbCategoryNode } from '../../../framework/models/cmdb-category';
 
 @Component({
-  selector: 'cmdb-sidebar-category',
-  templateUrl: './sidebar-category.component.html',
-  styleUrls: ['./sidebar-category.component.scss'],
+    selector: 'cmdb-sidebar-category',
+    templateUrl: './sidebar-category.component.html',
+    styleUrls: ['./sidebar-category.component.scss'],
+    standalone: false
 })
 export class SidebarCategoryComponent {
 

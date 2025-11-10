@@ -19,7 +19,8 @@
 import { Directive, HostBinding, Input } from '@angular/core';
 
 @Directive({
-  selector: 'tbody[table-body]'
+    selector: 'tbody[table-body]',
+    standalone: false
 })
 export class TableBodyDirective {
   /**

@@ -32,7 +32,7 @@ const routes: Routes = [
         path: 'create',
         component: CreateReportComponent,
         data: {
-            breadcrumb: 'Create Report'
+            breadcrumb: 'Add Report'
         }
     },
     {

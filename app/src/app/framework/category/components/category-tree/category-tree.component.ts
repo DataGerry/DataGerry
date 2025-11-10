@@ -22,9 +22,10 @@ import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 import { CmdbMode } from '../../../modes.enum';
 
 @Component({
-  selector: 'cmdb-category-tree',
-  templateUrl: './category-tree.component.html',
-  styleUrls: ['./category-tree.component.scss']
+    selector: 'cmdb-category-tree',
+    templateUrl: './category-tree.component.html',
+    styleUrls: ['./category-tree.component.scss'],
+    standalone: false
 })
 export class CategoryTreeComponent {
 

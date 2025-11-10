@@ -28,7 +28,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
 @Component({
     selector: 'cmdb-textarea-edit',
     templateUrl: './textarea-edit.component.html',
-    styleUrls: ['./textarea-edit.component.scss']
+    styleUrls: ['./textarea-edit.component.scss'],
+    standalone: false
 })
 export class TextareaEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

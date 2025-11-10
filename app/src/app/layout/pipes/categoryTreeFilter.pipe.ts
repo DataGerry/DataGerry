@@ -20,7 +20,8 @@ import { Pipe, PipeTransform } from '@angular/core';
 import { CmdbCategoryTree } from '../../framework/models/cmdb-category';
 
 @Pipe({
-  name: 'categoryTreeFilter'
+    name: 'categoryTreeFilter',
+    standalone: false
 })
 
 export class CategoryTreeFilterPipe implements PipeTransform {

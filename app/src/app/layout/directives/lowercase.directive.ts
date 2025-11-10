@@ -19,7 +19,8 @@
 import { Directive, HostListener } from '@angular/core';
 
 @Directive({
-  selector: '[lowercase]'
+    selector: '[lowercase]',
+    standalone: false
 })
 export class LowercaseDirective {
 

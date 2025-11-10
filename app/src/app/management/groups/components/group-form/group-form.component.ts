@@ -28,9 +28,10 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
 
 @Component({
-  selector: 'cmdb-group-form',
-  templateUrl: './group-form.component.html',
-  styleUrls: ['./group-form.component.scss']
+    selector: 'cmdb-group-form',
+    templateUrl: './group-form.component.html',
+    styleUrls: ['./group-form.component.scss'],
+    standalone: false
 })
 export class GroupFormComponent implements OnInit, OnChanges, OnDestroy {
 

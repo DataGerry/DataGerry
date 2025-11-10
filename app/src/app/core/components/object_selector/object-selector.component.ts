@@ -27,9 +27,10 @@ import { InfiniteScrollService } from 'src/app/layout/services/infinite-scroll.s
 import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
 
 @Component({
-  selector: 'app-object-selector',
-  templateUrl: './object-selector.component.html',
-  styleUrls: ['./object-selector.component.scss']
+    selector: 'app-object-selector',
+    templateUrl: './object-selector.component.html',
+    styleUrls: ['./object-selector.component.scss'],
+    standalone: false
 })
 export class ObjectSelectorComponent implements OnInit {
   @Input() typeIds: number[] = [];

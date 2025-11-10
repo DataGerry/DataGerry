@@ -50,6 +50,7 @@ interface LocationNode {
     selector: 'location-tree',
     templateUrl: './location-tree.component.html',
     styleUrls: ['./location-tree.component.scss'],
+    standalone: false
 })
 export class LocationTreeComponent implements OnInit, OnDestroy {
 

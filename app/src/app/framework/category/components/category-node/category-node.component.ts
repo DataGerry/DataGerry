@@ -28,9 +28,10 @@ import {ReplaySubject} from "rxjs";
 import {takeUntil} from "rxjs/operators";
 
 @Component({
-  selector: 'cmdb-category-node',
-  templateUrl: './category-node.component.html',
-  styleUrls: ['./category-node.component.scss']
+    selector: 'cmdb-category-node',
+    templateUrl: './category-node.component.html',
+    styleUrls: ['./category-node.component.scss'],
+    standalone: false
 })
 export class CategoryNodeComponent implements OnDestroy {
 

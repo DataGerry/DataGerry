@@ -26,9 +26,10 @@ Chart.register(...registerables);
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-charts',
-  templateUrl: './charts.component.html',
-  styleUrls: ['./charts.component.scss']
+    selector: 'cmdb-charts',
+    templateUrl: './charts.component.html',
+    styleUrls: ['./charts.component.scss'],
+    standalone: false
 })
 export class ChartsComponent implements AfterViewInit, AfterViewChecked {
 

@@ -27,9 +27,10 @@ import { SidebarService } from '../../../layout/services/sidebar.service';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 
 @Component({
-  selector: 'cmdb-category-add',
-  templateUrl: './category-add.component.html',
-  styleUrls: ['./category-add.component.scss']
+    selector: 'cmdb-category-add',
+    templateUrl: './category-add.component.html',
+    styleUrls: ['./category-add.component.scss'],
+    standalone: false
 })
 export class CategoryAddComponent implements OnInit, OnDestroy {
 

@@ -50,7 +50,8 @@ export const configComponents: { [type: string]: any } = {
 @Component({
     selector: 'cmdb-file-config',
     templateUrl: './file-config.component.html',
-    styleUrls: ['./file-config.component.scss']
+    styleUrls: ['./file-config.component.scss'],
+    standalone: false
 })
 export class FileConfigComponent extends FileConfig implements OnInit, OnChanges, OnDestroy {
     @ViewChild('fileConfig', { read: ViewContainerRef, static: true }) fileConfig;

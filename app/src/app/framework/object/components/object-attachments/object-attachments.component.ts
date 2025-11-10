@@ -27,9 +27,10 @@ import { FileElement } from '../../../../layout/components/file-explorer/model/f
 import { AttachmentsListModalComponent } from '../../../../layout/helpers/modals/attachments-list-modal/attachments-list-modal.component';
 
 @Component({
-  selector: 'cmdb-object-attachments',
-  templateUrl: './object-attachments.component.html',
-  styleUrls: ['./object-attachments.component.scss']
+    selector: 'cmdb-object-attachments',
+    templateUrl: './object-attachments.component.html',
+    styleUrls: ['./object-attachments.component.scss'],
+    standalone: false
 })
 export class ObjectAttachmentsComponent implements OnInit, OnDestroy {
 

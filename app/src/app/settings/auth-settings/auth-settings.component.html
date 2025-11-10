@@ -4,12 +4,12 @@
 <div class="row">
     <div class="col-md-9">
         <form class="needs-validation" [formGroup]="authConfigForm" (ngSubmit)="onSave()" novalidate>
-            <div class="form-group row mb-3">
+            <div class="mb-3 row mb-3">
                 <div class="col-sm-3">
                     Enable external
                 </div>
                 <div class="col-sm-9">
-                    <div class="custom-control custom-checkbox">
+                    <div class="form-check">
                         <input
                             class="custom-control-input"
                             type="checkbox"
@@ -20,7 +20,7 @@
                     </div>
                 </div>
             </div>
-            <div class="form-group row mb-3">
+            <div class="mb-3 row mb-3">
                 <label class="col-sm-3 col-form-label" for="token-lifetime-input">
                     Token lifetime
                 </label>
@@ -59,7 +59,7 @@
                 </ng-container>
             </div>
             <hr/>
-            <button type="submit" class="btn btn-success float-right" [disabled]="!authConfigForm.valid">
+            <button type="submit" class="btn btn-success text-end" [disabled]="!authConfigForm.valid">
                 <i class="far fa-save"></i> Save
             </button>
             <div class="clearfix"></div>

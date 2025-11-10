@@ -21,7 +21,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
   selector: 'app-licenses',
   templateUrl: './licenses.component.html',
-  styleUrls: ['./licenses.component.scss']
+  styleUrls: ['./licenses.component.scss'],
+  standalone: false
 })
 export class LicensesComponent {
   public isLoading$ = this.loaderService.isLoading$;

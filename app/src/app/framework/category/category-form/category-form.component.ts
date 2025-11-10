@@ -34,9 +34,10 @@ import { APIGetMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-category-form',
-  templateUrl: './category-form.component.html',
-  styleUrls: ['./category-form.component.scss']
+    selector: 'cmdb-category-form',
+    templateUrl: './category-form.component.html',
+    styleUrls: ['./category-form.component.scss'],
+    standalone: false
 })
 export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 

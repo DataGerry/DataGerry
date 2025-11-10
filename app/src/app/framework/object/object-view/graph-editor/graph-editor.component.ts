@@ -62,17 +62,18 @@ import { ConnectionTrackerService } from './services/connection-tracker.service'
 import { CiExplorerExportService } from './services/ci-explorer-export.service';
 
 @Component({
-  selector: 'app-graph-editor',
-  templateUrl: './graph-editor.component.html',
-  styleUrls: ['./graph-editor.component.scss'],
-  providers: [
-    GraphDataService,
-    GraphLayoutService,
-    GraphViewportService,
-    GraphExpansionService,
-    GraphFilterService,
-    GraphPathService
-  ]
+    selector: 'app-graph-editor',
+    templateUrl: './graph-editor.component.html',
+    styleUrls: ['./graph-editor.component.scss'],
+    providers: [
+        GraphDataService,
+        GraphLayoutService,
+        GraphViewportService,
+        GraphExpansionService,
+        GraphFilterService,
+        GraphPathService
+    ],
+    standalone: false
 })
 export class GraphEditorComponent implements OnInit, OnDestroy {
   @ViewChild('svgContainer') svgContainer!: ElementRef;

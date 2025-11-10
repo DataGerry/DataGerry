@@ -34,7 +34,8 @@ import { environment } from 'src/environments/environment';
 @Component({
     selector: 'cmdb-dashboard',
     templateUrl: './dashboard.component.html',
-    styleUrls: ['./dashboard.component.scss']
+    styleUrls: ['./dashboard.component.scss'],
+    standalone: false
 })
 export class DashboardComponent implements OnInit, OnDestroy {
 

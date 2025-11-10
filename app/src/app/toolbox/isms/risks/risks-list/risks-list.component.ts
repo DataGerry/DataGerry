@@ -39,9 +39,10 @@ import { OptionType } from '../../models/option-type.enum';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 
 @Component({
-  selector: 'app-risks-list',
-  templateUrl: './risks-list.component.html',
-  styleUrls: ['./risks-list.component.scss']
+    selector: 'app-risks-list',
+    templateUrl: './risks-list.component.html',
+    styleUrls: ['./risks-list.component.scss'],
+    standalone: false
 })
 export class RisksListComponent implements OnInit {
   // Template references for the cmdb-table

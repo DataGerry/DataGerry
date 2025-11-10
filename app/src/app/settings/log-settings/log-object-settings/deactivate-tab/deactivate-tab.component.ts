@@ -35,9 +35,10 @@ import { UserSettingsDBService } from '../../../../management/user-settings/serv
 
 
 @Component({
-  selector: 'cmdb-deactivate-tab',
-  templateUrl: './deactivate-tab.component.html',
-  styleUrls: ['./deactivate-tab.component.scss']
+    selector: 'cmdb-deactivate-tab',
+    templateUrl: './deactivate-tab.component.html',
+    styleUrls: ['./deactivate-tab.component.scss'],
+    standalone: false
 })
 export class DeactivateTabComponent implements OnInit, OnDestroy {
 

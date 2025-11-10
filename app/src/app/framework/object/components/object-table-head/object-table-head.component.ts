@@ -26,9 +26,10 @@ import { ObjectService } from 'src/app/framework/services/object.service';
 import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 
 @Component({
-  selector: 'cmdb-object-table-head',
-  templateUrl: './object-table-head.component.html',
-  styleUrls: ['./object-table-head.component.scss']
+    selector: 'cmdb-object-table-head',
+    templateUrl: './object-table-head.component.html',
+    styleUrls: ['./object-table-head.component.scss'],
+    standalone: false
 })
 export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
