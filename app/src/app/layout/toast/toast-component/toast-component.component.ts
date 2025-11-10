@@ -75,6 +75,7 @@ export class ToastComponentComponent {
   }
 
   closeToast(toast: any) {
+    console.log('closeToast called for toast:', toast);
     this.toastService.remove(toast);
   }
   

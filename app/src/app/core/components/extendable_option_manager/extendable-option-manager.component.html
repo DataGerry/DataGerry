@@ -40,7 +40,7 @@
               <td>
                 <ng-container *ngIf="opt.predefined; else normalActions">
                   <!-- Show Predefined Tag -->
-                  <span class="badge badge-secondary">Predefined</span>
+                  <span class="badge bg-secondary">Predefined</span>
                 </ng-container>
                 <ng-template #normalActions>
                   <ng-container *ngIf="editingItemId === opt.public_id; else actionButtons">

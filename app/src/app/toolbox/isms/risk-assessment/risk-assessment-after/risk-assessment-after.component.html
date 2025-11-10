@@ -34,18 +34,30 @@
     <hr>
 
 
-    <div class="row g-3">
+    <div class="row g-3 ms-2">
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label fw-semibold mb-2" style="white-space: nowrap;">Calculated Risk</label>
-                <div class="calculated-risk readonly" [style.background-color]="calcRiskBgColor" style="display: flex; justify-content: center; align-items: center; 
-                              height: 60px; width: 60px; 
-                              border-radius: 1px;
-                              box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                              font-size: 1.75rem; 
-                              font-weight: 500;
-                              color: #fff;">
+                <div class="calculated-risk readonly" [style.background-color]="calcRiskBgColor" style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 70px;
+                width: 70px;
+                border-radius: 4px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                font-size: 1.25rem;
+                font-weight: 500;
+                color: #fff;
+                text-align: center;
+                padding: 4px;
+                overflow: hidden;
+                word-wrap: break-word;
+                line-height: 1.1;
+              ">
+                  <span style="display: block; width: 100%; overflow: hidden; text-overflow: ellipsis;">
                     {{ afterGroup.get('risk_level_value')?.value }}
+                  </span>
                 </div>
             </div>
         </div>

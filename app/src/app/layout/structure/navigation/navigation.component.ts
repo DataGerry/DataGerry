@@ -195,5 +195,4 @@ export class NavigationComponent implements OnInit {
     public goToAiPromptPage(): void {
         this.router.navigate(['/ai-assistant']);
       }
-      
 }

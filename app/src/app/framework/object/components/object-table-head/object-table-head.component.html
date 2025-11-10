@@ -16,7 +16,7 @@
                 [ngbTooltip]="getBulkChangeTooltip()"
                 class="btn btn-secondary btn-sm me-1" (click)="onBulkChange()">
           <i class="fas fa-tasks"></i> Bulk Change <span
-          class="badge badge-primary badge-pill">{{selectedObjects.length}}</span>
+          class="badge bg-primary bg-pill">{{selectedObjects.length}}</span>
         </button>
         <button type="button" *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'" 
                 (click)="manyObjectDeletes.emit()"
@@ -24,7 +24,7 @@
                 [disabled]="selectedObjects.length<=0" 
                 class="btn btn-danger btn-sm me-1">
           <i class="far fa-trash-alt"></i> Delete Selected
-          <span class="badge badge-secondary badge-pill">{{selectedObjects.length}}</span>
+          <span class="badge bg-secondary bg-pill">{{selectedObjects.length}}</span>
         </button>
       </ng-container>
     </div>

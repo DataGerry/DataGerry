@@ -1,38 +1,69 @@
 <div class="modal-content">
-    <div class="modal-header">
-        <h4 class="modal-title">Clone Template</h4>
-        <button type="button" class="close text-white" (click)="activeModal.close(false)">
-            <span aria-hidden="true">×</span>
-        </button>
+    <div class="modal-header bg-primary text-white">
+      <h4 class="modal-title mb-0">Clone Template</h4>
+      <button
+        type="button"
+        class="btn-close btn-close-white"
+        aria-label="Close"
+        (click)="activeModal.close(false)">
+      </button>
     </div>
+  
     <div class="modal-body">
-        <div class="clone-heading">
-            <h4><b>Cloning of {{sectionTemplate.label}} [ID:{{sectionTemplate.public_id}}]</b></h4>
-            Enter the name for the copy and decide if it should be a global template!
+      <div class="clone-heading mb-3">
+        <h5 class="fw-bold">
+          Cloning of {{ sectionTemplate.label }} [ID: {{ sectionTemplate.public_id }}]
+        </h5>
+        <p class="mb-0">
+          Enter the name for the copy and decide if it should be a global template!
+        </p>
+      </div>
+  
+      <form [formGroup]="cloneForm" novalidate>
+        <div class="mb-3">
+          <hr class="my-3" />
+  
+          <!-- Template name -->
+          <div class="mb-3">
+            <label for="templateLabel" class="form-label fw-semibold">Template name</label>
+            <input
+              id="templateLabel"
+              type="text"
+              formControlName="templateLabel"
+              class="form-control"
+              placeholder="Template name"
+              required
+              autofocus />
+          </div>
+  
+          <!-- Global Template checkbox -->
+          <div class="form-check">
+            <input
+              id="isGlobal"
+              class="form-check-input"
+              type="checkbox"
+              formControlName="isGlobal" />
+            <label class="form-check-label" for="isGlobal">Global Template</label>
+          </div>
         </div>
-        <form [formGroup]="cloneForm">
-            <div class="mb-3">
-                <hr>
-                <br>
-                <div class="form-label-group">
-                    <input 
-                        type="text"
-                        formControlName="templateLabel"
-                        placeholder="Template name"
-                        required
-                        autofocus
-                    >
-                </div>
-                <br>
-                <div class="form-label-group">
-                    <input formControlName="isGlobal" type="checkbox" id="isGlobal">
-                    <label class="is-global-label" for="isGlobal">Global Template</label>
-                </div>
-            </div>
-        </form>
+      </form>
     </div>
+  
     <div class="modal-footer">
-        <button type="button" class="btn btn-warning" (click)="activeModal.close(false)">Cancel</button>
-        <button type="button" class="btn btn-success" [disabled]="!cloneForm.valid" (click)="activeModal.close(cloneForm.value)">Clone Template</button>
+      <button
+        type="button"
+        class="btn btn-outline-secondary"
+        (click)="activeModal.close(false)">
+        Cancel
+      </button>
+  
+      <button
+        type="button"
+        class="btn btn-success"
+        [disabled]="!cloneForm.valid"
+        (click)="activeModal.close(cloneForm.value)">
+        Clone Template
+      </button>
     </div>
-</div>
+  </div>
+  

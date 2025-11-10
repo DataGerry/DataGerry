@@ -1,31 +1,31 @@
 <div class="card-header">
   <ul class="nav nav-tabs card-header-tabs">
     <li class="nav-item">
-      <a class="nav-link active" data-toggle="tab" href="#ldap-global-panel"
+      <a class="nav-link active" data-bs-toggle="tab" href="#ldap-global-panel"
          role="tab">
         LDAP Authentication Provider
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-toggle="tab" href="#ldap-server-panel"
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-server-panel"
          role="tab">
         Server Config
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-toggle="tab" href="#ldap-connection-panel"
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-connection-panel"
          role="tab">
         Connection Config
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-toggle="tab" href="#ldap-search-panel"
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-search-panel"
          role="tab">
         Search
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-toggle="tab" href="#ldap-group-mapping-panel"
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-group-mapping-panel"
          role="tab">
         Groups Mapping
       </a>
@@ -38,7 +38,7 @@
       <div class="form-group row mb-3">
         <div class="col-sm-3">Active:</div>
         <div class="col-sm-9">
-          <div class="custom-control custom-checkbox">
+          <div class="form-check">
             <input class="custom-control-input" type="checkbox"
                    formControlName="active" id="ldap-provider-active-input">
             <label class="custom-control-label" for="ldap-provider-active-input"></label>
@@ -49,7 +49,7 @@
         <label class="col-sm-3 col-form-label" for="default-group-input">Default Group:</label>
         <div class="col-sm-9">
           <div class="input-group">
-            <select class="custom-select" id="default-group-input" formControlName="default_group">
+            <select class="form-select" id="default-group-input" formControlName="default_group">
               <option *ngFor="let group of groups"
                       [value]="group.public_id">{{group.label ? group.label : group.name}}</option>
             </select>
@@ -77,7 +77,7 @@
       <div class="form-group row mb-3">
         <div class="col-sm-3">Use SSL:</div>
         <div class="col-sm-9">
-          <div class="custom-control custom-checkbox">
+          <div class="form-check">
             <input class="custom-control-input" type="checkbox"
                    formControlName="use_ssl" id="ssl-input">
             <label class="custom-control-label" for="ssl-input"></label>
@@ -134,7 +134,7 @@
       <div class="form-group row mb-3">
         <div class="col-sm-3">Active:</div>
         <div class="col-sm-9">
-          <div class="custom-control custom-checkbox">
+          <div class="form-check">
             <input class="custom-control-input" type="checkbox"
                    formControlName="active" id="ldap-provider-group-mapping-active-input">
             <label class="custom-control-label" for="ldap-provider-group-mapping-active-input"></label>
@@ -161,5 +161,5 @@
   </div>
 </div>
 <div class="card-footer text-muted text-end">
-  <span class="badge badge-primary">External</span>
+  <span class="badge bg-primary">External</span>
 </div>

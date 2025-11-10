@@ -1,36 +1,69 @@
 <div class="modal-header bg-primary text-white">
   <h4 class="modal-title">Change user password</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
+  <button
+    type="button"
+    class="btn-close btn-close-white"
+    aria-label="Close"
+    (click)="activeModal.dismiss('Cross click')">
   </button>
 </div>
+
 <form [formGroup]="passwdForm" (ngSubmit)="onPasswordChange()" novalidate>
   <div class="modal-body">
-    <p>Change password of the user: {{user.user_name}}</p>
-    <div class="form-group row">
+    <p>Change password of the user: {{ user.user_name }}</p>
+
+    <div class="row mb-3">
       <label class="col-sm-2 col-form-label">Password: <span class="required">*</span></label>
+
       <div class="col-sm-10">
         <div class="input-group">
-          <input type="password" #passWordInput formControlName="password" class="form-control" placeholder="Password"
-                 [ngClass]="{ 'is-valid': password.valid && (password.dirty || password.touched),
-                 'is-invalid': password.invalid && (password.dirty || password.touched)}">
-          <div class="input-group-append">
-            <span class="input-group-text" (click)="toggleInput()"><i class="far fa-eye"></i></span>
-          </div>
-          <div *ngIf="password.invalid && (password.dirty || password.touched)"
-               class="invalid-feedback">
-            <div class="text-end ms-2" *ngIf="password.errors.required">
+          <input
+            type="password"
+            #passWordInput
+            formControlName="password"
+            class="form-control"
+            placeholder="Password"
+            [ngClass]="{
+              'is-valid': password.valid && (password.dirty || password.touched),
+              'is-invalid': password.invalid && (password.dirty || password.touched)
+            }"
+          />
+
+          <!-- BS5: no input-group-append; place addon directly -->
+          <span
+            class="input-group-text"
+            role="button"
+            (click)="toggleInput()"
+            title="Show/Hide password"
+            style="cursor:pointer"
+          >
+            <i class="far fa-eye"></i>
+          </span>
+
+          <!-- Validation feedback (kept as-is) -->
+          <div
+            *ngIf="password.invalid && (password.dirty || password.touched)"
+            class="invalid-feedback"
+          >
+            <div class="text-end ms-2" *ngIf="password.errors?.required">
               Password is required
             </div>
-            <div class="text-end ms-2" *ngIf="password.errors.strength">
+            <div class="text-end ms-2" *ngIf="password.errors?.strength">
               Password is not strong enough
             </div>
             <div class="clearfix"></div>
           </div>
         </div>
-        <password-strength-meter [password]="password.value" [enableFeedback]="true">></password-strength-meter>
+
+        <!-- Fix stray extra '>' and keep component -->
+        <password-strength-meter
+          [password]="password.value"
+          [enableFeedback]="true">
+        </password-strength-meter>
       </div>
     </div>
   </div>
+
   <div class="modal-footer">
     <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss('Close click')">Close</button>
     <button type="submit" class="btn btn-outline-primary" [disabled]="!passwdForm.valid">Save</button>

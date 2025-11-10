@@ -9,7 +9,7 @@
     </button>
 
     <form [formGroup]="form">
-        <div class="setting-dropdown dropdown-menu dropdown-menu-end dropdown-menu-lg-left text-center">
+        <div class="setting-dropdown dropdown-menu dropdown-menu-end dropdown-menu-start text-center">
             <!-- Save state -->
             <span class="input-group p-2">
                 <input
@@ -19,15 +19,14 @@
                     [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                                 'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
                 />
-                <span class="input-group-append">
-                    <button
-                        [disabled]="form.invalid"
-                        class="btn btn-success btn-sm"
-                        (click)="saveState(nameControl.value, $event)"
-                    >
-                        <i class="fas fa-save"></i>
-                    </button>
-                </span>
+                <button
+                type="button"
+                class="btn btn-success"
+                [disabled]="form.invalid"
+                (click)="saveState(nameControl.value, $event)"
+              >
+                <i class="fas fa-save"></i>
+              </button>
             </span>
 
             <div class="dropdown-divider"></div>

@@ -1,54 +1,33 @@
-<cmdb-table
-    [items]="types"
-    [columns]="columns"
-    [page]="page"
-    [sort]="sort"
-    [id]="'type-list-table'"
-    [stateEnabled]="false"
-    [emptyMessage]="'No types were found!'"
-    [customButtons]="[activatedButtonTemplate]"
-    [totalItems]="totalTypes"
-    [loading]="loading"
-    [pageSize]="limit"
-    (pageChange)="onPageChange($event)"
-    (pageSizeChange)="onPageSizeChange($event)"
-    (sortChange)="onSortChange($event)"
-    (searchChange)="onSearchChange($event)"
-/>
+<cmdb-table [items]="types" [columns]="columns" [page]="page" [sort]="sort" [id]="'type-list-table'"
+    [stateEnabled]="false" [emptyMessage]="'No types were found!'" [customButtons]="[activatedButtonTemplate]"
+    [totalItems]="totalTypes" [loading]="loading" [pageSize]="limit" (pageChange)="onPageChange($event)"
+    (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
+    (searchChange)="onSearchChange($event)" />
 
 <ng-template #typeNameTemplate let-item="item">
-    <cmdb-type-label
-        [faIcon]="item.render_meta?.icon"
-        [description]="item?.description"
-        [title]="item.label ? item.label : item.name"
-    />
+    <cmdb-type-label [faIcon]="item.render_meta?.icon" [description]="item?.description"
+        [title]="item.label ? item.label : item.name" />
 </ng-template>
 
 <ng-template #aclActivateTemplate let-data="data">
     <div class="text-center">
         @if(data.activated) {
-            <span class="badge bg-success">Activated</span>
+        <span class="badge bg-success">Activated</span>
         }
         @else {
-            <span class="badge bg-danger">Deactivated</span>
+        <span class="badge bg-danger">Deactivated</span>
         }
     </div>
 </ng-template>
 
 <ng-template #aclPermissionsTemplate let-data="data">
-    <cmdb-acl-object-permissions
-        [group]="group"
-        [acl]="data"
-    />
+    <cmdb-acl-object-permissions [group]="group" [acl]="data" />
 </ng-template>
 
 <ng-template #aclTypeEditTemplate let-item="item">
     <div class="d-flex justify-content-center">
-        <a
-            [routerLink]="['/', 'framework', 'type', 'edit', item.public_id]"
-            [queryParams]="{ stepIndex: 3}"
-            title="Edit type"
-        >
+        <a [routerLink]="['/', 'framework', 'type', 'edit', item.public_id]" [queryParams]="{ stepIndex: 3}"
+            title="Edit type">
             <i class="far fa-edit spacing-right icon-edit"></i>
         </a>
     </div>
@@ -57,14 +36,10 @@
 <!-- Custom table buttons -->
 <ng-template #activatedButtonTemplate>
     <div [formGroup]="activatedForm" class="acl-group-active-button-group d-flex align-items-center border-end pe-2">
-        <div class="custom-control custom-switch">
-            <input
-                type="checkbox"
-                formControlName="active"
-                class="custom-control-input"
-                id="acl-group-active-button-group-switch"
-            >
-            <label class="custom-control-label" for="acl-group-active-button-group-switch">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="acl-group-active-button-group-switch"
+                formControlName="active" />
+            <label class="form-check-label" for="acl-group-active-button-group-switch">
                 Activated
             </label>
         </div>
