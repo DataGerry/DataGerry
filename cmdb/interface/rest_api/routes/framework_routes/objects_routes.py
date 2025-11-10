@@ -221,7 +221,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_cmdb_object(public_id: int, request_user: CmdbUser):
+def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbObject with render information
 
@@ -275,7 +275,7 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjects
 
@@ -399,7 +399,7 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_native_cmdb_object(public_id: int, request_user: CmdbUser):
+def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbObject
 
@@ -436,7 +436,7 @@ def get_native_cmdb_object(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser):
+def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Response:
     """
     Groups CmdbObjects by their type_id and returns a structured response
     
@@ -486,7 +486,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser):
+def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the MDS reference for a given CmdbObject
 
@@ -539,7 +539,7 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser):
+def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the MDS references for one or more CmdbObjects
 
@@ -599,7 +599,7 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
-def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Retrieves references for a given CmdbObject based on specified criteria
 
@@ -676,7 +676,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.activation')
-def get_cmdb_object_state(public_id: int, request_user: CmdbUser):
+def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the state (active/inactive) of a CmdbObject
 
@@ -908,7 +908,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.activation')
-def update_cmdb_object_state(public_id: int, request_user: CmdbUser):
+def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     Updates the active state of a CmdbObject
 
@@ -940,7 +940,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser):
         if not found_object:
             abort(404, f"Object with ID:{public_id} not found!")
 
-        found_object = CmdbObject.from_data(found_object)
+        found_object: CmdbObject = CmdbObject.from_data(found_object)
 
         if found_object.active == state:
             return DefaultResponse(False).make_response()
@@ -982,7 +982,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser):
 
         try:
             # generate log
-            change = {
+            change: dict[str, bool] = {
                 'old': not state,
                 'new': state
             }

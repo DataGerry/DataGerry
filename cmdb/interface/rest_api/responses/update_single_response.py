@@ -39,7 +39,6 @@ class UpdateSingleResponse(BaseAPIResponse):
 
         Args:
             result: Updated resource
-            failed: Failed data update
         """
         self.result: dict[str, Any] = result
         super().__init__(operation_type=OperationType.UPDATE)

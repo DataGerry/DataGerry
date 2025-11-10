@@ -1,0 +1,6 @@
+<!-- Object Group -->
+<field name="public_id" type="integer"/>
+<field name="name" type="string"/>
+<field name="group_type" type="string"/>
+<field name="assigned_ids" type="array"/>
+<field name="categories" type="array"/>

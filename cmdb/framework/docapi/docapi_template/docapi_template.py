@@ -16,6 +16,7 @@
 """
 Implementation of DocapiTemplate
 """
+from typing import Any
 from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
 from cmdb.models.docapi_model import DocapiTemplateType
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -30,23 +31,25 @@ class DocapiTemplate(TemplateManagementBase):
     COLLECTION = 'docapi.templates'
     MODEL = 'DocapiTemplate'
 
-    INDEX_KEYS = [
+    INDEX_KEYS: list[Any] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
 
     #pylint: disable=too-many-arguments
     #pylint: disable=too-many-positional-arguments
-    def __init__(self,
-                 name: str,
-                 label: str = None,
-                 description: str = None,
-                 active: bool = None,
-                 author_id: int = None,
-                 template_data = None,
-                 template_style = None,
-                 template_type = None,
-                 template_parameters = None,
-                 **kwargs):
+    def __init__(
+        self,
+        name: str,
+        label: str = None,
+        description: str = None,
+        active: bool = True,
+        author_id: int = None,
+        template_data = None,
+        template_style = None,
+        template_type: DocapiTemplateType = None,
+        template_parameters = None,
+        **kwargs
+    ) -> None:
         """
         Args:
             name: name of this template
@@ -59,14 +62,14 @@ class DocapiTemplate(TemplateManagementBase):
             template_parameters: parameter of this template depending on the type
             **kwargs: optional params
         """
-        self.name = name
-        self.label = label
-        self.description = description
-        self.active = active
+        self.name: str = name
+        self.label: str = label
+        self.description: str = description
+        self.active: bool = active
         self.author_id = author_id
         self.template_data = template_data
         self.template_style = template_style
-        self.template_type = template_type or DocapiTemplateType.OBJECT
+        self.template_type: DocapiTemplateType = template_type or DocapiTemplateType.OBJECT
         self.template_parameters = template_parameters
         super().__init__(**kwargs)
 
@@ -83,8 +86,8 @@ class DocapiTemplate(TemplateManagementBase):
             DocapiTemplate: DocapiTemplate with the given data
         """
         return cls(
-            public_id = data.get('public_id'),
-            name = data.get('name'),
+            public_id = data['public_id'],
+            name = data['name'],
             label = data.get('label', None),
             description = data.get('description', None),
             active = data.get('active', None),
