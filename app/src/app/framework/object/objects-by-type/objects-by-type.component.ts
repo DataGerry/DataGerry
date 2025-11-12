@@ -205,12 +205,9 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         const fields = type.fields || [];
         const summaryFields = type.render_meta.summary.fields || [];
 
-        const myFields: string[] = type.render_meta.sections
-            .filter(newfilter => newfilter.type !== 'multi-data-section')
-            .flatMap(fields => fields.fields.map(field => field));
-
-        const newFields: any[] = fields
-            .filter(newField => myFields.includes(newField.name));
+        // Get sections excluding multi-data-section
+        const sections = type.render_meta.sections
+            .filter(section => section.type !== 'multi-data-section');
 
         const columns = [
             {
@@ -234,27 +231,34 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             }
         ] as Array<Column>;
 
-        newFields.map(field => {
-            columns.push({
-                display: field.label,
-                name: `fields.${field.name}`,
-                data: field.name,
-                type: field.type,
-                sortable: true,
-                searchable: true,
-                hidden: !summaryFields.includes(field.name),
-                render(data: RenderResult, item: RenderResult, column: Column) {
-                    const renderedField = item.fields.find(f => f.name === column.data);
-                    if (!renderedField) {
-                        return {};
-                    }
-                    return {
-                        field: renderedField,
-                        value: renderedField.value
-                    };
-                },
-                template: this.fieldTemplate
-            } as Column);
+        // Iterate through sections and their fields in order
+        sections.forEach(section => {
+            section.fields.forEach(fieldName => {
+                // Find the field definition from the fields array
+                const field = fields.find(f => f.name === fieldName);
+                if (field) {
+                    columns.push({
+                        display: field.label,
+                        name: `fields.${field.name}`,
+                        data: field.name,
+                        type: field.type,
+                        sortable: true,
+                        searchable: true,
+                        hidden: !summaryFields.includes(field.name),
+                        render(data: RenderResult, item: RenderResult, column: Column) {
+                            const renderedField = item.fields.find(f => f.name === column.data);
+                            if (!renderedField) {
+                                return {};
+                            }
+                            return {
+                                field: renderedField,
+                                value: renderedField.value
+                            };
+                        },
+                        template: this.fieldTemplate
+                    } as Column);
+                }
+            });
         });
 
         columns.push({
