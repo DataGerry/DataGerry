@@ -31,6 +31,7 @@ LOGGER: Logger = getLogger(__name__)
 
 CONNECTOR_URL: str = "/connector"
 CHECK_CONNECTOR_URL: str = f"{CONNECTOR_URL}/check"
+CONNECTORS_BY_IDS_URL: str = f"{CONNECTOR_URL}/list/by-ids"
 ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
 CHECK_MASTER_PW_URL: str = f"{CONNECTOR_URL}/master-password/status"
 CONNECTOR_EXISTS_URL: str = f"{CONNECTOR_URL}/exists"
@@ -114,6 +115,35 @@ class OcConnectorManager(OcBaseManager):
             return True
 
         return False
+
+
+    def get_connectors_by_ids(self, connector_ids: list[int]) -> dict[str, Any]:
+        """
+        Retrieves a list of OcConnectors with the provided 'connector_ids'
+
+        Args:
+            connector_ids (list[int]): List of connector_ids of OcConnectors
+
+        Raises:
+            OcConnectorGetError: When the connector_ids were not provided to this method
+            OcConnectorGetError: When the OcConnectors could not be retrieved
+
+        Returns:
+            dict[str, Any]: The OcConnectors with the given connector_ids
+        """
+        if not connector_ids:
+            raise OcConnectorGetError("No schedulerIds for Connectors provided!")
+
+        params: dict[str, Any] = {
+            "identifiers": connector_ids
+        }
+
+        connectors_response: Response = self.oc_connector.oc_post(params, CONNECTORS_BY_IDS_URL)
+
+        if self.is_valid_response(connectors_response):
+            return json.loads(connectors_response.text)
+
+        raise OcConnectorGetError(f"Failed to retrieve OpenCelium Connectors with IDs: {connector_ids}")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

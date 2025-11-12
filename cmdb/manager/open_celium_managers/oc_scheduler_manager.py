@@ -34,6 +34,7 @@ from cmdb.errors.open_celium.scheduler import (
 LOGGER: Logger = getLogger(__name__)
 
 SCHEDULER_URL: str = "/scheduler"
+SCHEDULERS_BY_IDS_URL: str = f"{SCHEDULER_URL}/list/by-ids"
 ALL_SCHEDULERS_URL: str = f"{SCHEDULER_URL}/all"
 EXECUTE_SCHEDULER_URL: str = f"{SCHEDULER_URL}/execute"
 
@@ -66,6 +67,40 @@ class OcSchedulerManager(OcBaseManager):
             return json.loads(create_scheduler_response.text)
 
         raise OcSchedulerCreateError("Failed to create the Scheduler in OpenCelium!")
+
+
+    def get_schedulers_by_ids(self, scheduler_ids: list[int]) -> dict[str, Any]:
+        """
+        Retrieves a list of OcSchedulers with the provided 'scheduler_ids'
+
+        Args:
+            scheduler_ids (list[int]): List of scheduler_ids of OcSchedulers
+
+        Raises:
+            OcSchedulerGetError: When the scheduler_ids were not provided to this method
+            OcSchedulerGetError: When the OcSchedulers could not be retrieved
+
+        Returns:
+            dict[str, Any]: The OcSchedulers with the given scheduler_ids
+        """
+        if not scheduler_ids:
+            raise OcSchedulerGetError("No schedulerIds for Schedulers provided!")
+
+        params: dict[str, Any] = {
+            "identifiers": scheduler_ids
+        }
+
+        schedulers_response: Response = self.oc_connector.oc_post(params, SCHEDULERS_BY_IDS_URL)
+
+        # LOGGER.debug(f"[get_schedulers_by_ids] response: {schedulers_response}")
+        # LOGGER.debug(f"[get_schedulers_by_ids] status_code: {schedulers_response.status_code}")
+        # LOGGER.debug(f"[get_schedulers_by_ids] headers: {schedulers_response.headers}")
+        # LOGGER.debug(f"[get_schedulers_by_ids] body: {schedulers_response.text}")
+
+        if self.is_valid_response(schedulers_response):
+            return json.loads(schedulers_response.text)
+
+        raise OcSchedulerGetError(f"Failed to retrieve OpenCelium Schedulers with IDs: {scheduler_ids}")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

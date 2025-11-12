@@ -17,8 +17,10 @@
 Implementation of OpenCelium InvokerManager
 """
 import json
+import os
 from logging import Logger, getLogger
 from typing import Any
+from flask import current_app
 
 from requests import Response
 
@@ -40,6 +42,20 @@ class OcInvokerManager(OcBaseManager):
     """
     Manages Invokers of OpenCelium
     """
+    def __init__(self) -> None:
+        """
+        Initialises the OcInvokerManager
+        """
+        self.master_pw: str = None
+
+        if current_app.cloud_mode:
+            self.master_pw = os.getenv('OC_MASTER_PW')
+
+
+            if not self.master_pw and not current_app.local_mode:
+                raise ValueError("No OC master password provided via env variables!")
+
+        super().__init__()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -90,7 +106,7 @@ class OcInvokerManager(OcBaseManager):
         if self.is_valid_response(target_invoker_response):
             data: dict[str, Any] = json.loads(target_invoker_response.text)
 
-            LOGGER.debug(f"[check_invoker_exists] result:{data}")
+            # LOGGER.debug(f"[check_invoker_exists] result:{data}")
 
             return data['result']
 
@@ -118,3 +134,13 @@ class OcInvokerManager(OcBaseManager):
             return json.loads(all_invokers_response.text)
 
         raise OcInvokerGetError("Failed to retrieve Invokers from OpenCelium!")
+
+
+    def get_master_pw(self) -> str:
+        """
+        Retrieves the master password for OpenCelium (cloud version only)
+
+        Returns:
+            str: The master passwaord for OpenCelium
+        """
+        return self.master_pw

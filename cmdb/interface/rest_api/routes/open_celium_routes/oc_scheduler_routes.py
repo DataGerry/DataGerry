@@ -52,7 +52,7 @@ oc_schedulers_blueprint = APIBlueprint('oc_schedulers', __name__)
 @oc_schedulers_blueprint.route('/schedulers', methods=['POST'])
 @handle_oc_errors("creating an OpenCelium Scheduler!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def create_oc_scheduler(request_user: CmdbUser) -> Response:
     """
     POST route to create an OcSchedulers in OpenCelium
@@ -107,7 +107,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the OpenCelium Scheduler!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     GET/HEAD route to retrive an OcScheduler with the given scheduler_id
@@ -135,7 +135,7 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 @oc_schedulers_blueprint.route('/schedulers', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Schedulers!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route for getting multiple OcSchedulers
@@ -146,6 +146,7 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
     Returns:
         list[dict[str, Any]]: All OcSchedulers from OpenCelium
     """
+    LOGGER.debug("[get_all_oc_schedulers] called")
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
 
@@ -160,7 +161,7 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
 @oc_schedulers_blueprint.route('/schedulers/execute/<int:scheduler_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("executing the OpenCelium Scheduler!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     **GET**/**HEAD** route to execute an OC Scheduler with given scheduler_id
@@ -187,7 +188,7 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['PUT'])
 @handle_oc_errors("updating an OpenCelium Scheduler!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     **PUT** route to update an OcSchedulers
@@ -217,7 +218,7 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['DELETE'])
 @handle_oc_errors("deleting the OpenCelium Scheduler!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     **DELETE** route to delete an OcSchedulers

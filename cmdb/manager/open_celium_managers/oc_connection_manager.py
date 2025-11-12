@@ -32,6 +32,7 @@ from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnec
 LOGGER: Logger = getLogger(__name__)
 
 CONNECTION_URL: str = "/connection"
+CONNECTIONS_BY_IDS_URL: str = f"{CONNECTION_URL}/list/by-ids"
 CON_UNIQUE_CHECK_URL: str = f"{CONNECTION_URL}/check"
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -63,6 +64,35 @@ class OcConnectionManager(OcBaseManager):
             return json.loads(create_connection_response.text)
 
         raise OcConnectionCreateError("Failed to create the Connection in OpenCelium!")
+
+
+    def get_connections_by_ids(self, connection_ids: list[int]) -> dict[str, Any]:
+        """
+        Retrieves a list of OcConnections with the provided 'connection_ids'
+
+        Args:
+            connection_ids (list[int]): List of connection_ids of OcConnections
+
+        Raises:
+            OcConnectionGetError: When the connection_ids were not provided to this method
+            OcConnectionGetError: When the OcConnections could not be retrieved
+
+        Returns:
+            dict[str, Any]: The OcConnections with the given connection_ids
+        """
+        if not connection_ids:
+            raise OcConnectionGetError("No schedulerIds for Schedulers provided!")
+
+        params: dict[str, Any] = {
+            "identifiers": connection_ids
+        }
+
+        connections_response: Response = self.oc_connector.oc_post(params, CONNECTIONS_BY_IDS_URL)
+
+        if self.is_valid_response(connections_response):
+            return json.loads(connections_response.text)
+
+        raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connections with IDs: {connection_ids}")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -106,10 +136,10 @@ class OcConnectionManager(OcBaseManager):
         """
         conn_name_check_response: Response = self.oc_connector.oc_get(f"{CON_UNIQUE_CHECK_URL}/{conn_name}")
 
-        # LOGGER.debug(f"[check_connection_name_exists] check_connector_response: {conn_name_check_response}")
-        # LOGGER.debug(f"[check_connection_name_exists] check_connector_response status: {conn_name_check_response.status_code}")
-        # LOGGER.debug(f"[check_connection_name_exists] headers: {conn_name_check_response.headers}")
-        # LOGGER.debug(f"[check_connection_name_exists] check_connector_response body: {conn_name_check_response.text}")
+        # LOGGER.debug(f"check_connector_response: {conn_name_check_response}")
+        # LOGGER.debug(f"check_connector_response status: {conn_name_check_response.status_code}")
+        # LOGGER.debug(f"headers: {conn_name_check_response.headers}")
+        # LOGGER.debug(f"check_connector_response body: {conn_name_check_response.text}")
 
         if self.is_valid_response(conn_name_check_response):
             conn_resp: dict[str, Any] = json.loads(conn_name_check_response.text)

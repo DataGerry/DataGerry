@@ -14,14 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all classes for OpenCelium interaction
+Implementation of DataGerry Service-Portal Manager
 """
-from cmdb.open_celium.oc_api_connector import OcApiConnector
-from cmdb.open_celium.oc_helpers import map_oc_name, unmap_oc_name
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'OcApiConnector',
-    'map_oc_name',
-    'unmap_oc_name',
-]
+LOGGER: Logger = getLogger(__name__)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            DgServicePortalManager - CLASS                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+class DgServicePortalManager:
+    """
+    Manages interactions with the DataGerry ServicePortal
+    """
