@@ -58,7 +58,7 @@ export class ObjectLogComponent implements OnInit {
             this.renderResult = JSON.parse(this.log.render_state);
         },
             (error) => {
-                console.error(error);
+                // console.error(error);
             },
             () => {
                 this.logService.getCorrespondingLogs(this.logID).subscribe((logs: CmdbLog[]) => {

@@ -60,7 +60,7 @@ export class PropertiesComponent implements OnInit, OnDestroy {
           }
         },
         error: (error) => {
-          this.toast.error(error);
+          this.toast.error(error?.error?.message);
         }
       });
   }

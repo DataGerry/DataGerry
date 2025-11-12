@@ -66,7 +66,7 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
                         this.mdsInteraction = true;
                     },
                     error: (error) => {
-                        console.error(error);
+                        // console.error(error);
                     }
                 });
             }
@@ -105,7 +105,7 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
                         this.mdsInteraction = true;
                     },
                     error: (error) => {
-                        console.error(error);
+                        // console.error(error);
                     }
                 });
             }
@@ -122,7 +122,7 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
                         this.refObject = refObject;
                     },
                     error: (error) => {
-                        console.error(error);
+                        // console.error(error);
                     }
                 });
             }

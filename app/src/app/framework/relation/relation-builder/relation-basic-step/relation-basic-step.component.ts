@@ -148,7 +148,7 @@ export class RelationBasicStepComponent
           this.isLoadingTypes = false;
         },
         error: err => {
-          console.error('Failed to load types:', err);
+          // console.error('Failed to load types:', err);
           this.isLoadingTypes = false;
         }
       });

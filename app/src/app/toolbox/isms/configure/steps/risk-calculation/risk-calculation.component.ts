@@ -117,13 +117,13 @@ export class RiskCalculationComponent implements OnInit {
                 // 4) Finally, load the matrix from the backend.
                 this.loadMatrixFromBackend();
               },
-              error: (err) => this.handleError('Failed to load Risk Classes', err)
+              error: (error) => this.handleError(error?.error?.message)
             });
           },
-          error: (err) => this.handleError('Failed to load Likelihoods', err)
+          error: (error) => this.handleError(error?.error?.message)
         });
       },
-      error: (err) => this.handleError('Failed to load Impacts', err)
+      error: (error) => this.handleError(error?.error?.message)
     });
   }
 
@@ -233,7 +233,7 @@ export class RiskCalculationComponent implements OnInit {
   /**
    * handleError: Generic error handler that displays a toast message and logs the error.
    */
-  private handleError(message: string, err: any): void {
+  private handleError(message: string): void {
     this.toast.error(message);
     this.loading = false;
     this.loaderService.hide();

@@ -139,7 +139,7 @@ export class RiskTreatmentPlanComponent implements OnInit {
           this.rawRows = this.process(list);
           this.applyView();         // no filter → copy + sort + page
         },
-        error: err => this.toast.error(err?.error?.message ?? 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 

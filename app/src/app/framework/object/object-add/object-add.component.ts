@@ -112,7 +112,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
                     this.typeList = typeList;
                 },
                 error: (error) => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -228,7 +228,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
                         this.locationService.locationTreeName = "";
                     },
                     error: error => {
-                        this.toastService.error(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
         }

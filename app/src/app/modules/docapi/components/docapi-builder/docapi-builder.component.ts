@@ -119,7 +119,7 @@ export class DocapiBuilderComponent {
                 this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: publicIdResp } });
             },
             error: (error: any) => {
-                console.error(error);
+                // console.error(error);
             }
         });
     }
@@ -136,7 +136,7 @@ export class DocapiBuilderComponent {
                 this.router.navigate(['/docapi/'], { queryParams: { docEditSuccess: updateResp.public_id } });
             },
             error: (error: any) => {
-                console.error(error);
+                // console.error(error);
             }
         });
     }

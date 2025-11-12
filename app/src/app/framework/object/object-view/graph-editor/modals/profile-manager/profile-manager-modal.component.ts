@@ -94,7 +94,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
         next: profiles => {
           this.profiles = profiles; // Now profiles is FilterProfile[]
         },
-        error: () => this.toast.error('Failed to load profiles')
+        error: (error) => this.toast.error(error?.error?.message)
       });
   }
 
@@ -158,7 +158,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
           this.loadProfiles();
           this.cancelEdit();
         },
-        error: () => this.toast.error('Failed to save profile')
+        error: (error) => this.toast.error(error?.error?.message)
       });
   }
 
@@ -197,7 +197,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
 
             this.loadProfiles();
           },
-          error: () => this.toast.error('Failed to delete profile')
+          error: (error) => this.toast.error(error?.error?.message)
         });
     }).catch(() => { });
   }

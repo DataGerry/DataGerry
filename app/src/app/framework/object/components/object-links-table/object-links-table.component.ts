@@ -213,7 +213,7 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
                             this.loadLinksFromAPI();
                         },
                         error: (error) => {
-                            this.toast.error(`${error.error}`);
+                            this.toast.error(error?.error?.message);
                         }
                     });
                 } 

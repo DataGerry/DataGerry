@@ -370,7 +370,7 @@ private loadRows(): void {
           this.rows  = res.results;
           this.total = res.total;
         },
-        error: err => this.toast.error(err?.error?.message || 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
   
@@ -562,7 +562,7 @@ private loadRows(): void {
                 .pipe(finalize(() => this.loader.hide()))
                 .subscribe({
                     next: () => { this.toast.success('Deleted'); this.loadRows(); },
-                    error: err => this.toast.error(err?.error?.message || 'Delete failed')
+                    error: err => this.toast.error(err?.error?.message)
                 });
         }).catch(() => { /* dismissed */ });
     }

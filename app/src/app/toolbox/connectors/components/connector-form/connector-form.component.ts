@@ -356,8 +356,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   
               this.credentialsReady = true;
             },
-            error: (err) => {
-              this.toast.error('Failed to load internal connector details');
+            error: (error) => {
+              this.toast.error(error?.error?.message);
   
               // Without secrets, require master password
               this.showMasterPassword = true;
@@ -433,8 +433,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
                 next: (connector) => {
                   this.patchForInternal(connector, true);
                 },
-                error: (err) => {
-                  this.toast.error('Failed to load existing internal connector');
+                error: (error) => {
+                  this.toast.error(error?.error?.message);
                   this.router.navigate(['/automations/connectors']);
                 }
               });

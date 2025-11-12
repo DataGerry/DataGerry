@@ -98,7 +98,6 @@ export class AddCategoryModalComponent implements OnInit {
                 this.modal.close('updated');
             },
             error: (error) => {
-                console.error('Error updating category:', error);
                 this.modal.dismiss('error');
             }
         });

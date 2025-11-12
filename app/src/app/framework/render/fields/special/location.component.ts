@@ -139,7 +139,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             },
             error: (error) => {
                 if (error.status != 404) {
-                    console.error("Error:", error);
+                    // console.error("Error:", error);
                 }
             }
             
@@ -163,7 +163,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
                     },
                     error: (error) => {
                         if (error.status != 404) {
-                            console.error("Error:", error);
+                            // console.error("Error:", error);
                         }
                     }
                 }
