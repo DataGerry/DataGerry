@@ -75,7 +75,7 @@ export class StatusEditComponent implements OnInit {
           this.router.navigate(['/framework/status/']);
         },
         error => {
-          console.error(error);
+          // console.error(error);
         });
     }
   }

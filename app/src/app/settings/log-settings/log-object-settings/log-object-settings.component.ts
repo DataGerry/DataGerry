@@ -163,7 +163,7 @@ export class LogObjectSettingsComponent {
                 next: () => {
                     this.cleanupInProgress = false;
                 },
-                error: (error) => console.error(error),
+                error: (error) => {},
                 complete: () => {
                     switch (reloadList) {
                         case 'active':

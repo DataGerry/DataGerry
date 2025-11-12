@@ -130,7 +130,7 @@ export class UserSettingsDBService<T = UserSetting, P = UserSettingPayload> impl
                     error: (error) => console.error(`Error while loading user settings: ${error}`)
                 });
         } catch (e) {
-            console.error(`Error while init user settings: ${e}`);
+            // console.error(`Error while init user settings: ${e}`);
         }
     }    
 

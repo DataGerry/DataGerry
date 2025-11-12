@@ -180,7 +180,7 @@ export class ControlMeasureAssignmentListComponent
         this.metaReady = true;
         this.loadAssignments();
       },
-      error: err => this.toast.error(err?.error?.message ?? 'Failed to load reference data')
+      error: err => this.toast.error(err?.error?.message)
     });
   }
 
@@ -226,7 +226,7 @@ export class ControlMeasureAssignmentListComponent
           }));
           this.totalAssignments = resp.total ?? this.assignments.length;
         },
-        error: err => this.toast.error(err?.error?.message ?? 'Failed to load assignments')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 

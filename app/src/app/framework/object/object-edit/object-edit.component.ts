@@ -253,7 +253,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -267,7 +267,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -281,7 +281,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 

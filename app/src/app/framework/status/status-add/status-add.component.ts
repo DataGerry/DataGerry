@@ -59,7 +59,7 @@ export class StatusAddComponent {
       this.statusService.postStatus(newStatus).subscribe((newPublicID: number) => {
         this.router.navigate([`/framework/status/`]);
       }, error => {
-        console.error(error);
+        // console.error(error);
       });
     }
   }

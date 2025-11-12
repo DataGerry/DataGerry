@@ -136,11 +136,10 @@ export class AutomationsListComponent implements OnInit {
         this.loading = false;
         this.loaderService.hide();
       },
-      error: (err) => {
-        this.toast.error('Failed to load automations');
+      error: (error) => {
+        this.toast.error(error?.error?.message);
         this.loading = false;
         this.loaderService.hide();
-        console.error('Error loading automations:', err);
       }
     });
   }

@@ -404,7 +404,7 @@ export class RiskAssesmentsComponent implements OnInit {
           this.applyAllFilters();
         },
 
-        error: err => this.toast.error(err?.error?.message ?? 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 

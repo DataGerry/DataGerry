@@ -268,7 +268,7 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
                     this.prepareSummaries();
                     this.cd.markForCheck();
                 },
-                error: (err) => this.toast.error(err),
+                error: (error) => this.toast.error(error?.error?.message),
                 complete: () => {
                     if (this.data.ref_types) {
                         this.objectService.getObjectsByType(this.data.ref_types).subscribe((res: RenderResult[]) => {

@@ -201,7 +201,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                         this.getAllSectionTemplates();
                     },
                     error: error => {
-                        this.toastService.error(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }

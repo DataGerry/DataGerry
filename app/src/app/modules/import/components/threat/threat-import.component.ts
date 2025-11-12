@@ -60,7 +60,6 @@ export class ImportThreatComponent {
                     modalRef.componentInstance.summary = response;
                 },
                 error: (error) => {
-                    console.error('Import error:', error);
                     this.toastService.error(error?.error?.message);
                 }
             });

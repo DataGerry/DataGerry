@@ -159,7 +159,7 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
                 this.totalCategoriesPages = apiResponse.pager.total_pages;
                 this.categoriesLoading = false;
                 },
-                (err) => this.toast.error(err)).add(() => this.categoriesLoading = false);
+                (error) => this.toast.error(error?.error?.message)).add(() => this.categoriesLoading = false);
     }
 
 
@@ -275,7 +275,7 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
             this.categories = this.categories.concat(apiResponse.results as Array<CmdbCategory>);
             this.categoriesLoading = false;
             },
-            (err) => this.toast.error(err)).add(() => this.categoriesLoading = false);
+            (error) => this.toast.error(error?.error?.message)).add(() => this.categoriesLoading = false);
     }
 
 /* -------------------------------------------------- FORM CONTROL -------------------------------------------------- */

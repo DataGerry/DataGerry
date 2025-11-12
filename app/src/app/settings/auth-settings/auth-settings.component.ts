@@ -96,7 +96,7 @@ export class AuthSettingsComponent implements OnInit, OnDestroy {
             next: (apiResponse: APIGetMultiResponse<Group>) => {
                 this.groups = apiResponse.results as Array<Group>;
             },
-            error: (error) => this.toast.error(error)
+            error: (error) => this.toast.error(error?.error?.message)
         });
     }
 

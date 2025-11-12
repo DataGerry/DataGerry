@@ -821,7 +821,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
           this.changesRef.markForCheck();
         },
         error: (err) => {
-          this.toastService.error(err?.error?.message || 'Failed to load objects');
+          this.toastService.error(err?.error?.message);
           this.changesRef.markForCheck();
         }
       });
