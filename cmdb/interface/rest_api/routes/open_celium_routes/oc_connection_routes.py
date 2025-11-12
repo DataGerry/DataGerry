@@ -46,7 +46,7 @@ oc_connections_blueprint = APIBlueprint('oc_connections', __name__)
 @oc_connections_blueprint.route('/connections', methods=['POST'])
 @handle_oc_errors("creating an OpenCelium Connection!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
 def create_oc_connection(request_user: CmdbUser) -> Response:
     """
@@ -76,7 +76,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the OpenCelium Connection!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
 def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
@@ -105,7 +105,7 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 @oc_connections_blueprint.route('/connections/init_data', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving initial data for Connections!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
 def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
     """
@@ -137,7 +137,7 @@ def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['PUT'])
 @handle_oc_errors("updating an OpenCelium Connection!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.edit')
 def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """

@@ -43,7 +43,7 @@ oc_invokers_blueprint = APIBlueprint('oc_invokers', __name__)
 @oc_invokers_blueprint.route('/invokers', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
     """
     **GET**/**HEAD** route for getting multiple OcInvokers
@@ -73,7 +73,7 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
 @oc_invokers_blueprint.route('/invokers/<string:name>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, Any]]:
     """
     **GET**/**HEAD** route to retrieve an Invoker by name
@@ -101,7 +101,7 @@ def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, 
 @oc_invokers_blueprint.route('/invokers/exists/<string:name>', methods=['GET', 'HEAD'])
 @handle_oc_errors("checking OpenCelium Invoker exists!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def check_oc_invoker_exists(name: str, request_user: CmdbUser) -> list[dict[str, Any]]:
     """
     **GET**/**HEAD** route to check if an Invoker with the given name exists

@@ -44,7 +44,7 @@ oc_licenses_blueprint = APIBlueprint('oc_licenses', __name__)
 @oc_licenses_blueprint.route('/licenses/activation/generate', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the OpenCelium License activation request!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_license_activation(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route to retrive an OpenCelium license activation
@@ -69,7 +69,7 @@ def get_oc_license_activation(request_user: CmdbUser) -> Response:
 @oc_licenses_blueprint.route('/licenses/info', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the OpenCelium License info!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_license_info(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route to retrive an OpenCelium license info
