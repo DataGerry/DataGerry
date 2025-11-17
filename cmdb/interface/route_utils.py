@@ -846,7 +846,8 @@ def validate_subscrption_user(
         "x-access-token": x_access_token
     }
 
-    target: str | None = os.getenv('SP_AUTH_URL')
+    base_url: str | None = os.getenv("DG_SP_BASE_URL")
+    target: str = f"{base_url}/datagerry/auth"
 
     payload: dict[str, str] = {
         "email": email,
@@ -856,7 +857,7 @@ def validate_subscrption_user(
     if x_api_key:
         payload['x-api-key'] = x_api_key
 
-        target = os.getenv('SP_API_AUTH_URL')
+        target: str = f"{base_url}/datagerry/auth/subscription"
 
     if not target:
         raise RequestError("No service portal URL configured")
@@ -918,7 +919,8 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
         "config_item_count": config_item_count
     }
 
-    target: str | None = os.getenv('SP_CI_SYNC_URL')
+    base_url: str | None = os.getenv("DG_SP_BASE_URL")
+    target: str = f"{base_url}/datagerry/config-item/update"
 
     try:
         response = requests.post(target, headers=headers, json=payload, timeout=3)
