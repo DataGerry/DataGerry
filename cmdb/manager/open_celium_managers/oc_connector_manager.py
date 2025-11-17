@@ -16,9 +16,11 @@
 """
 Implementation of OpenCelium ConnectorManager
 """
+import os
 import json
 from logging import Logger, getLogger
 from typing import Any, Optional
+from flask import current_app
 
 from requests import Response
 
@@ -43,7 +45,20 @@ class OcConnectorManager(OcBaseManager):
     """
     Manages Connectors of OpenCelium
     """
+    def __init__(self) -> None:
+        """
+        Initialises the OcConnectorManager
+        """
+        self.master_pw: str = None
 
+        if current_app.cloud_mode:
+            self.master_pw = os.getenv('OC_MASTER_PW')
+
+
+            if not self.master_pw and not current_app.local_mode:
+                raise ValueError("No OC master password provided via env variables!")
+
+        super().__init__()
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     def create_connector(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -298,3 +313,14 @@ class OcConnectorManager(OcBaseManager):
             return True
 
         return False
+
+# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
+
+    def get_master_pw(self) -> str:
+        """
+        Retrieves the master password for OpenCelium (cloud version only)
+
+        Returns:
+            str: The master passwaord for OpenCelium
+        """
+        return self.master_pw

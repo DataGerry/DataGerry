@@ -23,7 +23,7 @@ from flask import abort, request, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import OcConnectorManager
+from cmdb.manager import OcConnectorManager, DgServicePortalManager
 
 from cmdb.open_celium.oc_constants import OC_INTERNAL_CONNECTOR_NAME
 from cmdb.open_celium import map_oc_name, unmap_oc_name
@@ -65,6 +65,7 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
         params: dict[str, Any] = request.json
 
@@ -72,7 +73,7 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
             abort(400, f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the interal DataGerry connector!")
 
 
-        if current_app.cloud_mode:
+        if current_app.cloud_mode and not current_app.local_mode:
             if params['title'] == map_oc_name(request_user.database,OC_INTERNAL_CONNECTOR_NAME):
                 abort(400,
                       f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the interal DataGerry connector!"
@@ -83,14 +84,22 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
 
         created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
 
-        #TODO: Save the ConnectorID to SP
+        # Save the new connectorId in DG ServicePortal
+        if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager.save_connector_id(
+                created_oc_connector['connectorId'],
+                request_user.email,
+                request_user.database
+            )
+
+            created_oc_connector['title'] = unmap_oc_name(created_oc_connector['title'])
 
         return DefaultResponse(created_oc_connector).make_response()
     except HTTPException as http_err:
         raise http_err
     except OcConnectorCreateError as err:
         LOGGER.error("[create_oc_connector] OcConnectorCreateError: %s", err, exc_info=True)
-        abort(500, "Failed to create an OpenCelium Connector!")
+        abort(500, "Failed to create the OpenCelium Connector!")
 
 
 @oc_connectors_blueprint.route('/connectors/check', methods=['POST'])
@@ -142,12 +151,17 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
         params: dict[str, Any] = request.json
 
         # LOGGER.debug(f"master_pw: {params['password']}")
+        pw_valid: bool = False
 
-        pw_valid: bool = oc_connector_manager.check_master_pw(params['password'])
+        if current_app.cloud_mode and not current_app.local_mode:
+            pw_valid = dg_sp_manager.check_master_pw(params['password'], request_user.email, request_user.database)
+        else:
+            pw_valid = oc_connector_manager.check_master_pw(params['password'])
 
         if not pw_valid:
             abort(403, "Invalid master password!")
@@ -155,11 +169,34 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
         result: dict[str, Any] | bool = True
 
         if params.get('connectorId'):
-            result: dict[str, Any] = oc_connector_manager.get_connector(params['connectorId'], params['password'])
+            if current_app.cloud_mode and not current_app.local_mode:
+                is_valid_connector: bool = dg_sp_manager.check_connector_in_sub(
+                    params['connectorId'],
+                    request_user.email,
+                    request_user.database
+                )
+
+                if not is_valid_connector:
+                    abort(400, f"The target Connector with ID:{params['connectorId']} was not found!")
+
+                    result: dict[str, Any] = oc_connector_manager.get_connector(
+                                                    params['connectorId'],
+                                                    oc_connector_manager.get_master_pw()
+                                                )
+
+                    if result:
+                        result['title'] = unmap_oc_name(result['title'])
+            else:
+                result: dict[str, Any] = oc_connector_manager.get_connector(
+                                                                params['connectorId'],
+                                                                params['password']
+                                                            )
 
         # LOGGER.debug(f"master pw result: {result}")
 
         return DefaultResponse(result).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorGetError as err:
         LOGGER.error("[check_oc_connector_master_pw] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to check the master password!")
@@ -184,12 +221,28 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_connector: bool = dg_sp_manager.check_connector_in_sub(
+                connector_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_connector:
+                abort(400, f"The target Connector with ID:{connector_id} was not found!")
 
         connector: dict[str, Any] = oc_connector_manager.get_connector(connector_id)
 
         # LOGGER.debug(f"connector: {connector}")
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            connector['title'] = unmap_oc_name(connector['title'])
+
         return DefaultResponse(connector).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorGetError as err:
         LOGGER.error("[get_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Connector with ID:{connector_id}!")
@@ -212,8 +265,19 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
-        connectors: list[dict[str, Any]] = oc_connector_manager.get_all_connectors()
+        connectors: list[dict[str, Any]] = None
+
+        if current_app.cloud_mode and not current_app.local_mode:
+
+            connector_ids: list[int] = dg_sp_manager.get_connector_ids(request_user.email, request_user.database)
+            connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
+
+            for a_connector in connectors:
+                a_connector['title'] = unmap_oc_name(a_connector['title'])
+        else:
+            connectors: list[dict[str, Any]] = oc_connector_manager.get_all_connectors()
 
         # LOGGER.debug(f"all connectors: {connectors}")
 
@@ -242,6 +306,9 @@ def check_oc_connector_exists(request_user: CmdbUser, title: str) -> Response:
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            title = map_oc_name(request_user.database, title)
+
         connector_exists: bool = oc_connector_manager.connector_exists(title)
 
         return DefaultResponse(connector_exists).make_response()
@@ -269,14 +336,32 @@ def update_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         dict[str, Any]: The updated OcConnector
     """
     try:
-
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_connector: bool = dg_sp_manager.check_connector_in_sub(
+                connector_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_connector:
+                abort(400, f"The target Connection with ID:{connector_id} was not found!")
 
         params: dict[str, Any] = request.json
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            params['title'] = map_oc_name(request_user.database, params['title'])
+
         updated_oc_connector: dict[str, Any] = oc_connector_manager.update_connector(params, connector_id)
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            updated_oc_connector['title'] = unmap_oc_name(updated_oc_connector['title'])
+
         return DefaultResponse(updated_oc_connector).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorUpdateError as err:
         LOGGER.error("[update_oc_connector] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to update the OpenCelium Connector with ID: {connector_id}!")
@@ -301,10 +386,23 @@ def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_connector: bool = dg_sp_manager.check_connector_in_sub(
+                connector_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_connector:
+                abort(400, f"The target Connection with ID:{connector_id} was not found!")
 
         deleted_oc_connector: bool = oc_connector_manager.delete_connector(connector_id)
 
         return DefaultResponse(deleted_oc_connector).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorUpdateError as err:
         LOGGER.error("[delete_oc_connector] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to delete the OpenCelium Connector with ID: {connector_id}!")
@@ -328,12 +426,25 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
     """
     try:
         oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
         params: dict[str, Any] = request.json
 
-        params['title'] = OC_INTERNAL_CONNECTOR_NAME
+        if current_app.cloud_mode and not current_app.local_mode:
+            params['title'] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
+        else:
+            params['title'] = OC_INTERNAL_CONNECTOR_NAME
 
         created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager.save_connector_id(
+                created_oc_connector['connectionId'],
+                request_user.email,
+                request_user.database
+            )
+
+            created_oc_connector['title'] = unmap_oc_name(created_oc_connector['title'])
 
         return DefaultResponse(created_oc_connector).make_response()
     except OcConnectorCreateError as err:
@@ -361,7 +472,10 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
-        params['title'] = OC_INTERNAL_CONNECTOR_NAME
+        if current_app.cloud_mode and not current_app.local_mode:
+            params['title'] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
+        else:
+            params['title'] = OC_INTERNAL_CONNECTOR_NAME
 
         internal_connector = oc_connector_manager.get_connector_by_name(params['title'])
 
@@ -369,6 +483,9 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
                                                     params,
                                                     internal_connector['connectorId']
                                                )
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            updated_oc_connector['title'] = unmap_oc_name(updated_oc_connector['title'])
 
         return DefaultResponse(updated_oc_connector).make_response()
     except OcConnectorUpdateError as err:
@@ -392,23 +509,47 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
         dict[str, Any]: The OcConnector from OpenCelium
     """
     try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
         params: dict[str, Any] = request.json
+
         password: str = params.get('password', None)
 
-        oc_connector_manager: OcConnectorManager = OcConnectorManager()
+        target_name: str = None
 
-        internal_connector = oc_connector_manager.get_connector_by_name(OC_INTERNAL_CONNECTOR_NAME)
+        if current_app.cloud_mode and not current_app.local_mode:
+            target_name = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
+        else:
+            target_name = OC_INTERNAL_CONNECTOR_NAME
+
+        internal_connector = oc_connector_manager.get_connector_by_name(target_name)
 
         if not internal_connector:
             return DefaultResponse({}).make_response()
 
         if password:
+            if current_app.cloud_mode and not current_app.local_mode:
+                is_valid_connector: bool = dg_sp_manager.check_connector_in_sub(
+                    internal_connector['connectorId'],
+                    request_user.email,
+                    request_user.database
+                )
+
+                if not is_valid_connector:
+                    abort(400, f"The target Connection with ID:{internal_connector['connectorId']} was not found!")
+
             internal_connector: dict[str, Any] = oc_connector_manager.get_connector(
                                                         internal_connector['connectorId'],
                                                         password
-                                                 )
+                                                )
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            internal_connector['title'] = unmap_oc_name(internal_connector['title'])
 
         return DefaultResponse(internal_connector).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorGetError as err:
         LOGGER.error("[get_internal_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
         abort(500, "Failed to retrieve the internal connector!")

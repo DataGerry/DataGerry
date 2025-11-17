@@ -34,6 +34,11 @@ from cmdb.errors.security import (
 
 LOGGER: Logger = getLogger(__name__)
 
+CHECK_MASTER_PW_URL: str = "/datagerry/check/master-password"
+
+CONNECTOR_ID_URL: str = "/datagerry/opencelium/entity/connector"
+GET_CONNECTOR_IDS: str = f"{CONNECTOR_ID_URL}/list"
+
 CONNECTION_ID_URL: str = "/datagerry/opencelium/entity/connection"
 GET_CONNECTION_IDS: str = f"{CONNECTION_ID_URL}/list"
 
@@ -67,16 +72,21 @@ class DgServicePortalManager:
                 raise NoAccessTokenError("No base url for Service Portal provided!")
 
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(self, password: str = None) -> dict[str, str]:
         """
         Retrieves the headers for DG-SP API calls
 
         Returns:
             dict[str, str]: The headers dictionary
         """
-        return {
+        headers: dict[str, str] = {
             "x-access-token": self.x_access_token
         }
+
+        if password:
+            headers['x-master-password'] = password
+
+        return headers
 
 
     def create_full_url(self, endpoint: str) -> str:
@@ -93,7 +103,7 @@ class DgServicePortalManager:
 
 # ---------------------------------------------------- CRUD - BASE --------------------------------------------------- #
 
-    def sp_post(self, target:str, payload: dict[str, Any]) -> Response:
+    def sp_post(self, target:str, payload: dict[str, Any], password: str = None) -> Response:
         """
         Handles POST requests towards the DG ServicePortal
 
@@ -106,7 +116,7 @@ class DgServicePortalManager:
         """
         response: Response = post(
             self.create_full_url(target),
-            headers=self.get_headers(),
+            headers=self.get_headers(password),
             json=payload,
             timeout=OC_REQUEST_TIMEOUT
         )
@@ -152,6 +162,121 @@ class DgServicePortalManager:
         )
 
         return response
+
+# -------------------------------------------------- MASTER PASSWORD ------------------------------------------------- #
+
+    def check_master_pw(self, password: str, email: str, db_name: str) -> bool:
+        """
+        Checks the custom master password
+
+        Args:
+            password (str): the password provided by user
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            bool: True if password is correct, else False
+        """
+        payload: dict[str, Any] = {
+                "userEmail": email,
+                "databaseName": db_name
+        }
+
+        response: Response = self.sp_post(CHECK_MASTER_PW_URL, payload, password)
+
+        if self.is_valid_response(response):
+            return True
+
+        return False
+
+# ------------------------------------------------ CONNECTOR FUNCTIONS ----------------------------------------------- #
+
+    def save_connector_id(self, connector_id: int, email: str, db_name: str) -> bool:
+        """
+        Saves the connectorId in DG Service Portal for the user
+
+        Args:
+            connector_id (int): connectorId of OcScheduler
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            bool: True if the ID got saved, else False
+        """
+        payload: dict[str, Any] = {
+                "id": connector_id,
+                "userEmail": email,
+                "databaseName": db_name
+        }
+
+        response: Response = self.sp_post(CONNECTOR_ID_URL, payload)
+
+        if self.is_valid_response(response):
+            return True
+
+        return False
+
+
+    def get_connector_ids(self, email: str, db_name: str) -> list[int]:
+        """
+        Retrieves all connectorIds from DG Service Portal for the user
+
+        Args:
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            list[int]: All connectorIds
+        """
+        connections_resp: Response = self.sp_get(f"{GET_CONNECTOR_IDS}?userEmail={email}&databaseName={db_name}")
+
+        if self.is_valid_response(connections_resp):
+            data: dict[str, Any] = json.loads(connections_resp.text)
+            return data['ids']
+
+        return False
+
+
+    def delete_connector_id(self, connector_id: int, email: str, db_name: str) -> bool:
+        """
+        Delete the connectorId in DG Service Portal for the user
+
+        Args:
+            connector_id (int): connectorId of OcConnector
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            bool: True if the ID got deleted, else False
+        """
+        payload: dict[str, Any] = {
+                "userEmail": email,
+                "databaseName": db_name
+        }
+
+        response: Response = self.sp_delete(f"{CONNECTOR_ID_URL}/{connector_id}", payload)
+
+        if self.is_valid_response(response):
+            return True
+
+        return False
+
+
+    def check_connector_in_sub(self, connector_id: int, email: str, db_name: str) -> bool:
+        """
+        Checks if a connectorId belongs to the users subscription
+
+        Args:
+            connector_id (int): target connectorId
+            email (str): users email
+            db_name (str): user database name
+
+        Returns:
+            bool: True if connectorId belongs to the users subscription else False
+        """
+        connector_ids: list[int] = self.get_connector_ids(email, db_name)
+
+        return connector_id in connector_ids
 
 # ----------------------------------------------- CONNECTION FUNCTIONS ----------------------------------------------- #
 

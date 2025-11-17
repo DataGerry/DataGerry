@@ -87,6 +87,8 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
                 request_user.database
             )
 
+            created_oc_connection['title'] = unmap_oc_name(created_oc_connection['title'])
+
         return DefaultResponse(created_oc_connection).make_response()
     except OcConnectionCreateError as err:
         LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
@@ -154,11 +156,21 @@ def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
     """
     oc_connector_manager: OcConnectorManager = OcConnectorManager()
     oc_template_manager: OcTemplateManager = OcTemplateManager()
-    # dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+    dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
-    #TODO: connector adaptions
+    connectors: list[dict[str, Any]] = None
 
-    connectors: dict[str, Any] = oc_connector_manager.get_all_connectors()
+    # Connector adaptions
+    if current_app.cloud_mode and not current_app.local_mode:
+
+        connector_ids: list[int] = dg_sp_manager.get_connector_ids(request_user.email, request_user.database)
+        connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
+
+        for a_connector in connectors:
+            a_connector['title'] = unmap_oc_name(a_connector['title'])
+    else:
+        connectors: dict[str, Any] = oc_connector_manager.get_all_connectors()
+
     templates: dict[str, Any] = oc_template_manager.get_all_templates()
 
     # LOGGER.debug(f"connection: {connection}")
