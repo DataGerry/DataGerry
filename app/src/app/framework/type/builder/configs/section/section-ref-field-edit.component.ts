@@ -29,6 +29,7 @@ import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms
 import { ToastService } from "../../../../../layout/toast/toast.service";
 import { ValidationService } from '../../../services/validation.service';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 @Component({
     selector: 'cmdb-section-ref-field-edit',
@@ -124,7 +125,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     public isValid$ = false;
 
     constructor(private typeService: TypeService, private toast: ToastService, private validationService: ValidationService,
-        private sectionIdentifier: SectionIdentifierService) {
+        private sectionIdentifier: SectionIdentifierService, private copyService: CopyService) {
         super();
     }
 
@@ -347,5 +348,12 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
                 this.isIdentifierValid = true;
             }
         }, 200);
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'section reference identifier');
     }
 }

@@ -1,4 +1,13 @@
-<h1><i class="{{type?.render_meta?.icon}}"></i> {{type?.label}}</h1>
+<h1>
+  <i class="{{type?.render_meta?.icon}}"></i> {{type?.label}}
+  <i *ngIf="type?.description" 
+     class="fas fa-info-circle text-muted ml-2" 
+     data-bs-toggle="tooltip" 
+     data-bs-placement="top"
+     [title]="type?.description"
+     style="cursor: help; font-size: 0.4em; ">
+  </i>
+</h1>
 <hr/>
 <div class="mt-2 mb-2">
     <cmdb-object-table-head

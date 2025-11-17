@@ -25,6 +25,7 @@ import { TypeService } from '../../../../services/type.service';
 import { ObjectService } from '../../../../services/object.service';
 import { ToastService } from '../../../../../layout/toast/toast.service';
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { RenderResult } from '../../../../models/cmdb-render';
@@ -96,7 +97,8 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
         private objectService: ObjectService,
         private toast: ToastService,
         private cd: ChangeDetectorRef,
-        private validationService: ValidationService
+        private validationService: ValidationService,
+        private copyService: CopyService
     ) {
         super();
     }
@@ -362,5 +364,12 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
             let valid = this.form.controls[control].valid;
             this.isValid$ = this.isValid$ && valid;
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'reference field identifier');
     }
 }

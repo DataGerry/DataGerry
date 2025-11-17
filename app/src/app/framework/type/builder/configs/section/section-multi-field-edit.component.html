@@ -2,14 +2,22 @@
     <div class="row">
         <div class="mb-3 col-md-12">
             <label class="mb-1">Identifier<span class="required">*</span>:</label>
-            <input
-                [formControl]="nameControl"
-                type="text"
-                class="form-control"
-                name-guideline
-                [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
-                 'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || !isIdentifierValid}"
-            >
+            <div class="input-group">
+                <input
+                    [formControl]="nameControl"
+                    type="text"
+                    class="form-control"
+                    name-guideline
+                    [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
+                     'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || !isIdentifierValid}"
+                />
+                <div class="input-group-append">
+                    <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
+                            [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+                        <fa-icon [icon]="['far', 'copy']"></fa-icon>
+                    </button>
+                </div>
+            </div>
             <small class="form-text text-muted text-start">Use a unique identifier</small>
             <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
                 <div class="text-end" *ngIf="nameControl.errors?.required">

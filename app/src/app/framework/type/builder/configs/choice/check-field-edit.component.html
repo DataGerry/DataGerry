@@ -30,6 +30,12 @@
                 [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                  'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
                 (ngModelChange)="onInputChange($event, 'name')" />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
+                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
+                </button>
+            </div>
             <div *ngIf="isDuplicate$" class="invalid-feedback">
                 <div class="text-end">
                     Field name must be unique
