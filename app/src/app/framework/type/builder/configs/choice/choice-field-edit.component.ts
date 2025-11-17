@@ -21,6 +21,7 @@ import { UntypedFormControl, Validators } from '@angular/forms';
 import { ReplaySubject } from 'rxjs';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
@@ -56,7 +57,11 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -266,5 +271,12 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
             this.requiredControl.enable();
             this.optionsControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'choice field identifier');
     }
 }

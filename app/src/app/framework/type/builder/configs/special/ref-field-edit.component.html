@@ -25,6 +25,12 @@
                     'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
                 (ngModelChange)="onNameChange($event)"
             />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
+                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
+                </button>
+            </div>
         </div>
         <small class="form-text text-muted text-start">Use a unique field identifier</small>
         <!-- <div class="clearfix"></div> -->
