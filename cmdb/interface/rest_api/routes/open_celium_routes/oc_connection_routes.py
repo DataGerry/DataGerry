@@ -19,10 +19,13 @@ All API routes for OpenCelium Connections
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
-from werkzeug import Response
+from flask import abort, request, current_app
 
-from cmdb.manager import OcConnectionManager, OcConnectorManager, OcTemplateManager
+from werkzeug import Response
+from werkzeug.exceptions import HTTPException
+
+from cmdb.manager import OcConnectionManager, OcConnectorManager, OcTemplateManager, DgServicePortalManager
+from cmdb.open_celium import map_oc_name, unmap_oc_name
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
@@ -61,10 +64,28 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
     """
     try:
         oc_connection_manager: OcConnectionManager = OcConnectionManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
         params: dict[str, Any] = request.json
+        conn_title:str = params['title']
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            conn_title = map_oc_name(request_user.database, conn_title)
+            params['title'] = conn_title
+
+        if oc_connection_manager.check_connection_name_exists(conn_title):
+            conn_title = unmap_oc_name(conn_title)
+            abort(400, f"The connection name: {conn_title} already exists!")
 
         created_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
+
+        # Save the new connectionId in DG ServicePortal
+        if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager.save_connection_id(
+                created_oc_connection['connectionId'],
+                request_user.email,
+                request_user.database
+            )
 
         return DefaultResponse(created_oc_connection).make_response()
     except OcConnectionCreateError as err:
@@ -91,9 +112,22 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     try:
         oc_connection_manager: OcConnectionManager = OcConnectionManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_connection: bool = dg_sp_manager.check_connection_in_sub(
+                connection_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_connection:
+                abort(400, f"The target Connection with ID:{is_valid_connection} was not found!")
 
         connection: dict[str, Any] = oc_connection_manager.get_connection(connection_id)
 
+        if connection and current_app.cloud_mode and not current_app.local_mode:
+            connection['title'] = unmap_oc_name(connection['title'])
         # LOGGER.debug(f"connection: {connection}")
 
         return DefaultResponse(connection).make_response()
@@ -120,6 +154,9 @@ def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
     """
     oc_connector_manager: OcConnectorManager = OcConnectorManager()
     oc_template_manager: OcTemplateManager = OcTemplateManager()
+    # dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+    #TODO: connector adaptions
 
     connectors: dict[str, Any] = oc_connector_manager.get_all_connectors()
     templates: dict[str, Any] = oc_template_manager.get_all_templates()
@@ -153,12 +190,31 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
     """
     try:
         oc_connection_manager: OcConnectionManager = OcConnectionManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_connection: bool = dg_sp_manager.check_connection_in_sub(
+                connection_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_connection:
+                abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
         params: dict[str, Any] = request.json
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            params['title'] = map_oc_name(request_user.database, params['title'])
+
         updated_oc_connection: dict[str, Any] = oc_connection_manager.update_connection(params, connection_id)
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            updated_oc_connection['title'] = unmap_oc_name(updated_oc_connection['title'])
+
         return DefaultResponse(updated_oc_connection).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectionUpdateError as err:
         LOGGER.error("[update_oc_connection] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to update the OpenCelium Connection with ID: {connection_id}!")
