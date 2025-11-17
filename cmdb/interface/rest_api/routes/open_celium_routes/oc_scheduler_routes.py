@@ -19,11 +19,12 @@ All API routes for OpenCelium Schedulers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort, request, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import OcSchedulerManager, OcConnectionManager
+from cmdb.manager import OcSchedulerManager, OcConnectionManager, DgServicePortalManager
+from cmdb.open_celium import map_oc_name, unmap_oc_name
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
@@ -67,6 +68,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
         oc_connection_manager: OcConnectionManager = OcConnectionManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
         params: dict[str, Any] = request.json
 
@@ -79,15 +81,43 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         created_connection: dict[str, Any] = []
         conn_title: str = params['connection']['title']
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            conn_title = map_oc_name(request_user.database, conn_title)
+
         if not oc_connection_manager.check_connection_name_exists(conn_title):
+            # Map the connection name before it is created
+            if current_app.cloud_mode and not current_app.local_mode:
+                params['connection']['title'] = conn_title
+
             created_connection = oc_connection_manager.create_connection(params['connection'])
+
+            # Save the new connectionId in DG ServicePortal
+            if current_app.cloud_mode and not current_app.local_mode:
+                dg_sp_manager.save_connection_id(
+                    created_connection['connectionId'],
+                    request_user.email,
+                    request_user.database
+                )
         else:
             abort(400, f"The connection name: {conn_title} already exists!")
 
         scheduler_params: dict[str, Any] = params['scheduler']
         scheduler_params['connectionId'] = created_connection['connectionId']
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            scheduler_params['title'] = map_oc_name(request_user.database, scheduler_params['title'])
+
         created_oc_scheduler: dict[str, Any] = oc_scheduler_manager.create_scheduler(scheduler_params)
+
+        # Save the new schedulerId in DG ServicePortal
+        if current_app.cloud_mode and not current_app.local_mode:
+            created_oc_scheduler['title'] = unmap_oc_name(created_oc_scheduler['title'])
+
+            dg_sp_manager.save_scheduler_id(
+                created_oc_scheduler['schedulerId'],
+                request_user.email,
+                request_user.database
+            )
 
         return DefaultResponse(created_oc_scheduler).make_response()
     except HTTPException as http_err:
@@ -121,12 +151,27 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
-        connector: dict[str, Any] = oc_scheduler_manager.get_scheduler(scheduler_id)
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_scheduler: bool = dg_sp_manager.check_scheduler_in_sub(
+                scheduler_id,
+                request_user.email,
+                request_user.database
+            )
 
-        # LOGGER.debug(f"connector: {connector}")
+            if not is_valid_scheduler:
+                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
-        return DefaultResponse(connector).make_response()
+        scheduler: dict[str, Any] = oc_scheduler_manager.get_scheduler(scheduler_id)
+
+        if scheduler and current_app.cloud_mode and not current_app.local_mode:
+            scheduler['title'] = unmap_oc_name(scheduler['title'])
+        # LOGGER.debug(f"scheduler: {scheduler}")
+
+        return DefaultResponse(scheduler).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[get_oc_scheduler] OcSchedulerGetError: %s.", err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Scheduler with ID:{scheduler_id}!")
@@ -146,11 +191,21 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
     Returns:
         list[dict[str, Any]]: All OcSchedulers from OpenCelium
     """
-    LOGGER.debug("[get_all_oc_schedulers] called")
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
-        schedulers: list[dict[str, Any]] = oc_scheduler_manager.get_all_schedulers()
+        schedulers: list[dict[str, Any]] = None
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            #Retrieve all corresponding schedulerIds
+            scheduler_ids: list[int] = dg_sp_manager.get_scheduler_ids(request_user.email, request_user.database)
+            schedulers = oc_scheduler_manager.get_schedulers_by_ids(scheduler_ids)
+
+            for a_scheduler in schedulers:
+                a_scheduler['title'] = unmap_oc_name(a_scheduler['title'])
+        else:
+            schedulers: list[dict[str, Any]] = oc_scheduler_manager.get_all_schedulers()
 
         return DefaultResponse(schedulers).make_response()
     except OcSchedulerGetError as err:
@@ -175,10 +230,23 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_scheduler: bool = dg_sp_manager.check_scheduler_in_sub(
+                scheduler_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_scheduler:
+                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
         scheduler_result: dict[str, Any] = oc_scheduler_manager.execute_scheduler(scheduler_id)
 
         return DefaultResponse(scheduler_result).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[execute_oc_scheduler] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to execute OpenCelium Scheduler with ID: {scheduler_id}!")
@@ -203,12 +271,31 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_scheduler: bool = dg_sp_manager.check_scheduler_in_sub(
+                scheduler_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_scheduler:
+                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
         params: dict[str, Any] = request.json
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            params['title'] = map_oc_name(request_user.database, params['title'])
+
         updated_oc_scheduler: dict[str, Any] = oc_scheduler_manager.update_scheduler(params, scheduler_id)
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            updated_oc_scheduler['title'] = unmap_oc_name(updated_oc_scheduler['title'])
+
         return DefaultResponse(updated_oc_scheduler).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcSchedulerUpdateError as err:
         LOGGER.error("[update_oc_scheduler] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to update the OpenCelium Scheduler with ID: {scheduler_id}!")
@@ -233,8 +320,29 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     try:
         oc_scheduler_manager: OcSchedulerManager = OcSchedulerManager()
         oc_conection_manager: OcConnectionManager = OcConnectionManager()
+        dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
         to_delete_scheduler: dict[str, Any] = oc_scheduler_manager.get_scheduler(scheduler_id)
+
+        # Check is scheduler_id and connectionId are part of the users subscription
+        if current_app.cloud_mode and not current_app.local_mode:
+            is_valid_conn: bool = dg_sp_manager.check_connection_in_sub(
+                to_delete_scheduler['connection']['connectionId'],
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_conn:
+                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
+
+            is_valid_scheduler: bool = dg_sp_manager.check_scheduler_in_sub(
+                scheduler_id,
+                request_user.email,
+                request_user.database
+            )
+
+            if not is_valid_scheduler:
+                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
         # LOGGER.debug(f"[delete_oc_scheduler] to_delete_scheduler: {to_delete_scheduler}")
 
@@ -242,10 +350,26 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         target_connection = to_delete_scheduler['connection']['connectionId']
         oc_conection_manager.delete_connection(target_connection)
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager.delete_connection_id(
+                target_connection,
+                request_user.email,
+                request_user.database,
+            )
+
         # Then delete scheduler
         deleted_oc_scheduler: bool = oc_scheduler_manager.delete_scheduler(scheduler_id)
 
+        if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager.delete_scheduler_id(
+                scheduler_id,
+                request_user.email,
+                request_user.database,
+            )
+
         return DefaultResponse(deleted_oc_scheduler).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcSchedulerDeleteError as err:
         LOGGER.error("[delete_oc_scheduler] %s: %s", type(err), err, exc_info=True)
         abort(500, f"Failed to delete the OpenCelium Scheduler with ID: {scheduler_id}!")
