@@ -69,18 +69,21 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
-        if params['title'] == OC_INTERNAL_CONNECTOR_NAME:
-            abort(400, f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the interal DataGerry connector!")
 
 
         if current_app.cloud_mode and not current_app.local_mode:
-            if params['title'] == map_oc_name(request_user.database,OC_INTERNAL_CONNECTOR_NAME):
+            if params['title'] == map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME):
                 abort(400,
                       f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the interal DataGerry connector!"
                      )
-
-            # Map name of connector
-            params['title'] = map_oc_name(request_user.database, params['title'])
+            else:
+                # Map name of connector
+                params['title'] = map_oc_name(request_user.database, params['title'])
+        else:
+            if params['title'] == OC_INTERNAL_CONNECTOR_NAME:
+                abort(400,
+                      f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the interal DataGerry connector!"
+                     )
 
         created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
 
@@ -146,7 +149,7 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
     Example params:
         {
             "password": password,
-            "connectorId": 123, (Optional)
+            "connectorId": 123 (Optional)
         }
     """
     try:
@@ -179,13 +182,13 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
                 if not is_valid_connector:
                     abort(400, f"The target Connector with ID:{params['connectorId']} was not found!")
 
-                    result: dict[str, Any] = oc_connector_manager.get_connector(
-                                                    params['connectorId'],
-                                                    oc_connector_manager.get_master_pw()
-                                                )
+                result: dict[str, Any] = oc_connector_manager.get_connector(
+                                                params['connectorId'],
+                                                oc_connector_manager.get_master_pw()
+                                            )
 
-                    if result:
-                        result['title'] = unmap_oc_name(result['title'])
+                if result:
+                    result['title'] = unmap_oc_name(result['title'])
             else:
                 result: dict[str, Any] = oc_connector_manager.get_connector(
                                                                 params['connectorId'],
@@ -270,7 +273,6 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
         connectors: list[dict[str, Any]] = None
 
         if current_app.cloud_mode and not current_app.local_mode:
-
             connector_ids: list[int] = dg_sp_manager.get_connector_ids(request_user.email, request_user.database)
             connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
 
@@ -439,7 +441,7 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
 
         if current_app.cloud_mode and not current_app.local_mode:
             dg_sp_manager.save_connector_id(
-                created_oc_connector['connectionId'],
+                created_oc_connector['connectorId'],
                 request_user.email,
                 request_user.database
             )
@@ -479,6 +481,9 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
 
         internal_connector = oc_connector_manager.get_connector_by_name(params['title'])
 
+        if not internal_connector:
+            abort(400, "No internal DataGerry Connector created!")
+
         updated_oc_connector: dict[str, Any] = oc_connector_manager.update_connector(
                                                     params,
                                                     internal_connector['connectorId']
@@ -488,6 +493,8 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
             updated_oc_connector['title'] = unmap_oc_name(updated_oc_connector['title'])
 
         return DefaultResponse(updated_oc_connector).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectorUpdateError as err:
         LOGGER.error("[update_internal_oc_connector] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to update the internal Connector!")
@@ -537,7 +544,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
                 )
 
                 if not is_valid_connector:
-                    abort(400, f"The target Connection with ID:{internal_connector['connectorId']} was not found!")
+                    abort(400, f"The target Connector with ID:{internal_connector['connectorId']} was not found!")
 
             internal_connector: dict[str, Any] = oc_connector_manager.get_connector(
                                                         internal_connector['connectorId'],

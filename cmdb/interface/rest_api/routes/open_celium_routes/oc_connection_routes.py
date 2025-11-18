@@ -74,7 +74,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
             params['title'] = conn_title
 
         if oc_connection_manager.check_connection_name_exists(conn_title):
-            conn_title = unmap_oc_name(conn_title)
+            if current_app.cloud_mode and not current_app.local_mode:
+                conn_title = unmap_oc_name(conn_title)
+
             abort(400, f"The connection name: {conn_title} already exists!")
 
         created_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
@@ -90,6 +92,8 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
             created_oc_connection['title'] = unmap_oc_name(created_oc_connection['title'])
 
         return DefaultResponse(created_oc_connection).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectionCreateError as err:
         LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to create an OpenCelium Connection!")
@@ -133,6 +137,8 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         # LOGGER.debug(f"connection: {connection}")
 
         return DefaultResponse(connection).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectionGetError as err:
         LOGGER.error("[get_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Connection with ID:{connection_id}!")
@@ -162,7 +168,6 @@ def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
 
     # Connector adaptions
     if current_app.cloud_mode and not current_app.local_mode:
-
         connector_ids: list[int] = dg_sp_manager.get_connector_ids(request_user.email, request_user.database)
         connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
 

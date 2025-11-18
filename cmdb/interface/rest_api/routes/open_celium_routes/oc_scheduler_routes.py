@@ -78,7 +78,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         if not params.get('scheduler'):
             abort(400, "No 'scheduler' data provided to create the Automation!")
 
-        created_connection: dict[str, Any] = []
+        created_connection: dict[str, Any] = None
         conn_title: str = params['connection']['title']
 
         if current_app.cloud_mode and not current_app.local_mode:
@@ -111,13 +111,13 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 
         # Save the new schedulerId in DG ServicePortal
         if current_app.cloud_mode and not current_app.local_mode:
-            created_oc_scheduler['title'] = unmap_oc_name(created_oc_scheduler['title'])
-
             dg_sp_manager.save_scheduler_id(
                 created_oc_scheduler['schedulerId'],
                 request_user.email,
                 request_user.database
             )
+
+            created_oc_scheduler['title'] = unmap_oc_name(created_oc_scheduler['title'])
 
         return DefaultResponse(created_oc_scheduler).make_response()
     except HTTPException as http_err:
@@ -167,6 +167,7 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 
         if scheduler and current_app.cloud_mode and not current_app.local_mode:
             scheduler['title'] = unmap_oc_name(scheduler['title'])
+
         # LOGGER.debug(f"scheduler: {scheduler}")
 
         return DefaultResponse(scheduler).make_response()
