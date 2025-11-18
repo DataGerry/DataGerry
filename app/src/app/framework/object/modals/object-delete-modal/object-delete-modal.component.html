@@ -1,6 +1,6 @@
 <div class="modal-header bg-primary text-white">
   <h4 class="modal-title">Delete Object: {{publicID}}</h4>
-  <button type="button" class="close" (click)="activeModal.close(0)"><span>&times;</span></button>
+  <button type="button" class="btn-close btn-close-white" (click)="activeModal.close(0)" aria-label="Close"></button>
 </div>
 <div class="modal-body">
   <div class="delete-warning-content">
@@ -17,6 +17,6 @@
   </div>
 </div>
 <div class="modal-footer">
-  <button type="button" class="btn btn-outline-dark" (click)="activeModal.close(0)">Close</button>
-  <button type="submit" class="btn btn-outline-danger" (click)="activeModal.close(publicID)">Delete</button>
+  <button type="button" class="btn btn-warning" (click)="activeModal.close(0)">Close</button>
+  <button type="submit" class="btn btn-danger" (click)="activeModal.close(publicID)">Delete</button>
 </div>

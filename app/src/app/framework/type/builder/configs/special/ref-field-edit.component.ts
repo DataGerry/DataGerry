@@ -25,6 +25,7 @@ import { TypeService } from '../../../../services/type.service';
 import { ObjectService } from '../../../../services/object.service';
 import { ToastService } from '../../../../../layout/toast/toast.service';
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { RenderResult } from '../../../../models/cmdb-render';
@@ -39,6 +40,7 @@ import { nameConvention } from '../../../../../layout/directives/name.directive'
     selector: 'cmdb-ref-field-edit',
     templateUrl: './ref-field-edit.component.html',
     styleUrls: ['./ref-field-edit.component.scss'],
+    standalone: false
 })
 export class RefFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -95,7 +97,8 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
         private objectService: ObjectService,
         private toast: ToastService,
         private cd: ChangeDetectorRef,
-        private validationService: ValidationService
+        private validationService: ValidationService,
+        private copyService: CopyService
     ) {
         super();
     }
@@ -267,7 +270,7 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
                     this.prepareSummaries();
                     this.cd.markForCheck();
                 },
-                error: (err) => this.toast.error(err),
+                error: (error) => this.toast.error(error?.error?.message),
                 complete: () => {
                     if (this.data.ref_types) {
                         this.objectService.getObjectsByType(this.data.ref_types).subscribe((res: RenderResult[]) => {
@@ -361,5 +364,12 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
             let valid = this.form.controls[control].valid;
             this.isValid$ = this.isValid$ && valid;
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'reference field identifier');
     }
 }

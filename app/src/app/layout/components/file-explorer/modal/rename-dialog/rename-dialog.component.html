@@ -1,35 +1,32 @@
 <div class="modal-content">
-  <div class="modal-header">
+  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
     <h4 class="modal-title">
       <i class="far fa-edit"></i> <span class="mx-3">Rename Element</span>
     </h4>
-    <button type="button" class="close" aria-hidden="true" (click)="activeModal.close(false)">×</button>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(false)">
+    </button>
   </div>
   <form [formGroup]="basicForm">
     <div class="modal-body">
       <div class="form-group">
         <label for="folderNameInput">New name: <span class="required">*</span></label>
-        <input type="text" formControlName="name" class="form-control"
-               [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
-                 'is-invalid': name.invalid && (name.dirty || name.touched) }"
-               id="folderNameInput" required>
+        <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
+                 'is-invalid': name.invalid && (name.dirty || name.touched) }" id="folderNameInput" required>
         <small id="folderNameInputHelp" class="form-text text-muted">Folder name must be unique</small>
-        <div *ngIf="name.invalid && (name.dirty || name.touched)"
-             class="invalid-feedback">
-          <div class="float-right" *ngIf="name.errors.required">
+        <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
+          <div class="text-end" *ngIf="name.errors.required">
             Name is required.
           </div>
-          <div class="float-right" *ngIf="name.errors.nameAlreadyTaken">
+          <div class="text-end" *ngIf="name.errors.nameAlreadyTaken">
             A element with this name already exists.
           </div>
         </div>
-        <div class="clearfix"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button type="button" class="btn btn-secondary mr-1" (click)="activeModal.close(false)">Cancel</button>
-      <button type="button" class="btn btn-primary" [disabled]="!name.valid"
-              (click)="activeModal.close({filename: name.value})">OK</button>
+      <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close(false)">Cancel</button>
+      <button type="button" class="btn btn-success" [disabled]="!name.valid"
+        (click)="activeModal.close({filename: name.value})">OK</button>
     </div>
   </form>
 </div>

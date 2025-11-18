@@ -23,6 +23,7 @@ import { ReplaySubject } from 'rxjs';
 import { NgbDateAdapter, NgbDateParserFormatter } from '@ng-bootstrap/ng-bootstrap';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { CustomDateParserFormatter, NgbStringAdapter } from '../../../../../settings/date-settings/date-settings-formatter.service';
 
@@ -37,7 +38,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
     providers: [
         { provide: NgbDateAdapter, useClass: NgbStringAdapter },
         { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-    ]
+    ],
+    standalone: false
 })
 export class DateFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -68,7 +70,11 @@ export class DateFieldEditComponent extends ConfigEditBaseComponent implements O
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -272,5 +278,12 @@ export class DateFieldEditComponent extends ConfigEditBaseComponent implements O
             this.hideFieldControl.enable();
             this.requiredControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'date field identifier');
     }
 }

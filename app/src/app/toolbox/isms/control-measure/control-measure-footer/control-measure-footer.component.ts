@@ -21,7 +21,8 @@ import { Component, Input, OnInit} from '@angular/core';
 @Component({
     selector: 'cmdb-control-measure-footer',
     templateUrl: './control-measure-footer.component.html',
-    styleUrls: ['./control-measure-footer.component.scss']
+    styleUrls: ['./control-measure-footer.component.scss'],
+    standalone: false
 })
 export class ControlMeasureFooterComponent implements OnInit {
 

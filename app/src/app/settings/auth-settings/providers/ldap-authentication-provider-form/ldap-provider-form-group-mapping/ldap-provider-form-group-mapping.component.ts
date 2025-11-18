@@ -22,9 +22,10 @@ import { AbstractControl, UntypedFormArray, UntypedFormControl, UntypedFormGroup
 import { DndDropEvent } from 'ngx-drag-drop';
 
 @Component({
-  selector: 'cmdb-ldap-provider-form-group-mapping',
-  templateUrl: './ldap-provider-form-group-mapping.component.html',
-  styleUrls: ['./ldap-provider-form-group-mapping.component.scss']
+    selector: 'cmdb-ldap-provider-form-group-mapping',
+    templateUrl: './ldap-provider-form-group-mapping.component.html',
+    styleUrls: ['./ldap-provider-form-group-mapping.component.scss'],
+    standalone: false
 })
 export class LdapProviderFormGroupMappingComponent implements OnInit {
 

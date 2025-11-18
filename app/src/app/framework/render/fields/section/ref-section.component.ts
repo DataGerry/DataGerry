@@ -28,9 +28,10 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { NgSelectComponent } from '@ng-select/ng-select';
 
 @Component({
-  selector: 'cmdb-ref-section',
-  templateUrl: './ref-section.component.html',
-  styleUrls: ['./ref-section.component.scss']
+    selector: 'cmdb-ref-section',
+    templateUrl: './ref-section.component.html',
+    styleUrls: ['./ref-section.component.scss'],
+    standalone: false
 })
 export class RefSectionComponent extends RenderFieldComponent implements OnInit, OnDestroy {
 

@@ -26,9 +26,10 @@ import { CmdbCategory } from '../../models/cmdb-category';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-category-view',
-  templateUrl: './category-view.component.html',
-  styleUrls: ['./category-view.component.scss']
+    selector: 'cmdb-category-view',
+    templateUrl: './category-view.component.html',
+    styleUrls: ['./category-view.component.scss'],
+    standalone: false
 })
 export class CategoryViewComponent implements OnInit, OnDestroy {
 

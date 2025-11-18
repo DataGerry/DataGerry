@@ -1,6 +1,6 @@
 <div class="input-group input-group-sm">
   <ng-content></ng-content>
-  <div class="input-group-append">
+  <div>
     <span class="input-group-text" *ngIf="data != undefined" (click)="changeValueToDefault()">
       <fa-icon [icon]="['fas', 'pencil-alt']" placement="left" [ngbTooltip]="tipContent"></fa-icon>
       <ng-template #tipContent><b>Default:</b> {{data.default ? (data.default | dateFormatter) : 'None'}}</ng-template>

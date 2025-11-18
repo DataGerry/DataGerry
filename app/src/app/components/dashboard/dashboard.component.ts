@@ -34,7 +34,8 @@ import { environment } from 'src/environments/environment';
 @Component({
     selector: 'cmdb-dashboard',
     templateUrl: './dashboard.component.html',
-    styleUrls: ['./dashboard.component.scss']
+    styleUrls: ['./dashboard.component.scss'],
+    standalone: false
 })
 export class DashboardComponent implements OnInit, OnDestroy {
 
@@ -276,7 +277,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                 },
                 error: (error) => {
                     this.latestLoading = false;
-                    this.toastService.error(`Error while loading latest objects: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 },
                 complete: () => {
                     this.latestLoading = false;
@@ -296,7 +297,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     });
                 },
                 error: (error) => {
-                    this.toastService.error(`Error while deleting object ${value.object_information.object_id}: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 }
             });
     }
@@ -318,8 +319,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     });
                 },
                 error: (error) => {
-                    this.toastService.error(`Error while deleting object ${value.object_information.object_id} 
-                                             with locations: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 }
             });
     }
@@ -336,8 +336,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     });
                 },
                 error: (error) => {
-                    this.toastService.error(`Error while deleting object ${value.object_information.object_id}
-                                             with child objects: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 }
             });
     }

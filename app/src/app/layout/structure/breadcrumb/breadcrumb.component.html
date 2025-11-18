@@ -14,11 +14,11 @@
       </span>
       </li>
     </ng-container>
-    <div id="active-switch" class="custom-control custom-switch" data-toggle="tooltip" data-placement="bottom"
+    <div id="active-switch" class="form-check form-switch" data-bs-toggle="tooltip" data-bs-placement="bottom"
          title="Only active objects">
-      <input type="checkbox" class="custom-control-input" name="active_cookiee" id="active_cookiee"
+      <input type="checkbox" class="form-check-input" name="active_cookiee" id="active_cookiee"
              [(ngModel)]="isChecked" (change)="checkState($event)" checked/>
-      <label class="custom-control-label" for="active_cookiee"></label>
+      <label class="form-check-label" for="active_cookiee"></label>
     </div>
   </ol>
 </nav>

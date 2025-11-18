@@ -26,9 +26,10 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { UserService } from '../../../services/user.service';
 
 @Component({
-  selector: 'cmdb-user-table-list',
-  templateUrl: './user-table-list.component.html',
-  styleUrls: ['./user-table-list.component.scss']
+    selector: 'cmdb-user-table-list',
+    templateUrl: './user-table-list.component.html',
+    styleUrls: ['./user-table-list.component.scss'],
+    standalone: false
 })
 export class UserTableListComponent implements OnInit, OnDestroy {
 

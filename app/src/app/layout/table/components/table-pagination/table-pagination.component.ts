@@ -71,9 +71,10 @@ export interface Pager {
 }
 
 @Component({
-  selector: 'table-pagination',
-  templateUrl: './table-pagination.component.html',
-  styleUrls: ['./table-pagination.component.scss']
+    selector: 'table-pagination',
+    templateUrl: './table-pagination.component.html',
+    styleUrls: ['./table-pagination.component.scss'],
+    standalone: false
 })
 export class TablePaginationComponent implements OnInit, OnChanges {
 

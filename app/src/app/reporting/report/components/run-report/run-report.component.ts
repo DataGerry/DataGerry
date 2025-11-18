@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'app-run-report',
     templateUrl: './run-report.component.html',
-    styleUrls: ['./run-report.component.scss']
+    styleUrls: ['./run-report.component.scss'],
+    standalone: false
 })
 export class RunReportComponent implements OnInit {
     public reportId: number;

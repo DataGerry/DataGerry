@@ -25,7 +25,8 @@ import { RenderResult } from '../../../models/cmdb-render';
 @Component({
     selector: 'cmdb-object-view-render',
     templateUrl: './object-view-render.component.html',
-    styleUrls: ['./object-view-render.component.scss']
+    styleUrls: ['./object-view-render.component.scss'],
+    standalone: false
 })
 export class ObjectViewRenderComponent {
     @Input() public mode: CmdbMode = CmdbMode.View;

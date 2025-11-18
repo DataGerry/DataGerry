@@ -19,9 +19,10 @@
 import {Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-info-box',
-  templateUrl: './info-box.component.html',
-  styleUrls: ['./info-box.component.scss']
+    selector: 'cmdb-info-box',
+    templateUrl: './info-box.component.html',
+    styleUrls: ['./info-box.component.scss'],
+    standalone: false
 })
 export class InfoBoxComponent {
 

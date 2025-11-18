@@ -25,8 +25,9 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'cmdb-profile-info-modal',
     templateUrl: './profile-info-modal.component.html',
-    styleUrls: ['./profile-info-modal.component.scss']
-  })
+    styleUrls: ['./profile-info-modal.component.scss'],
+    standalone: false
+})
   export class ProfileInfoModalComponent {
     public selectedBranches :any;
     public profileForm: FormGroup;

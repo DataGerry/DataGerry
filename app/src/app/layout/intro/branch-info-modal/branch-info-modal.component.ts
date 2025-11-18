@@ -25,8 +25,9 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'cmdb-branch-info-modal',
     templateUrl: './branch-info-modal.component.html',
-    styleUrls: ['./branch-info-modal.component.scss']
-  })
+    styleUrls: ['./branch-info-modal.component.scss'],
+    standalone: false
+})
   export class BranchInfoModalComponent {
     
     constructor(public activeModal: NgbActiveModal){}

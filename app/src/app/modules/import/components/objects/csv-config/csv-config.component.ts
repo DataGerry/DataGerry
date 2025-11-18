@@ -23,7 +23,8 @@ import { FileConfig } from '../file-config/file-config';
 
 @Component({
     templateUrl: './csv-config.component.html',
-    styleUrls: ['./csv-config.component.scss']
+    styleUrls: ['./csv-config.component.scss'],
+    standalone: false
 })
 export class CsvConfigComponent extends FileConfig implements OnInit {
 

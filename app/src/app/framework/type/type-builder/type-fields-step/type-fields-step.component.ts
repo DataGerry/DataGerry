@@ -30,9 +30,10 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-type-fields-step',
-  templateUrl: './type-fields-step.component.html',
-  styleUrls: ['./type-fields-step.component.scss']
+    selector: 'cmdb-type-fields-step',
+    templateUrl: './type-fields-step.component.html',
+    styleUrls: ['./type-fields-step.component.scss'],
+    standalone: false
 })
 export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
 

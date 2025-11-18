@@ -20,6 +20,7 @@ import { Component } from '@angular/core';
 
 @Component({
     templateUrl: './error-forbidden.component.html',
-    styleUrls: ['./error-forbidden.component.scss']
+    styleUrls: ['./error-forbidden.component.scss'],
+    standalone: false
 })
 export class ErrorForbiddenComponent {}

@@ -30,7 +30,8 @@ import { CleanupModalComponent } from '../../modals/cleanup-modal/cleanup-modal.
 @Component({
     selector: 'cmdb-clean-button',
     templateUrl: './clean-button.component.html',
-    styleUrls: ['./clean-button.component.scss']
+    styleUrls: ['./clean-button.component.scss'],
+    standalone: false
 })
 export class CleanButtonComponent implements OnChanges, OnDestroy {
     // Component un-subscriber

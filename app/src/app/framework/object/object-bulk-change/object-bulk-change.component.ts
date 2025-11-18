@@ -34,9 +34,10 @@ import { APIUpdateMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-bulk-change',
-  templateUrl: './object-bulk-change.component.html',
-  styleUrls: ['./object-bulk-change.component.scss']
+    selector: 'cmdb-object-bulk-change',
+    templateUrl: './object-bulk-change.component.html',
+    styleUrls: ['./object-bulk-change.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeComponent implements OnDestroy {
 

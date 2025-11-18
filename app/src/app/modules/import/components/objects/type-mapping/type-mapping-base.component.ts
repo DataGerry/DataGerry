@@ -22,7 +22,8 @@ import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 
 @Component({
     selector: 'cmdb-type-mapping-base',
-    template: ''
+    template: '',
+    standalone: false
 })
 export class TypeMappingBaseComponent {
     @Input() public parsedData: any = undefined;

@@ -30,6 +30,7 @@ import { FilterBuilderService } from 'src/app/core/services/filter-builder.servi
     selector: 'app-webhook-overview',
     templateUrl: './webhook-overview.component.html',
     styleUrls: ['./webhook-overview.component.scss'],
+    standalone: false
 })
 export class WebhookOverviewComponent implements OnInit {
     public webhooks: Webhook[] = [];

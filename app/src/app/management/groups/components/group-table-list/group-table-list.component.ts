@@ -26,9 +26,10 @@ import { GroupService } from '../../../services/group.service';
 import { Group } from 'src/app/management/models/group';
 
 @Component({
-  selector: 'cmdb-group-table-list',
-  templateUrl: './group-table-list.component.html',
-  styleUrls: ['./group-table-list.component.scss']
+    selector: 'cmdb-group-table-list',
+    templateUrl: './group-table-list.component.html',
+    styleUrls: ['./group-table-list.component.scss'],
+    standalone: false
 })
 export class GroupTableListComponent implements OnInit, OnDestroy {
 

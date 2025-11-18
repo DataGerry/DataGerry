@@ -55,7 +55,8 @@ export const mappingComponents: { [type: string]: any } = {
     selector: 'cmdb-type-mapping',
     templateUrl: './type-mapping.component.html',
     styleUrls: ['./type-mapping.component.scss'],
-    providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => TypeMappingComponent) }]
+    providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => TypeMappingComponent) }],
+    standalone: false
 })
 export class TypeMappingComponent extends TypeMappingBaseComponent implements OnInit, OnChanges, OnDestroy {
 

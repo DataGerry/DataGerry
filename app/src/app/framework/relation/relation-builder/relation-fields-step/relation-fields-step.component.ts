@@ -23,9 +23,10 @@ import { RelationBuilderStepComponent } from '../relation-builder-step.component
 import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
-  selector: 'cmdb-relation-fields-step',
-  templateUrl: './relation-fields-step.component.html',
-  styleUrls: ['./relation-fields-step.component.scss']
+    selector: 'cmdb-relation-fields-step',
+    templateUrl: './relation-fields-step.component.html',
+    styleUrls: ['./relation-fields-step.component.scss'],
+    standalone: false
 })
 export class RelationFieldsStepComponent extends RelationBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
 

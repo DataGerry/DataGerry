@@ -22,9 +22,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 
 @Component({
-  selector: 'cmdb-locations-modal',
-  templateUrl: './locations-modal.component.html',
-  styleUrls: ['./locations-modal.component.scss']
+    selector: 'cmdb-locations-modal',
+    templateUrl: './locations-modal.component.html',
+    styleUrls: ['./locations-modal.component.scss'],
+    standalone: false
 })
 export class LocationsModalComponent {
   @Input() title = 'Information';

@@ -30,7 +30,8 @@ import { PageLengthEntry } from '../../layout/table/components/table-page-size/t
 
 @Component({
     templateUrl: './search.component.html',
-    styleUrls: ['./search.component.scss']
+    styleUrls: ['./search.component.scss'],
+    standalone: false
 })
 export class SearchComponent implements OnInit, OnDestroy {
     // Get the form control of the input field

@@ -26,7 +26,8 @@ import { ReportCategoryService } from 'src/app/reporting/services/report-categor
 @Component({
     selector: 'app-add-category-modal',
     templateUrl: './category-add-modal.component.html',
-    styleUrls: ['./category-add-modal.component.scss']
+    styleUrls: ['./category-add-modal.component.scss'],
+    standalone: false
 })
 export class AddCategoryModalComponent implements OnInit {
     @Input() mode: 'add' | 'edit' | 'delete';
@@ -97,7 +98,6 @@ export class AddCategoryModalComponent implements OnInit {
                 this.modal.close('updated');
             },
             error: (error) => {
-                console.error('Error updating category:', error);
                 this.modal.dismiss('error');
             }
         });

@@ -35,9 +35,10 @@ export const CONTROL_MEASURE = 'CONTROL_MEASURE';
 export const IMPLEMENTATION_STATE = 'IMPLEMENTATION_STATE';
 
 @Component({
-  selector: 'app-control-measures-add',
-  templateUrl: './control-measures-add.component.html',
-  styleUrls: ['./control-measures-add.component.scss']
+    selector: 'app-control-measures-add',
+    templateUrl: './control-measures-add.component.html',
+    styleUrls: ['./control-measures-add.component.scss'],
+    standalone: false
 })
 export class ControlMeasuresAddComponent implements OnInit {
 

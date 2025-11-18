@@ -22,9 +22,10 @@ import { takeUntil } from 'rxjs/operators';
 import { AbstractControl, UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 @Component({
-  selector: 'cmdb-object-bulk-input-appends',
-  templateUrl: './object-bulk-input-appends.component.html',
-  styleUrls: ['./object-bulk-input-appends.component.scss']
+    selector: 'cmdb-object-bulk-input-appends',
+    templateUrl: './object-bulk-input-appends.component.html',
+    styleUrls: ['./object-bulk-input-appends.component.scss'],
+    standalone: false
 })
 export class ObjectBulkInputAppendsComponent implements OnInit, OnDestroy {
 

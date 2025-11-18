@@ -11,8 +11,9 @@ import { getCurrentDate } from 'src/app/core/utils/date.utils';
 import { IsmsValidationService } from '../../services/isms-validation.service';
 
 @Component({
-  selector: 'app-soa',
-  templateUrl: './soa.component.html'
+    selector: 'app-soa',
+    templateUrl: './soa.component.html',
+    standalone: false
 })
 export class SoaComponent implements OnInit {
 

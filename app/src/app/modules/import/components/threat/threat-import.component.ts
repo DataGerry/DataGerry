@@ -10,6 +10,7 @@ import { ImportSummaryModalComponent } from '../import-summary-dialog/import-sum
 @Component({
     selector: 'cmdb-threat-import',
     templateUrl: './threat-import.component.html',
+    standalone: false
 })
 export class ImportThreatComponent {
     public fileForm: UntypedFormGroup;
@@ -59,7 +60,6 @@ export class ImportThreatComponent {
                     modalRef.componentInstance.summary = response;
                 },
                 error: (error) => {
-                    console.error('Import error:', error);
                     this.toastService.error(error?.error?.message);
                 }
             });

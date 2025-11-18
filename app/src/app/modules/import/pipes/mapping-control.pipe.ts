@@ -20,7 +20,8 @@ import { Pipe, PipeTransform } from '@angular/core';
 
 @Pipe({
     name: 'mappingControl',
-    pure: false
+    pure: false,
+    standalone: false
 })
 export class MappingControlPipe implements PipeTransform {
 

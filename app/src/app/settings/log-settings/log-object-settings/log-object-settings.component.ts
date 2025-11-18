@@ -30,9 +30,12 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     template: `
       <div class="modal-header">
           <h4 class="modal-title" id="modal-basic-title">Delete Log</h4>
-          <button type="button" class="close" aria-label="Close" (click)=" handleModalDismiss()">
-              <span aria-hidden="true">&times;</span>
-          </button>
+          <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            (click)="handleModalDismiss()">
+            </button>
       </div>
       <div class="modal-body">
          Do you want to delete the log with the ID <b>{{publicID}}</b>?
@@ -41,7 +44,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
           <button type="button" class="btn btn-warning" (click)="handleModalDismiss()">Close</button>
           <button type="button" class="btn btn-danger" (click)="activeModal.close(this.publicID)">Delete</button>
       </div>
-  `
+  `,
+    standalone: false
 })
 export class DeleteModalComponent {
     @Input() publicID: number;
@@ -60,7 +64,8 @@ export class DeleteModalComponent {
 @Component({
     selector: 'cmdb-log-object-settings',
     templateUrl: './log-object-settings.component.html',
-    styleUrls: ['./log-object-settings.component.scss']
+    styleUrls: ['./log-object-settings.component.scss'],
+    standalone: false
 })
 export class LogObjectSettingsComponent {
 
@@ -158,7 +163,7 @@ export class LogObjectSettingsComponent {
                 next: () => {
                     this.cleanupInProgress = false;
                 },
-                error: (error) => console.error(error),
+                error: (error) => {},
                 complete: () => {
                     switch (reloadList) {
                         case 'active':

@@ -19,9 +19,10 @@
 import { Component } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-settings',
-  templateUrl: './settings.component.html',
-  providers: []
+    selector: 'cmdb-settings',
+    templateUrl: './settings.component.html',
+    providers: [],
+    standalone: false
 })
 export class SettingsComponent {
 }

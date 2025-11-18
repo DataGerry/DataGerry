@@ -27,7 +27,7 @@
                     #selectedLocations>Locations</label>
         </div>
         <div class="sidebar-menu-categories" *ngIf="this.selectedMenu == 'categories'">
-              <div class="input-wrapper-search">
+              <div class="input-wrapper-search mt-2">
                 <input id="category-filter" class="form-control form-control-sm" type="text" placeholder="Filter.." [formControl]="filterTerm">
                 <i class="fas fa-times input-icon-clear"  (click)="this.filterTerm.reset('')"></i>
               </div>

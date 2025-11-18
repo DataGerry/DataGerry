@@ -39,7 +39,8 @@ import { ObjectLinkDeleteModalComponent } from '../../modals/object-link-delete-
 @Component({
     selector: 'cmdb-object-links-table',
     templateUrl: './object-links-table.component.html',
-    styleUrls: ['./object-links-table.component.scss']
+    styleUrls: ['./object-links-table.component.scss'],
+    standalone: false
 })
 export class ObjectLinksTableComponent implements OnInit, OnDestroy {
 
@@ -212,7 +213,7 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
                             this.loadLinksFromAPI();
                         },
                         error: (error) => {
-                            this.toast.error(`${error.error}`);
+                            this.toast.error(error?.error?.message);
                         }
                     });
                 } 

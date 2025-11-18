@@ -98,7 +98,7 @@ export class ConnectorsListComponent implements OnInit {
           });
         },
         error: (err) => {
-          this.toast.error(err?.error?.message || 'Failed to check connector existence');
+          this.toast.error(err?.error?.message);
         }
       });
   }
@@ -111,7 +111,7 @@ export class ConnectorsListComponent implements OnInit {
       onConfirm: () => {
         this.svc.deleteConnector(row.connectorId!).subscribe({
           next: () => { this.toast.success('Connector deleted'); this.loadConnectors(); },
-          error: () => this.toast.error('Delete failed')
+          error: (error) => this.toast.error(error?.error?.message)
         });
       }
     });

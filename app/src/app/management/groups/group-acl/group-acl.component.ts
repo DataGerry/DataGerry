@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-group-acl',
     templateUrl: './group-acl.component.html',
-    styleUrls: ['./group-acl.component.scss']
+    styleUrls: ['./group-acl.component.scss'],
+    standalone: false
 })
 export class GroupAclComponent implements OnInit, OnDestroy {
 
@@ -85,7 +86,7 @@ export class GroupAclComponent implements OnInit, OnDestroy {
                     this.totalGroupPages = apiResponse.pager.total_pages;
                     this.groupsLoading = false;
                 },
-                error: (err) => this.toast.error(err)
+                error: (error) => this.toast.error(error?.error?.message)
             }
         ).add(() => this.groupsLoading = false);
 
@@ -114,7 +115,7 @@ export class GroupAclComponent implements OnInit, OnDestroy {
                     this.groups = this.groups.concat(apiResponse.results as Array<Group>);
                     this.groupsLoading = false;
                 },
-                error: (err) => this.toast.error(err)
+                error: (error) => this.toast.error(error?.error?.message)
             }
         ).add(() => this.groupsLoading = false);
     }

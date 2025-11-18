@@ -43,7 +43,8 @@ export interface GlobalTemplateCounts {
 @Component({
     selector: 'cmdb-section-template',
     templateUrl: './section-template.component.html',
-    styleUrls: ['./section-template.component.scss']
+    styleUrls: ['./section-template.component.scss'],
+    standalone: false
 })
 export class SectionTemplateComponent implements OnInit, OnDestroy {
     public sectionTemplates: any = [];
@@ -200,7 +201,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                         this.getAllSectionTemplates();
                     },
                     error: error => {
-                        this.toastService.error(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }

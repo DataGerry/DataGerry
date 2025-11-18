@@ -19,7 +19,8 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
 @Pipe({
-  name: 'nameGuide'
+    name: 'nameGuide',
+    standalone: false
 })
 export class NameGuidePipe implements PipeTransform {
 

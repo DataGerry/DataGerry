@@ -38,7 +38,8 @@ import { CmdbType } from '../../../models/cmdb-type';
     selector: 'cmdb-type-meta-step',
     templateUrl: './type-meta-step.component.html',
     styleUrls: ['./type-meta-step.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class TypeMetaStepComponent extends TypeBuilderStepComponent implements DoCheck, OnInit, OnDestroy {
 

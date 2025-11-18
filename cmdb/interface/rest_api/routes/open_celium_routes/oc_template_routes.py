@@ -44,7 +44,7 @@ oc_templates_blueprint = APIBlueprint('oc_templates', __name__)
 @oc_templates_blueprint.route('/templates/<int:template_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the OpenCelium Template!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_template(request_user: CmdbUser, template_id: int) -> Response:
     """
     **GET**/**HEAD** route to retrive a OcTemplate with the given template_id
@@ -72,7 +72,7 @@ def get_oc_template(request_user: CmdbUser, template_id: int) -> Response:
 @oc_templates_blueprint.route('/templates', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Business Templates!")
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
     """
     **GET**/**HEAD** route for getting multiple OcBusinessTemplates

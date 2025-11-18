@@ -27,13 +27,14 @@ import { ReplaySubject } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
-  selector: 'cmdb-date',
-  templateUrl: './date.component.html',
-  styleUrls: ['./date.component.scss'],
-  providers: [
-    { provide: NgbDateAdapter, useClass: NgbStringAdapter },
-    { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-  ]
+    selector: 'cmdb-date',
+    templateUrl: './date.component.html',
+    styleUrls: ['./date.component.scss'],
+    providers: [
+        { provide: NgbDateAdapter, useClass: NgbStringAdapter },
+        { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
+    ],
+    standalone: false
 })
 export class DateComponent extends RenderFieldComponent implements OnInit {
 

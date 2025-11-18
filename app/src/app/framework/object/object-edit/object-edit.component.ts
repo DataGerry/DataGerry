@@ -39,7 +39,8 @@ import { finalize } from 'rxjs';
 @Component({
     selector: 'cmdb-object-edit',
     templateUrl: './object-edit.component.html',
-    styleUrls: ['./object-edit.component.scss']
+    styleUrls: ['./object-edit.component.scss'],
+    standalone: false
 })
 export class ObjectEditComponent implements OnInit {
     public mode: CmdbMode = CmdbMode.Edit;
@@ -252,7 +253,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -266,7 +267,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -280,7 +281,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 

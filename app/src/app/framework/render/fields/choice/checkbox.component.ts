@@ -20,8 +20,9 @@ import {Component, OnInit} from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  templateUrl: './checkbox.component.html',
-  styleUrls: ['./checkbox.component.scss']
+    templateUrl: './checkbox.component.html',
+    styleUrls: ['./checkbox.component.scss'],
+    standalone: false
 })
 export class CheckboxComponent extends RenderFieldComponent implements OnInit{
 

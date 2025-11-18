@@ -1,4 +1,4 @@
-<div class="form-group mb-2 row" [formGroup]="parentFormGroup">
+<div class="mb-3 mb-2 row" [formGroup]="parentFormGroup">
   <label class="col-sm-3 col-form-label">
     {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
   </label>
@@ -6,7 +6,7 @@
     <div class="input-group input-group-sm ">
       <ng-container [ngSwitch]="true">
         <ng-container *ngSwitchCase="mode == MODES.View">
-          <select [formControlName]="data.name" name="{{data.name}}" class="custom-select">
+          <select [formControlName]="data.name" name="{{data.name}}" class="form-select">
             <option value="{{null}}"></option>
             <option *ngFor="let option of data.options" value="{{option.name}}">{{option.label}}</option>
           </select>
@@ -14,7 +14,7 @@
         <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
           <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
                                           [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
-            <select [formControlName]="data.name" name="{{data.name}}" class="custom-select"
+            <select [formControlName]="data.name" name="{{data.name}}" class="form-select"
                     [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                  'is-invalid': controller.invalid && (controller.dirty || controller.touched)}">
               <option value="{{null}}"></option>
@@ -27,7 +27,7 @@
         </div>
       </ng-container>
       <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-        <div class="float-right" *ngIf="controller.errors.required">
+        <div class="text-end" *ngIf="controller.errors.required">
           {{data.label}} is a required field.
         </div>
         <div class="clearfix"></div>

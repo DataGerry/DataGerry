@@ -1,10 +1,17 @@
-:host {
+
+:host { position: static; z-index: auto; }
+
+.cmdb-toast-region.fixed {
   position: fixed;
-  top: 0;
-  right: 0;
+  pointer-events: none;
   z-index: 2040;
+  margin: 20px 0 0 0;
 }
 
-.right {
-  top: 75px;
-}
+.cmdb-toast-region.right { top: 75px; right: 1rem; }
+.cmdb-toast-region.left  { top: 75px; left: 1rem; }
+.cmdb-toast-region.bottom.right { bottom: 1rem; right: 1rem; top: auto; }
+.cmdb-toast-region.bottom.left  { bottom: 1rem; left: 1rem; top: auto; }
+.cmdb-toast-region.center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+.cmdb-toast-region .cmdb-toast { pointer-events: all; }

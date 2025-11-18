@@ -33,9 +33,10 @@ import { UserSettingsDBService } from '../../management/user-settings/services/u
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-category',
-  templateUrl: './category.component.html',
-  styleUrls: ['./category.component.scss']
+    selector: 'cmdb-category',
+    templateUrl: './category.component.html',
+    styleUrls: ['./category.component.scss'],
+    standalone: false
 })
 export class CategoryComponent implements OnInit, OnDestroy {
 

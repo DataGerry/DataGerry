@@ -24,7 +24,8 @@ import { Group } from 'src/app/management/models/group';
 @Component({
     selector: 'cmdb-acl-object-permissions',
     templateUrl: './acl-object-permissions.component.html',
-    styleUrls: ['./acl-object-permissions.component.scss']
+    styleUrls: ['./acl-object-permissions.component.scss'],
+    standalone: false
 })
 export class AclObjectPermissionsComponent implements OnChanges {
     // Selected group which compares to the acl

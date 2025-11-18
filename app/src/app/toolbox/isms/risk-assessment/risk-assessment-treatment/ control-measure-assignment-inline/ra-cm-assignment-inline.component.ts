@@ -39,10 +39,11 @@ interface RespItem {
 }
 
 @Component({
-  selector: 'ra-cm-assignment-inline',
-  templateUrl: './ra-cm-assignment-inline.component.html',
-  styleUrls: ['./ra-cm-assignment-inline.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'ra-cm-assignment-inline',
+    templateUrl: './ra-cm-assignment-inline.component.html',
+    styleUrls: ['./ra-cm-assignment-inline.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
 

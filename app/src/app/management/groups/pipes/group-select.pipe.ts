@@ -19,8 +19,9 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
 @Pipe({
-  name: 'groupSelect',
-  pure: true
+    name: 'groupSelect',
+    pure: true,
+    standalone: false
 })
 export class GroupSelectPipe implements PipeTransform {
 

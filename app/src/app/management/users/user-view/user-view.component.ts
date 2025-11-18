@@ -32,9 +32,10 @@ import { UsersPasswdModalComponent } from '../modals/users-passwd-modal/users-pa
 import { environment } from 'src/environments/environment';
 
 @Component({
-  selector: 'cmdb-user-view',
-  templateUrl: './user-view.component.html',
-  styleUrls: ['./user-view.component.scss']
+    selector: 'cmdb-user-view',
+    templateUrl: './user-view.component.html',
+    styleUrls: ['./user-view.component.scss'],
+    standalone: false
 })
 export class UserViewComponent implements OnInit, OnDestroy {
 

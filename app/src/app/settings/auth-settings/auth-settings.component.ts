@@ -35,7 +35,8 @@ import { CollectionParameters } from '../../services/models/api-parameter';
 @Component({
     selector: 'cmdb-auth-settings',
     templateUrl: './auth-settings.component.html',
-    styleUrls: ['./auth-settings.component.scss']
+    styleUrls: ['./auth-settings.component.scss'],
+    standalone: false
 })
 export class AuthSettingsComponent implements OnInit, OnDestroy {
 
@@ -95,7 +96,7 @@ export class AuthSettingsComponent implements OnInit, OnDestroy {
             next: (apiResponse: APIGetMultiResponse<Group>) => {
                 this.groups = apiResponse.results as Array<Group>;
             },
-            error: (error) => this.toast.error(error)
+            error: (error) => this.toast.error(error?.error?.message)
         });
     }
 

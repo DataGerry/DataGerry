@@ -29,7 +29,8 @@ import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
     selector: 'cmdb-section-field-edit',
-    templateUrl: './section-field-edit.component.html'
+    templateUrl: './section-field-edit.component.html',
+    standalone: false
 })
 export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();

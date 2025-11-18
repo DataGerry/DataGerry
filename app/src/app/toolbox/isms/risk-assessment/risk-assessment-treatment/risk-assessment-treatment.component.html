@@ -3,7 +3,7 @@
 
     <!-- ───────── Treatment Option ───────── -->
     <div class="mb-3">
-      <label class="d-block">
+      <label class="d-block mb-1">
         Treatment Option
       </label>
       <ng-container *ngFor="let opt of riskTreatmentOptions">
@@ -15,7 +15,7 @@
 
     <!-- ───────── Responsible Persons ───────── -->
     <div class="form-block mt-4">
-      <label>Responsible Persons</label>
+      <label class="mb-1">Responsible Persons</label>
       <app-form-select class="w-100" [items]="responsiblePersonOptions" bindLabel="display_name" bindValue="public_id"
         groupBy="group" placeholder="Select owner…" [formControl]="parentForm.get('responsible_persons_id')"
         (selectedItemChange)="onOwnerSelected($event)">
@@ -24,46 +24,46 @@
 
     <!-- ───────── Risk-Treatment Description ───────── -->
     <div class="mb-3">
-      <label>Risk Treatment Description</label>
+      <label class="mb-1">Risk Treatment Description</label>
       <app-form-textarea [formControl]="parentForm.get('risk_treatment_description')">
       </app-form-textarea>
     </div>
 
     <!-- ───────── Dates & Status ───────── -->
     <div class="mb-3">
-      <label>Planned Implementation Date</label>
+      <label class="mb-1">Planned Implementation Date</label>
       <app-form-date [formControl]="parentForm.get('planned_implementation_date')">
       </app-form-date>
     </div>
 
     <div class="mb-3">
-      <label>Implementation Status</label>
+      <label class="mb-1">Implementation Status</label>
       <app-form-select [items]="implementationStates" bindLabel="value" bindValue="public_id"
         [formControl]="parentForm.get('implementation_status')" placeholder="Select Implementation Status">
       </app-form-select>
     </div>
 
     <div class="mb-3">
-      <label>Finished Implementation Date</label>
+      <label class="mb-1">Finished Implementation Date</label>
       <app-form-date [formControl]="parentForm.get('finished_implementation_date')">
       </app-form-date>
     </div>
 
     <!-- ───────── Resources & Costs ───────── -->
     <div class="mb-3">
-      <label>Required Resources</label>
+      <label class="mb-1">Required Resources</label>
       <app-form-textarea [formControl]="parentForm.get('required_resources')">
       </app-form-textarea>
     </div>
 
     <div class="row g-3 mb-3">
       <div class="col-md-6">
-        <label>Costs for Implementation</label>
+        <label class="mb-1">Costs for Implementation</label>
         <app-form-input type="number" [formControl]="parentForm.get('costs_for_implementation')">
         </app-form-input>
       </div>
       <div class="col-md-6">
-        <label>Currency</label>
+        <label class="mb-1">Currency</label>
         <app-form-input [formControl]="parentForm.get('costs_for_implementation_currency')">
         </app-form-input>
       </div>
@@ -71,7 +71,7 @@
 
     <!-- ───────── Priority ───────── -->
     <div class="mb-3">
-      <label>Priority</label>
+      <label class="mb-1">Priority</label>
       <app-form-select [items]="priorityOptions" bindLabel="label" bindValue="value" dropdownDirection="top"
         [formControl]="parentForm.get('priority')" (selectedItemChange)="onPrioritySelected($event)">
       </app-form-select>

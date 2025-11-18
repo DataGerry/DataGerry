@@ -33,7 +33,8 @@ import { finalize } from 'rxjs';
 @Component({
     selector: 'cmdb-export-objects',
     templateUrl: './export-objects.component.html',
-    styleUrls: ['./export-objects.component.scss']
+    styleUrls: ['./export-objects.component.scss'],
+    standalone: false
 })
 export class ExportObjectsComponent implements OnInit {
     public typeList: CmdbType[];

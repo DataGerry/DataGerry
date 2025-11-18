@@ -26,7 +26,8 @@ import { AccessControlList } from 'src/app/modules/acl/acl.types';
 @Component({
     selector: 'cmdb-object-links-table-action-cell',
     templateUrl: './object-links-table-action-cell.component.html',
-    styleUrls: ['./object-links-table-action-cell.component.scss']
+    styleUrls: ['./object-links-table-action-cell.component.scss'],
+    standalone: false
 })
 export class ObjectLinksTableActionCellComponent {
 

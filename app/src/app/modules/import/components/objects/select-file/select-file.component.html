@@ -1,11 +1,11 @@
 <hr/>
 
 <form [formGroup]="fileForm">
-    <div class="form-group">
+    <div class="mb-3">
         <label>
             Format:
         </label>
-        <select formControlName="fileFormat" class="custom-select">
+        <select formControlName="fileFormat" class="form-select">
             <option></option>
             <option *ngFor="let importer of importerTypes" value="{{importer.name}}">
                 {{importer.name | uppercase}}
@@ -13,21 +13,18 @@
         </select>
     </div>
 
-    <div class="form-group">
-        <label>File:</label>
-        <div class="custom-file">
-            <input
-                [disabled]="fileFormat.invalid"
-                (change)="selectFile($event.target.files)"
-                type="file"
-                class="custom-file-input"
-                [accept]="selectedFileFormat"
-            >
-            <label class="custom-file-label">
-                {{fileName}}
-            </label>
-        </div>
-    </div>
+    <div class="mb-3">
+        <label for="formFile" class="form-label">File:</label>
+        <input
+          [disabled]="fileFormat.invalid"
+          (change)="selectFile($event.target.files)"
+          class="form-control"
+          type="file"
+          id="formFile"
+          [accept]="selectedFileFormat"
+        >
+      </div>
+      
 </form>
 
 <hr/>

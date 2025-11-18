@@ -32,9 +32,10 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { finalize } from 'rxjs';
 
 @Component({
-  selector: 'cmdb-attachments-list-modal',
-  templateUrl: './attachments-list-modal.component.html',
-  styleUrls: ['./attachments-list-modal.component.scss']
+    selector: 'cmdb-attachments-list-modal',
+    templateUrl: './attachments-list-modal.component.html',
+    styleUrls: ['./attachments-list-modal.component.scss'],
+    standalone: false
 })
 export class AttachmentsListModalComponent implements OnInit {
 

@@ -20,9 +20,10 @@ import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/cor
 import { RenderResult } from '../../../models/cmdb-render';
 
 @Component({
-  selector: 'cmdb-object-footer',
-  templateUrl: './object-footer.component.html',
-  styleUrls: ['./object-footer.component.scss']
+    selector: 'cmdb-object-footer',
+    templateUrl: './object-footer.component.html',
+    styleUrls: ['./object-footer.component.scss'],
+    standalone: false
 })
 export class ObjectFooterComponent implements OnChanges {
 

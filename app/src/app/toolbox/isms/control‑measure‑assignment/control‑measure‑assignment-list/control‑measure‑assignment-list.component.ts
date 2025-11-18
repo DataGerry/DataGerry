@@ -40,9 +40,10 @@ import { PersonGroupService }       from '../../services/person-group.service';
 import { ControlMeasureAssignmentService } from '../../services/control‑measure‑assignment.service';
 
 @Component({
-  selector   : 'app-control-measure-assignment-list',
-  templateUrl: './control-measure-assignment-list.component.html',
-  styleUrls  : ['./control-measure-assignment-list.component.scss']
+    selector: 'app-control-measure-assignment-list',
+    templateUrl: './control-measure-assignment-list.component.html',
+    styleUrls: ['./control-measure-assignment-list.component.scss'],
+    standalone: false
 })
 export class ControlMeasureAssignmentListComponent
         implements OnInit, OnChanges {
@@ -179,7 +180,7 @@ export class ControlMeasureAssignmentListComponent
         this.metaReady = true;
         this.loadAssignments();
       },
-      error: err => this.toast.error(err?.error?.message ?? 'Failed to load reference data')
+      error: err => this.toast.error(err?.error?.message)
     });
   }
 
@@ -225,7 +226,7 @@ export class ControlMeasureAssignmentListComponent
           }));
           this.totalAssignments = resp.total ?? this.assignments.length;
         },
-        error: err => this.toast.error(err?.error?.message ?? 'Failed to load assignments')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 

@@ -23,9 +23,10 @@ import { ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-user-compact',
-  templateUrl: './user-compact.component.html',
-  styleUrls: ['./user-compact.component.scss']
+    selector: 'cmdb-user-compact',
+    templateUrl: './user-compact.component.html',
+    styleUrls: ['./user-compact.component.scss'],
+    standalone: false
 })
 export class UserCompactComponent implements OnDestroy {
 

@@ -31,9 +31,10 @@ import { RiskMatrixService } from '../../../services/risk-matrix.service';
 import { IsmsRiskMatrix, RiskMatrixCell } from 'src/app/toolbox/isms/models/risk-matrix.model';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 @Component({
-  selector: 'app-isms-risk-calculation',
-  templateUrl: './risk-calculation.component.html',
-  styleUrls: ['./risk-calculation.component.scss']
+    selector: 'app-isms-risk-calculation',
+    templateUrl: './risk-calculation.component.html',
+    styleUrls: ['./risk-calculation.component.scss'],
+    standalone: false
 })
 export class RiskCalculationComponent implements OnInit {
   @Input() config: IsmsConfig;
@@ -116,13 +117,13 @@ export class RiskCalculationComponent implements OnInit {
                 // 4) Finally, load the matrix from the backend.
                 this.loadMatrixFromBackend();
               },
-              error: (err) => this.handleError('Failed to load Risk Classes', err)
+              error: (error) => this.handleError(error?.error?.message)
             });
           },
-          error: (err) => this.handleError('Failed to load Likelihoods', err)
+          error: (error) => this.handleError(error?.error?.message)
         });
       },
-      error: (err) => this.handleError('Failed to load Impacts', err)
+      error: (error) => this.handleError(error?.error?.message)
     });
   }
 
@@ -232,7 +233,7 @@ export class RiskCalculationComponent implements OnInit {
   /**
    * handleError: Generic error handler that displays a toast message and logs the error.
    */
-  private handleError(message: string, err: any): void {
+  private handleError(message: string): void {
     this.toast.error(message);
     this.loading = false;
     this.loaderService.hide();

@@ -22,9 +22,10 @@ import { FileElement } from '../../model/file-element';
 import { FileService } from '../../service/file.service';
 
 @Component({
-  selector: 'cmdb-folder-path-viewer',
-  templateUrl: './folder-path-viewer.component.html',
-  styleUrls: ['./folder-path-viewer.component.scss']
+    selector: 'cmdb-folder-path-viewer',
+    templateUrl: './folder-path-viewer.component.html',
+    styleUrls: ['./folder-path-viewer.component.scss'],
+    standalone: false
 })
 export class FolderPathViewerComponent implements OnInit {
 

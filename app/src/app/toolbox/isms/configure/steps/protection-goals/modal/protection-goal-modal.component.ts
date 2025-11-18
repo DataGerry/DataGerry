@@ -8,9 +8,10 @@ import { ProtectionGoal } from 'src/app/toolbox/isms/models/protection-goal.mode
 import { ProtectionGoalService } from 'src/app/toolbox/isms/services/protection-goal.service';
 
 @Component({
-  selector: 'app-protection-goal-modal',
-  templateUrl: './protection-goal-modal.component.html',
-  styleUrls: ['./protection-goal-modal.component.scss']
+    selector: 'app-protection-goal-modal',
+    templateUrl: './protection-goal-modal.component.html',
+    styleUrls: ['./protection-goal-modal.component.scss'],
+    standalone: false
 })
 export class ProtectionGoalModalComponent implements OnInit {
   @Input() protectionGoal?: ProtectionGoal; // If provided => Edit mode.

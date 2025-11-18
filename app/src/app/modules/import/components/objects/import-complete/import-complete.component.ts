@@ -24,7 +24,8 @@ import { ImporterConfig, ImporterFile, ImportResponse } from '../../../models/im
 @Component({
     selector: 'cmdb-import-complete',
     templateUrl: './import-complete.component.html',
-    styleUrls: ['./import-complete.component.scss']
+    styleUrls: ['./import-complete.component.scss'],
+    standalone: false
 })
 export class ImportCompleteComponent implements OnInit {
     @Input() public importFile: ImporterFile = {} as ImporterFile;

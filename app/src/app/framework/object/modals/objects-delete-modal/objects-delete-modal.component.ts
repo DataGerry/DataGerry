@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-objects-delete-modal',
-  templateUrl: './objects-delete-modal.component.html',
-  styleUrls: ['./objects-delete-modal.component.scss']
+    selector: 'cmdb-objects-delete-modal',
+    templateUrl: './objects-delete-modal.component.html',
+    styleUrls: ['./objects-delete-modal.component.scss'],
+    standalone: false
 })
 export class ObjectsDeleteModalComponent {
 

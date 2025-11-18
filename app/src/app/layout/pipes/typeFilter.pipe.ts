@@ -20,7 +20,8 @@ import { Pipe, PipeTransform } from '@angular/core';
 import { CmdbType } from '../../framework/models/cmdb-type';
 
 @Pipe({
-  name: 'typeFilter'
+    name: 'typeFilter',
+    standalone: false
 })
 
 export class TypeFilterPipe implements PipeTransform {

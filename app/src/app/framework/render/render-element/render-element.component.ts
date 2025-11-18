@@ -34,7 +34,8 @@ import { CmdbMode } from '../../modes.enum';
 @Component({
     selector: 'cmdb-render-element',
     templateUrl: './render-element.component.html',
-    styleUrls: ['./render-element.component.scss']
+    styleUrls: ['./render-element.component.scss'],
+    standalone: false
 })
 export class RenderElementComponent extends RenderFieldComponent implements OnInit {
     @ViewChild('fieldContainer', { read: ViewContainerRef, static: true }) containerField;

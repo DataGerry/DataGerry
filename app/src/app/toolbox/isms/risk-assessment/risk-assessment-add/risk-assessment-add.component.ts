@@ -73,9 +73,10 @@ export enum IdRefType {
 type Expanded = Record<'top' | 'before' | 'treatment' | 'after' | 'audit', boolean>;
 
 @Component({
-  selector: 'app-risk-assessment-add',
-  templateUrl: './risk-assessment-add.component.html',
-  styleUrls: ['./risk-assessment-add.component.scss'],
+    selector: 'app-risk-assessment-add',
+    templateUrl: './risk-assessment-add.component.html',
+    styleUrls: ['./risk-assessment-add.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentAddComponent implements OnInit {
 

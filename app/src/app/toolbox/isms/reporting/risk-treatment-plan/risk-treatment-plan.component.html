@@ -13,11 +13,11 @@
 
 <ng-template #exportTemplate>
   <div class="btn-group" *permissionLink="'base.export.type.*'">
-    <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-toggle="dropdown"
+    <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown"
       aria-haspopup="true" aria-expanded="false">
       <fa-icon icon="file-export"></fa-icon> Export
     </button>
-    <ul class="dropdown-menu dropdown-menu-right dropdown-menu-lg-left" aria-labelledby="exportButton">
+    <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left" aria-labelledby="exportButton">
       <li>
         <button class="dropdown-item btn btn-outline-secondary" (click)="exportCsv()">
           <i class="fas fa-file-csv me-1"></i> Export CSV

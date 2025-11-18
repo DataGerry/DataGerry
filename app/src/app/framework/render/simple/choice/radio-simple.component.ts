@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../../fields/components.fields';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
-  selector: 'cmdb-radio-simple',
-  templateUrl: './radio-simple.component.html',
-  styleUrls: ['./radio-simple.component.scss']
+    selector: 'cmdb-radio-simple',
+    templateUrl: './radio-simple.component.html',
+    styleUrls: ['./radio-simple.component.scss'],
+    standalone: false
 })
 export class RadioSimpleComponent extends RenderFieldComponent {
 

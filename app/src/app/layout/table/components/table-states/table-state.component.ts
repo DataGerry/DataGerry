@@ -23,7 +23,8 @@ import { TableState } from '../../table.types';
 @Component({
     selector: 'table-state',
     templateUrl: './table-state.component.html',
-    styleUrls: ['./table-state.component.scss']
+    styleUrls: ['./table-state.component.scss'],
+    standalone: false
 })
 export class TableStateComponent {
     // Current possible table states

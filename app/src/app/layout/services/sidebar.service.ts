@@ -66,9 +66,9 @@ export class SidebarService {
     ) {
         this.user = this.userService.getCurrentUser();
 
-        if(this.user){
-            this.loadCategoryTree();
-        }
+        // if(this.user){
+        //     this.loadCategoryTree();
+        // }
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

@@ -51,7 +51,8 @@ const GREY = '#f5f5f5';
 @Component({
     selector: 'app-risk-assessment-list',
     templateUrl: './risk-assessment-list.component.html',
-    styleUrls: ['./risk-assessment-list.component.scss']
+    styleUrls: ['./risk-assessment-list.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentListComponent implements OnInit, OnChanges {
 
@@ -369,7 +370,7 @@ private loadRows(): void {
           this.rows  = res.results;
           this.total = res.total;
         },
-        error: err => this.toast.error(err?.error?.message || 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
   
@@ -561,7 +562,7 @@ private loadRows(): void {
                 .pipe(finalize(() => this.loader.hide()))
                 .subscribe({
                     next: () => { this.toast.success('Deleted'); this.loadRows(); },
-                    error: err => this.toast.error(err?.error?.message || 'Delete failed')
+                    error: err => this.toast.error(err?.error?.message)
                 });
         }).catch(() => { /* dismissed */ });
     }

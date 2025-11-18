@@ -21,7 +21,8 @@ import { Component, Input } from '@angular/core';
 @Component({
     selector: 'cmdb-import-type-complete',
     templateUrl: './import-type-complete.component.html',
-    styleUrls: ['./import-type-complete.component.scss']
+    styleUrls: ['./import-type-complete.component.scss'],
+    standalone: false
 })
 export class ImportTypeCompleteComponent {
     @Input() done: boolean;

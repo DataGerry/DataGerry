@@ -30,7 +30,8 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 @Component({
     selector: 'cmdb-import-objects',
     templateUrl: './import-objects.component.html',
-    styleUrls: ['./import-objects.component.scss']
+    styleUrls: ['./import-objects.component.scss'],
+    standalone: false
 })
 export class ImportObjectsComponent implements OnInit, OnDestroy {
 

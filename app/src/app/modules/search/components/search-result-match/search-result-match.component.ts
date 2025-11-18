@@ -23,7 +23,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 @Component({
     selector: 'cmdb-search-result-match',
     templateUrl: './search-result-match.component.html',
-    styleUrls: ['./search-result-match.component.scss']
+    styleUrls: ['./search-result-match.component.scss'],
+    standalone: false
 })
 export class SearchResultMatchComponent {
 

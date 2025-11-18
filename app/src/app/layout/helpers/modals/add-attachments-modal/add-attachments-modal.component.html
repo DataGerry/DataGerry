@@ -1,17 +1,18 @@
 <div class="modal-content">
-  <div class="modal-header">
-    <span class="total-title d-flex justify-content-center object-view-navbar" id="attachmentModalLabel">
-      <span class="icon"><i class="fas fa-paperclip"></i></span>
+  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
+    <span class="total-title d-flex justify-content-center object-view-navbar" id="attachmentModalLabel" style="background-color: #e94d18;">
+      <span class="icon"><i class="fas fa-paperclip" style="color: #FFFFFF;"></i></span>
       <span class="name">
         <strong class="text-uppercase">Attachments</strong>
         <br>Total {{recordsTotal}}
       </span>
     </span>
-    <button type="button" class="close" data-dismiss="modal" aria-label="Close"
-            [disabled]='inProcess'
-            (click)="activeModal.close({total: recordsTotal})">
-      <span aria-hidden="true">&times;</span>
-    </button>
+    <button type="button"
+    class="btn-close btn-close-white"
+    aria-label="Close"
+    [disabled]="inProcess"
+    (click)="activeModal.close({ total: recordsTotal })">
+</button>
   </div>
   <div class="modal-body">
     <div id="uploadFileForm">
@@ -45,7 +46,7 @@
     </div>
   </div>
   <div class="modal-footer">
-    <button type="button" class="btn btn-secondary mr-1"
+    <button type="button" class="btn btn-secondary me-1"
             [disabled]='inProcess'
             (click)="activeModal.close({total: recordsTotal})">Done</button>
   </div>

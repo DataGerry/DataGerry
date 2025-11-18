@@ -10,36 +10,37 @@
             <cmdb-object-actions [acl]="renderResult.type_information.acl" [renderResult]="renderResult">
             </cmdb-object-actions>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-externals [renderResult]="renderResult"></cmdb-object-externals>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-attachments></cmdb-object-attachments>
           </div>
-          <div class="docsWidget col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="docsWidget col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-docs *permissionLink="['base.docapi.template.view']" [renderResult]="renderResult">
             </cmdb-object-docs>
           </div>
-          <!-- <div class="col-xl-2 col-md-6 col-6 border-left pt-1 last-widget">
+          <!-- <div class="col-xl-2 col-md-6 col-6 border-start pt-1 last-widget">
             <div class="d-flex justify-content-center">
               <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
               </cmdb-object-type-label>
             </div>
           </div> -->
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <div class="d-flex justify-content-center">
               <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
               </cmdb-object-type-label>
             </div>
           </div>
-          <div class="col-xl-1 col-md-6 col-6 border-left pt-1 last-widget">
+          <div class="col-xl-1 col-md-6 col-6 border-start pt-1 last-widget">
             <div class="d-flex justify-content-center" style="width: 87px !important;">
               <div class="btn-group" role="group">
                 <button type="button" class="btn btn-sm" [class.btn-primary]="!isGraphView"
                   [class.btn-outline-primary]="isGraphView" (click)="toggleView(false)" title="Table View">
                   <i class="fas fa-table"></i>
                 </button>
-                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']" type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
+                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']"
+                  type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
                   [class.btn-outline-primary]="!isGraphView" (click)="toggleView(true)" title="Graph View">
                   <i class="fas fa-project-diagram"></i>
                 </button>
@@ -50,7 +51,7 @@
       </div>
 
       <!-- Header -->
-      <div style="margin-top: 30px;">
+      <div class="mt-4">
         <cmdb-object-header [renderResult]="renderResult"></cmdb-object-header>
       </div>
       <hr>
@@ -115,7 +116,7 @@
                 *ngFor="let group of relationGroups; let i = index; trackBy: trackByRelationId">
                 <a style="align-items: center; cursor: pointer;" class="nav-link"
                   [class.active]="activeRelationTabIndex === (i + 1)" (click)="setActiveTab(i + 1)">
-                  <i [class]="group.tabIcon" class="mr-1"></i>
+                  <i [class]="group.tabIcon" class="me-1"></i>
                   {{ group.tabLabel }} ({{ group.total }})
                 </a>
               </li>
@@ -124,7 +125,7 @@
               <li class="nav-item d-inline-block" style="margin-left: 5px;">
                 <button type="button" class="btn btn-sm btn-success ml-2" *permissionLink="'base.framework.objectRelation.add'"
                   style="display: inline-flex; align-items: center;" (click)="onClickAddRelationTab()">
-                  <i class="fas fa-plus mr-1"></i> Add Relation
+                  <i class="fas fa-plus me-1"></i> Add Relation
                 </button>
               </li>
 
@@ -186,14 +187,12 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Select Relationship</h5>
-          <button type="button" class="close" (click)="closeRelationModal()">
-            <span>×</span>
-          </button>
+          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeRelationModal()"></button>
         </div>
         <div class="modal-body">
           <div *ngIf="loadingRelations" class="loading-state text-center">
             <div class="spinner-border text-primary" role="status"></div>
-            <span class="ml-2">Loading relationships...</span>
+            <span class="ms-2">Loading relationships...</span>
           </div>
 
           <div *ngIf="!loadingRelations && extendedRelations?.length" class="table-container"
@@ -241,7 +240,7 @@
           <button class="btn btn-secondary" (click)="closeRelationModal()">
             Cancel
           </button>
-          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary"
+          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary text-white"
             [disabled]="!chosenRelation" (click)="onConfirmRelationSelection()">
             Confirm
           </button>
@@ -251,7 +250,7 @@
   </div>
 </div>
 
-<!-- Relation Role Dialog (unchanged) -->
+<!-- Relation Role Dialog -->
 <relation-role-dialog *ngIf="showRelationRoleDialog" [chosenRole]="chosenRole"
   [currentObjectTypeID]="renderResult.type_information.type_id" [parentTypeIDs]="roleParentTypeIDs"
   [childTypeIDs]="roleChildTypeIDs" [currentObjectID]="currentObjectID" [relation]="chosenRelation" [mode]="dialogMode"

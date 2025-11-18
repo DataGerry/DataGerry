@@ -36,9 +36,10 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { ThreatService } from '../services/threat.service';
 
 @Component({
-  selector: 'app-threats-list',
-  templateUrl: './threats-list.component.html',
-  styleUrls: ['./threats-list.component.scss']
+    selector: 'app-threats-list',
+    templateUrl: './threats-list.component.html',
+    styleUrls: ['./threats-list.component.scss'],
+    standalone: false
 })
 export class ThreatsListComponent implements OnInit {
 

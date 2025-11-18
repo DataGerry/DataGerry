@@ -20,8 +20,9 @@ import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  templateUrl: './password.component.html',
-  styleUrls: ['./text.component.scss']
+    templateUrl: './password.component.html',
+    styleUrls: ['./text.component.scss'],
+    standalone: false
 })
 export class PasswordComponent extends RenderFieldComponent implements OnInit {
 

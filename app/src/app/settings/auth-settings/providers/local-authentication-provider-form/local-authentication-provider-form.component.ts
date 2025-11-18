@@ -24,7 +24,8 @@ import { AuthProvider } from '../../../../modules/auth/models/providers';
 @Component({
     selector: 'cmdb-local-authentication-provider-form',
     templateUrl: './local-authentication-provider-form.component.html',
-    styleUrls: ['./local-authentication-provider-form.component.scss']
+    styleUrls: ['./local-authentication-provider-form.component.scss'],
+    standalone: false
 })
 export class LocalAuthenticationProviderFormComponent {
 

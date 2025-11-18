@@ -20,8 +20,9 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  templateUrl: './text.component.html',
-  styleUrls: ['./text.component.scss']
+    templateUrl: './text.component.html',
+    styleUrls: ['./text.component.scss'],
+    standalone: false
 })
 export class TextComponent extends RenderFieldComponent {
 

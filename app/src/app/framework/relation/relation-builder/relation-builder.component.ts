@@ -31,9 +31,10 @@ import { RelationService } from '../../services/relaion.service';
 import { ValidationService } from '../../type/services/validation.service';
 
 @Component({
-  selector: 'cmdb-relation-builder',
-  templateUrl: './relation-builder.component.html',
-  styleUrls: ['./relation-builder.component.scss']
+    selector: 'cmdb-relation-builder',
+    templateUrl: './relation-builder.component.html',
+    styleUrls: ['./relation-builder.component.scss'],
+    standalone: false
 })
 export class RelationBuilderComponent implements OnInit, OnDestroy {
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();

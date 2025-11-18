@@ -19,9 +19,10 @@
 import { Component } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-management',
-  templateUrl: './management.component.html',
-  providers: []
+    selector: 'cmdb-management',
+    templateUrl: './management.component.html',
+    providers: [],
+    standalone: false
 })
 export class ManagementComponent {
 }

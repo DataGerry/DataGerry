@@ -22,7 +22,8 @@ import { UntypedFormGroup} from '@angular/forms';
 @Component({
     selector: 'cmdb-type-preview',
     templateUrl: './type-preview.component.html',
-    styleUrls: ['./type-preview.component.scss']
+    styleUrls: ['./type-preview.component.scss'],
+    standalone: false
 })
 export class TypePreviewComponent {
     private fileForm: UntypedFormGroup;

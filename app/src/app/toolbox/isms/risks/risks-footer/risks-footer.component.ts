@@ -21,7 +21,8 @@ import { Component, Input} from '@angular/core';
 @Component({
     selector: 'cmdb-risks-footer',
     templateUrl: './risks-footer.component.html',
-    styleUrls: ['./risks-footer.component.scss']
+    styleUrls: ['./risks-footer.component.scss'],
+    standalone: false
 })
 export class RisksFooterComponent {
 

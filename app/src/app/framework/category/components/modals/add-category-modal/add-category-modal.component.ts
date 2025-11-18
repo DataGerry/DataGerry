@@ -24,9 +24,10 @@ import { CategoryService, checkCategoryExistsValidator } from '../../../../servi
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-add-category-modal',
-  templateUrl: './add-category-modal.component.html',
-  styleUrls: ['./add-category-modal.component.scss']
+    selector: 'cmdb-add-category-modal',
+    templateUrl: './add-category-modal.component.html',
+    styleUrls: ['./add-category-modal.component.scss'],
+    standalone: false
 })
 export class AddCategoryModalComponent implements OnInit {
 

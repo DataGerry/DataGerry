@@ -14,9 +14,10 @@ import { CmdbPersonGroup } from 'src/app/toolbox/isms/models/person-group.model'
 import { PersonGroupService } from 'src/app/toolbox/isms/services/person-group.service';
 
 @Component({
-  selector: 'app-person-group-list',
-  templateUrl: './person-group-list.component.html',
-  styleUrls: ['./person-group-list.component.scss']
+    selector: 'app-person-group-list',
+    templateUrl: './person-group-list.component.html',
+    styleUrls: ['./person-group-list.component.scss'],
+    standalone: false
 })
 export class PersonGroupListComponent implements OnInit {
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;

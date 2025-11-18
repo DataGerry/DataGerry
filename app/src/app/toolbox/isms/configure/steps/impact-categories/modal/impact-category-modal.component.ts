@@ -16,9 +16,10 @@ import { ImpactService } from 'src/app/toolbox/isms/services/impact.service';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-impact-category-modal',
-  templateUrl: './impact-category-modal.component.html',
-  styleUrls: ['./impact-category-modal.component.scss']
+    selector: 'app-impact-category-modal',
+    templateUrl: './impact-category-modal.component.html',
+    styleUrls: ['./impact-category-modal.component.scss'],
+    standalone: false
 })
 export class ImpactCategoryModalComponent implements OnInit {
   /**

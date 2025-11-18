@@ -62,7 +62,7 @@ class CategoriesManager(BaseManager):
 
     Extends: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database:str = None) -> None:
         """
         Set the database connection for the CategoriesManager
 

@@ -40,9 +40,10 @@ class MetaView {
 }
 
 @Component({
-  selector: 'cmdb-object-view-meta',
-  templateUrl: './object-view-meta.component.html',
-  styleUrls: ['./object-view-meta.component.scss']
+    selector: 'cmdb-object-view-meta',
+    templateUrl: './object-view-meta.component.html',
+    styleUrls: ['./object-view-meta.component.scss'],
+    standalone: false
 })
 export class ObjectViewMetaComponent {
 

@@ -45,10 +45,11 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 
 
 @Component({
-  selector: 'cmdb-object-view',
-  templateUrl: './object-view.component.html',
-  styleUrls: ['./object-view.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'cmdb-object-view',
+    templateUrl: './object-view.component.html',
+    styleUrls: ['./object-view.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
@@ -820,7 +821,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
           this.changesRef.markForCheck();
         },
         error: (err) => {
-          this.toastService.error(err?.error?.message || 'Failed to load objects');
+          this.toastService.error(err?.error?.message);
           this.changesRef.markForCheck();
         }
       });

@@ -38,7 +38,8 @@ import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 @Component({
     selector: 'cmdb-multi-data-section',
     templateUrl: './multi-data-section.component.html',
-    styleUrls: ['./multi-data-section.component.scss']
+    styleUrls: ['./multi-data-section.component.scss'],
+    standalone: false
 })
 export class MultiDataSectionComponent extends BaseSectionComponent implements OnInit, OnDestroy{
     @Input() public typeInstance: CmdbType;

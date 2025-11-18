@@ -21,6 +21,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'app-delete-confirmation-modal',
     templateUrl: './delete-confirmation-modal.component.html',
+    standalone: false
 })
 export class DeleteConfirmationModalComponent {
     @Input() report: any;

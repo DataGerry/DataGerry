@@ -22,9 +22,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 
 @Component({
-  selector: 'cmdb-general-modal',
-  templateUrl: './general-modal.component.html',
-  styleUrls: ['./general-modal.component.scss']
+    selector: 'cmdb-general-modal',
+    templateUrl: './general-modal.component.html',
+    styleUrls: ['./general-modal.component.scss'],
+    standalone: false
 })
 export class GeneralModalComponent {
 

@@ -27,12 +27,14 @@ import { ObjectPreviewModalComponent } from '../../modals/object-preview-modal/o
 import { ObjectDeleteModalComponent } from '../../modals/object-delete-modal/object-delete-modal.component';
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-object-table-actions',
     templateUrl: './object-table-actions.component.html',
-    styleUrls: ['./object-table-actions.component.scss']
+    styleUrls: ['./object-table-actions.component.scss'],
+    standalone: false
 })
 export class ObjectTableActionsComponent implements OnDestroy {
 
@@ -65,7 +67,8 @@ export class ObjectTableActionsComponent implements OnDestroy {
     constructor(
         private locationService: LocationService, 
         private objectService: ObjectService, 
-        private modalService: NgbModal
+        private modalService: NgbModal,
+        private toastService: ToastService,
     ) {
 
     }
@@ -103,7 +106,7 @@ export class ObjectTableActionsComponent implements OnDestroy {
                 }
             },
             error: (error) => {
-                console.error("Error:", error);
+                this.toastService.error(error?.error?.message)
             }
         });
     }

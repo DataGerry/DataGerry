@@ -23,7 +23,8 @@ export enum KEY_CODE {
 }
 
 @Directive({
-  selector: 'button[type=submit]'
+    selector: 'button[type=submit]',
+    standalone: false
 })
 export class PreventDoubleSubmitDirective {
 

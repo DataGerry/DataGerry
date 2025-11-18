@@ -16,9 +16,11 @@
 """
 Implementation of OpenCelium ConnectorManager
 """
+import os
 import json
 from logging import Logger, getLogger
 from typing import Any, Optional
+from flask import current_app
 
 from requests import Response
 
@@ -31,6 +33,7 @@ LOGGER: Logger = getLogger(__name__)
 
 CONNECTOR_URL: str = "/connector"
 CHECK_CONNECTOR_URL: str = f"{CONNECTOR_URL}/check"
+CONNECTORS_BY_IDS_URL: str = f"{CONNECTOR_URL}/list/by-ids"
 ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
 CHECK_MASTER_PW_URL: str = f"{CONNECTOR_URL}/master-password/status"
 CONNECTOR_EXISTS_URL: str = f"{CONNECTOR_URL}/exists"
@@ -42,7 +45,20 @@ class OcConnectorManager(OcBaseManager):
     """
     Manages Connectors of OpenCelium
     """
+    def __init__(self) -> None:
+        """
+        Initialises the OcConnectorManager
+        """
+        self.master_pw: str = None
 
+        if current_app.cloud_mode:
+            self.master_pw = os.getenv('OC_MASTER_PW')
+
+
+            if not self.master_pw and not current_app.local_mode:
+                raise ValueError("No OC master password provided via env variables!")
+
+        super().__init__()
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     def create_connector(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -114,6 +130,35 @@ class OcConnectorManager(OcBaseManager):
             return True
 
         return False
+
+
+    def get_connectors_by_ids(self, connector_ids: list[int]) -> dict[str, Any]:
+        """
+        Retrieves a list of OcConnectors with the provided 'connector_ids'
+
+        Args:
+            connector_ids (list[int]): List of connector_ids of OcConnectors
+
+        Raises:
+            OcConnectorGetError: When the connector_ids were not provided to this method
+            OcConnectorGetError: When the OcConnectors could not be retrieved
+
+        Returns:
+            dict[str, Any]: The OcConnectors with the given connector_ids
+        """
+        if not connector_ids:
+            raise OcConnectorGetError("No schedulerIds for Connectors provided!")
+
+        params: dict[str, Any] = {
+            "identifiers": connector_ids
+        }
+
+        connectors_response: Response = self.oc_connector.oc_post(params, CONNECTORS_BY_IDS_URL)
+
+        if self.is_valid_response(connectors_response):
+            return json.loads(connectors_response.text)
+
+        raise OcConnectorGetError(f"Failed to retrieve OpenCelium Connectors with IDs: {connector_ids}")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -268,3 +313,14 @@ class OcConnectorManager(OcBaseManager):
             return True
 
         return False
+
+# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
+
+    def get_master_pw(self) -> str:
+        """
+        Retrieves the master password for OpenCelium (cloud version only)
+
+        Returns:
+            str: The master passwaord for OpenCelium
+        """
+        return self.master_pw

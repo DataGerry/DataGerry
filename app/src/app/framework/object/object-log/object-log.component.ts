@@ -28,7 +28,8 @@ import { UntypedFormGroup } from '@angular/forms';
 @Component({
     selector: 'cmdb-object-log',
     templateUrl: './object-log.component.html',
-    styleUrls: ['./object-log.component.scss']
+    styleUrls: ['./object-log.component.scss'],
+    standalone: false
 })
 export class ObjectLogComponent implements OnInit {
 
@@ -57,7 +58,7 @@ export class ObjectLogComponent implements OnInit {
             this.renderResult = JSON.parse(this.log.render_state);
         },
             (error) => {
-                console.error(error);
+                // console.error(error);
             },
             () => {
                 this.logService.getCorrespondingLogs(this.logID).subscribe((logs: CmdbLog[]) => {

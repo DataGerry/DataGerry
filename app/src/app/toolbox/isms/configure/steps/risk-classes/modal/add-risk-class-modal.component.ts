@@ -8,9 +8,10 @@ import { RiskClass } from 'src/app/toolbox/isms/models/risk-class.model';
 import { RiskClassService } from 'src/app/toolbox/isms/services/risk-class.service';
 
 @Component({
-  selector: 'app-risk-class-modal',
-  templateUrl: './risk-class-modal.component.html',
-  styleUrls: ['./risk-class-modal.component.scss']
+    selector: 'app-risk-class-modal',
+    templateUrl: './risk-class-modal.component.html',
+    styleUrls: ['./risk-class-modal.component.scss'],
+    standalone: false
 })
 export class RiskClassModalComponent implements OnInit {
   @Input() riskClass?: RiskClass; // If provided => "Edit" mode

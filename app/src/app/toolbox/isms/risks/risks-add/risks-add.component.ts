@@ -41,7 +41,8 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 @Component({
     selector: 'app-risk-add',
     templateUrl: './risk-add.component.html',
-    styleUrls: ['./risk-add.component.scss']
+    styleUrls: ['./risk-add.component.scss'],
+    standalone: false
 })
 export class RiskAddComponent implements OnInit {
     public isEditMode = false;

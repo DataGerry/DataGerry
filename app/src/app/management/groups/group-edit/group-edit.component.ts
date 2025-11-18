@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-group-edit',
     templateUrl: './group-edit.component.html',
-    styleUrls: ['./group-edit.component.scss']
+    styleUrls: ['./group-edit.component.scss'],
+    standalone: false
 })
 export class GroupEditComponent implements OnInit, OnDestroy {
 

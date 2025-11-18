@@ -1,21 +1,19 @@
-<div [formGroup]="form" class="form-row">
-    <div class="form-group col-md-12">
+<div [formGroup]="form" class="row">
+    <div class=" col-md-12">
         <label>Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
-            <div class="input-group-prepend">
-                <span class="input-group-text pr-1">
-                    <div class="custom-control custom-checkbox">
+                <span class="input-group-text pe-1">
+                    <div class="form-check custom-checkbox">
                         <input
                             type="checkbox"
                             [formControl]="valueControl"
-                            class="custom-control-input"
+                            class="form-check-input"
                             [id]="nameControl.value+'-required'"
                             (ngModelChange)="onInputChange($event, 'value')"
                         />
-                        <label class="custom-control-label" [for]="nameControl.value+'-required'"></label>
+                        <label class="form-check-label" [for]="nameControl.value+'-required'"></label>
                     </div>
                 </span>
-            </div>
             <input
                 [formControl]="nameControl"
                 type="text"
@@ -27,20 +25,20 @@
                 (ngModelChange)="onInputChange($event, 'name')"
             />
             <div *ngIf="isDuplicate$" class="invalid-feedback">
-                <div class="float-right">
+                <div class="text-end">
                     Field name must be unique
                 </div>
             </div>
         </div>
-        <small class="form-text text-muted float-left">Use a unique field identifier</small>
+        <small class="form-text text-muted text-start">Use a unique field identifier</small>
         <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="nameControl.errors?.required">
+            <div class="text-end" *ngIf="nameControl.errors?.required">
                 Identifier is a required field
             </div>
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group col-md-12">
+    <div class=" col-md-12">
         <label>Label<span class="required">*</span>:</label>
         <input
             [(ngModel)]="data.label"
@@ -52,15 +50,15 @@
                  'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
             (ngModelChange)="onInputChange($event, 'label')"
         />
-        <small class="form-text text-muted float-left">A static display name</small>
+        <small class="form-text text-muted text-start">A static display name</small>
         <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="labelControl.errors?.required">
+            <div class="text-end" *ngIf="labelControl.errors?.required">
                 Label is a required field
             </div>
         </div>
         <div class="clearfix"></div>
     </div>
-    <div class="form-group  col-md-12">
+    <div class="  col-md-12">
         <label>Description:</label>
         <textarea
             [formControl]="descriptionControl"
@@ -72,7 +70,7 @@
         </textarea>
         <small class="form-text text-muted">Short field description or helper text</small>
     </div>
-    <div class="form-group col-md-12">
+    <div class=" col-md-12">
         <label>Helper text:</label>
         <input
             [formControl]="helperTextControl"

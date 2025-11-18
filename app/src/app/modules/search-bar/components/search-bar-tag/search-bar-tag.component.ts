@@ -22,7 +22,8 @@ import { SearchBarTag } from './search-bar-tag';
 @Component({
     selector: 'cmdb-search-bar-tags',
     templateUrl: './search-bar-tag.component.html',
-    styleUrls: ['./search-bar-tag.component.scss']
+    styleUrls: ['./search-bar-tag.component.scss'],
+    standalone: false
 })
 export class SearchBarTagComponent {
 

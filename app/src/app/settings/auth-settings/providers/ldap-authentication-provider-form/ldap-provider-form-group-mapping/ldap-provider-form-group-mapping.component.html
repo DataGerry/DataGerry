@@ -31,7 +31,7 @@
       </td>
       <td class="col-6">
         <div class="input-group">
-          <select class="custom-select" formControlName="group_id"
+          <select class="form-select" formControlName="group_id"
                   [ngClass]="{ 'is-valid': groupIDControl.valid && (groupIDControl.dirty || groupIDControl.touched),
                  'is-invalid': groupIDControl.invalid && (groupIDControl.dirty || groupIDControl.touched)}">
             <option *ngFor="let group of groups"
@@ -70,7 +70,7 @@
         {{getGroupFromID(group.get('group_id').value) ? getGroupFromID(group.get('group_id').value).label : 'Unknown Group'}}
       </div>
       <div class="col-1 d-flex justify-content-center action-buttons">
-        <i class="fas fa-arrows-alt-v move mr-3"></i>
+        <i class="fas fa-arrows-alt-v move me-3"></i>
         <i class="far fa-trash-alt pointer" (click)="removeMapping(i)"></i>
       </div>
     </div>

@@ -54,7 +54,8 @@ import { FieldIdentifierValidationService } from '../../type/services/field-iden
     selector: 'cmdb-builder',
     templateUrl: './builder.component.html',
     styleUrls: ['./builder.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class BuilderComponent implements OnDestroy, AfterViewChecked {
 

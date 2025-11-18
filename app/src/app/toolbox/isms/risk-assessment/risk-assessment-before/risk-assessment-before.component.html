@@ -27,7 +27,7 @@
 
   <hr>
   <!-- Calculated risk output -->
-  <div class="row g-3 ml-2">
+  <div class="row g-3 ms-2">
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label fw-semibold mb-2" style="white-space: nowrap;">Calculated Risk</label>
@@ -62,7 +62,7 @@
 
   <!-- Risk Assessor -->
   <div class="form-block">
-    <label>Risk Assessor</label>
+    <label class="mb-1">Risk Assessor</label>
     <app-form-select class="w-100" [items]="allPersons" bindLabel="display_name" bindValue="public_id"
       [formControl]="parentForm.get('risk_assessor_id')">
     </app-form-select>
@@ -71,8 +71,7 @@
 
   <!-- Risk Owner -->
   <div class="form-block mt-4">
-    <label>Risk Owner<span class="required">*</span></label>
-
+    <label class="mb-1">Risk Owner<span class="text-danger">*</span></label>
     <app-form-select class="w-100" [items]="ownerOptions" bindLabel="display_name" bindValue="public_id" groupBy="group"
       placeholder="Select owner…" [formControl]="parentForm.get('risk_owner_id')"
       (selectedItemChange)="onOwnerSelected($event)">
@@ -82,7 +81,7 @@
 
   <!-- Interviewed Persons -->
   <div class="form-block">
-    <label>Interviewed Persons</label>
+    <label class="mb-1">Interviewed Persons</label>
     <app-form-select class="w-100" [items]="allPersons" bindLabel="display_name" bindValue="public_id" [multiple]="true"
       [formControl]="parentForm.get('interviewed_persons')">
     </app-form-select>
@@ -90,14 +89,14 @@
 
   <!-- Date of Assessment -->
   <div class="form-block">
-    <label>Date of Assessment <span class="required">*</span></label>
+    <label class="mb-1">Date of Assessment <span class="text-danger">*</span></label>
     <app-form-date class="w-100" [formControl]="parentForm.get('risk_assessment_date')" [defaultToCurrent]="true">
     </app-form-date>
   </div>
 
   <!-- Additional Information -->
   <div class="form-block mt-3">
-    <label>Additional Information</label>
+    <label class="mb-1">Additional Information</label>
     <app-form-textarea class="w-100" [formControl]="parentForm.get('additional_info')">
     </app-form-textarea>
   </div>

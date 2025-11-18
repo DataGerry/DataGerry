@@ -27,7 +27,8 @@ import { ImportService } from 'src/app/modules/import/services/import.service';
 @Component({
     selector: 'cmdb-import-types',
     templateUrl: './import-types.component.html',
-    styleUrls: ['./import-types.component.scss']
+    styleUrls: ['./import-types.component.scss'],
+    standalone: false
 })
 export class ImportTypesComponent implements OnInit {
     public fileForm: UntypedFormGroup;

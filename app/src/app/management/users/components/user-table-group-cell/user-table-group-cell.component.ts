@@ -23,9 +23,10 @@ import { ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-user-table-group-cell',
-  templateUrl: './user-table-group-cell.component.html',
-  styleUrls: ['./user-table-group-cell.component.scss']
+    selector: 'cmdb-user-table-group-cell',
+    templateUrl: './user-table-group-cell.component.html',
+    styleUrls: ['./user-table-group-cell.component.scss'],
+    standalone: false
 })
 export class UserTableGroupCellComponent implements OnDestroy {
 

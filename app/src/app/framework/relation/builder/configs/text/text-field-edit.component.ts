@@ -31,7 +31,8 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 @Component({
     selector: 'cmdb-text-field-edit',
     templateUrl: './text-field-edit.component.html',
-    styleUrls: ['./text-field-edit.component.scss']
+    styleUrls: ['./text-field-edit.component.scss'],
+    standalone: false
 })
 export class TextFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 

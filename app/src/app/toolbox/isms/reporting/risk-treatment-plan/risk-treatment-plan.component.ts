@@ -22,8 +22,9 @@ type ApiRow = any;             // raw row from the API
 type ViewRow = Record<string, any>; // flattened for table / export
 
 @Component({
-  selector: 'app-risk-treatment-plan',
-  templateUrl: './risk-treatment-plan.component.html',
+    selector: 'app-risk-treatment-plan',
+    templateUrl: './risk-treatment-plan.component.html',
+    standalone: false
 })
 export class RiskTreatmentPlanComponent implements OnInit {
 
@@ -138,7 +139,7 @@ export class RiskTreatmentPlanComponent implements OnInit {
           this.rawRows = this.process(list);
           this.applyView();         // no filter → copy + sort + page
         },
-        error: err => this.toast.error(err?.error?.message ?? 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 

@@ -21,7 +21,8 @@ import { RenderFieldComponent} from '../../fields/components.fields';
 
 @Component({
     templateUrl: './password-simple.component.html',
-    styleUrls: ['./password-simple.component.scss']
+    styleUrls: ['./password-simple.component.scss'],
+    standalone: false
 })
 export class PasswordSimpleComponent extends RenderFieldComponent {
 

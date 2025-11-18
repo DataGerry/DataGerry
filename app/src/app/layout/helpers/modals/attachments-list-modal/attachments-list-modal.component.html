@@ -7,17 +7,15 @@
         <br>Total {{attachments.length}}
       </span>
     </span>
-    <button type="button" class="close" data-dismiss="modal" aria-label="Close"
-            [disabled]='inProcess'
-            (click)="activeModal.close({total: recordsTotal})">
-      <span aria-hidden="true">&times;</span>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" [disabled]="inProcess"
+      (click)="activeModal.close({ total: recordsTotal })">
     </button>
   </div>
   <div class="modal-body">
     <div id="uploadFileForm">
       <div class="container-fluid mb-2">
         <button *permissionLink="'base.framework.object.edit'"
-                type="button" class="btn btn-primary btn-lg btn-block" (click)="addAttachments()">
+                type="button" class="btn btn-primary text-white btn-lg w-100" (click)="addAttachments()">
           <i class="fas fa-plus"></i> Add new Attachments
         </button>
       </div>
@@ -52,7 +50,7 @@
   <div class="modal-footer">
     <button type="button" class="btn btn-danger" (click)="activeModal.dismiss('Close click')" >Close</button>
 
-    <button type="button" class="btn btn-secondary mr-1"
+    <button type="button" class="btn btn-secondary me-1"
             [disabled]='inProcess'
             (click)="activeModal.close({total: recordsTotal})">Done</button>
   </div>

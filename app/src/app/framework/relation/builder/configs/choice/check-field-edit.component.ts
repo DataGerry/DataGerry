@@ -28,7 +28,8 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 @Component({
     selector: 'cmdb-check-field-edit',
     templateUrl: './check-field-edit.component.html',
-    styleUrls: ['./check-field-edit.component.scss']
+    styleUrls: ['./check-field-edit.component.scss'],
+    standalone: false
 })
 export class CheckFieldEditComponent extends ConfigEditBaseComponent implements OnInit {
 

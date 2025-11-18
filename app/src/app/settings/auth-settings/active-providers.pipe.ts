@@ -21,7 +21,8 @@ import { UntypedFormArray } from '@angular/forms';
 
 @Pipe({
     name: 'activeProviders',
-    pure: false
+    pure: false,
+    standalone: false
 })
 export class ActiveProvidersPipe implements PipeTransform {
 

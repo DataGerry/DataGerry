@@ -20,8 +20,9 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../../fields/components.fields';
 
 @Component({
-  templateUrl: './checkbox-simple.component.html',
-  styleUrls: ['./checkbox-simple.component.scss']
+    templateUrl: './checkbox-simple.component.html',
+    styleUrls: ['./checkbox-simple.component.scss'],
+    standalone: false
 })
 export class CheckboxSimpleComponent extends RenderFieldComponent {
 

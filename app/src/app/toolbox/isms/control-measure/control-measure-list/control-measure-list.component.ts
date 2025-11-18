@@ -42,7 +42,8 @@ import { state } from '@angular/animations';
 @Component({
     selector: 'app-control-measures-list',
     templateUrl: './control-measures-list.component.html',
-    styleUrls: ['./control-measures-list.component.scss']
+    styleUrls: ['./control-measures-list.component.scss'],
+    standalone: false
 })
 export class ControlmeasuresListComponent implements OnInit {
     @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;

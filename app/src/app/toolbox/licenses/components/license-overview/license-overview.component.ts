@@ -32,7 +32,8 @@ export enum SubscriptionType {
   selector: 'app-license-overview',
   templateUrl: './license-overview.component.html',
   styleUrls: ['./license-overview.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: false
 })
 export class LicenseOverviewComponent implements OnInit, OnDestroy {
   loading = false;

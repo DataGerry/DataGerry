@@ -25,7 +25,8 @@ import { RenderResult } from 'src/app/framework/models/cmdb-render';
 @Component({
     selector: 'cmdb-sections-factory',
     templateUrl: './sections-factory.component.html',
-    styleUrls: ['./sections-factory.component.scss']
+    styleUrls: ['./sections-factory.component.scss'],
+    standalone: false
 })
 export class SectionsFactoryComponent extends BaseSectionComponent  {
     @Input() public sections: Array<CmdbTypeSection> = [];

@@ -27,7 +27,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 @Component({
     selector: 'cmdb-docapi-template-edit',
     templateUrl: './docapi-edit.component.html',
-    styleUrls: ['./docapi-edit.component.scss']
+    styleUrls: ['./docapi-edit.component.scss'],
+    standalone: false
 })
 export class DocapiEditComponent implements OnInit {
     public docId: number;

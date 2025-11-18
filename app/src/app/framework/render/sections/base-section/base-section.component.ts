@@ -25,7 +25,8 @@ import { CmdbMode } from '../../../modes.enum';
 @Component({
     selector: 'cmdb-base-section',
     templateUrl: './base-section.component.html',
-    styleUrls: ['./base-section.component.scss']
+    styleUrls: ['./base-section.component.scss'],
+    standalone: false
 })
 export class BaseSectionComponent {
     public MODES = CmdbMode;
@@ -53,14 +54,14 @@ export class BaseSectionComponent {
 
     public getFieldByName(name: string) {
         const field: any = this.fields.find(f => f.name === name);
-        switch (field.type) {
+        switch (field?.type) {
             case 'ref': {
-                field.default = parseInt(field.default, 10);
+                field.default = parseInt(field?.default, 10);
                 break;
             }
             default: {
                 if (!field.default) {
-                    field.default = field.value;
+                    field.default = field?.value;
                 }
                 break;
             }

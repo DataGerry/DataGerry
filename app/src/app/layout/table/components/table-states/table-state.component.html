@@ -1,33 +1,32 @@
-<div class="btn-group mr-2">
+<div class="btn-group me-2">
     <button
         #toggleButton
         type="button"
         class="btn btn-warning btn-sm dropdown-toggle"
-        data-toggle="dropdown"
+        data-bs-toggle="dropdown"
     >
         <i class="fas fa-border-none"></i> Configs
     </button>
 
     <form [formGroup]="form">
-        <div class="setting-dropdown dropdown-menu dropdown-menu-right dropdown-menu-lg-left text-center">
+        <div class="setting-dropdown dropdown-menu dropdown-menu-end dropdown-menu-start text-center">
             <!-- Save state -->
             <span class="input-group p-2">
                 <input
                     type="text"
                     formControlName="name"
-                    class="form-control form-control-sm mr-auto p-2"
+                    class="form-control form-control-sm me-auto p-2"
                     [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                                 'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
                 />
-                <span class="input-group-append">
-                    <button
-                        [disabled]="form.invalid"
-                        class="btn btn-success btn-sm"
-                        (click)="saveState(nameControl.value, $event)"
-                    >
-                        <i class="fas fa-save"></i>
-                    </button>
-                </span>
+                <button
+                type="button"
+                class="btn btn-success"
+                [disabled]="form.invalid"
+                (click)="saveState(nameControl.value, $event)"
+              >
+                <i class="fas fa-save"></i>
+              </button>
             </span>
 
             <div class="dropdown-divider"></div>
@@ -41,7 +40,7 @@
                     {{ state.name }}
                 </div>
                 <div>
-                    <i class="fas fa-save config-item-icon mr-1" (click)="updateState(state, $event)"></i>
+                    <i class="fas fa-save config-item-icon me-1" (click)="updateState(state, $event)"></i>
                     <i class="far fa-trash-alt config-item-icon" (click)="deleteState(state, $event)"></i>
                 </div>
             </div>

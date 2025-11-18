@@ -1,23 +1,24 @@
-<div
-    *permissionLink="['base.export.type.*', 'base.export.object.*']"
-    class="card-deck"
->
-    <div class="card">
-        <a routerLink="/export/objects/">
-            <div class="dash-card primary">
-                <i class="far fa-object-ungroup"></i>
-                <span class="text-title">Export Objects</span>
-                <!-- <span></span> -->
-            </div>
+<div *permissionLink="['base.export.type.*', 'base.export.object.*']" class="row g-3">
+    <div class="col-md-6">
+      <div class="card h-100">
+        <a routerLink="/export/objects/" class="text-decoration-none">
+          <div class="dash-card primary">
+            <i class="far fa-object-ungroup"></i>
+            <span class="text-title">Export Objects</span>
+          </div>
         </a>
+      </div>
     </div>
-
-    <div class="card">
-        <a routerLink="/export/types/">
-            <div class="dash-card primary">
-                <i class="far fa-object-ungroup"></i>
-                <span class="text-title">Export Types</span>
-            </div>
+  
+    <div class="col-md-6">
+      <div class="card h-100">
+        <a routerLink="/export/types/" class="text-decoration-none">
+          <div class="dash-card primary">
+            <i class="far fa-object-ungroup"></i>
+            <span class="text-title">Export Types</span>
+          </div>
         </a>
+      </div>
     </div>
-</div>
+  </div>
+  

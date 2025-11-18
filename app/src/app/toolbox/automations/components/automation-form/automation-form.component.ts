@@ -139,7 +139,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         }
       },
       error: (err) => {
-        this.toast.error(err?.error?.message || 'Failed to load initial data');
+        this.toast.error(err?.error?.message);
         this.router.navigate(['/automations']);
       }
     });
@@ -293,8 +293,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
           this.showInternalConnectorModal();
         }
       },
-      error: (err) => {
-        this.toast.error('Failed to check internal connector existence');
+      error: (error) => {
+        this.toast.error(error?.error?.message);
         this.isCheckingInternalConnector = false;
         this.internalConnectorExists = false;
         this.router.navigate(['/automations']);

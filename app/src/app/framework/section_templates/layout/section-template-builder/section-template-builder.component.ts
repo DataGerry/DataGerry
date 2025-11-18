@@ -48,7 +48,8 @@ import { NumberControl } from 'src/app/framework/type/builder/controls/number/nu
 @Component({
     selector: 'section-template-builder',
     templateUrl: './section-template-builder.component.html',
-    styleUrls: ['./section-template-builder.component.scss']
+    styleUrls: ['./section-template-builder.component.scss'],
+    standalone: false
 })
 export class SectionTemplateBuilderComponent implements OnInit {
 

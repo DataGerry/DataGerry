@@ -21,7 +21,8 @@ import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
 @Component({
     selector: 'cmdb-multi-data-actions',
     templateUrl: './multi-data-actions.component.html',
-    styleUrls: ['./multi-data-actions.component.scss']
+    styleUrls: ['./multi-data-actions.component.scss'],
+    standalone: false
 })
 export class MultiDataActionsComponent implements OnInit {
 

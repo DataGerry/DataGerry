@@ -24,8 +24,9 @@ import { AccessControlList } from 'src/app/modules/acl/acl.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Directive({
-  selector: '[permissionLink]',
-  exportAs: 'permissionLink'
+    selector: '[permissionLink]',
+    exportAs: 'permissionLink',
+    standalone: false
 })
 export class PermissionLinkDirective {
 

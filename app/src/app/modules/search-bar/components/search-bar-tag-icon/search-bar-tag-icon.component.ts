@@ -23,7 +23,8 @@ import { SearchBarTag } from '../search-bar-tag/search-bar-tag';
 @Component({
     selector: 'cmdb-search-bar-tag-icon',
     templateUrl: './search-bar-tag-icon.component.html',
-    styleUrls: ['./search-bar-tag-icon.component.scss']
+    styleUrls: ['./search-bar-tag-icon.component.scss'],
+    standalone: false
 })
 export class SearchBarTagIconComponent {
 

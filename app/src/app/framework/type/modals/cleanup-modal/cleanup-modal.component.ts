@@ -30,7 +30,8 @@ import { CmdbType } from '../../../models/cmdb-type';
 @Component({
     selector: 'cmdb-cleanup-modal',
     templateUrl: './cleanup-modal.component.html',
-    styleUrls: ['./cleanup-modal.component.scss']
+    styleUrls: ['./cleanup-modal.component.scss'],
+    standalone: false
 })
 export class CleanupModalComponent implements AfterViewInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();

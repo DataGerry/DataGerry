@@ -3,16 +3,16 @@
   <div class="col-md-2">
     <div class="card">
       <div class="card-header">
-        <div class="custom-control custom-switch">
-          <input type="checkbox" class="custom-control-input" id="acl-activated-button" formControlName="activated">
-          <label class="custom-control-label" for="acl-activated-button">ACL activated</label>
+        <div class="form-check form-switch">
+          <input type="checkbox" class="form-check-input" id="acl-activated-button" formControlName="activated">
+          <label class="form-check-label" for="acl-activated-button">ACL activated</label>
         </div>
       </div>
       <ul class="list-group list-group-flush">
         <li class="list-group-item list-group-item-action d-flex">
-          <div class="mr-auto">Groups</div>
+          <div class="me-auto">Groups</div>
           <div>
-            <span class="badge badge-success" [ngClass]="groupsControl.valid ? 'badge-success' : 'badge-danger'">
+            <span class="badge bg-success" [ngClass]="groupsControl.valid ? 'bg-success' : 'bg-danger'">
               {{groupsControl.status}}
             </span>
           </div>

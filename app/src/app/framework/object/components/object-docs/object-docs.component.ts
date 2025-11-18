@@ -29,7 +29,8 @@ import { DocTemplate } from '../../../../modules/docapi/models/cmdb-doctemplate'
 @Component({
     selector: 'cmdb-object-docs',
     templateUrl: './object-docs.component.html',
-    styleUrls: ['./object-docs.component.scss']
+    styleUrls: ['./object-docs.component.scss'],
+    standalone: false
 })
 export class ObjectDocsComponent implements OnChanges {
 

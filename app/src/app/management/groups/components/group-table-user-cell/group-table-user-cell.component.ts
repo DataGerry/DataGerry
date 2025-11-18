@@ -25,9 +25,10 @@ import { GroupUsersModalComponent } from '../../modals/group-users-modal/group-u
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-group-table-user-cell',
-  templateUrl: './group-table-user-cell.component.html',
-  styleUrls: ['./group-table-user-cell.component.scss']
+    selector: 'cmdb-group-table-user-cell',
+    templateUrl: './group-table-user-cell.component.html',
+    styleUrls: ['./group-table-user-cell.component.scss'],
+    standalone: false
 })
 export class GroupTableUserCellComponent implements OnDestroy {
 

@@ -33,9 +33,10 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-actions',
-  templateUrl: './object-actions.component.html',
-  styleUrls: ['./object-actions.component.scss']
+    selector: 'cmdb-object-actions',
+    templateUrl: './object-actions.component.html',
+    styleUrls: ['./object-actions.component.scss'],
+    standalone: false
 })
 export class ObjectActionsComponent implements OnDestroy {
 
@@ -90,7 +91,7 @@ export class ObjectActionsComponent implements OnDestroy {
                 }
             },
             error:  (error) => {
-                console.error("Error:", error);
+                console.error(error?.error?.message);
             }
         });
     }
@@ -120,7 +121,7 @@ export class ObjectActionsComponent implements OnDestroy {
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                     },
                     error: (error) => {
-                        this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } | Error: ${ error }`);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }
@@ -147,7 +148,7 @@ export class ObjectActionsComponent implements OnDestroy {
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                     },
                     error: (error) => {
-                        this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } and child locations | Error: ${ error }`);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }
@@ -162,7 +163,7 @@ export class ObjectActionsComponent implements OnDestroy {
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                     },
                     error: (error) => {
-                        this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } and child locations | Error: ${ error }`);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }

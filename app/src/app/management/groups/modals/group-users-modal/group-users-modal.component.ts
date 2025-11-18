@@ -21,9 +21,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { Group } from '../../../models/group';
 
 @Component({
-  selector: 'cmdb-group-users-modal',
-  templateUrl: './group-users-modal.component.html',
-  styleUrls: ['./group-users-modal.component.scss']
+    selector: 'cmdb-group-users-modal',
+    templateUrl: './group-users-modal.component.html',
+    styleUrls: ['./group-users-modal.component.scss'],
+    standalone: false
 })
 export class GroupUsersModalComponent {
 

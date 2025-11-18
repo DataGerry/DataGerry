@@ -35,8 +35,9 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  templateUrl: './location.component.html',
-  styleUrls: ['./location.component.scss']
+    templateUrl: './location.component.html',
+    styleUrls: ['./location.component.scss'],
+    standalone: false
 })
 export class LocationComponent extends RenderFieldComponent implements OnInit, OnDestroy {
   // fallback objectID for modal preview
@@ -138,7 +139,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             },
             error: (error) => {
                 if (error.status != 404) {
-                    console.error("Error:", error);
+                    // console.error("Error:", error);
                 }
             }
             
@@ -162,7 +163,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
                     },
                     error: (error) => {
                         if (error.status != 404) {
-                            console.error("Error:", error);
+                            // console.error("Error:", error);
                         }
                     }
                 }

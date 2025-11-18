@@ -21,6 +21,7 @@ import { UntypedFormControl, Validators } from '@angular/forms';
 import { ReplaySubject } from 'rxjs';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ValidRegexValidator } from '../../../../../layout/validators/valid-regex-validator';
 
@@ -31,7 +32,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
 @Component({
     selector: 'cmdb-number-field-edit',
     templateUrl: './number-field-edit.component.html',
-    styleUrls: ['./number-field-edit.component.scss']
+    styleUrls: ['./number-field-edit.component.scss'],
+    standalone: false
 })
 export class NumberFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -59,7 +61,11 @@ export class NumberFieldEditComponent extends ConfigEditBaseComponent implements
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -210,5 +216,12 @@ export class NumberFieldEditComponent extends ConfigEditBaseComponent implements
             this.hideFieldControl.enable();
             this.requiredControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'number field identifier');
     }
 }

@@ -4,6 +4,6 @@ export const environment = {
     preCloudMode: true,
     featurePreviewMode: false,
     protocol: 'http',
-    apiUrl: '', // API URL
+    apiUrl: '192.168.64.2', // API URL
     apiPort: 4000
 };

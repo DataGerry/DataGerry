@@ -19,9 +19,10 @@
 import { Component, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-render-error',
-  templateUrl: './render-error.component.html',
-  styleUrls: ['./render-error.component.scss']
+    selector: 'cmdb-render-error',
+    templateUrl: './render-error.component.html',
+    styleUrls: ['./render-error.component.scss'],
+    standalone: false
 })
 export class RenderErrorComponent implements OnInit {
 

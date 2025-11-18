@@ -5,17 +5,17 @@
                 Add new object: <strong>{{typeInstance?.label}}</strong>
             </h1>
         </div>
-        <div class="col-sm-2 text-right" *ngIf="typeInstance">
+        <div class="col-sm-2 text-end" *ngIf="typeInstance">
             <div class="btn-group p-1" role="group">
                 <button
                 type="button"
-                class="btn btn-outline-danger mr-2"
+                class="btn btn-outline-danger me-2"
                 routerLink="/framework/object/type/{{typeInstance?.public_id}}"
                 >Cancel</button>
 
                 <button
                     type="submit"
-                    class="btn btn-success mr-2"
+                    class="btn btn-success me-2"
                     (click)="saveObject()"
                     [disabled]="!renderForm.valid && !isSaving"
                 >Save</button>
@@ -43,14 +43,12 @@
                     >
                         <ng-template ng-optgroup-tmp let-item="item">
                             <span style="vertical-align: middle;">{{item.name}}</span>
-                            <span class="ml-1 badge badge-secondary">{{item.total}}</span>
+                            <span class="ms-1 badge bg-secondary">{{item.total}}</span>
                         </ng-template>
                     </ng-select>
-                    <div class="input-group-append">
                         <button class="btn btn-success" type="submit" [disabled]="!typeIDForm.valid" (click)="useTypeID()">
                             <i class="fas fa-plus"></i> Add
                         </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -79,13 +77,13 @@
                 <div class="btn-group" role="group">
                     <button
                         type="button"
-                        class="btn btn-outline-danger mr-2"
+                        class="btn btn-outline-danger me-2"
                         routerLink="/framework/object/type/{{typeInstance?.public_id}}"
                     >Cancel</button>
 
                     <button
                         type="submit"
-                        class="btn btn-success mr-2"
+                        class="btn btn-success me-2"
                         [disabled]="!renderForm.valid"
                     >Save</button>
                 </div>

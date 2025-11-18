@@ -25,9 +25,10 @@ import { RenderResult } from '../../../models/cmdb-render';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-location-simple',
-  templateUrl: './location-simple.component.html',
-  styleUrls: ['./location-simple.component.scss']
+    selector: 'cmdb-location-simple',
+    templateUrl: './location-simple.component.html',
+    styleUrls: ['./location-simple.component.scss'],
+    standalone: false
 })
 export class LocationSimpleComponent extends RenderFieldComponent implements OnInit {
 

@@ -17,6 +17,7 @@
 Implementation of OpenCelium InvokerManager
 """
 import json
+import os
 from logging import Logger, getLogger
 from typing import Any
 
@@ -40,7 +41,6 @@ class OcInvokerManager(OcBaseManager):
     """
     Manages Invokers of OpenCelium
     """
-
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     def get_invoker_by_name(self, name: str) -> dict[str, Any]:
@@ -90,7 +90,7 @@ class OcInvokerManager(OcBaseManager):
         if self.is_valid_response(target_invoker_response):
             data: dict[str, Any] = json.loads(target_invoker_response.text)
 
-            LOGGER.debug(f"[check_invoker_exists] result:{data}")
+            # LOGGER.debug(f"[check_invoker_exists] result:{data}")
 
             return data['result']
 

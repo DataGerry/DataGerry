@@ -19,11 +19,12 @@
 import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@angular/core';
 
 @Component({
-  selector: 'table-loading',
-  templateUrl: './table-loading.component.html',
-  styleUrls: ['./table-loading.component.scss'],
-  encapsulation: ViewEncapsulation.None,
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'table-loading',
+    templateUrl: './table-loading.component.html',
+    styleUrls: ['./table-loading.component.scss'],
+    encapsulation: ViewEncapsulation.None,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class TableLoadingComponent {
 

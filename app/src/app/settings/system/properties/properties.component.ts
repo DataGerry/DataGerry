@@ -23,9 +23,10 @@ import { ToastService } from '../../../layout/toast/toast.service';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-properties',
-  templateUrl: './properties.component.html',
-  styleUrls: ['./properties.component.scss']
+    selector: 'cmdb-properties',
+    templateUrl: './properties.component.html',
+    styleUrls: ['./properties.component.scss'],
+    standalone: false
 })
 export class PropertiesComponent implements OnInit, OnDestroy {
 
@@ -59,7 +60,7 @@ export class PropertiesComponent implements OnInit, OnDestroy {
           }
         },
         error: (error) => {
-          this.toast.error(error);
+          this.toast.error(error?.error?.message);
         }
       });
   }

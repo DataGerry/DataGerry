@@ -19,10 +19,10 @@ import { Component, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'app-risk-assessment-drilldown-modal',
-  templateUrl: './risk-assessment-drilldown-modal.component.html',
-  styleUrls: ['./risk-assessment-drilldown-modal.component.scss']
-
+    selector: 'app-risk-assessment-drilldown-modal',
+    templateUrl: './risk-assessment-drilldown-modal.component.html',
+    styleUrls: ['./risk-assessment-drilldown-modal.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentDrilldownModalComponent {
   @Input() assessmentIds: number[] = [];

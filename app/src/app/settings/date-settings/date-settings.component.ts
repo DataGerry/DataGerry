@@ -27,9 +27,10 @@ import { ToastService } from '../../layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-date-settings',
-  templateUrl: './date-settings.component.html',
-  styleUrls: ['./date-settings.component.scss']
+    selector: 'cmdb-date-settings',
+    templateUrl: './date-settings.component.html',
+    styleUrls: ['./date-settings.component.scss'],
+    standalone: false
 })
 export class DateSettingsComponent implements OnInit, OnDestroy {
 

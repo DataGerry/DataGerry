@@ -21,7 +21,8 @@ import { Directive, Input } from '@angular/core';
 import { Column } from '../table.types';
 
 @Directive({
-  selector: 'tr[table-row]'
+    selector: 'tr[table-row]',
+    standalone: false
 })
 export class TableRowDirective<T> {
 

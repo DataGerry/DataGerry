@@ -38,9 +38,10 @@ interface SelectOption { public_id: number; name: string; }
 type Ctx = 'OBJECT' | 'GROUP' | 'RISK';
 
 @Component({
-  selector   : 'app-duplicate-risk-assessment-modal',
-  templateUrl: './duplicate-risk-assessment.modal.html',
-  styleUrls  : ['./duplicate-risk-assessment.modal.scss']
+    selector: 'app-duplicate-risk-assessment-modal',
+    templateUrl: './duplicate-risk-assessment.modal.html',
+    styleUrls: ['./duplicate-risk-assessment.modal.scss'],
+    standalone: false
 })
 export class DuplicateRiskAssessmentModalComponent implements OnInit {
 
@@ -106,7 +107,7 @@ export class DuplicateRiskAssessmentModalComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef)
       ).subscribe({
         next : opts => this.options = opts,
-        error: err  => this.toast.error(err?.error?.message || 'Load failed')
+        error: err  => this.toast.error(err?.error?.message)
       });
     } else {
       const tp = { filter: '', limit: 0, page: 1, sort: 'sort', order: 1, projection: ['public_id', 'label', 'name'],};
@@ -116,7 +117,7 @@ export class DuplicateRiskAssessmentModalComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef)
       ).subscribe({
         next : ids  => this.allTypeIds = ids,
-        error: err  => this.toast.error(err?.error?.message || 'Load failed')
+        error: err  => this.toast.error(err?.error?.message)
       });
     }
   }

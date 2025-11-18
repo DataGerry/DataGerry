@@ -87,8 +87,8 @@
 
     <!-- Protection Goals (Checkboxes) -->
     <div class="form-group mt-3">
-      <label>Affected Protection Goals:</label>
-      <div class="d-flex flex-wrap gap-3 flex-column">
+      <label class="mb-2">Affected Protection Goals:</label>
+      <div class="d-flex flex-wrap  flex-column">
         <ng-container *ngFor="let pg of protectionGoalOptions">
           <app-checkbox [id]="'pg-' + pg.public_id" [label]="pg.name"
             [checked]="selectedProtectionGoals.includes(pg.public_id)"
@@ -103,7 +103,7 @@
     <!-- Footer Buttons -->
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
-      <app-button *ngIf="!isViewMode" label="Cancel" type="button" [bootstrapClass]="'btn-secondary mr-2'"
+      <app-button *ngIf="!isViewMode" label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
         (clicked)="onCancel()"></app-button>
 
       <!-- Submit Button -->
