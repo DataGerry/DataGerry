@@ -146,7 +146,6 @@ export class RelationBasicStepComponent
       .subscribe({
         next: resp => {
           this.availableTypes = resp.results || [];
-          console.log('Loaded types:', this.availableTypes);
           // Emit the available types to parent component
           this.availableTypesChange.emit(this.availableTypes);
           this.isLoadingTypes = false;

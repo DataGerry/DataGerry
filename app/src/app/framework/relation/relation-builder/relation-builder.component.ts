@@ -106,7 +106,6 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
     // If creating new
     if (this.mode === CmdbMode.Create) {
       this.relationInstance = new CmdbRelation();
-      console.log('Creating new relation instance:', this.relationInstance);
     }
   }
 

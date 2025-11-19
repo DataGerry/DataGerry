@@ -49,7 +49,6 @@ export class UserSettingsResolver  {
                     return setting;
                 }),
                 catchError((error) => {
-                    console.error(`No user setting for the route: ${ident} | Error: ${error}`);
                     return undefined;
                 })
             );
