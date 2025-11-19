@@ -98,7 +98,8 @@
                     <!-- Middle Section: Labels and Arrows -->
                     <div class="middle-section">
                         <div class="vertical-label left-side" 
-                             [class.placeholder-text]="!relationInstance?.relation_name_parent">
+                             [class.placeholder-text]="!relationInstance?.relation_name_parent"
+                             [title]="relationInstance?.relation_name_parent">
                             {{ relationInstance?.relation_name_parent || 'Contains' }}
                         </div>
         
@@ -108,7 +109,8 @@
                         </div>
         
                         <div class="vertical-label right-side" 
-                             [class.placeholder-text]="!relationInstance?.relation_name_child">
+                             [class.placeholder-text]="!relationInstance?.relation_name_child"
+                             [title]="relationInstance?.relation_name_child">
                             {{ relationInstance?.relation_name_child || 'Part Of' }}
                         </div>
                     </div>

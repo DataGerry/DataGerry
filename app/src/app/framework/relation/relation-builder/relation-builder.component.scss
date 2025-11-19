@@ -23,7 +23,7 @@ $warning: #FF9800;
     align-items: center;
     justify-content: center;
     padding: 15px 0;
-    gap: 12px;
+    gap: 20px;
     min-height: 350px;
   }
 
@@ -173,7 +173,7 @@ $warning: #FF9800;
     width: 100%;
     max-width: 240px;
     padding: 0;
-    min-height: 65px;
+    min-height: 85px;
 
     // Connection lines
     &::before,
@@ -200,48 +200,117 @@ $warning: #FF9800;
     }
   }
 
-  // Vertical Labels
-  .vertical-label {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    font-size: 11px;
-    font-weight: 600;
-    color: $neutral-80;
-    letter-spacing: 0.4px;
-    padding: 8px 5px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
-    border: 1px solid rgba($neutral-80, 0.08);
-    white-space: nowrap;
-    flex-shrink: 0;
-    max-height: 65px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+// Vertical Labels
+.vertical-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 600;
+  color: $neutral-80;
+  letter-spacing: 0.4px;
+  padding: 8px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  border: 1px solid rgba($neutral-80, 0.08);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-height: 85px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+  cursor: pointer;
 
+  &.left-side {
+    transform: rotate(180deg);
+  }
+
+  &:hover {
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+    transform: scale(1.05);
+    
     &.left-side {
-      transform: rotate(180deg);
-    }
-
-    &:hover {
-      background: #fff;
-      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
-      transform: scale(1.05);
-      
-      &.left-side {
-        transform: rotate(180deg) scale(1.05);
-      }
-    }
-
-    &.placeholder-text {
-      color: #95a5a6;
-      font-style: italic;
-      border-style: dashed;
-      border-color: #bdc3c7;
-      background: rgba(255, 255, 255, 0.8);
+      transform: rotate(180deg) scale(1.05);
     }
   }
+
+  &.placeholder-text {
+    color: #95a5a6;
+    font-style: italic;
+    border-style: dashed;
+    border-color: #bdc3c7;
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  // Tooltip on hover - LEFT SIDE (default position - top center)
+  &::before {
+    content: attr(title);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+  }
+  
+  &:hover::before {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  // Arrow for tooltip - LEFT SIDE
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 4px);
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: rgba(0, 0, 0, 0.9);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 1000;
+  }
+  
+  &:hover::after {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  // RIGHT SIDE - Position tooltip to the left to avoid overflow
+  &.right-side {
+    &::before {
+      left: auto;
+      right: calc(100% + 10px);
+      bottom: 50%;
+      transform: translateY(50%);
+    }
+
+    &::after {
+      left: auto;
+      right: calc(100% + 4px);
+      bottom: 50%;
+      transform: translateY(50%) rotate(90deg);
+      border-top-color: transparent;
+      border-left-color: rgba(0, 0, 0, 0.9);
+    }
+  }
+}
 
   // Arrows Container - HORIZONTAL (ROW)
   .arrows-center {
