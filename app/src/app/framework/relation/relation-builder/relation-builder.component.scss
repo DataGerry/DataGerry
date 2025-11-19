@@ -70,11 +70,43 @@ $warning: #FF9800;
         text-transform: uppercase;
         font-size: 11px;
         letter-spacing: 0.5px;
+        position: relative;
+        
+        // Enhanced tooltip styling for better visibility
+        &:hover::after {
+          content: attr(title);
+          position: absolute;
+          bottom: 100%;
+          left: 50%;
+          transform: translateX(-50%);
+          color: white;
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-size: 12px;
+          white-space: normal;
+          max-width: 200px;
+          z-index: 1000;
+          text-transform: none;
+          letter-spacing: normal;
+          font-weight: normal;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+          pointer-events: none;
+          cursor: pointer !important;
+        }
+      }
+
+      // Additional truncate-text class for explicit control
+      .truncate-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        max-width: 100%;
       }
     }
 
     .node-body {
-      padding: 14px 16px;
+      padding: 7px 12px;
       background: rgba(255, 255, 255, 0.6);
       border-radius: 0 0 16px 16px;
       position: relative;
@@ -82,8 +114,8 @@ $warning: #FF9800;
 
       .node-title {
         margin: 0;
-        font-size: 14px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 600;
         color: $gray-900;
         white-space: nowrap;
         overflow: hidden;

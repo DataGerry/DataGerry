@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, Output, EventEmitter } from '@angular/core';
 import {
   FormControl,
   FormGroup,
@@ -42,6 +42,7 @@ export class RelationBasicStepComponent
   implements OnInit, OnDestroy {
   @Input() public relationInstance!: CmdbRelation;
   @Input() public mode: CmdbMode;
+  @Output() public availableTypesChange = new EventEmitter<any[]>();
 
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
@@ -145,6 +146,9 @@ export class RelationBasicStepComponent
       .subscribe({
         next: resp => {
           this.availableTypes = resp.results || [];
+          console.log('Loaded types:', this.availableTypes);
+          // Emit the available types to parent component
+          this.availableTypesChange.emit(this.availableTypes);
           this.isLoadingTypes = false;
         },
         error: err => {

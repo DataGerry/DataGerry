@@ -14,6 +14,7 @@
                     [mode]="mode"
                     [relationInstance]="relationInstance"
                     (validateChange)="basicValid = $event"
+                    (availableTypesChange)="availableTypes = $event"
                 ></cmdb-relation-basic-step>
                 <hr/>
                 <button class="btn btn-primary next" type="button" awNextStep [disabled]="!basicValid">
@@ -79,7 +80,10 @@
                     <div class="ci-node">
                         <div class="node-header" [style.background]="'#bdc3c7'">
                             <!-- <i class="node-icon" [ngClass]="relationInstance?.relation_icon_parent || 'fas fa-cube'"></i> -->
-                            <span class="node-type">{{  'Example Type' }}</span>
+                            <span class="node-type truncate-text" 
+                                  [title]="getTypeTooltipText(relationInstance?.parent_type_ids)">
+                                {{ getTypeDisplayText(relationInstance?.parent_type_ids) }}
+                            </span>
                         </div>
                         <div class="node-body">
                             <h3 class="node-title" [title]="'Example Label'">
@@ -113,7 +117,10 @@
                     <div class="ci-node">
                         <div class="node-header" [style.background]="'#5dade2'">
                             <!-- <i class="node-icon" [ngClass]="relationInstance?.relation_icon_child || 'fas fa-cube'"></i> -->
-                            <span class="node-type">{{  'Example Type' }}</span>
+                            <span class="node-type truncate-text" 
+                                  [title]="getTypeTooltipText(relationInstance?.child_type_ids)">
+                                {{ getTypeDisplayText(relationInstance?.child_type_ids) }}
+                            </span>
                         </div>
                         <div class="node-body">
                             <h3 class="node-title" [title]="'Example Label'">
