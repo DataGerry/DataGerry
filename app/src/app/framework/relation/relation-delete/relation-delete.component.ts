@@ -209,7 +209,6 @@ export class RelationDeleteComponent implements OnInit {
                     }
                 },
                 (reason) => {
-                    console.warn('Delete modal dismissed:', reason);
                 }
             );
         } catch (error) {

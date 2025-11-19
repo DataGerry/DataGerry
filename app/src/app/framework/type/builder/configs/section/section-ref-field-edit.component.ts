@@ -289,13 +289,11 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
 
         const fieldIdx = this.data.fields.indexOf(`${oldName}-field`);
         if (fieldIdx === -1) {
-            console.error(`Field ${oldName}-field not found in this.data.fields`);
             return;
         }
 
         const field = this.fields.find(x => x.name === `${oldName}-field`);
         if (!field) {
-            console.error(`Field object with name ${oldName}-field not found in this.fields`);
             return;
         }
 

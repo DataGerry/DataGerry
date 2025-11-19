@@ -543,7 +543,6 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
                 const instancesForRelation = groupedInstances[relationId];
                 const definition = relationMap.get(relationId);
                 if (!definition) {
-                  console.warn(`[DEBUG] Definition missing for relation ID ${relationId}`);
                   continue;
                 }
 

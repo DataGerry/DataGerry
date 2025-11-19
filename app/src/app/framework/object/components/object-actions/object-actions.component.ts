@@ -91,7 +91,6 @@ export class ObjectActionsComponent implements OnDestroy {
                 }
             },
             error:  (error) => {
-                console.error(error?.error?.message);
             }
         });
     }

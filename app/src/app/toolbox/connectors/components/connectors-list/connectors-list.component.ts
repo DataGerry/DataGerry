@@ -60,7 +60,6 @@ export class ConnectorsListComponent implements OnInit {
     this.loaderService.show();
     this.svc.getConnectors().pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: (res) => { this.rows = res.filter(r => r.title !== 'DataGerryInternal') ?? []; 
-        console.log(this.rows);
         this.totalConnectors = this.rows.length;
       },
       error: (err) => {

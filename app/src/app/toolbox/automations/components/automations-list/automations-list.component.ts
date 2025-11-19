@@ -159,7 +159,6 @@ export class AutomationsListComponent implements OnInit {
 
 
   editAutomation(automation: any): void {
-    console.log('Editing automation:', automation);
     this.router.navigate(['/automations/edit', automation.schedulerId], {
       state: { automation }
     });
@@ -185,7 +184,6 @@ export class AutomationsListComponent implements OnInit {
 
 
   executeScheduler(schedulerId: any): void {
-    console.log('Executing automation with schedulerId:', schedulerId);
     this.isExecuting = schedulerId;
 
     this.automationsService.executeScheduler(schedulerId).subscribe({
