@@ -23,8 +23,10 @@ export class OpenCeliumEditorComponent
   @Input() sourceConnectorId = '';
   @Input() targetConnectorId = '';
   @Input() templates: any[] = [];
+  @Input() template: any = null;
   @Input() connectors: any[] = [];
   @Input() invokers: any[] = [];
+  @Input() initConnection: any = null;
 
   private container?: HTMLElement;
   private ConnectionEditor?: any;
@@ -48,7 +50,6 @@ export class OpenCeliumEditorComponent
 
   /** Re-render when inputs change */
   ngOnChanges(changes: SimpleChanges) {
-    console.log('OpenCelium Editor Component - Input Changes Detected:');
     
     Object.keys(changes).forEach(key => {
       const change = changes[key];
@@ -77,35 +78,32 @@ export class OpenCeliumEditorComponent
       return;
     }
 
-    console.log('OpenCelium Editor - Rendering React Component with Data:');
-    console.log('  - Token:', this.token );
-    console.log('  - Source Connector ID:', this.sourceConnectorId || ' Empty');
-    console.log('  - Target Connector ID:', this.targetConnectorId || ' Empty');
-    console.log('  - Templates:', this.templates);
-    console.log('  - Connectors Count:', this.connectors);
-    console.log('  - Invokers Count:', this.invokers);
-    console.log('  - Full Data Being Passed to React:', {
-      token: this.token ,
-      sourceConnectorId: this.sourceConnectorId,
-      targetConnectorId: this.targetConnectorId,
-      template: this.templates,
+    // Always send these properties
+    const props: any = {
+      token: this.token,
+      templates: this.templates,
+      template: this.template,
+      initConnection: this.initConnection,
       connectors: this.connectors,
-      invokers: this.invokers
-    });
+      invokers: this.invokers,
+      onChange: (data: any) => {console.log('connection onChange', data)}
+    };
+
+    // Only send connector IDs in create mode
+    if (!this.initConnection) {
+      props.sourceConnectorId = this.sourceConnectorId;
+      props.targetConnectorId = this.targetConnectorId;
+      console.log('  - Mode: CREATE - Sending connector IDs');
+    } else {
+      console.log('  - Mode: EDIT - Not sending connector IDs');
+    }
+
+    console.log('  - Final Props Being Passed to React:', props);
 
     ReactDOM.render(
-      React.createElement(this.ConnectionEditor, {
-        token: this.token,
-        sourceConnectorId: this.sourceConnectorId,
-        targetConnectorId: this.targetConnectorId,
-        template: this.templates,
-        connectors: this.connectors,
-        invokers: this.invokers,
-        onChange: (data: any) => {console.log(' OpenCelium Editor - onChange event:', data); }
-      }),
+      React.createElement(this.ConnectionEditor, props),
       this.container
     );
 
-    console.log(' OpenCelium Editor - React Component Rendered Successfully');
   }
 }

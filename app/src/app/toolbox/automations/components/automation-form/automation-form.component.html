@@ -1,7 +1,7 @@
 <div class="container mt-3 automation-form-container">
   <h3>{{ mode === 'create' ? 'Add Automation' : 'Edit Automation' }}</h3>
 
-  <div class="form-section">
+  <div class="form-section" *ngIf="mode !== 'edit'">
     <form [formGroup]="form" novalidate>
       <!-- Name Field -->
       <div class="form-group mt-4">
@@ -96,8 +96,10 @@
       [sourceConnectorId]="currentSourceConnectorId"
       [targetConnectorId]="currentTargetConnectorId"
       [templates]="templates"
+      [template]="selectedTemplate"
       [connectors]="connectors"
       [invokers]="invokers"
+      [initConnection]="initConnection"
     ></opencelium-editor>
   </div>
 </div>

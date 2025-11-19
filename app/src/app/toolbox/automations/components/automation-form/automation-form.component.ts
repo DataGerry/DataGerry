@@ -49,6 +49,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   connectorLabel = '';
   currentSourceConnectorId = '';
   currentTargetConnectorId = '';
+  selectedTemplate: any = null;
+  initConnection: any = null;
 
   // Internal connector properties
   internalConnectorExists: boolean = false;
@@ -82,6 +84,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   ) { 
   }
 
+  
   ngOnInit(): void {
     this.mode = (this.route.snapshot.data['mode'] || 'create') as any;
     this.buildForm();
@@ -94,11 +97,13 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
   }
 
+
   ngOnDestroy(): void {
     if (this.formChangesSubscription) {
       this.formChangesSubscription.unsubscribe();
     }
   }
+
 
   private loadInitData(): void {
     // Load init data and invokers in parallel
@@ -147,6 +152,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
   }
 
+
   private setupFormChanges(): void {
     
     // Separate subscription for direction changes to ensure label updates
@@ -160,14 +166,30 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       this.updateConnectorIds();
     });
 
+    // Subscription for template selection
+    const templateSubscription = this.form.get('business_template')!.valueChanges.subscribe(templateId => {
+      this.updateSelectedTemplate(templateId);
+    });
+
     // Store subscriptions
     this.formChangesSubscription = new Subscription();
     this.formChangesSubscription.add(directionSubscription);
     this.formChangesSubscription.add(connectorSubscription);
+    this.formChangesSubscription.add(templateSubscription);
     
     // Set initial connector IDs
     this.updateConnectorIds();
   }
+
+
+  private updateSelectedTemplate(templateId: string): void {
+    if (templateId) {
+      this.selectedTemplate = this.templates.find(t => t.templateId === templateId) || null;
+    } else {
+      this.selectedTemplate = null;
+    }
+  }
+
 
   private updateConnectorIds(): void {
     this.currentSourceConnectorId = this.getSourceConnectorId();
@@ -202,6 +224,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   private patchForEdit(automation: any): void {
     
+    // Store the complete connection data for edit mode
+    this.initConnection = automation.connection || null;
+
     // Patch basic fields - use root level fields from automation
     this.form.patchValue({
       name: automation.title || automation.connection?.title || '', // Use title from root or connection
@@ -342,11 +367,17 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   // Check if all required data for the editor is ready
   isEditorDataReady(): boolean {
-    return this.templates.length > 0 && 
-           this.connectors.length > 0 && 
-           this.invokers.length > 0 &&
-           !!this.internalConnectorDetails &&
-           !!this.getUserToken();
+    if (this.mode === 'edit') {
+      // For edit mode, we need initConnection and token
+      return !!this.initConnection && !!this.getUserToken();
+    } else {
+      // For create mode, we need all the data arrays and token
+      return this.templates.length > 0 && 
+             this.connectors.length > 0 && 
+             this.invokers.length > 0 &&
+             !!this.internalConnectorDetails &&
+             !!this.getUserToken();
+    }
   }
 
   // Action methods
