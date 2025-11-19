@@ -30,6 +30,7 @@ import { AutomationsWrapperComponent } from './components/automations-wrapper/au
 import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
+import { OpenCeliumEditorComponent } from './components/opencelium-editor.component';
 
 @NgModule({
   declarations: [
@@ -37,7 +38,8 @@ import { AuthModule } from 'src/app/modules/auth/auth.module';
     AutomationsComponent,
     AutomationsListComponent,
     AutomationFormComponent,
-    InternalConnectorPasswordModalComponent
+    InternalConnectorPasswordModalComponent,
+    OpenCeliumEditorComponent
   ],
   imports: [
     CommonModule,
