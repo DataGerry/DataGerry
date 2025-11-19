@@ -61,11 +61,71 @@
         </div>
         <button
             type="button"
-            class="btn w-100  btn-success mt-2"
+            class="btn w-100 btn-success mt-2"
             (click)="saveRelation()"
             [disabled]="!basicValid || !contentValid || isSectionHighlighted || isFieldHighlighted || disableFields || !isSectionWithoutFields"
         >
             Save
         </button>
+
+        <!-- Visual Relation Preview -->
+        <div class="card" style="margin-top: 86px !important; border-radius: 12px;" >
+            <div class="card-header">
+                <i class="fas fa-eye me-2"></i>Preview
+            </div>
+            <div class="card-body p-2" style="background-color: #f0f2f5; border-radius: 0 0 12px 12px;">
+                <div class="relation-direction-visual">
+                    <!-- Parent Node -->
+                    <div class="ci-node">
+                        <div class="node-header" [style.background]="'#bdc3c7'">
+                            <!-- <i class="node-icon" [ngClass]="relationInstance?.relation_icon_parent || 'fas fa-cube'"></i> -->
+                            <span class="node-type">{{  'Example Type' }}</span>
+                        </div>
+                        <div class="node-body">
+                            <h3 class="node-title" [title]="'Example Label'">
+                                {{ 'Example Label' }}
+                            </h3>
+                            <div class="node-info">
+                                <div class="status-indicator active" title="Status: active"></div>
+                            </div>
+                        </div>
+                    </div>
+        
+                    <!-- Middle Section: Labels and Arrows -->
+                    <div class="middle-section">
+                        <div class="vertical-label left-side" 
+                             [class.placeholder-text]="!relationInstance?.relation_name_parent">
+                            {{ relationInstance?.relation_name_parent || 'Contains' }}
+                        </div>
+        
+                        <div class="arrows-center">
+                            <i class="fas fa-long-arrow-alt-down arrow-down"></i>
+                            <i class="fas fa-long-arrow-alt-up arrow-up"></i>
+                        </div>
+        
+                        <div class="vertical-label right-side" 
+                             [class.placeholder-text]="!relationInstance?.relation_name_child">
+                            {{ relationInstance?.relation_name_child || 'Part Of' }}
+                        </div>
+                    </div>
+        
+                    <!-- Child Node -->
+                    <div class="ci-node">
+                        <div class="node-header" [style.background]="'#5dade2'">
+                            <!-- <i class="node-icon" [ngClass]="relationInstance?.relation_icon_child || 'fas fa-cube'"></i> -->
+                            <span class="node-type">{{  'Example Type' }}</span>
+                        </div>
+                        <div class="node-body">
+                            <h3 class="node-title" [title]="'Example Label'">
+                                {{ 'Example Label' }}
+                            </h3>
+                            <div class="node-info">
+                                <div class="status-indicator active" title="Status: active"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>

@@ -1,10 +1,268 @@
+// Color variables 
+$primary-dark: #2c3e50;
+$neutral-80: #34495e;
+$neutral-20: #ecf0f1;
+$gray-50: #fafafa;
+$gray-100: #f5f5f5;
+$gray-200: #eeeeee;
+$gray-600: #757575;
+$gray-700: #616161;
+$gray-900: #212121;
+$light: #ffffff;
+$success: #4CAF50;
+$danger: #F44336;
+$warning: #FF9800;
 
-.next{
-  float: right !important;
+#relation-builder {
+  // Visual Direction Indicator in Sidebar
+  .relation-direction-visual {
+    position: relative;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 15px 0;
+    gap: 12px;
+    min-height: 350px;
+  }
+
+  // CI Node Style 
+  .ci-node {
+    position: relative;
+    border-radius: 16px;
+    cursor: default;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: visible;
+    width: 180px;
+    z-index: 2;
+
+    .node-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 16px 16px 0 0;
+      color: $light;
+      font-size: 13px;
+      font-weight: 600;
+      position: relative;
+      overflow: hidden;
+
+      &::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent);
+        pointer-events: none;
+      }
+
+      .node-icon {
+        font-size: 20px;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+      }
+
+      .node-type {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.5px;
+      }
+    }
+
+    .node-body {
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 0 0 16px 16px;
+      position: relative;
+      backdrop-filter: blur(10px);
+
+      .node-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+        color: $gray-900;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 6px;
+      }
+
+      .node-info {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        margin-top: 8px;
+      }
+
+      .status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        transition: all 0.3s ease;
+        position: relative;
+
+        &.active {
+          background: $success;
+          box-shadow: 0 0 8px rgba($success, 0.6);
+
+          &::after {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border: 2px solid rgba($success, 0.3);
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+          }
+        }
+
+        &.inactive {
+          background: $danger;
+          box-shadow: 0 0 8px rgba($danger, 0.6);
+        }
+
+        &.warning {
+          background: $warning;
+          box-shadow: 0 0 8px rgba($warning, 0.6);
+        }
+
+        &.error {
+          background: $danger;
+          box-shadow: 0 0 8px rgba($danger, 0.6);
+        }
+      }
+    }
+  }
+
+  // Middle Section with Arrows & Labels
+  .middle-section {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    width: 100%;
+    max-width: 240px;
+    padding: 0;
+    min-height: 65px;
+
+    // Connection lines
+    &::before,
+    &::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 2px;
+      background: linear-gradient(to bottom, rgba($neutral-80, 0.3), rgba($neutral-80, 0.1));
+      z-index: 0;
+    }
+
+    // Top line connecting to parent box
+    &::before {
+      top: -12px;
+      height: 12px;
+    }
+
+    // Bottom line connecting to child box
+    &::after {
+      bottom: -12px;
+      height: 12px;
+    }
+  }
+
+  // Vertical Labels
+  .vertical-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 11px;
+    font-weight: 600;
+    color: $neutral-80;
+    letter-spacing: 0.4px;
+    padding: 8px 5px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    border: 1px solid rgba($neutral-80, 0.08);
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-height: 65px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &.left-side {
+      transform: rotate(180deg);
+    }
+
+    &:hover {
+      background: #fff;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+      transform: scale(1.05);
+      
+      &.left-side {
+        transform: rotate(180deg) scale(1.05);
+      }
+    }
+
+    &.placeholder-text {
+      color: #95a5a6;
+      font-style: italic;
+      border-style: dashed;
+      border-color: #bdc3c7;
+      background: rgba(255, 255, 255, 0.8);
+    }
+  }
+
+  // Arrows Container - HORIZONTAL (ROW)
+  .arrows-center {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 6px;
+    flex-shrink: 0;
+    z-index: 1;
+
+    .arrow-down,
+    .arrow-up {
+      font-size: 28px;
+      transition: all 0.3s ease;
+      color: #7f8c8d;
+      filter: drop-shadow(0 2px 4px rgba(127, 140, 141, 0.3));
+    }
+
+    .arrow-down {
+      &:hover {
+        transform: translateY(2px);
+        filter: drop-shadow(0 4px 8px rgba(127, 140, 141, 0.5));
+      }
+    }
+
+    .arrow-up {
+      &:hover {
+        transform: translateY(-2px);
+        filter: drop-shadow(0 4px 8px rgba(127, 140, 141, 0.5));
+      }
+    }
+  }
+
+  // Pulse animation for status indicator
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+  }
+
+  // Card styling for preview
+  .card-header {
+    background-color: rgba($neutral-80, 0.05);
+    border-bottom: 1px solid rgba($neutral-80, 0.1);
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
 }
-
-.prev{
-  float: left !important;
-}
-
-
