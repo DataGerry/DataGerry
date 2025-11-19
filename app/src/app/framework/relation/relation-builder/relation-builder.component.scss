@@ -31,7 +31,7 @@ $warning: #FF9800;
   .ci-node {
     position: relative;
     border-radius: 16px;
-    cursor: default;
+    cursor: auto;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: visible;
     width: 180px;
@@ -49,13 +49,6 @@ $warning: #FF9800;
       position: relative;
       overflow: hidden;
 
-      &::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent);
-        pointer-events: none;
-      }
 
       .node-icon {
         font-size: 20px;
@@ -71,6 +64,7 @@ $warning: #FF9800;
         font-size: 11px;
         letter-spacing: 0.5px;
         position: relative;
+        cursor: pointer;
         
         // Enhanced tooltip styling for better visibility
         &:hover::after {
@@ -89,7 +83,6 @@ $warning: #FF9800;
           text-transform: none;
           letter-spacing: normal;
           font-weight: normal;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
           pointer-events: none;
           cursor: pointer !important;
         }
