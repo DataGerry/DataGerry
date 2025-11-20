@@ -1,0 +1,10 @@
+{
+  "server": {
+    "port": "9090",
+    "endpoint": ""
+  },
+  "socket": {
+    "port": "9090",
+    "endpoint": "/websocket"
+  }
+}
