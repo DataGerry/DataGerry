@@ -11,7 +11,13 @@
                 "is_valid": true,
                 "database": "testdb1",
                 "api_level": 2,
-                "config_item_limit": 1000
+                "config_item_limit": 1000,
+                "opencelium": {
+                    "connectors": [],
+                    "connections": [],
+                    "schedules": []
+                },
+                "masterPassword": "password"
             }
         ]
     },
@@ -27,7 +33,13 @@
                 "is_valid": true,
                 "database": "testdb2",
                 "api_level": 2,
-                "config_item_limit": 1000
+                "config_item_limit": 1000,
+                "opencelium": {
+                    "connectors": [],
+                    "connections": [],
+                    "schedules": []
+                },
+                "masterPassword": "password"
             },
             {
                 "id": 3,
@@ -35,7 +47,13 @@
                 "is_valid": true,
                 "database": "testdb3",
                 "api_level": 2,
-                "config_item_limit": 10000
+                "config_item_limit": 10000,
+                "opencelium": {
+                    "connectors": [],
+                    "connections": [],
+                    "schedules": []
+                },
+                "masterPassword": "password"
             }
         ]
     },
@@ -51,7 +69,13 @@
                 "is_valid": true,
                 "database": "testdb4",
                 "api_level": 2,
-                "config_item_limit": 5000
+                "config_item_limit": 5000,
+                "opencelium": {
+                    "connectors": [],
+                    "connections": [],
+                    "schedules": []
+                },
+                "masterPassword": "password"
             },
             {
                 "id": 5,
@@ -59,7 +83,13 @@
                 "is_valid": true,
                 "database": "testdb5",
                 "api_level": 2,
-                "config_item_limit": 7500
+                "config_item_limit": 7500,
+                "opencelium": {
+                    "connectors": [],
+                    "connections": [],
+                    "schedules": []
+                },
+                "masterPassword": "password"
             },
             {
                 "id": 6,
@@ -67,7 +97,13 @@
                 "is_valid": true,
                 "database": "testdb6",
                 "api_level": 2,
-                "config_item_limit": 15000
+                "config_item_limit": 15000,
+                "opencelium": {
+                    "connectors": [],
+                    "connections": [],
+                    "schedules": []
+                },
+                "masterPassword": "password"
             }
         ]
     }
