@@ -56,17 +56,30 @@
 
       <!-- Business Template Field -->
       <div class="form-group">
-        <label for="business_template">Business Template: <span class="required">*</span></label>
+        <label for="business_template">Business Template: </label>
         <app-form-select
           id="business_template"
           label=""
           placeholder="Select business template"
           formControlName="business_template"
-          [required]="true"
           [items]="templates"
           bindLabel="name"
           bindValue="templateId"
         ></app-form-select>
+      </div>
+
+      <div class="editor-section" *ngIf="isEditorDataReady()">
+        <opencelium-editor
+          [token]="getUserToken()"
+          [sourceConnectorId]="currentSourceConnectorId"
+          [targetConnectorId]="currentTargetConnectorId"
+          [templates]="templates"
+          [template]="selectedTemplate"
+          [connectors]="connectors"
+          [invokers]="invokers"
+          [initConnection]="initConnection"
+          (connectionChange)="onConnectionChange($event)"
+        ></opencelium-editor>
       </div>
 
       <!-- Buttons -->
@@ -89,20 +102,6 @@
     </form>
   </div>
 
-  <div class="editor-section" *ngIf="isEditorDataReady()">
-    <h4>Automation Editor</h4>
-    <opencelium-editor
-      [token]="getUserToken()"
-      [sourceConnectorId]="currentSourceConnectorId"
-      [targetConnectorId]="currentTargetConnectorId"
-      [templates]="templates"
-      [template]="selectedTemplate"
-      [connectors]="connectors"
-      [invokers]="invokers"
-      [initConnection]="initConnection"
-      (connectionChange)="onConnectionChange($event)"
-    ></opencelium-editor>
-  </div>
 </div>
 
 <app-loading-popup 

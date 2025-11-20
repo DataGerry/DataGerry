@@ -219,7 +219,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       description: [''],
       direction: ['incoming', Validators.required], // Set incoming as default
       connector: [''],
-      business_template: ['', Validators.required]
+      business_template: ['']
     });
   }
 

@@ -154,7 +154,6 @@ export class AutomationsListComponent implements OnInit {
     } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
       return 'incoming';
     }
-    return 'unknown';
   }
 
 
@@ -216,7 +215,7 @@ export class AutomationsListComponent implements OnInit {
 
   // Helper method to format Unix timestamp to readable date
   private formatDate(timestamp: number): string {
-    if (!timestamp) return 'Never';
+    if (!timestamp) return '-';
     return new Date(timestamp).toLocaleString();
   }
 
@@ -233,7 +232,7 @@ export class AutomationsListComponent implements OnInit {
   getLastSuccessDisplay(automation: any): { date: string, taId: string } {
     const success = automation.lastExecution?.success;
     if (!success) {
-      return { date: 'Never', taId: '' };
+      return { date: '-', taId: '' };
     }
     return {
       date: this.formatDate(success.startTime),
