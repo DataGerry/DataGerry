@@ -68,7 +68,7 @@
                                 "output": "/tinymce/"
                                }
                         ],
-                        "styles": ["src/styles.scss", "src/app/toolbox/automations/components/opencelium-editor/connection-editor.css"],
+                        "styles": ["src/styles.scss"],
                         "scripts": [
                             "./node_modules/jquery/dist/jquery.js",
                             "./node_modules/bootstrap/dist/js/bootstrap.bundle.js",
