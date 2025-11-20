@@ -20,7 +20,7 @@
     </div>
 
     <div class="mb-3 col-md-12">
-        <label class="mb-1">Required/Identifier12<span class="required">*</span>:</label>
+        <label class="mb-1">Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
@@ -46,6 +46,10 @@
                             'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
                 (ngModelChange)="onInputChange($event, 'name')"
             />
+            <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
+            [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+        <fa-icon [icon]="['far', 'copy']"></fa-icon>
+    </button>
             <div *ngIf="isDuplicate$" class="invalid-feedback">
                 <div class="text-end">
                     Field name must be unique
