@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,35 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all OpenCelium general errors
+Enumeration of all avaiable cached OpenCelium IDs
 """
+from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OpenCeliumError(Exception):
+class CachedOcIdType(Enum):
     """
-    Raised to catch all general OpenCelium related errors
+    Enum of the different ids which are cached
     """
-    def __init__(self, err: str) -> None:
-        """
-        Raised to catch all general OpenCelium related errors
-        """
-        super().__init__(err)
-
-# ------------------------------------------------ OpenCelium - ERRORS ----------------------------------------------- #
-
-class AuthError(OpenCeliumError):
-    """
-    Raised when the authentification with OpenCelium fails
-    """
-
-
-class OcNoSubError(OpenCeliumError):
-    """
-    Raised when a subscription was not found
-    """
-
-
-class OcMasterPwNotSetError(OpenCeliumError):
-    """
-    Raised when the master password for a subscription is not set
-    """
+    CONNECTORS = 'Connectors'
+    CONNECTIONS = 'Connections'
+    SCHEDULERS = 'Schedulers'

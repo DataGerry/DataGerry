@@ -270,8 +270,6 @@ class OcConnectorManager(OcBaseManager):
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
 
-
-
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_connector(self, params: dict[str, Any], connector_id: int) -> dict[str, Any]:

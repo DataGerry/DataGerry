@@ -232,7 +232,10 @@ class DgServicePortalManager:
 
         if self.is_valid_response(connections_resp):
             data: dict[str, Any] = json.loads(connections_resp.text)
-            return data['ids']
+
+            raw_ids = data.get("ids", [])
+
+            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
 
         return False
 
@@ -321,7 +324,10 @@ class DgServicePortalManager:
 
         if self.is_valid_response(connections_resp):
             data: dict[str, Any] = json.loads(connections_resp.text)
-            return data['ids']
+
+            raw_ids = data.get("ids", [])
+
+            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
 
         return False
 
@@ -410,7 +416,10 @@ class DgServicePortalManager:
 
         if self.is_valid_response(schedulers_response):
             data: dict[str, Any] = json.loads(schedulers_response.text)
-            return data['ids']
+
+            raw_ids = data.get("ids", [])
+
+            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
 
         return False
 
