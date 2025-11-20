@@ -25,6 +25,8 @@ import {
   OnDestroy,
   ChangeDetectorRef,
   SimpleChanges,
+  Output,
+  EventEmitter,
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
@@ -80,6 +82,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   @ViewChild('graphCanvas') graphCanvas!: ElementRef;
   @ViewChild('graphContainer') graphContainer!: ElementRef;
   @Input() rootNodeId: number = null;
+  @Output() rootNodeSelected = new EventEmitter<number>();
 
   // Filter state
   typesFilter: number[] = [];
@@ -1064,6 +1067,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   selectAsRootNode(): void {
     if (this.selectedNode) {
       this.rootNodeId = this.selectedNode?.id;
+      this.rootNodeSelected.emit(this.rootNodeId);
       this.loadInitialGraph();
     }
     this.contextMenuVisible = false;

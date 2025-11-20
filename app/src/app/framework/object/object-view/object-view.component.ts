@@ -893,4 +893,14 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!targetId || targetId === this.currentObjectID) return;
     this.router.navigate([`/framework/object/view/${targetId}`], { queryParams: { view: 'graph' } });
   }
+
+  /**
+   * Handles root node selection from the graph editor
+   * Navigates to the new object's view page while preserving graph mode
+   * @param objectId The ID of the selected root node
+   */
+  public onRootNodeSelected(objectId: number): void {
+    if (!objectId || objectId === this.currentObjectID) return;
+    this.router.navigate([`/framework/object/view/${objectId}`], { queryParams: { view: 'graph' } });
+  }
 }
