@@ -72,7 +72,7 @@ export class CiExplorerExportService {
       downloadDataUrl(dataUrl, fileName);
       return fileName;
     } catch (err) {
-      this.toastService.error('Export failed. Try reducing graph size/zoom and retry.');
+      this.toastService.error('Your browser doesn’t support this export feature. Please try again with another browser.');
     } finally {
       toggleExportingClass(viewportEl, false);
     }

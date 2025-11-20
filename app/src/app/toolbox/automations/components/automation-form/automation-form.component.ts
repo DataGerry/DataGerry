@@ -51,6 +51,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   currentTargetConnectorId = '';
   selectedTemplate: any = null;
   initConnection: any = null;
+  currentConnection: any = null;
 
   // Internal connector properties
   internalConnectorExists: boolean = false;
@@ -360,6 +361,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
   }
 
+  // Handle connection changes from React component
+  onConnectionChange(connection: any): void {
+    this.currentConnection = connection;
+  }
+
   getUserToken(): string {
     const token = this.authService.currentUserTokenValue?.token;
     return token ? `Bearer ${token}` : '';
@@ -368,8 +374,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   // Check if all required data for the editor is ready
   isEditorDataReady(): boolean {
     if (this.mode === 'edit') {
-      // For edit mode, we need initConnection and token
-      return !!this.initConnection && !!this.getUserToken();
+      // For edit mode, we need initConnection, token, and data arrays
+      return !!this.initConnection && 
+             !!this.getUserToken() &&
+             this.templates.length > 0 &&
+             this.connectors.length > 0 &&
+             this.invokers.length > 0;
     } else {
       // For create mode, we need all the data arrays and token
       return this.templates.length > 0 && 
@@ -384,49 +394,16 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   private toPayload(): any {
     const v = this.form.value;
 
-    
-    const selectedConnector = this.connectors.find(c => c.connectorId === v.connector);
-    
-    if (!selectedConnector) {
-      throw new Error('Please select a connector');
+    if (!this.currentConnection) {
+      throw new Error('Connection data not available from OpenCelium editor');
     }
 
-    // Determine which connector to use for DataGerry (internal connector)
-    let datagerryConnector;
-    if (this.internalConnectorDetails) {
-      datagerryConnector = {
-        connectorId: this.internalConnectorDetails.connectorId,
-        invoker: { name: this.internalConnectorDetails.invoker.name },
-        icon: "",
-        methods: this.internalConnectorDetails.methods || [],
-        operators: this.internalConnectorDetails.operators || []
-      };
-    } 
-
-    // Build connection payload
+    
+    // Use the complete connection from opencelium editor, but override title and description from form
     const connectionPayload = {
+      ...this.currentConnection,
       title: v.name,
-      description: v.description,
-      fieldBinding: [],
-      fromConnector: v.direction === 'outgoing' 
-        ? datagerryConnector
-        : {
-            connectorId: selectedConnector.connectorId,
-            invoker: { name: selectedConnector.invoker.name },
-            icon: "",
-            methods: [],
-            operators: []
-          },
-      toConnector: v.direction === 'outgoing'
-        ? {
-            connectorId: selectedConnector.connectorId,
-            invoker: { name: selectedConnector.invoker.name },
-            icon: "",
-            methods: [],
-            operators: []
-          }
-        : datagerryConnector,
-      ui: null
+      description: v.description
     };
 
     // Build scheduler payload
@@ -436,8 +413,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       cronExp: '0 1 * * * ?', // Default cron expression (1 AM daily)
       status: 1 // Active
     };
-
-
 
     return {
       connection: connectionPayload,

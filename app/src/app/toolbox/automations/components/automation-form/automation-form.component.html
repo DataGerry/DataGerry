@@ -100,6 +100,7 @@
       [connectors]="connectors"
       [invokers]="invokers"
       [initConnection]="initConnection"
+      (connectionChange)="onConnectionChange($event)"
     ></opencelium-editor>
   </div>
 </div>
