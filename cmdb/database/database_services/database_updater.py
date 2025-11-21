@@ -17,6 +17,7 @@
 Implementation of DatabaseUpdater
 """
 import logging
+from typing import Any
 
 from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
@@ -88,7 +89,7 @@ class DatabaseUpdater:
         Args:
             version (int): The new value for the update version of the database
         """
-        new_version = {
+        new_version: dict[str, Any] = {
             '_id': 'updater',
             'version': version
         }
@@ -104,7 +105,7 @@ class DatabaseUpdater:
             int: The current update version stored in the database
         """
             # First check if there is any Updater-Version
-        default_version = {
+        default_version: dict[str, Any] = {
                             '_id': 'updater',
                             'version': MIN_CLOUD_UPDATER_VERSION
                         }

@@ -69,8 +69,14 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         Response: The created scheduler
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager()
-        oc_connection_manager = OcConnectionManager()
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+        oc_connection_manager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -253,7 +259,10 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         - Unmap title for frontend display
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager()
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -353,7 +362,10 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         - Returns all schedulers directly.
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager()
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -436,7 +448,10 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         - Scheduler ID validity is checked via cache first, then DG SP.
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager()
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -524,7 +539,10 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         - Title is mapped/unmapped per tenant.
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager()
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -635,8 +653,14 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         - Remove deleted IDs from Service Portal.
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager()
-        oc_connection_manager = OcConnectionManager()
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+        oc_connection_manager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
