@@ -22,7 +22,9 @@ import threading
 from requests import Response, delete, post, get, put
 from requests.exceptions import Timeout, RequestException
 
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
+from cmdb.manager.system_manager.settings_manager import SettingsManager
 
 from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
 
@@ -40,34 +42,35 @@ class OcApiConnector:
     """
     Handles the OpenCelium connection
     """
-    _instance: Optional["OcApiConnector"] = None
+    # _instance: Optional["OcApiConnector"] = None
 
-    _initialized: bool = False
+    # _initialized: bool = False
     _lock = threading.Lock()
 
 # ------------------------------------------------------ DUNDERS ----------------------------------------------------- #
 
-    def __new__(cls) -> "OcApiConnector":
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:  # double-checked locking
-                    cls._instance = super().__new__(cls)
+    # def __new__(cls, dbm: MongoDatabaseManager, db_name: str) -> "OcApiConnector":
+    #     if cls._instance is None:
+    #         with cls._lock:
+    #             if cls._instance is None:  # double-checked locking
+    #                 cls._instance = super().__new__(cls)
 
-        return cls._instance
+    #     return cls._instance
 
 
-    def __init__(self) -> None:
-        if not self._initialized:
-            scr = SystemConfigReader()
-            self.host: str = scr.get_value("host", "OpenCelium")
-            self.port = int(scr.get_value("port", "OpenCelium"))
-            self.protocol: str = scr.get_value("protocol", "OpenCelium")
-            self.email: str = scr.get_value("email", "OpenCelium")
-            self.user: str = scr.get_value("user", "OpenCelium")
-            self.password: str = scr.get_value("password", "OpenCelium")
-            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
-            self.jwt_token: Optional[str] = None
-            self._initialized: bool = True
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+        # if not self._initialized:
+        scr = SystemConfigReader()
+        self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
+        self.host: str = scr.get_value("host", "OpenCelium")
+        self.port = int(scr.get_value("port", "OpenCelium"))
+        self.protocol: str = scr.get_value("protocol", "OpenCelium")
+        self.email: str = scr.get_value("email", "OpenCelium")
+        self.user: str = scr.get_value("user", "OpenCelium")
+        self.password: str = scr.get_value("password", "OpenCelium")
+        self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
+        # self.jwt_token: Optional[str] = None
+        self._initialized: bool = True
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -100,7 +103,14 @@ class OcApiConnector:
         Returns:
             str: Jwt Token of OpenCelium
         """
-        return self.jwt_token
+        try:
+            token_data: dict[str, Any] | None = self.settings_manager.get_all_values_from_section('oc_token')
+            # LOGGER.debug(f"token_data: {token_data}")
+            token:str = token_data.get('token')
+        except Exception:
+            return None
+
+        return token
 
 # ----------------------------------------------------- REQUESTS ----------------------------------------------------- #
 
@@ -121,10 +131,8 @@ class OcApiConnector:
         Returns:
             Response: The POST response from OpenCelium
         """
-        # LOGGER.debug("[check_connector] called")
         try:
             if not self.token_is_set() and with_auth:
-                # LOGGER.debug("[need auth]")
                 self.authenticate()
 
             response: Response = post(
@@ -139,6 +147,19 @@ class OcApiConnector:
             # LOGGER.debug(f"[Request] url: {response.request.url}")
             # LOGGER.debug(f"[Request] headers: {response.request.headers}")
             # LOGGER.debug(f"[Request] payload: {response.request.body}\n\n")
+
+            # If token expired or invalid → try once to recover
+            if response.status_code == 403:
+                LOGGER.warning("[oc_post] 403 received → trying token refresh")
+
+                self.authenticate() # writes new token to DB
+
+                response: Response = post(
+                    self.build_url(endpoint),
+                    headers=self.get_headers(with_auth),
+                    json=payload,
+                    timeout=OC_REQUEST_TIMEOUT
+                )
 
             return response
         except (Timeout, RequestException) as err:
@@ -178,6 +199,18 @@ class OcApiConnector:
             # LOGGER.debug(f"[Response] headers: {response.headers}")
             # LOGGER.debug(f"[Response] body: {response.text}")
 
+            # If token expired or invalid → try once to recover
+            if response.status_code == 403:
+                LOGGER.warning("[oc_get] 403 received → trying token refresh")
+
+                self.authenticate() # writes new token to DB
+
+                response: Response = get(
+                    self.build_url(endpoint),
+                    headers=self.get_headers(password=password),
+                    timeout=OC_REQUEST_TIMEOUT
+                )
+
             return response
         except (Timeout, RequestException) as err:
             raise err
@@ -213,6 +246,19 @@ class OcApiConnector:
                 timeout=OC_REQUEST_TIMEOUT
             )
 
+            # If token expired or invalid → try once to recover
+            if response.status_code == 403:
+                LOGGER.warning("[oc_get] 403 received → trying token refresh")
+
+                self.authenticate() # writes new token to DB
+
+                response: Response = put(
+                    self.build_url(endpoint),
+                    headers=self.get_headers(),
+                    json=payload,
+                    timeout=OC_REQUEST_TIMEOUT
+                )
+
             return response
         except (Timeout, RequestException) as err:
             raise err
@@ -246,6 +292,18 @@ class OcApiConnector:
                 timeout=OC_REQUEST_TIMEOUT
             )
 
+            # If token expired or invalid → try once to recover
+            if response.status_code == 403:
+                LOGGER.warning("[oc_delete] 403 received → trying token refresh")
+
+                self.authenticate() # writes new token to DB
+
+                response: Response = delete(
+                    self.build_url(endpoint),
+                    headers=self.get_headers(),
+                    timeout=OC_REQUEST_TIMEOUT
+                )
+
             return response
         except (Timeout, RequestException) as err:
             raise err
@@ -262,28 +320,25 @@ class OcApiConnector:
             AuthError: When authentication failed
         """
         # LOGGER.debug("[authenticate] called")
-        payload: dict[str, str] = {
-            "email": self.get_email(),
-            "password": self.get_password(),
-        }
+        with self._lock:
+            payload: dict[str, str] = {
+                "email": self.get_email(),
+                "password": self.get_password(),
+            }
 
-        response: Response = self.oc_post(payload, AUTH_URL, False)
+            response: Response = self.oc_post(payload, AUTH_URL, False)
 
-        # LOGGER.debug(f"[Request] method: {response.request.method}")
-        # LOGGER.debug(f"[Request] url: {response.request.url}")
-        # LOGGER.debug(f"[Request] headers: {response.request.headers}")
-        # LOGGER.debug(f"[Request] payload: {response.request.body}\n\n")
+            if response.status_code == 200:
+                # self.jwt_token = response.headers['Authorization']
 
-        # LOGGER.debug(f"[Response] response: {response}")
-        # LOGGER.debug(f"[Response] status_code: {response.status_code}")
-        # LOGGER.debug(f"[Response] headers: {response.headers}")
-        # LOGGER.debug(f"[Response] body: {response.text}")
-        # LOGGER.debug(f"[Response] headers: {response.headers['Authorization']}")
+                oc_token_data = {
+                    "_id": "oc_token",
+                    "token":  response.headers['Authorization']
+                }
 
-        if response.status_code == 200:
-            self.jwt_token = response.headers['Authorization']
-        else:
-            raise AuthError("Authentication in OpenCelium failed!")
+                self.settings_manager.write(_id='oc_token', data=oc_token_data)
+            else:
+                raise AuthError("Authentication in OpenCelium failed!")
 
 
     def get_headers(self, with_auth: bool = True, password: str = None) -> dict[str, Any]:
@@ -301,8 +356,8 @@ class OcApiConnector:
         }
 
         if with_auth:
-            headers["Authorization"] = self.jwt_token
-
+            # headers["Authorization"] = self.jwt_token
+            headers["Authorization"] = self.get_jwt_token()
         if password:
             headers["X-Master-Password"] = password
 

@@ -24,6 +24,7 @@ from flask import current_app
 
 from requests import Response
 
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
 from cmdb.errors.open_celium.connector import OcConnectorCreateError, OcConnectorGetError, OcConnectorUpdateError
@@ -45,7 +46,7 @@ class OcConnectorManager(OcBaseManager):
     """
     Manages Connectors of OpenCelium
     """
-    def __init__(self) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
         """
         Initialises the OcConnectorManager
         """
@@ -58,7 +59,7 @@ class OcConnectorManager(OcBaseManager):
             if not self.master_pw and not current_app.local_mode:
                 raise ValueError("No OC master password provided via env variables!")
 
-        super().__init__()
+        super().__init__(dbm, db_name)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     def create_connector(self, params: dict[str, Any]) -> dict[str, Any]:

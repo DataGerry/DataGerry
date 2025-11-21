@@ -19,7 +19,7 @@ All API routes for OpenCelium Invokers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
+from flask import abort, current_app
 from werkzeug import Response
 
 from cmdb.manager import OcTemplateManager
@@ -57,7 +57,10 @@ def get_oc_template(request_user: CmdbUser, template_id: int) -> Response:
         dict[str, Any]: The OcTemplate from OpenCelium
     """
     try:
-        oc_template_manager: OcTemplateManager = OcTemplateManager()
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         template: dict[str, Any] = oc_template_manager.get_template_by_id(template_id)
 
@@ -84,7 +87,10 @@ def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
         list[dict[str, Any]]: All OcBusinessTemplates from OpenCelium
     """
     try:
-        oc_template_manager: OcTemplateManager = OcTemplateManager()
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         templates: list[dict[str, Any]] = oc_template_manager.get_all_templates()
 

@@ -19,7 +19,7 @@ All API routes for OpenCelium Licenses
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort, request, current_app
 from werkzeug import Response
 
 from cmdb.manager import OcLicenseManager
@@ -56,7 +56,10 @@ def get_oc_license_activation(request_user: CmdbUser) -> Response:
         text file: The generated license activation
     """
     try:
-        oc_license_manager: OcLicenseManager = OcLicenseManager()
+        oc_license_manager: OcLicenseManager = OcLicenseManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         oc_license: Any = oc_license_manager.get_license_activation()
 
@@ -86,7 +89,10 @@ def get_oc_license_info(request_user: CmdbUser) -> Response:
         page = int(params.get('page', 0))
         size = int(params.get('size', 5))
 
-        oc_license_manager: OcLicenseManager = OcLicenseManager()
+        oc_license_manager: OcLicenseManager = OcLicenseManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         license_data: dict[str, Any] = {
             'license': oc_license_manager.get_active_license(),

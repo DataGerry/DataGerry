@@ -70,7 +70,10 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         dict[str, Any]: The created OcConnection
     """
     try:
-        oc_connection_manager = OcConnectionManager()
+        oc_connection_manager: OcConnectionManager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -188,7 +191,10 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         Response: The OcConnection object.
     """
     try:
-        oc_connection_manager = OcConnectionManager()
+        oc_connection_manager: OcConnectionManager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
@@ -285,8 +291,14 @@ def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
     Returns:
         dict[str, Any]: The OcConnection from OpenCelium
     """
-    oc_connector_manager: OcConnectorManager = OcConnectorManager()
-    oc_template_manager: OcTemplateManager = OcTemplateManager()
+    oc_connector_manager: OcConnectorManager = OcConnectorManager(
+        current_app.database_manager,
+        request_user.database
+    )
+    oc_template_manager: OcTemplateManager = OcTemplateManager(
+        current_app.database_manager,
+        request_user.database
+    )
     dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
 
     connectors: list[dict[str, Any]] = None
@@ -331,7 +343,10 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         dict[str, Any]: The updated OcConnection
     """
     try:
-        oc_connection_manager = OcConnectionManager()
+        oc_connection_manager: OcConnectionManager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 

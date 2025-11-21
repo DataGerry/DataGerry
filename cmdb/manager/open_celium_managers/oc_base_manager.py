@@ -19,6 +19,8 @@ Implementation of OpenCelium BaseManager
 from logging import Logger, getLogger
 from requests import Response
 
+from cmdb.database import MongoDatabaseManager
+
 from cmdb.open_celium import OcApiConnector
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -33,8 +35,8 @@ class OcBaseManager:
     """
     Manages Automations of OpenCelium
     """
-    def __init__(self) -> None:
-        self.oc_connector: OcApiConnector = OcApiConnector()
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+        self.oc_connector: OcApiConnector = OcApiConnector(dbm, db_name)
 
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
 

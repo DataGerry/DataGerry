@@ -22,6 +22,7 @@ from typing import Any
 
 from requests import Response
 
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
 from cmdb.open_celium.oc_constants import UNIQUE_POSITIVE
@@ -42,7 +43,6 @@ class OcConnectionManager(OcBaseManager):
     """
     Manages Connections of OpenCelium
     """
-
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     def create_connection(self, params: dict[str, Any]) -> dict[str, Any]:
