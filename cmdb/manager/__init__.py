@@ -69,6 +69,7 @@ from cmdb.manager.open_celium_managers.oc_template_manager import OcTemplateMana
 from cmdb.manager.open_celium_managers.oc_connection_manager import OcConnectionManager
 from cmdb.manager.open_celium_managers.oc_scheduler_manager import OcSchedulerManager
 from cmdb.manager.open_celium_managers.oc_license_manager import OcLicenseManager
+from cmdb.manager.open_celium_managers.oc_connection_log_manager import OcConnectionLogManager
 
 from cmdb.manager.system_manager.dg_service_portal_manager import DgServicePortalManager
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -122,4 +123,5 @@ __all__: list[str] = [
     'OcSchedulerManager',
     'OcLicenseManager',
     'DgServicePortalManager',
+    'OcConnectionLogManager',
 ]

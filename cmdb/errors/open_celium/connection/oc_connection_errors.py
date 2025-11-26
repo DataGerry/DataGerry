@@ -52,3 +52,9 @@ class OcConnectionDeleteError(OcConnectionError):
     """
     Raised when failing to delete an OcConnection
     """
+
+
+class OcConnectionTestError(OcConnectionError):
+    """
+    Raised when failing to test an OcConnection
+    """

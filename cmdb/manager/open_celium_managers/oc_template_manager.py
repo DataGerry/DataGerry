@@ -24,7 +24,7 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
-from cmdb.errors.open_celium.template import OcTemplateGetError
+from cmdb.errors.open_celium.template import OcTemplateGetError, OcTemplateCreateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -39,6 +39,30 @@ class OcTemplateManager(OcBaseManager):
     """
     Manages Templates of OpenCelium
     """
+
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+    def create_template(self, template_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Create an OcTemplate
+
+        Args:
+            template_data (dict[str, Any]): The data of the OcTemplate
+
+        Raises:
+            OcTemplateGetError: When the template_id was not provided
+            OcTemplateGetError: When retrieving the OcTemplate failed
+
+        Returns:
+            dict[str, Any]: The data of the created OcTemplate
+        """
+
+        target_template_response: Response = self.oc_connector.oc_post(template_data, TEMPLATE_URL)
+
+        if self.is_valid_response(target_template_response):
+            return json.loads(target_template_response.text)
+
+        raise OcTemplateCreateError("Failed to create the OpenCelium Template")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
