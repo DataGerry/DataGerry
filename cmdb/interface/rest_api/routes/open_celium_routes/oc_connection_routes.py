@@ -44,6 +44,7 @@ from cmdb.errors.open_celium.connection import (
     OcConnectionCreateError,
     OcConnectionGetError,
     OcConnectionUpdateError,
+    OcConnectionTestError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -165,6 +166,40 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 #     except OcConnectionCreateError as err:
 #         LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
 #         abort(400, "Failed to create an OpenCelium Connection!")
+
+
+oc_connections_blueprint.route('/connections/test/<int:channel_id>', methods=['POST'])
+@handle_oc_errors("testing an OpenCelium Connection!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
+    """
+    **POST** route to create an OcConnection in OpenCelium
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        channel_id (int): ID of the channel
+
+    Returns:
+        dict[str, Any]: The created OcConnection
+    """
+    try:
+        oc_connection_manager: OcConnectionManager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        connection: dict[str, Any] = request.json
+
+        test_response: dict[str, Any] = oc_connection_manager.test_connection(connection, channel_id)
+
+        return DefaultResponse(test_response).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcConnectionTestError as err:
+        LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, "Failed to test the OpenCelium Connection!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

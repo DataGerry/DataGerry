@@ -22,12 +22,16 @@ from typing import Any
 
 from requests import Response
 
-from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
 from cmdb.open_celium.oc_constants import UNIQUE_POSITIVE
 
-from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnectionGetError, OcConnectionUpdateError
+from cmdb.errors.open_celium.connection import (
+    OcConnectionCreateError,
+    OcConnectionGetError,
+    OcConnectionUpdateError,
+    OcConnectionTestError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -35,6 +39,7 @@ LOGGER: Logger = getLogger(__name__)
 CONNECTION_URL: str = "/connection"
 CONNECTIONS_BY_IDS_URL: str = f"{CONNECTION_URL}/list/by-ids"
 CON_UNIQUE_CHECK_URL: str = f"{CONNECTION_URL}/check"
+CONNECTION_TEST_URL: str = f"{CONNECTION_URL}/execution/test"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectionManager - CLASS                                             #
@@ -93,6 +98,31 @@ class OcConnectionManager(OcBaseManager):
             return json.loads(connections_response.text)
 
         raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connections with IDs: {connection_ids}")
+
+
+    def test_connection(self, connection_data: dict[str, Any], channel_id: int) -> dict[str, Any]:
+        """
+        Tests a Connection in OpenCelium
+
+        Args:
+            connection_data (dict[str, Any]): data of the OcConnection
+            channel_id (int): ID of the channel
+
+        Raises:
+            OcConnectionTestError: When creating the OcConnection failed
+
+        Returns:
+            dict[str, Any]: The result of the OcConnection test
+        """
+        connection_test_response: Response = self.oc_connector.oc_post(
+            connection_data,
+            f"{CONNECTION_TEST_URL}?channelId={channel_id}"
+        )
+
+        if self.is_valid_response(connection_test_response):
+            return json.loads(connection_test_response.text)
+
+        raise OcConnectionTestError("Failed to test OpenCelium Connection!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

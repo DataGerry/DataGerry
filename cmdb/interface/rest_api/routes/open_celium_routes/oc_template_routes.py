@@ -19,7 +19,7 @@ All API routes for OpenCelium Invokers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, current_app
+from flask import abort, current_app, request
 from werkzeug import Response
 
 from cmdb.manager import OcTemplateManager
@@ -31,6 +31,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
 from cmdb.errors.open_celium.template import (
+    OcTemplateCreateError,
     OcTemplateGetError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,6 +39,39 @@ from cmdb.errors.open_celium.template import (
 LOGGER: Logger = getLogger(__name__)
 
 oc_templates_blueprint = APIBlueprint('oc_templates', __name__)
+
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+@oc_templates_blueprint.route('/templates', methods=['POST'])
+@handle_oc_errors("creating the OpenCelium Template!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def create_oc_template(request_user: CmdbUser) -> Response:
+    """
+    **POST** route to create an OcTemplate
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The created OcTemplate from OpenCelium
+    """
+    try:
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        template_data: dict[str, Any] = request.json
+
+        created_template: dict[str, Any] = oc_template_manager.create_template(template_data)
+
+        # LOGGER.debug(f"template: {template}")
+
+        return DefaultResponse(created_template).make_response()
+    except OcTemplateCreateError as err:
+        LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to create the OpenCelium Template!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -69,7 +103,7 @@ def get_oc_template(request_user: CmdbUser, template_id: int) -> Response:
         return DefaultResponse(template).make_response()
     except OcTemplateGetError as err:
         LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, f"Failed to retrieve OpenCelium Connector with ID:{template_id}!")
+        abort(500, f"Failed to retrieve OpenCelium Template with ID:{template_id}!")
 
 
 @oc_templates_blueprint.route('/templates', methods=['GET', 'HEAD'])
@@ -112,4 +146,4 @@ def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
         return DefaultResponse(templates).make_response()
     except OcTemplateGetError as err:
         LOGGER.error("[get_all_oc_templates] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, "Failed to retrieve OpenCelium Business Templates!")
+        abort(500, "Failed to retrieve OpenCelium Templates!")
