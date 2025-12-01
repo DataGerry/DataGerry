@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild} from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
@@ -113,7 +113,8 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
         private route: ActivatedRoute,
         private router: Router,
         private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
-        private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>
+        private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
+        private changesRef: ChangeDetectorRef
     ) {
         this.fileService.callFileFormatRoute().subscribe(data => {
             this.formatList = data;
@@ -259,6 +260,7 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
                 this.refererObjects = apiResponse.results as Array<RenderResult>;
                 this.totalReferer = apiResponse.total;
                 this.loading = false;
+                this.changesRef.markForCheck();
             });
     }
 
