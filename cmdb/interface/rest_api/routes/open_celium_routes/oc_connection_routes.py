@@ -201,6 +201,39 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
         LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to test the OpenCelium Connection!")
 
+
+oc_connections_blueprint.route('/connections/remote_api', methods=['POST'])
+@handle_oc_errors("sending to remote API!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
+    """
+    **POST** route to call remote API
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The response from remote API
+    """
+    try:
+        oc_connection_manager: OcConnectionManager = OcConnectionManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        payload: dict[str, Any] = request.json
+
+        remote_api_response: dict[str, Any] = oc_connection_manager.send_to_remote_api(payload)
+
+        return DefaultResponse(remote_api_response).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcConnectionTestError as err:
+        LOGGER.error("[oc_send_to_remote_api] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, "Failed to send payload to remote API!")
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['GET', 'HEAD'])
