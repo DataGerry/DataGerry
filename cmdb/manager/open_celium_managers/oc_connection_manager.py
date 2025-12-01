@@ -37,6 +37,7 @@ from cmdb.errors.open_celium.connection import (
 LOGGER: Logger = getLogger(__name__)
 
 CONNECTION_URL: str = "/connection"
+CONNECTION_REMOTE_API_URL: str = f"{CONNECTION_URL}/remoteapi"
 CONNECTIONS_BY_IDS_URL: str = f"{CONNECTION_URL}/list/by-ids"
 CON_UNIQUE_CHECK_URL: str = f"{CONNECTION_URL}/check"
 CONNECTION_TEST_URL: str = f"{CONNECTION_URL}/execution/test"
@@ -69,6 +70,27 @@ class OcConnectionManager(OcBaseManager):
             return json.loads(create_connection_response.text)
 
         raise OcConnectionCreateError("Failed to create the Connection in OpenCelium!")
+
+
+    def send_to_remote_api(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Sends data to remote API
+
+        Args:
+            payload (dict[str, Any]): payload for remote API
+
+        Raises:
+            OcConnectionCreateError: When sending the payload to remote API failed
+
+        Returns:
+            dict[str, Any]: The created OcConnection
+        """
+        create_connection_response: Response = self.oc_connector.oc_post(payload, CONNECTION_REMOTE_API_URL)
+
+        if self.is_valid_response(create_connection_response):
+            return json.loads(create_connection_response.text)
+
+        raise OcConnectionCreateError("Failed to send the payload to remote API!")
 
 
     def get_connections_by_ids(self, connection_ids: list[int]) -> dict[str, Any]:
