@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
+import { Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { RenderResult } from '../../../models/cmdb-render';
 
 @Component({
@@ -42,8 +42,11 @@ export class ObjectFooterComponent implements OnChanges {
     return this.rr;
   }
 
+  constructor(private changesRef: ChangeDetectorRef) {}
+
   public ngOnChanges(changes: SimpleChanges): void {
     this.objectID = this.renderResult.object_information.object_id;
+    this.changesRef.markForCheck();
   }
 
 
