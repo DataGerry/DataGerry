@@ -15,38 +15,16 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import {
-  Component,
-  ElementRef,
-  HostListener,
-  Input,
-  OnInit,
-  ViewChild,
-  OnDestroy,
-  ChangeDetectorRef,
-  SimpleChanges,
-  Output,
-  EventEmitter,
-} from '@angular/core';
+import { Component, ElementRef, HostListener, Input, OnInit, ViewChild, OnDestroy, ChangeDetectorRef, SimpleChanges, Output, EventEmitter } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
 import { takeUntil, debounceTime, finalize } from 'rxjs/operators';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
-import {
-  CIEdge,
-  CINode,
-  GraphRespWithRoot,
-} from 'src/app/framework/models/ci-explorer.model';
+import { CIEdge,CINode, GraphRespWithRoot} from 'src/app/framework/models/ci-explorer.model';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { RelationService } from 'src/app/framework/services/relaion.service';
 
-import {
-  GraphNode,
-  Connection,
-  NodeGroup,
-  PerformanceMetrics,
-  FilterProfile
-} from './interfaces/graph.interfaces';
+import { GraphNode, Connection, NodeGroup, PerformanceMetrics, FilterProfile } from './interfaces/graph.interfaces';
 import { LAYOUT_CONFIG, KEYBOARD_SHORTCUTS } from './constants/graph.constants';
 import { GraphDataService } from './services/graph-data.service';
 import { GraphLayoutService } from './services/graph-layout.service';
@@ -67,14 +45,7 @@ import { CiExplorerExportService } from './services/ci-explorer-export.service';
     selector: 'app-graph-editor',
     templateUrl: './graph-editor.component.html',
     styleUrls: ['./graph-editor.component.scss'],
-    providers: [
-        GraphDataService,
-        GraphLayoutService,
-        GraphViewportService,
-        GraphExpansionService,
-        GraphFilterService,
-        GraphPathService
-    ],
+    providers: [ GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService ],
     standalone: false
 })
 export class GraphEditorComponent implements OnInit, OnDestroy {
@@ -91,7 +62,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   typesLoaded: boolean = false;
   showFilterBar = false;
   filterForm: FormGroup;
-  // filterMode: 'OR' | 'AND' = 'OR';
 
   filterMode: 'manual' | 'profile' = 'manual';
   profiles: FilterProfile[] = [];
@@ -996,8 +966,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
   * Handles right-click events on a node to show the context menu.
-  * @param e The MouseEvent triggered by the right-click.
-  * @param node The GraphNode that was right-clicked.
   */
   onRightClick(e: MouseEvent, node: GraphNode): void {
     e?.preventDefault();
@@ -1031,8 +999,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
   * Shows the create menu for adding new objects or connections.
-  * @param e The MouseEvent that triggered the menu.
-  * @param node The GraphNode where the menu should be anchored.
   * This method sets the position of the create menu and makes it visible.
   */
   showCreateMenu(e: MouseEvent, node: GraphNode): void {
@@ -1162,7 +1128,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets the configuration for a specific node type.
-   * @param type The type of the node to get the configuration for.
    * @returns An object containing the icon and gradient for the node type.
    */
   getNodeTypeConfig(type: string): { icon: string; gradient: string } {
@@ -1172,7 +1137,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets a node by its ID.
-   * @param id The ID of the node to find.
    * @returns The GraphNode if found, otherwise undefined.
    */
   getNodeById(id: number): GraphNode | undefined {
@@ -1203,8 +1167,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Checks if a node is highlighted based on search results or hovered connection.
-   * @param node 
-   * @returns 
    */
   isNodeHighlighted(node: GraphNode): boolean {
     return this.searchResults?.includes(node) ||
@@ -1216,8 +1178,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Checks if a connection is highlighted based on the hovered or selected node.
-   * @param conn 
-   * @returns 
    */
   isConnectionHighlighted(conn: Connection): boolean {
     return (this.hoveredNode &&
@@ -1262,7 +1222,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Handles click events on the minimap.
-    * @param event The MouseEvent triggered by the click.
     */
   onMinimapClick(event: MouseEvent): void {
     this.graphViewport?.onMinimapClick(event, this.nodes, this.graphContainer);
@@ -1285,7 +1244,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Filters nodes by their type, toggling the filter state for the specified type.
-    * @param type The node type to filter by.
     */
   filterByNodeType(type: string): void {
     this.graphFilter?.toggleNodeTypeFilter(type);
@@ -1295,7 +1253,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Checks if a node type is currently filtered out.
-    * @param type The node type to check.
     * @returns True if the node type is filtered out, false otherwise.
     */
   isNodeTypeFiltered(type: string): boolean {
@@ -1366,7 +1323,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Switches the filter mode between manual and profile-based filtering.
-   * @param mode 
    */
   switchFilterMode(mode: 'manual' | 'profile'): void {
     this.filterMode = mode;
@@ -1432,9 +1388,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    *  Handles click events on a connection.
-   * @param conn 
-   * @param e 
-   * @returns 
    */
   onConnectionClick(conn: Connection, e: MouseEvent): void {
     e.stopPropagation();
@@ -1468,9 +1421,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    *  Opens the connection details modal with data from the UI.
-   * @param fromNode 
-   * @param toNode 
-   * @param conn 
    */
   private openConnectionModalWithUIData(
     fromNode: GraphNode,
@@ -1522,9 +1472,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Opens the UID-based connection modal with tracked connections.
-   * @param fromNode 
-   * @param toNode 
-   * @param trackedConnections 
    */
   private openUidBasedConnectionModal(
     fromNode: any, // GraphNode from nodeInstanceMap (passed from UI)
@@ -1573,9 +1520,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    *  Opens the connection details modal with indexed connections data.
-   * @param fromNode 
-   * @param toNode 
-   * @param indexedConnections 
    */
   private openConnectionModalWithIndexedData(
     fromNode: GraphNode,
@@ -1639,8 +1583,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    *  Gets a node by its UID from the graph data.
-   * @param uid 
-   * @returns 
    */
 
   private getNodeByUid(uid: string): GraphNode | undefined {
