@@ -361,9 +361,15 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
   }
 
-  // Handle connection changes from React component
+  // Handle connection changes from OC Editor Component
   onConnectionChange(connection: any): void {
     this.currentConnection = connection;
+  }
+
+  // Handle save connection event from OC Editor Component
+  onSaveConnection(connection: any): void {
+    this.currentConnection = connection;
+    this.save();
   }
 
   getUserToken(): string {

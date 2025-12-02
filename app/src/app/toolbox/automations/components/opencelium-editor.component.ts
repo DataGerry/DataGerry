@@ -30,6 +30,7 @@ export class OpenCeliumEditorComponent
   @Input() invokers: any[] = [];
   @Input() initConnection: any = null;
   @Output() connectionChange = new EventEmitter<any>();
+  @Output() saveConnection = new EventEmitter<any>();
 
   private container?: HTMLElement;
   private ConnectionEditor?: any;
@@ -82,6 +83,9 @@ export class OpenCeliumEditorComponent
       invokers: this.invokers,
       onChange: (connection: any) => {
         this.connectionChange.emit(connection);
+      },
+      saveConnection: async (connection: any) => {
+        this.saveConnection.emit(connection);
       }
     };
 
