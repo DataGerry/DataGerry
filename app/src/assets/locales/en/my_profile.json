@@ -1,0 +1,41 @@
+{
+  "MENU": {
+    "TITLE": "My Profile"
+  },
+  "HEADER": "My Profile",
+  "UPDATE_BUTTON": "Update",
+  "THEME": {
+    "DEFAULT": "Default",
+    "OTHER": "Green Day"
+  },
+  "APP_TOUR": {
+    "TITLE": "Auto appearance",
+    "ENABLE": "Enable",
+    "DISABLE": "Disable"
+  },
+  "FORM": {
+    "PAGE_1": "Credentials",
+    "EMAIL": "Email",
+    "PASSWORD": "Password",
+    "REPEAT_PASSWORD": "Repeat password",
+    "HINT_1": "Provide credential information",
+    "PAGE_2": "User Details",
+    "NAME": "Name",
+    "SURNAME": "Surname",
+    "PHONE_NUMBER": "Phone Number",
+    "ORGANISATION": "Organisation",
+    "DEPARTMENT": "Department",
+    "USER_TITLE": "Title",
+    "PROFILE_PICTURE": "Avatar",
+    "PROFILE_PICTURE_PLACEHOLDER": "Please select an image...",
+    "HINT_2": "Provide user details",
+    "PAGE_3": "Settings",
+    "USER_GROUP": "User Group",
+    "USER_GROUP_PLACEHOLDER": "Choose user group...",
+    "DESCRIPTION": "Description",
+    "DESCRIPTION_DEFAULT": "Here you will see the description of the role",
+    "HINT_3": "Assign user group",
+    "THEMES": "Themes",
+    "APP_TOUR": "Application Tour"
+  }
+}
