@@ -447,6 +447,76 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
 #         abort(500, f"Failed to retrieve OpenCelium Connector with ID:{connector_id}!")
 
 
+@oc_connectors_blueprint.route('/connectors/master_password', methods=['GET', 'HEAD'])
+@handle_oc_errors("checking master password!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+def check_master_password(request_user: CmdbUser) -> Response:
+    """
+    GET/HEAD route to verify the OC master password
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        Response: The response from OpenCelium
+
+    Notes:
+        Password need to be provided via Header at "X-Master-Password"
+    """
+    try:
+        master_pw = request.headers.get("X-Master-Password")
+
+        if not master_pw:
+            abort(400, "No master password provided via header!")
+
+        oc_connector_manager: OcConnectorManager = OcConnectorManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        pw_valid_response = oc_connector_manager.check_master_pw(master_pw, True)
+
+        return DefaultResponse(pw_valid_response).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcConnectorGetError as err:
+        LOGGER.error("[check_master_password] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to check master password!")
+
+
+@oc_connectors_blueprint.route('/connectors/master_password/exists', methods=['GET', 'HEAD'])
+@handle_oc_errors("checking master password existance!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+def check_master_password_exists(request_user: CmdbUser) -> Response:
+    """
+    GET/HEAD route to verify if the OC master password exists
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        Response: The response from OpenCelium
+    """
+    try:
+        oc_connector_manager: OcConnectorManager = OcConnectorManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        pw_exists_response = oc_connector_manager.check_master_pw_exists()
+
+        return DefaultResponse(pw_exists_response).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcConnectorGetError as err:
+        LOGGER.error("[check_master_password_exists] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to check if master password exists!")
+
+
 @oc_connectors_blueprint.route('/connectors', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Connectors!")
 @insert_request_user
