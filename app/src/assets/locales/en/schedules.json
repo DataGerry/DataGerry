@@ -1,0 +1,158 @@
+{
+  "MENU": {
+    "TITLE": "Scheduler"
+  },
+  "HEADER": "Scheduler",
+  "NOTIFICATION": {
+    "EMPTY": "No entry",
+    "NAME": "Name",
+    "EVENT_TYPE": "Event Type",
+    "NOTIFICATION_TYPE": "Notification Type",
+    "TEMPLATE": "Template",
+    "ACTION": "Action",
+    "EVENT_PRE": "Pre",
+    "EVENT_POST": "Post",
+    "EVENT_ALERT": "Alert",
+    "UPDATE": "Update",
+    "DELETE": "Delete",
+    "TYPE": {
+      "EMAIL": "E-Mail",
+      "SLACK": "Slack"
+    },
+    "SEARCH_PLACEHOLDER": "Search ...",
+    "VALIDATION": {
+      "EVENT_TYPE_EMPTY": "Event is a required field",
+      "NOTIFICATION_TYPE_EMPTY": "Notification Type is a required field",
+      "TEMPLATE_EMPTY": "Template is a required field",
+      "RECIPIENTS_EMPTY": "There should be at least one selected recipient"
+    },
+    "ADD_ICON_TOOLTIP": "Add Notification",
+    "CLOSE_ICON_TOOLTIP": "Close",
+    "ADD_DIALOG":{
+      "ADD": "Add",
+      "CANCEL": "Cancel",
+      "TITLE": "Add Notification"
+    },
+    "UPDATE_DIALOG":{
+      "UPDATE": "Update",
+      "CANCEL": "Cancel",
+      "TITLE": "Update Notification"
+    },
+    "NOTIFICATION_CHANGE": {
+      "NAME_LABEL": "Name",
+      "EVENT_TYPE_LABEL": "Event",
+      "NOTIFICATION_TYPE_LABEL": "Notification Type",
+      "NOTIFICATION_TYPE_PLACEHOLDER": "Choose type...",
+      "SLACK_CHANNEL_LABEL": "Channel",
+      "SLACK_CHANNEL_PLACEHOLDER": "Choose channel...",
+      "TEMPLATE_LABEL": "Template",
+      "TEMPLATE_PLACEHOLDER": "Choose template...",
+      "RECIPIENTS": {
+        "LABEL": "Recipients",
+        "NO_SELECTED_RECIPIENTS": "There is no selected recipients'",
+        "NO_REST_RECIPIENTS": "There is no rest recipients'",
+        "NONE_FOUND": "None recipients found",
+        "ADD_ICON_TOOLTIP": "Add",
+        "REMOVE_ICON_TOOLTIP": "Remove",
+        "PREVIOUS_ICON_TOOLTIP": "Previous",
+        "NEXT_ICON_TOOLTIP": "Next",
+        "MORE_ICON_TOOLTIP": "more recipients",
+        "REST_RECIPIENTS_SEARCH_LABEL": "Search in rest recipients...",
+        "SELECTED_RECIPIENTS_SEARCH_LABEL": "Search in selected recipients..."
+      }
+    }
+  },
+  "LIST":{
+    "HEADER": "Schedules",
+    "ADD_BUTTON": "Add Schedule",
+    "CRON_EXP": "Cron",
+    "EMPTY_LIST": "The list of Schedulers is empty",
+    "EMPTY_CURRENT_LIST": "The list of current jobs is empty",
+    "TOOLTIP_START_ICON": "Start",
+    "TOOLTIP_ENABLE_SWITCH_TRUE": "Enable",
+    "TOOLTIP_ENABLE_SWITCH_FALSE": "Disable",
+    "TOOLTIP_UPDATE_ICON": "Update",
+    "TOOLTIP_NOTIFICATION_ICON": "Notifications",
+    "TOOLTIP_DELETE_ICON": "Delete",
+    "STATUS_ON": "On",
+    "STATUS_OFF": "Off",
+    "TITLE": "Title",
+    "CONNECTION": "Connection",
+    "CRON": "Cron",
+    "LAST_SUCCESS": "Last Success",
+    "LAST_FAILURE": "Last Failure",
+    "LAST_DURATION": "Last Duration",
+    "LAST_DURATION_SEC": "sec",
+    "STATUS": "Status",
+    "LOGS": "Logs",
+    "ACTION": "Action",
+    "WEBHOOK": "WEBHOOK",
+    "WEBHOOK_TOOLTIP": "Copy to Clipboard",
+    "WEBHOOK_TOOLS_TOOLTIP_CREATE": "Create Webhook",
+    "WEBHOOK_TOOLS_TOOLTIP_DELETE": "Delete Webhook"
+  },
+  "UPDATE":{
+    "HEADER": "Update Schedule",
+    "TITLE_PLACEHOLDER": "Title",
+    "SEARCH_PLACEHOLDER": "Search by title",
+    "CONNECTION_PLACEHOLDER": "Connection",
+    "CRONEXP_PLACEHOLDER": "Cron Job",
+    "CRON_ICON_TOOLTIP": "Generate cron expression",
+    "UPDATE_BUTTON": "Update",
+    "LIST_BUTTON": "Schedules",
+    "COLOR_TITLE": "Color",
+    "FORM": {
+      "PAGE_1": "General Data",
+      "TITLE": "Title",
+      "LOGS": "Logs",
+      "LOGS_TITLE_ENABLED": "Logs are activated",
+      "LOGS_TITLE_DISABLED": "Logs are deactivated",
+      "CONNECTION": "Connection",
+      "CONNECTION_PLACEHOLDER": "Choose connection...",
+      "DESCRIPTION_DEFAULT": "Here you will see the description of the connection",
+      "CRON_EXP": "Cron Expression"
+    },
+    "VALIDATION_MESSAGES": {
+      "TITLE_REQUIRED": "Title is a required field",
+      "CONNECTION_REQUIRED": "Connection is a required field",
+      "CRON_EXP_REQUIRED": "Cron Expression is a required field"
+    }
+  },
+  "ADD":{
+    "HEADER": "Add Schedule",
+    "TITLE_PLACEHOLDER": "Title",
+    "SEARCH_PLACEHOLDER": "Search by title",
+    "CONNECTION_PLACEHOLDER": "Connection",
+    "CRONEXP_PLACEHOLDER": "Cron Job",
+    "CRON_ICON_TOOLTIP": "Generate cron expression",
+    "ADD_BUTTON": "Add",
+    "LIST_BUTTON": "Schedules",
+    "COLOR_TITLE": "Color",
+    "FORM": {
+      "PAGE_1": "General Data",
+      "LOGS": "Logs",
+      "LOGS_TITLE_ENABLED": "Logs are activated",
+      "LOGS_TITLE_DISABLED": "Logs are deactivated",
+      "TITLE": "Title",
+      "CONNECTION": "Connection",
+      "CONNECTION_PLACEHOLDER": "Choose connection...",
+      "DESCRIPTION_DEFAULT": "Here you will see the description of the connection",
+      "CRON_EXP": "Cron Expression"
+    },
+    "VALIDATION_MESSAGES": {
+      "TITLE_REQUIRED": "Title is a required field",
+      "CONNECTION_REQUIRED": "Connection is a required field",
+      "CRON_EXP_REQUIRED": "Cron Expression is a required field"
+    }
+  },
+  "VIEW":{
+    "HEADER": "View Schedule",
+    "LIST_BUTTON": "Schedules",
+    "FORM": {
+      "PAGE_1": "General Data",
+      "TITLE": "Title",
+      "CONNECTION": "Connection",
+      "CRON_EXP": "Cron Expression"
+    }
+  }
+}

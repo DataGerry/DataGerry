@@ -1,0 +1,7 @@
+{
+  "APP": {
+    "DO_REQUEST":{
+      "NO_URL_PARAM": "There is no 'url param' for the request"
+    }
+  }
+}

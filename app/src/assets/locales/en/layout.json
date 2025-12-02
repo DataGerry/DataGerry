@@ -1,0 +1,50 @@
+{
+  "FOOTER": {
+    "OPENCELIUM": "OpenCelium"
+  },
+  "HEADER": {
+    "ADMIN": {
+      "TITLE": "Admin"
+    },
+    "CONNECTIONS": {
+      "TITLE": "Connections"
+    },
+    "CONNECTORS": {
+      "TITLE": "Connectors"
+    },
+    "DASHBOARD": {
+      "TITLE": "Dashboard"
+    },
+    "HEADER": {
+      "MENU": "Menu"
+    },
+    "LOADING": {},
+    "LOGO": {
+      "LOGO_TOOLTIP": "Home"
+    },
+    "LOGOUT": {
+      "TITLE": "Logout",
+      "CONFIRMATION_TITLE": "OC.Confirmation",
+      "CONFIRMATION_MESSAGE":"Do you really want to log out?"
+    },
+    "LANGUAGES": {},
+    "MY_PROFILE": {
+      "TITLE": "My Profile"
+    },
+    "SCHEDULES": {
+      "TITLE": "Scheduler"
+    },
+    "USER_GROUPS": {
+      "TITLE": "Groups"
+    },
+    "USERS": {
+      "TITLE": "Users"
+    }
+  },
+  "LOGIN": {
+    "HEADER": "Log In",
+    "BUTTON_CONNECT": "Connect",
+    "EMAIL_PLACEHOLDER": "Email",
+    "PASSWORD_PLACEHOLDER": "Password"
+  }
+}

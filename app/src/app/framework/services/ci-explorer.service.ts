@@ -9,7 +9,6 @@ import {
   GraphRespParents,
 } from '../models/ci-explorer.model';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
-import { ApiCallService } from 'src/app/services/api-call.service';
 
 
 
@@ -83,11 +82,12 @@ export class CiExplorerService extends BaseApiService<never> {
   loadWithRoot(
     targetId: number,
     types: number[] = [],
-    relations: number[] = []
+    relations: number[] = [],
+    withLocations: boolean = true
   ): Observable<GraphRespWithRoot> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=BOTH&with_root=true` +
+      `&target_type=BOTH&with_root=true&with_locations=${withLocations}` +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespWithRoot>(url);
@@ -97,11 +97,12 @@ export class CiExplorerService extends BaseApiService<never> {
   expandChild(
     targetId: number,
     types: number[] = [],
-    relations: number[] = []
+    relations: number[] = [],
+    withLocations: boolean = true
   ): Observable<GraphRespChildren> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=CHILD&with_root=false` +
+      `&target_type=CHILD&with_root=false&with_locations=${withLocations}` +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespChildren>(url);
@@ -111,11 +112,12 @@ export class CiExplorerService extends BaseApiService<never> {
   expandParent(
     targetId: number,
     types: number[] = [],
-    relations: number[] = []
+    relations: number[] = [],
+    withLocations: boolean = true
   ): Observable<GraphRespParents> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=PARENT&with_root=false` +
+      `&target_type=PARENT&with_root=false&with_locations=${withLocations}` +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespParents>(url);

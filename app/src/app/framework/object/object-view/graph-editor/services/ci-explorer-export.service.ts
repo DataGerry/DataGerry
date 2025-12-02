@@ -23,6 +23,7 @@ import { loadImage, svgStringToPngDataUrl, buildShiftedConnectionsSvg } from './
 import { computeContentBounds } from './export-utils/bounds-utils';
 import { waitForFonts, getComputedBg, downloadDataUrl, toggleExportingClass } from './export-utils/dom-utils';
 import { timestamp, clamp } from './export-utils/general-utils';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Injectable({ providedIn: 'root' })
 export class CiExplorerExportService {
@@ -193,6 +194,34 @@ export class CiExplorerExportService {
       }
     } finally {
       toggleExportingClass(canvasEl, false);
+    }
+  }
+
+  /**
+   * Exports the graph as an image (wrapper method for component)
+   */
+  async exportGraphAsImage(
+    canvas: HTMLElement,
+    loaderService: LoaderService,
+    showNotification: (message: string, type: 'info' | 'success' | 'error') => void,
+    showErrorNotification: (message: string) => void
+  ): Promise<void> {
+    if (!canvas) return;
+
+    loaderService.show();
+    
+    try {
+      await this.exportFullCanvasToPng(canvas, {
+        fileNamePrefix: 'ci-explorer',
+        backgroundColor: '#ffffff',
+        pixelRatioMax: 3,
+        padding: 32
+      });
+      showNotification('PNG export completed', 'success');
+    } catch (err) {
+      showErrorNotification(err?.message || 'Export failed');
+    } finally {
+      loaderService.hide();
     }
   }
 }
