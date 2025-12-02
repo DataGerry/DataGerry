@@ -20,7 +20,7 @@ import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
 import { takeUntil, debounceTime, finalize } from 'rxjs/operators';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
-import { CIEdge,CINode, GraphRespWithRoot} from 'src/app/framework/models/ci-explorer.model';
+import { CIEdge, CINode, GraphRespWithRoot } from 'src/app/framework/models/ci-explorer.model';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { RelationService } from 'src/app/framework/services/relaion.service';
 
@@ -35,18 +35,20 @@ import { GraphPathService } from './services/graph-path.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { NodeDetailsModalComponent } from './modals/node-details/node-details-modal.component';
-import { ProfileManagerModalComponent } from './modals/profile-manager/profile-manager-modal.component';
-import { GraphProfileService } from './services/graph-profile.service';
 import { ConnectionDetailsModalComponent } from './modals/connection-details/connection-details-modal.component';
+import { GraphProfileService } from './services/graph-profile.service';
 import { ConnectionTrackerService } from './services/connection-tracker.service';
 import { CiExplorerExportService } from './services/ci-explorer-export.service';
+import { GraphInteractionService } from './services/graph-interaction.service';
+import { GraphKeyboardService } from './services/graph-keyboard.service';
+import { GraphNavigationService } from './services/graph-navigation.service';
 
 @Component({
-    selector: 'app-graph-editor',
-    templateUrl: './graph-editor.component.html',
-    styleUrls: ['./graph-editor.component.scss'],
-    providers: [ GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService ],
-    standalone: false
+  selector: 'app-graph-editor',
+  templateUrl: './graph-editor.component.html',
+  styleUrls: ['./graph-editor.component.scss'],
+  providers: [GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService],
+  standalone: false
 })
 export class GraphEditorComponent implements OnInit, OnDestroy {
   @ViewChild('svgContainer') svgContainer!: ElementRef;
@@ -160,7 +162,9 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     private modalService: NgbModal,
     private connectionTracker: ConnectionTrackerService,
     private exportService: CiExplorerExportService,
-
+    private graphInteractionService: GraphInteractionService,
+    private graphKeyboardService: GraphKeyboardService,
+    private graphNavigationService: GraphNavigationService
   ) {
     this.filterForm = this.fb?.group({
       types: [[]],
@@ -241,13 +245,27 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   * @param event The keyboard event to handle.
   */
   private handleKeyboard(event: KeyboardEvent): void {
-    const key = this.getKeyCombo(event);
-
-    const handlerName = KEYBOARD_SHORTCUTS[key as keyof typeof KEYBOARD_SHORTCUTS];
-    if (handlerName && typeof (this as any)[handlerName] === 'function') {
-      event?.preventDefault();
-      (this as any)[handlerName]();
-    }
+    this.graphKeyboardService.handleKeyboard(
+      event,
+      (e: KeyboardEvent) => this.getKeyCombo(e),
+      KEYBOARD_SHORTCUTS,
+      {
+        navigateUp: () => this.navigateUp(),
+        navigateDown: () => this.navigateDown(),
+        navigateLeft: () => this.navigateLeft(),
+        navigateRight: () => this.navigateRight(),
+        deleteSelectedNodes: () => this.deleteSelectedNodes(),
+        clearSelection: () => this.clearSelection(),
+        focusOnSelected: () => this.focusOnSelected(),
+        toggleExpandSelected: () => this.toggleExpandSelected(),
+        selectAllNodes: () => this.selectAllNodes(),
+        focusSearch: () => this.focusSearch(),
+        setSelectedAsRoot: () => this.setSelectedAsRoot(),
+        zoomIn: () => this.zoomIn(),
+        zoomOut: () => this.zoomOut(),
+        resetZoom: () => this.resetZoom()
+      }
+    );
   }
 
 
@@ -257,13 +275,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * @returns A string representing the key combination (e.g., "Ctrl+Shift+A").
     */
   private getKeyCombo(event: KeyboardEvent): string {
-    const parts = [];
-    if (event?.ctrlKey || event?.metaKey) parts.push('Ctrl');
-    if (event?.shiftKey) parts.push('Shift');
-    if (event?.altKey) parts.push('Alt');
-    const keyName = event?.key === '+' ? 'Plus' : event?.key === '-' ? 'Minus' : event?.key;
-    parts.push(keyName);
-    return parts?.join('+');
+    return this.graphKeyboardService.getKeyCombo(event);
   }
 
 
@@ -415,34 +427,19 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * loads filter options for types and relations from the respective services.
     */
   private loadFilterOptions(): void {
-    const params = { filter: '', limit: 0, sort: 'sort', order: 1, page: 1 };
-
-    this.loaderService.show();
-
-    this.typeService?.getTypes(params)
-      .pipe(finalize(() => this.loaderService.hide())).subscribe({
-        next: resp => {
-          const list = Array.isArray(resp) ? resp : resp?.results;
-          this.typeOptionList = list?.map(t => ({
-            public_id: t?.public_id,
-            display_name: t?.label || t?.name || `#${t.public_id}`
-          }));
-          this.typesLoaded = true;
-        },
-        error: e => this.showErrorNotification(e?.error?.message)
-      });
-
-    this.loaderService.show();
-    this.relationService?.getRelations()?.pipe(finalize(() => this.loaderService?.hide()))?.subscribe({
-      next: resp => {
-        const list = Array.isArray(resp) ? resp : resp?.results;
-        this.relationOptionList = list?.map(r => ({
-          public_id: r?.public_id,
-          display_name: r?.relation_name || r?.label || `#${r?.public_id}`
-        }));
+    this.profileService.loadFilterOptions(
+      this.typeService,
+      this.relationService,
+      this.loaderService,
+      (message: string) => this.showErrorNotification(message)
+    ).subscribe({
+      next: (result) => {
+        this.typeOptionList = result.types;
+        this.relationOptionList = result.relations;
+        this.typesLoaded = true;
         this.relationsLoaded = true;
       },
-      error: e => this.showErrorNotification(e?.error?.message)
+      error: (e) => this.showErrorNotification(e?.error?.message)
     });
   }
 
@@ -801,33 +798,14 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * Navigates through the nodes in the specified direction.
     */
   navigateNodes(direction: 'up' | 'down' | 'left' | 'right'): void {
-    if (!this.selectedNode) {
-      if (this.nodes?.length > 0) {
-        this.selectNode(this.nodes[0]);
-      }
-      return;
-    }
-
-    let targetNode: GraphNode | undefined;
-    switch (direction) {
-      case 'up':
-        targetNode = this.findNodeInDirection(this.selectedNode, 0, -1);
-        break;
-      case 'down':
-        targetNode = this.findNodeInDirection(this.selectedNode, 0, 1);
-        break;
-      case 'left':
-        targetNode = this.findNodeInDirection(this.selectedNode, -1, 0);
-        break;
-      case 'right':
-        targetNode = this.findNodeInDirection(this.selectedNode, 1, 0);
-        break;
-    }
-
-    if (targetNode) {
-      this.selectNode(targetNode);
-      this.centerOnNode(targetNode);
-    }
+    this.graphNavigationService.navigateNodes(
+      direction,
+      this.selectedNode,
+      this.nodes,
+      (node: GraphNode) => this.selectNode(node),
+      (node: GraphNode) => this.centerOnNode(node),
+      (from: GraphNode, dx: number, dy: number) => this.findNodeInDirection(from, dx, dy)
+    );
   }
 
 
@@ -896,28 +874,23 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * Handles mouse down events on a node.
     */
   onNodeMouseDown(e: MouseEvent, node: GraphNode): void {
-    if (e.button !== 0 || node?.isLoading) return;
+    const result = this.graphInteractionService.onNodeMouseDown(
+      e,
+      node,
+      this.isDragging,
+      this.isMultiSelecting,
+      this.selectedNodes,
+      this.dragOffsetX,
+      this.dragOffsetY,
+      (n: GraphNode) => this.toggleNodeSelection(n),
+      (n: GraphNode, ev?: MouseEvent) => this.selectNode(n, ev)
+    );
 
-    // Check if the click is on an action button
-    const target = e.target as HTMLElement;
-    if (target.closest('.action-btn')) {
-      e.stopPropagation();
-      return;
-    }
-
-    e.stopPropagation();
-    this.isDragging = true;
-
-    if (e.shiftKey || e.ctrlKey) {
-      this.isMultiSelecting = true;
-      this.toggleNodeSelection(node);
-    } else if (!this.selectedNodes?.has(node?.id)) {
-      // Pass the event to selectNode to check for conflicts
-      this.selectNode(node, e);
-    }
-
-    this.dragOffsetX = e?.clientX - node?.x;
-    this.dragOffsetY = e?.clientY - node?.y;
+    this.isDragging = result.isDragging;
+    this.isMultiSelecting = result.isMultiSelecting;
+    this.selectedNodes = result.selectedNodes;
+    this.dragOffsetX = result.dragOffsetX;
+    this.dragOffsetY = result.dragOffsetY;
   }
 
 
@@ -925,14 +898,19 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   * Handles mouse down events on the canvas for panning.
   */
   onCanvasMouseDown(e: MouseEvent): void {
-    if (e.button !== 0) return;
-    this.isPanning = true;
-    this.panStartX = e?.clientX - this.viewportX;
-    this.panStartY = e?.clientY - this.viewportY;
+    const result = this.graphInteractionService.onCanvasMouseDown(
+      e,
+      this.isPanning,
+      this.panStartX,
+      this.panStartY,
+      this.viewportX,
+      this.viewportY,
+      () => this.clearSelection()
+    );
 
-    if (!e?.shiftKey && !e?.ctrlKey) {
-      this.clearSelection();
-    }
+    this.isPanning = result.isPanning;
+    this.panStartX = result.panStartX;
+    this.panStartY = result.panStartY;
   }
 
 
@@ -968,23 +946,23 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   * Handles right-click events on a node to show the context menu.
   */
   onRightClick(e: MouseEvent, node: GraphNode): void {
-    e?.preventDefault();
-    e?.stopPropagation(); // Prevent modal from opening
+    const result = this.graphInteractionService.onRightClick(
+      e,
+      node,
+      this.selectedNode,
+      this.selectedNodes,
+      this.contextMenuX,
+      this.contextMenuY,
+      this.contextMenuVisible,
+      this.createMenuVisible
+    );
 
-    if (node.isRoot) {
-      this.contextMenuVisible = false;
-      return;
-    }
-
-    // Don't call selectNode here, just set the selection directly
-    this.selectedNode = node;
-    this.selectedNodes.clear();
-    this.selectedNodes.add(node?.id);
-
-    this.contextMenuX = e?.clientX;
-    this.contextMenuY = e?.clientY;
-    this.contextMenuVisible = true;
-    this.createMenuVisible = false;
+    this.selectedNode = result.selectedNode;
+    this.selectedNodes = result.selectedNodes;
+    this.contextMenuX = result.contextMenuX;
+    this.contextMenuY = result.contextMenuY;
+    this.contextMenuVisible = result.contextMenuVisible;
+    this.createMenuVisible = result.createMenuVisible;
   }
 
   @HostListener('document:click', ['$event'])
@@ -1002,13 +980,19 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   * This method sets the position of the create menu and makes it visible.
   */
   showCreateMenu(e: MouseEvent, node: GraphNode): void {
-    e?.preventDefault();
-    e?.stopPropagation();
-    this.parentNodeForCreate = node;
-    this.createMenuX = e?.clientX;
-    this.createMenuY = e?.clientY;
-    this.createMenuVisible = true;
-    this.contextMenuVisible = false;
+    const result = this.graphInteractionService.showCreateMenu(
+      this.parentNodeForCreate,
+      this.createMenuX,
+      this.createMenuY,
+      this.createMenuVisible,
+      this.contextMenuVisible
+    );
+
+    this.parentNodeForCreate = result.parentNodeForCreate;
+    this.createMenuX = e.clientX;
+    this.createMenuY = e.clientY;
+    this.createMenuVisible = result.createMenuVisible;
+    this.contextMenuVisible = result.contextMenuVisible;
   }
 
   // Actions
@@ -1295,29 +1279,12 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
    * Opens the profile manager modal to manage filter profiles.
    */
   openProfileManager(): void {
-    const modalRef = this.modalService.open(ProfileManagerModalComponent, {
-      size: 'xl',
-      backdrop: 'static',
-      scrollable: true
-    });
-
-    // Pass the filter options to the modal
-    modalRef.componentInstance.initializeOptions(this.typeOptionList, this.relationOptionList);
-
-    // Handle the result when a profile is applied
-    modalRef.result.then((selectedProfile: FilterProfile) => {
-      if (selectedProfile) {
-        this.typesFilter = selectedProfile.types_filter || [];
-        this.relationsFilter = selectedProfile.relations_filter || [];
-        this.loadInitialGraph(true);
-        this.showNotification(`Applied profile: ${selectedProfile.name}`, 'success');
-      }
-      // Always refresh profiles list after modal closes (whether profile was applied or not)
-      this.loadProfiles();
-    }).catch(() => {
-      // Modal was dismissed - still refresh the profiles list
-      this.loadProfiles();
-    });
+    this.profileService.openProfileManager(
+      this.modalService,
+      this.typeOptionList,
+      this.relationOptionList,
+      () => this.loadProfiles()
+    );
   }
 
 
@@ -1350,13 +1317,18 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
    * Applies the selected profile's filters to the graph.
    */
   applyProfile(): void {
-    const profile = this.profiles.find(p => p.public_id === this.selectedProfileId);
-    if (profile) {
-      this.typesFilter = profile.types_filter || [];
-      this.relationsFilter = profile.relations_filter || [];
-      this.loadInitialGraph(true);
-      this.showNotification(`Applied profile: ${profile.name}`, 'success');
-    }
+    const result = this.profileService.applyProfile(
+      this.profiles,
+      this.selectedProfileId,
+      this.typesFilter,
+      this.relationsFilter,
+      (reset: boolean) => this.loadInitialGraph(reset),
+      (message: string, type: 'info' | 'success' | 'error') => this.showNotification(message, type)
+    );
+
+    this.typesFilter = result.typesFilter;
+    this.relationsFilter = result.relationsFilter;
+    this.loadInitialGraph(true);
   }
 
 
@@ -1365,24 +1337,15 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
    * @returns True if there are no active filters, false otherwise.
    */
   saveCurrentFiltersAsProfile(): void {
-    if (!this.hasActiveFilters()) {
-      this.showNotification('No filters to save', 'info');
-      return;
-    }
-
-    const modalRef = this.modalService.open(ProfileManagerModalComponent, {
-      size: 'xl',
-      backdrop: 'static'
-    });
-
-    modalRef.componentInstance.initializeOptions(this.typeOptionList, this.relationOptionList);
-
-    // Pre-fill with current filters
-    modalRef.componentInstance.profileForm.patchValue({
-      name: '',
-      types_filter: this.typesFilter,
-      relations_filter: this.relationsFilter
-    });
+    this.profileService.saveCurrentFiltersAsProfile(
+      this.modalService,
+      this.typeOptionList,
+      this.relationOptionList,
+      this.typesFilter,
+      this.relationsFilter,
+      () => this.hasActiveFilters(),
+      (message: string, type: 'info' | 'success' | 'error') => this.showNotification(message, type)
+    );
   }
 
 
@@ -1418,9 +1381,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     }
   }
 
-
   /**
-   *  Opens the connection details modal with data from the UI.
+   * Opens the connection details modal with indexed connections data
    */
   private openConnectionModalWithUIData(
     fromNode: GraphNode,
@@ -1469,7 +1431,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     modalRef.componentInstance.direction = fromNode.level < toNode.level ? 'outgoing' : 'incoming';
   }
 
-
   /**
    * Opens the UID-based connection modal with tracked connections.
    */
@@ -1478,13 +1439,11 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     toNode: any,   // GraphNode from nodeInstanceMap (passed from UI)  
     trackedConnections: any[]
   ): void {
-
     const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
     });
-
 
     modalRef.componentInstance.sourceNode = {
       id: fromNode.id,
@@ -1515,11 +1474,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     modalRef.componentInstance.direction = fromNode.level < toNode.level ? 'outgoing' : 'incoming';
   }
 
-
-
-
   /**
-   *  Opens the connection details modal with indexed connections data.
+   * Opens the connection details modal with UI data
    */
   private openConnectionModalWithIndexedData(
     fromNode: GraphNode,
@@ -1571,20 +1527,18 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     modalRef.componentInstance.direction = fromNode.level < toNode.level ? 'outgoing' : 'incoming';
   }
 
-
   /**
    * Checks if there are any active filters applied to the graph.
    * @returns True if there are active filters, false otherwise.
    */
   hasActiveFilters(): boolean {
-    return (this.typesFilter?.length > 0) || (this.relationsFilter?.length > 0);
+    return this.profileService.hasActiveFilters(this.typesFilter, this.relationsFilter);
   }
 
 
   /**
    *  Gets a node by its UID from the graph data.
    */
-
   private getNodeByUid(uid: string): GraphNode | undefined {
     return this.graphData.getNodeInstanceMap().get(uid);
   }
@@ -1605,74 +1559,71 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     return `${conn.from}-${conn.to}-${conn.relationLabel}`;
   }
 
-    // Utility methods
-    private handleResize(): void {
-      this.centerViewport();
-    }
-  
-    private showNotification(message: string, type: 'info' | 'success' | 'error' = 'info'): void {
-    }
-  
-    private showErrorNotification(message: string): void {
-      this.showNotification(message, 'error');
-    }
-  
-    // Navigation keyboard shortcuts
-    navigateUp(): void { this.navigateNodes('up'); }
-    navigateDown(): void { this.navigateNodes('down'); }
-    navigateLeft(): void { this.navigateNodes('left'); }
-    navigateRight(): void { this.navigateNodes('right'); }
-
-/**
- * Calculates arrow position at the end of connection
- */
-getArrowPosition(conn: Connection): { x: number; y: number } {
-  const fromNode = this.getNodeByUid(conn.fromUid!);
-  const toNode = this.getNodeByUid(conn.toUid!);
-  
-  if (!fromNode || !toNode) {
-    return { x: 0, y: 0 };
+  // Utility methods
+  private handleResize(): void {
+    this.centerViewport();
   }
 
-  const nodeWidth = this.LAYOUT_CONFIG.nodeWidth;
-  const nodeHeight = this.LAYOUT_CONFIG.nodeHeight;
-  
-  const fromCenterX = fromNode.x + nodeWidth / 2;
-  const fromCenterY = fromNode.y + nodeHeight / 2;
-  const toCenterX = toNode.x + nodeWidth / 2;
-  const toCenterY = toNode.y + nodeHeight / 2;
-  
-  const dx = toCenterX - fromCenterX;
-  const dy = toCenterY - fromCenterY;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  
-  if (distance === 0) return { x: toCenterX, y: toCenterY };
-  
-  const normalX = dx / distance;
-  const normalY = dy / distance;
-  // Position at the edge of target node where arrow should be
-  const offsetDistance = 60; // Approximate distance from node center to arrow
-  
-  return {
-    x: toCenterX - normalX * offsetDistance,
-    y: toCenterY - normalY * offsetDistance
-  };
-}
+  private showNotification(message: string, type: 'info' | 'success' | 'error' = 'info'): void {
+  }
 
-exportGraphAsImage(): void {
-  const canvas = this.graphCanvas?.nativeElement as HTMLElement;
-  if (!canvas) return;
+  private showErrorNotification(message: string): void {
+    this.showNotification(message, 'error');
+  }
 
-  this.loaderService.show();
-  
-  this.exportService.exportFullCanvasToPng(canvas, {
-    fileNamePrefix: 'ci-explorer',
-    backgroundColor: '#ffffff',
-    pixelRatioMax: 3,
-    padding: 32
-  })
-  .then(() => this.showNotification('PNG export completed', 'success'))
-  .catch(err => this.showErrorNotification(err?.message || 'Export failed'))
-  .finally(() => this.loaderService.hide());
-}
+  // Navigation keyboard shortcuts
+  navigateUp(): void { this.navigateNodes('up'); }
+  navigateDown(): void { this.navigateNodes('down'); }
+  navigateLeft(): void { this.navigateNodes('left'); }
+  navigateRight(): void { this.navigateNodes('right'); }
+
+  // Focus search placeholder
+  focusSearch(): void {
+    // Implementation for focusing search would go here
+  }
+
+  /**
+   * Calculates arrow position at the end of connection
+   */
+  getArrowPosition(conn: Connection): { x: number; y: number } {
+    const fromNode = this.getNodeByUid(conn.fromUid!);
+    const toNode = this.getNodeByUid(conn.toUid!);
+
+    if (!fromNode || !toNode) {
+      return { x: 0, y: 0 };
+    }
+
+    const nodeWidth = this.LAYOUT_CONFIG.nodeWidth;
+    const nodeHeight = this.LAYOUT_CONFIG.nodeHeight;
+
+    const fromCenterX = fromNode.x + nodeWidth / 2;
+    const fromCenterY = fromNode.y + nodeHeight / 2;
+    const toCenterX = toNode.x + nodeWidth / 2;
+    const toCenterY = toNode.y + nodeHeight / 2;
+
+    const dx = toCenterX - fromCenterX;
+    const dy = toCenterY - fromCenterY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance === 0) return { x: toCenterX, y: toCenterY };
+
+    const normalX = dx / distance;
+    const normalY = dy / distance;
+    // Position at the edge of target node where arrow should be
+    const offsetDistance = 60; // Approximate distance from node center to arrow
+
+    return {
+      x: toCenterX - normalX * offsetDistance,
+      y: toCenterY - normalY * offsetDistance
+    };
+  }
+
+  exportGraphAsImage(): void {
+    this.exportService.exportGraphAsImage(
+      this.graphCanvas?.nativeElement,
+      this.loaderService,
+      (message: string, type: 'info' | 'success' | 'error') => this.showNotification(message, type),
+      (message: string) => this.showErrorNotification(message)
+    );
+  }
 }
