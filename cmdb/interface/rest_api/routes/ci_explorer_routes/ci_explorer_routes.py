@@ -18,6 +18,7 @@ Implementation of all API routes for CI Explorer
 """
 import logging
 import ast
+from typing import Any
 from flask import abort, request
 from werkzeug.exceptions import HTTPException
 
@@ -27,6 +28,7 @@ from cmdb.manager import (
     RelationsManager,
     ObjectRelationsManager,
     CiExplorerProfileManager,
+    LocationsManager,
 )
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -174,16 +176,13 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
     try:
         target_id = request.args.get("target_id", type=int)
         target_type = request.args.get("target_type", default="BOTH").upper()
-        with_root = request.args.get("with_root", default="false").lower() == "true"
+        with_root: bool = request.args.get("with_root", default="false").lower() == "true"
+        with_locations: bool = request.args.get("with_locations", default="false").lower() == "true"
+        with_refs: bool = request.args.get("with_referencess", default="false").lower() == "true"
+        is_root_location: bool = request.args.get("is_root_location", default="false").lower() == "true"
 
         types_filter = parse_int_list_filter("types_filter")
         relations_filter = parse_int_list_filter("relations_filter")
-
-        if target_id is None:
-            abort(400, "Missing ID of target Object!")
-
-        if not NodeType.is_valid(target_type):
-            abort(400, f"Invalid target_type '{target_type}'. Need one of: {', '.join(NodeType.__members__.keys())}")
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -192,6 +191,42 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                                                                             ManagerType.OBJECT_RELATIONS,
                                                                             request_user
                                                                         )
+        locations_manager: LocationsManager =  ManagerProvider.get_manager(
+                                                    ManagerType.LOCATIONS,
+                                                    request_user
+                                               )
+
+        # If the Root-Location was clicked then just return its child objects
+        if is_root_location:
+            child_objects = None
+            root_child_locations = locations_manager.get_locations_by(
+                parent=1
+            )
+            # Retrieve all child objects
+            operator_in = {'$in': []}
+            filter_public_ids = {'public_id': {}}
+
+            operator_in.update({'$in': root_child_locations})
+            filter_public_ids.update({'public_id': operator_in})
+
+            child_objects = objects_manager.get_objects_by(**filter_public_ids)
+
+            if child_objects and types_filter:
+                child_objects = [obj for obj in child_objects if obj["type_id"] in types_filter]
+
+            response = {
+                'location_children': child_objects
+            }
+
+            return DefaultResponse(response).make_response()
+
+
+        # Non root location handling
+        if target_id is None:
+            abort(400, "Missing ID of target Object!")
+
+        if not NodeType.is_valid(target_type):
+            abort(400, f"Invalid target_type '{target_type}'. Need one of: {', '.join(NodeType.__members__.keys())}")
 
         root_object = objects_manager.get_object(target_id) if with_root else None
         root_type_info = types_manager.get_type(root_object['type_id']) if root_object else None
@@ -347,6 +382,53 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         if target_type in (NodeType.BOTH, NodeType.PARENT):
             response['parent_nodes'] = list(parent_nodes.values())
             response['parent_edges'] = parent_edges
+
+        if with_locations:
+            response['location_parent'] = None
+            response['location_children'] = None
+
+            target_location = locations_manager.get_location_for_object(target_id)
+
+            if target_location:
+                parent_object: dict[str, Any] = None
+
+                # If the parent is root location
+                if target_location['parent'] == 1:
+                    parent_object = "root"
+                else:
+                    parent_object = objects_manager.get_object(target_location['object_id'])
+
+                    # Remove the parent object if a type filter exists and the parent is not part of it
+                    if types_filter and not parent_object['type_id'] in types_filter:
+                        parent_object = None
+
+                response['location_parent'] = parent_object
+
+                # Get all children of next level
+                child_objects = None
+
+                target_child_locations = locations_manager.get_locations_by(
+                                                                parent=target_location['public_id']
+                                                            )
+
+                # If there are any children, then get the corresponding objects
+                if target_child_locations:
+                    # get all public_ids of objects
+                    object_ids = [loc["object_id"] for loc in target_child_locations]
+
+                    # Retrieve all child objects
+                    operator_in = {'$in': []}
+                    filter_public_ids = {'public_id': {}}
+
+                    operator_in.update({'$in': object_ids})
+                    filter_public_ids.update({'public_id': operator_in})
+
+                    child_objects = objects_manager.get_objects_by(**filter_public_ids)
+
+                    if types_filter:
+                        child_objects = [obj for obj in child_objects if obj["type_id"] in types_filter]
+
+                    response['location_children'] = child_objects
 
         return DefaultResponse(response).make_response()
 
