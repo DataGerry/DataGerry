@@ -447,7 +447,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 # If there are any children, then get the corresponding objects
                 if target_child_locations:
                     # get all public_ids of child objects
-                    object_ids = [loc["object_id"] for loc in target_child_locations]
+                    object_ids = [loc.object_id for loc in target_child_locations]
 
                     # Retrieve all child objects
                     operator_in = {'$in': []}
@@ -475,7 +475,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
                     for child_object in child_objects:
                         tmp_child_object = CmdbObject.to_json(child_object)
-                        tmp_child_type = types_by_id.get(child_object['type_id'])
+                        tmp_child_type = types_by_id.get(tmp_child_object['type_id'])
                         tmp_child_title = get_title(tmp_child_object, tmp_child_type)
 
                         tmp_child_node = {
