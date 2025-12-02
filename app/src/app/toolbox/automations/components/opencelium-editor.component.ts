@@ -11,7 +11,9 @@ import {
   OnDestroy,
   SimpleChanges,
 } from '@angular/core';
-import ConnectionEditor from './opencelium-editor/connection-editor.js';
+import { ConnectionService } from 'src/app/modules/connect/services/connection.service';
+import ConnectionEditor from './automation-form/opencelium-editor/connection-editor.js';
+
 
 @Component({
   selector: 'opencelium-editor',
@@ -35,7 +37,9 @@ export class OpenCeliumEditorComponent
   private container?: HTMLElement;
   private ConnectionEditor?: any;
 
-  constructor(private host: ElementRef) {}
+  constructor(private host: ElementRef, private connectionService: ConnectionService) {
+    console.log('base url',this.connectionService.getApiBaseUrl()+'/rest/open_celium');
+  }
 
   async ngAfterViewInit() {
     this.ConnectionEditor = ConnectionEditor;
@@ -81,6 +85,7 @@ export class OpenCeliumEditorComponent
       initConnection: this.initConnection,
       connectors: this.connectors,
       invokers: this.invokers,
+      baseUrl: this.connectionService.getApiBaseUrl()+'/rest/open_celium/',
       onChange: (connection: any) => {
         this.connectionChange.emit(connection);
       },

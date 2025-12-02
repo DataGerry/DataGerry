@@ -1,0 +1,90 @@
+{
+  "MENU": {
+    "TITLE": "Connectors"
+  },
+  "LIST":{
+    "ADD_BUTTON": "Add Connector",
+    "EMPTY_LIST": "The list of Connectors is empty",
+    "HEADER": "Connectors",
+    "NAME": "Name",
+    "DESCRIPTION": "Description",
+    "INVOKER": "Invoker"
+  },
+  "ADD":{
+    "FORM":{
+      "TITLE": "Title",
+      "DESCRIPTION": "Description",
+      "INVOKER": "Invoker",
+      "INVOKER_PLACEHOLDER": "Choose invoker...",
+      "INVOKER_DESCRIPTION": "Description",
+      "INVOKER_DESCRIPTION_DEFAULT": "Here you will see the description of the connector",
+      "ICON": "Icon",
+      "ICON_PLACEHOLDER": "Please select an icon...",
+      "PAGE_1": "General Data",
+      "URL": "URL",
+      "APIKEY": "API-Key",
+      "LOGIN": "Login",
+      "USER": "User",
+      "USERLOGIN": "Login",
+      "USERNAME": "Username",
+      "PASSWORD": "Password",
+      "WEBSERVICE": "Webservice",
+      "PAGE_2": "Credentials",
+      "HINT_1": "Provide general information",
+      "HINT_2": "Provide credentials and test"
+    },
+    "VALIDATION_MESSAGES": {
+      "TITLE_REQUIRED": "The title is a required field",
+      "TITLE_EXIST": "Such title already exists",
+      "INVOKER_REQUIRED": "The invoker is a required field",
+      "WRONG_CREDENTIAL_DATA": "Wrong credential data"
+    },
+    "LIST_BUTTON": "Connectors",
+    "ADD_BUTTON": "Add & Close",
+    "ADD_BUTTON_AND_GO_TO_ADD_CONNECTION": "Add & Go to Add Connection",
+    "TEST_BUTTON": "Test",
+    "HEADER": "Add Connector"
+  },
+  "UPDATE":{
+    "FORM":{
+      "TITLE": "Title",
+      "DESCRIPTION": "Description",
+      "INVOKER": "Invoker",
+      "INVOKER_PLACEHOLDER": "Choose invoker...",
+      "INVOKER_DESCRIPTION": "Description",
+      "INVOKER_DESCRIPTION_DEFAULT": "Here you will see the description of the connector",
+      "ICON": "Icon",
+      "ICON_PLACEHOLDER": "Please select an icon...",
+      "PAGE_1": "General Data",
+      "URL": "URL",
+      "APIKEY": "API-Key",
+      "LOGIN": "Login",
+      "USER": "User",
+      "USERLOGIN": "Login",
+      "USERNAME": "Username",
+      "PASSWORD": "Password",
+      "WEBSERVICE": "Webservice",
+      "PAGE_2": "Credentials",
+      "HINT_1": "Provide general information",
+      "HINT_2": "Provide credentials and test"
+    },
+    "VALIDATION_MESSAGES": {
+      "TITLE_REQUIRED": "The title is a required field",
+      "TITLE_EXIST": "Such title already exists",
+      "INVOKER_REQUIRED": "The invoker is a required field",
+      "WRONG_CREDENTIAL_DATA": "Wrong credential data"
+    },
+    "LIST_BUTTON": "Connectors",
+    "UPDATE_BUTTON": "Update",
+    "TEST_BUTTON": "Test",
+    "HEADER": "Update Connector"
+  },
+  "VIEW": {
+    "HEADER": "View Connector",
+    "LIST_BUTTON": "Connectors",
+    "GENERAL_TITLE": "General",
+    "INVOKER_TITLE": "Invoker",
+    "OPERATIONS_TITLE": "Operations",
+    "HINT_TITLE": "Hint"
+  }
+}

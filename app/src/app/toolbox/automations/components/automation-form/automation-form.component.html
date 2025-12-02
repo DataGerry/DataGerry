@@ -68,19 +68,7 @@
         ></app-form-select>
       </div>
 
-      <div class="editor-section" *ngIf="isEditorDataReady()">
-        <opencelium-editor
-          [token]="getUserToken()"
-          [sourceConnectorId]="currentSourceConnectorId"
-          [targetConnectorId]="currentTargetConnectorId"
-          [templates]="templates"
-          [template]="selectedTemplate"
-          [connectors]="connectors"
-          [invokers]="invokers"
-          [initConnection]="initConnection"
-          (connectionChange)="onConnectionChange($event)"
-        ></opencelium-editor>
-      </div>
+
 
       <!-- Buttons -->
       <div class="d-flex justify-content-between align-items-center form-actions-margin">
