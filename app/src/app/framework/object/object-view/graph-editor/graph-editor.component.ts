@@ -288,7 +288,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       this.nodes.length = 0;
       this.connections.length = 0;
       this.nodeGroups.length = 0;
-      // this.breadcrumbs.length = 0;
       this.graphData?.clearAllData();
       this.connectionTracker.clear();
     }
@@ -304,7 +303,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
         this.paintInitial(r);
         this.performanceMetrics.renderTime = performance?.now() - t0;
       },
-      error: err => this.showErrorNotification('Failed to load graph data')
+      error: err => this.showErrorNotification(err.error?.message)
     });
   }
 
