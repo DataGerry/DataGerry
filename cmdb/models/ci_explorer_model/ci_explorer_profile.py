@@ -68,12 +68,6 @@ class CmdbCiExplorerProfile(CmdbDAO):
             'empty': False,
             'default': True,
         },
-        'with_references': {
-            'type': 'boolean',
-            'required': True,
-            'empty': False,
-            'default': True,
-        }
     }
 
 
