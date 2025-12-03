@@ -181,8 +181,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         target_type = request.args.get("target_type", default="BOTH").upper()
         with_root: bool = request.args.get("with_root", default="false").lower() == "true"
         with_locations: bool = request.args.get("with_locations", default="false").lower() == "true"
-        with_refs: bool = request.args.get("with_references", default="false").lower() == "true"
-        # is_root_location: bool = request.args.get("is_root_location", default="false").lower() == "true"
 
         types_filter = parse_int_list_filter("types_filter")
         relations_filter = parse_int_list_filter("relations_filter")
@@ -199,32 +197,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                                                     request_user
                                                )
 
-        # If the Root-Location was clicked then just return its child objects
-        # if is_root_location:
-        #     child_objects = None
-        #     root_child_locations = locations_manager.get_locations_by(
-        #         parent=1
-        #     )
-        #     # Retrieve all child objects
-        #     operator_in = {'$in': []}
-        #     filter_public_ids = {'public_id': {}}
-
-        #     operator_in.update({'$in': root_child_locations})
-        #     filter_public_ids.update({'public_id': operator_in})
-
-        #     child_objects = objects_manager.get_objects_by(**filter_public_ids)
-
-        #     if child_objects and types_filter:
-        #         child_objects = [obj for obj in child_objects if obj["type_id"] in types_filter]
-
-        #     response = {
-        #         'location_children': child_objects
-        #     }
-
-        #     return DefaultResponse(response).make_response()
-
-
-        # Non root location handling
         if target_id is None:
             abort(400, "Missing ID of target Object!")
 
@@ -382,129 +354,133 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         if target_type in (NodeType.BOTH, NodeType.CHILD):
             response['children_nodes'] = list(child_nodes.values())
             response['child_edges'] = child_edges
+            response['location_child_node'] = None
+            response['location_child_edge'] = None
         if target_type in (NodeType.BOTH, NodeType.PARENT):
             response['parent_nodes'] = list(parent_nodes.values())
             response['parent_edges'] = parent_edges
-
-        response['location_parent_node'] = None
-        response['location_parent_edge'] = None
-        response['location_child_nodes'] = None
-        response['location_child_edges'] = None
+            response['location_parent_nodes'] = None
+            response['location_parent_edges'] = None
 
         if with_locations:
+            # Locations are flipped in the Ci-Explorer
+            # The child locations will be provided in parents and the parent will be provided in child
             target_location = locations_manager.get_location_for_object(target_id)
 
             if target_location:
-                parent_node: dict[str, Any] = None
-                parent_edge = None
+                if target_type in (NodeType.BOTH, NodeType.CHILD):
+                    parent_node: dict[str, Any] = None
+                    parent_edge = None
 
-                # If the parent is root location
-                if target_location['parent'] == 1:
-                    parent_node = "root"
-                else:
-                    parent_object = objects_manager.get_object(target_location['object_id'])
+                    # If the parent is root location then do not send a node
+                    if target_location['parent'] == 1:
+                        pass
+                    else:
+                        parent_object = objects_manager.get_object(target_location['parent'])
 
-                    # If the object is filtered out remove it
-                    if parent_object and types_filter and parent_object['type_id'] not in types_filter:
-                        parent_node = None
-                    else: # The object is not filtered out
-                        if parent_object:
-                            parent_type = types_manager.get_type(parent_object['type_id'])
-                            parent_title = get_title(parent_object, parent_type)
+                        # If the object is filtered out remove it
+                        if parent_object and types_filter and parent_object['type_id'] not in types_filter:
+                            parent_node = None
+                        else: # The object is not filtered out
+                            if parent_object:
+                                parent_type = types_manager.get_type(parent_object['type_id'])
+                                parent_title = get_title(parent_object, parent_type)
 
-                            parent_node = [
-                                {
-                                    "linked_object": parent_object,
-                                    "title": parent_title,
-                                    "type_info": {
-                                        "type_id": parent_type['public_id'],
-                                        "type_color": parent_type.get('ci_explorer_color'),
-                                        "label": parent_type['label'],
-                                        "icon": parent_type['render_meta'].get('icon'),
-                                        "fields": parent_type.get('fields', {}),
-                                    },
-                                    "relation_color": PARENT_LOCATION_REL_COLOR
-                                }
+                                parent_node = [
+                                    {
+                                        "linked_object": parent_object,
+                                        "title": parent_title,
+                                        "type_info": {
+                                            "type_id": parent_type['public_id'],
+                                            "type_color": parent_type.get('ci_explorer_color'),
+                                            "label": parent_type['label'],
+                                            "icon": parent_type['render_meta'].get('icon'),
+                                            "fields": parent_type.get('fields', {}),
+                                        },
+                                        "relation_color": CHILD_LOCATION_REL_COLOR
+                                    }
+                                ]
+
+                                parent_edge: list[dict[str, Any]] = [
+                                    {
+                                        "from": parent_object['public_id'],
+                                        "to": target_id,
+                                    }
+                                ]
+
+                    response['location_child_node'] = parent_node
+                    response['location_child_edge'] = parent_edge
+
+                if target_type in (NodeType.BOTH, NodeType.PARENT):
+                    # Location children are placed in the parents
+
+                    # Get all child objects of next level
+                    child_objects = None
+
+                    target_child_locations = locations_manager.get_locations_by(
+                                                                    parent=target_location['public_id']
+                                                                )
+
+                    # If there are any children, then get the corresponding objects
+                    if target_child_locations:
+                        # get all public_ids of child objects
+                        object_ids = [loc.object_id for loc in target_child_locations]
+
+                        # Retrieve all child objects
+                        operator_in = {'$in': []}
+                        filter_public_ids = {'public_id': {}}
+
+                        operator_in.update({'$in': object_ids})
+                        filter_public_ids.update({'public_id': operator_in})
+
+                        child_objects: list[CmdbObject] = objects_manager.get_objects_by(**filter_public_ids)
+
+                        # If type filter is active only keep objects of the type
+                        if types_filter:
+                            child_objects: list[CmdbObject] = [
+                                obj for obj in child_objects if obj["type_id"] in types_filter
                             ]
 
-                            parent_edge: list[dict[str, Any]] = [
-                                {
-                                    "from": parent_object['public_id'],
-                                    "to": target_id,
-                                }
-                            ]
+                        # Get all types of the remaining objects
+                        type_ids = [obj.type_id for obj in child_objects]
 
-                response['location_parent_node'] = parent_node
-                response['location_parent_edge'] = parent_edge
+                        types_list = types_manager.find(criteria={"public_id": {"$in": list(type_ids)}})
+                        types_by_id = {t['public_id']: t for t in types_list}
 
-                # Get all child objects of next level
-                child_objects = None
+                        location_child_nodes = []
+                        location_child_edges = []
 
-                target_child_locations = locations_manager.get_locations_by(
-                                                                parent=target_location['public_id']
-                                                            )
+                        for child_object in child_objects:
+                            tmp_child_object = CmdbObject.to_json(child_object)
+                            tmp_child_type = types_by_id.get(tmp_child_object['type_id'])
+                            tmp_child_title = get_title(tmp_child_object, tmp_child_type)
 
-                # If there are any children, then get the corresponding objects
-                if target_child_locations:
-                    # get all public_ids of child objects
-                    object_ids = [loc.object_id for loc in target_child_locations]
+                            tmp_child_node = {
+                                "linked_object": tmp_child_object,
+                                "title": tmp_child_title,
+                                "type_info": {
+                                    "type_id": tmp_child_type['public_id'],
+                                    "type_color": tmp_child_type.get('ci_explorer_color'),
+                                    "label": tmp_child_type['label'],
+                                    "icon": tmp_child_type['render_meta'].get('icon'),
+                                    "fields": tmp_child_type.get('fields', {}),
+                                },
+                                "relation_color": PARENT_LOCATION_REL_COLOR
+                            }
 
-                    # Retrieve all child objects
-                    operator_in = {'$in': []}
-                    filter_public_ids = {'public_id': {}}
+                            location_child_nodes.append(tmp_child_node)
 
-                    operator_in.update({'$in': object_ids})
-                    filter_public_ids.update({'public_id': operator_in})
+                            tmp_child_edge = {
+                                "from": tmp_child_object['public_id'],
+                                "to": target_id
+                            }
 
-                    child_objects: list[CmdbObject] = objects_manager.get_objects_by(**filter_public_ids)
+                            location_child_edges.append(tmp_child_edge)
 
-                    # If type filter is active only keep objects of the type
-                    if types_filter:
-                        child_objects: list[CmdbObject] = [
-                            obj for obj in child_objects if obj["type_id"] in types_filter
-                        ]
-
-                    # Get all types of the remaining objects
-                    type_ids = [obj.type_id for obj in child_objects]
-
-                    types_list = types_manager.find(criteria={"public_id": {"$in": list(type_ids)}})
-                    types_by_id = {t['public_id']: t for t in types_list}
-
-                    location_child_nodes = []
-                    location_child_edges = []
-
-                    for child_object in child_objects:
-                        tmp_child_object = CmdbObject.to_json(child_object)
-                        tmp_child_type = types_by_id.get(tmp_child_object['type_id'])
-                        tmp_child_title = get_title(tmp_child_object, tmp_child_type)
-
-                        tmp_child_node = {
-                            "linked_object": tmp_child_object,
-                            "title": tmp_child_title,
-                            "type_info": {
-                                "type_id": tmp_child_type['public_id'],
-                                "type_color": tmp_child_type.get('ci_explorer_color'),
-                                "label": tmp_child_type['label'],
-                                "icon": tmp_child_type['render_meta'].get('icon'),
-                                "fields": tmp_child_type.get('fields', {}),
-                            },
-                            "relation_color": CHILD_LOCATION_REL_COLOR
-                        }
-
-                        location_child_nodes.append(tmp_child_node)
-
-                        tmp_child_edge = {
-                            "from": tmp_child_object['public_id'],
-                            "to": target_id
-                        }
-
-                        location_child_edges.append(tmp_child_edge)
-
-                    response['location_child_nodes'] = location_child_nodes
-                    response['location_child_edges'] = location_child_edges
+                        response['location_parent_nodes'] = location_child_nodes
+                        response['location_parent_edges'] = location_child_edges
 
         return DefaultResponse(response).make_response()
-
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
