@@ -20,8 +20,6 @@ import logging
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
-from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 
 from cmdb.errors.updater import UpdaterException
@@ -49,55 +47,24 @@ class Update20251203(BaseDatabaseUpdate):
 
     def start_update(self) -> None:
         try:
-            pass
-            #Update all CmdbObjects
-            # ci_exp_profile_collection = CmdbCiExplorerProfile.COLLECTION
-            # all_profiles: list[dict] = []
+            # Update all CmdbObjects
+            ci_exp_profile_collection = CmdbCiExplorerProfile.COLLECTION
+            all_profiles: list[dict] = []
 
-            # all_profiles = self.dbm.find_all(ci_exp_profile_collection, self.db_name)
+            all_profiles = self.dbm.find_all(ci_exp_profile_collection, self.db_name)
 
-            # for cur_obj in all_objects:
-            #     # Check if the object already has the property 'ci_explorer_tooltip', else create it
-            #     if not 'ci_explorer_tooltip' in cur_obj.keys():
-            #         cur_public_id = cur_obj['public_id']
-            #         cur_obj['ci_explorer_tooltip'] = None
+            for cur_obj in all_profiles:
+                # Check if the object already has the property 'ci_explorer_tooltip', else create it
+                if not 'with_locations' in cur_obj.keys():
+                    cur_public_id = cur_obj['public_id']
+                    cur_obj['with_locations'] = True
 
-            #         self.dbm.update(collection=object_collection,
-            #                         db_name=self.db_name,
-            #                         criteria={'public_id':cur_public_id},
-            #                         data=cur_obj)
-            #         LOGGER.info("Updated 'ci_explorer_tooltip' for Object-ID: %s", cur_public_id)
+                    self.dbm.update(collection=ci_exp_profile_collection,
+                                    db_name=self.db_name,
+                                    criteria={'public_id':cur_public_id},
+                                    data=cur_obj)
+                    LOGGER.info("Updated 'with_locations' for Profile-ID: %s", cur_public_id)
 
-            # # Update all CmdbTypes
-            # type_collection = CmdbType.COLLECTION
-            # all_types: list[dict] = []
-
-            # all_types = self.dbm.find_all(type_collection, self.db_name)
-
-            # for cur_type in all_types:
-            #     update_fields = {}
-            #     cur_public_id = cur_type.get('public_id')
-
-            #     if not cur_public_id:
-            #         continue  # Skip if no public_id
-
-            #     # Check for missing fields
-            #     if 'ci_explorer_label' not in cur_type:
-            #         update_fields['ci_explorer_label'] = None
-
-            #     # if 'ci_explorer_color' not in cur_type:
-            #     #     update_fields['ci_explorer_color'] = get_random_color()
-
-            #     # Only update if something needs to be added
-            #     if update_fields:
-            #         self.dbm.update(
-            #             collection=type_collection,
-            #             db_name=self.db_name,
-            #             criteria={'public_id': cur_public_id},
-            #             data={'$set': update_fields}
-            #         )
-            #         LOGGER.info("Updated fields %s for Type-ID: %s", list(update_fields.keys()), cur_public_id)
-
-            # self.increase_updater_version(self.creation_date())
+            self.increase_updater_version(self.creation_date())
         except Exception as err:
             raise UpdaterException(str(err)) from err
