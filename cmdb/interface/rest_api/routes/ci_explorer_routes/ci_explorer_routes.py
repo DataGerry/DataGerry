@@ -376,7 +376,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                     if target_location['parent'] == 1:
                         pass
                     else:
-                        parent_object = objects_manager.get_object(target_location['parent'])
+                        parent_location = locations_manager.get_location(target_location['parent'])
+                        parent_object = objects_manager.get_object(parent_location['object_id'])
 
                         # If the object is filtered out remove it
                         if parent_object and types_filter and parent_object['type_id'] not in types_filter:
