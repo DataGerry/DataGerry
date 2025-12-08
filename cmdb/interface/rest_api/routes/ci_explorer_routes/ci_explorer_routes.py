@@ -213,6 +213,10 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
             if objects_manager.is_ref_field(field_name, root_object) and field_value:
                 a_field['value'] = objects_manager.get_summary_line(field_value)
+            if field_name == "dg_location" and field_value:
+                target_location = locations_manager.get_location(field_value)
+                a_field['value'] = target_location['name']
+
 
         object_relations = list(object_relations_manager.find(
             criteria={"$or": [
@@ -336,6 +340,9 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
                 if objects_manager.is_ref_field(field_name, linked_object) and field_value:
                     a_field['value'] = objects_manager.get_summary_line(field_value)
+                if field_name == "dg_location" and field_value:
+                    target_location = locations_manager.get_location(field_value)
+                    a_field['value'] = target_location['name']
 
             node_dict = {
                 "linked_object": linked_object,
