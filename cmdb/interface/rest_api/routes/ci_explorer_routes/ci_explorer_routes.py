@@ -404,8 +404,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
                                 parent_edge: list[dict[str, Any]] = [
                                     {
-                                        "from": parent_object['public_id'],
-                                        "to": target_id,
+                                        "from": target_id,
+                                        "to": parent_object['public_id'],
                                     }
                                 ]
 
@@ -472,8 +472,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                             location_child_nodes.append(tmp_child_node)
 
                             tmp_child_edge = {
-                                "from": target_id,
-                                "to": tmp_child_object['public_id']
+                                "from": tmp_child_object['public_id'],
+                                "to": target_id,
                             }
 
                             location_child_edges.append(tmp_child_edge)
