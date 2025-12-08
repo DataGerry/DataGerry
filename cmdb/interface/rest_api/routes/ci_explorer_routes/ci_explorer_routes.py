@@ -206,6 +206,14 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         root_object = objects_manager.get_object(target_id) if with_root else None
         root_type_info = types_manager.get_type(root_object['type_id']) if root_object else None
 
+        # Replace references with summary lines in root object
+        for a_field in root_object['fields']:
+            field_name = a_field['name']
+            field_value = a_field['value']
+
+            if objects_manager.is_ref_field(field_name, root_object) and field_value:
+                a_field['value'] = objects_manager.get_summary_line(field_value)
+
         object_relations = list(object_relations_manager.find(
             criteria={"$or": [
                 {"relation_parent_id": target_id},
@@ -248,6 +256,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
             }
 
         type_ids = {obj['type_id'] for obj in linked_objects.values()}
+
         if root_type_info:
             type_ids.add(root_type_info['public_id'])
 
@@ -319,6 +328,15 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 continue
 
             node_title = get_title(linked_object, linked_type)
+
+            # Replace references with summary lines in linked objects
+            for a_field in linked_object['fields']:
+                field_name = a_field['name']
+                field_value = a_field['value']
+
+                if objects_manager.is_ref_field(field_name, linked_object) and field_value:
+                    a_field['value'] = objects_manager.get_summary_line(field_value)
+
             node_dict = {
                 "linked_object": linked_object,
                 "title": node_title,
@@ -404,8 +422,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
                                 parent_edge: list[dict[str, Any]] = [
                                     {
-                                        "from": target_id,
-                                        "to": parent_object['public_id'],
+                                        "from": parent_object['public_id'],
+                                        "to": target_id,
                                     }
                                 ]
 
@@ -472,8 +490,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                             location_child_nodes.append(tmp_child_node)
 
                             tmp_child_edge = {
-                                "from": tmp_child_object['public_id'],
-                                "to": target_id,
+                                "from": target_id,
+                                "to": tmp_child_object['public_id']
                             }
 
                             location_child_edges.append(tmp_child_edge)

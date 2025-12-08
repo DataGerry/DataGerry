@@ -495,7 +495,7 @@ class ObjectsManager(BaseManager):
                             data_set: dict
                             for data_set in value.get("data", []):
                                 if (
-                                    self.__is_ref_field(data_set["name"], result)
+                                    self.is_ref_field(data_set["name"], result)
                                     and "value" in data_set
                                     and data_set["value"] == referenced_object.public_id
                                 ):
@@ -881,7 +881,7 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerMdsReferencesError(err) from err
 
 
-    def __is_ref_field(self, field_name: str, ref_object: dict) -> bool:
+    def is_ref_field(self, field_name: str, ref_object: dict) -> bool:
         """
         Checks if the given field in the referenced object is of type 'ref'
 
@@ -906,7 +906,7 @@ class ObjectsManager(BaseManager):
         except ObjectsManagerGetError as err:
             raise ObjectsManagerCheckError(err) from err
         except Exception as err:
-            LOGGER.error("[__is_ref_field] Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[is_ref_field] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerCheckError(err) from err
 
 
