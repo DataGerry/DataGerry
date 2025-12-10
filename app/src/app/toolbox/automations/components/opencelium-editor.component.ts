@@ -33,6 +33,7 @@ export class OpenCeliumEditorComponent
   @Input() initConnection: any = null;
   @Output() connectionChange = new EventEmitter<any>();
   @Output() saveConnection = new EventEmitter<any>();
+  @Output() load =  new EventEmitter<void>();
 
   private container?: HTMLElement;
   private ConnectionEditor?: any;
@@ -44,6 +45,7 @@ export class OpenCeliumEditorComponent
   async ngAfterViewInit() {
     this.ConnectionEditor = ConnectionEditor;
     this.container = this.host.nativeElement.querySelector('div');
+    this.integrateStyles();
     this.render();
   }
 
@@ -91,7 +93,8 @@ export class OpenCeliumEditorComponent
       },
       saveConnection: async (connection: any) => {
         this.saveConnection.emit(connection);
-      }
+      },
+      onLoad: () => { console.log('OpenCelium Editor loaded'); }
     };
 
     // Only send connector IDs in create mode
@@ -105,5 +108,27 @@ export class OpenCeliumEditorComponent
       this.container
     );
 
+  }
+
+  private integrateStyles() {
+    const stylePaths = [
+      'assets/connection_editor/connection-editor.css',
+      'assets/fonts/fonts.css',
+      'assets/connection_editor/styles/graphiql.module.css'
+    ];
+
+    // Load each file once
+    stylePaths.forEach((path, index) => {
+      const id = `connection-editor-style-${index}`;
+
+      if (!document.getElementById(id)) {
+        const link = document.createElement('link');
+        link.id = id;
+        link.rel = 'stylesheet';
+        link.href = path;
+
+        document.head.appendChild(link);
+      }
+    });
   }
 }
