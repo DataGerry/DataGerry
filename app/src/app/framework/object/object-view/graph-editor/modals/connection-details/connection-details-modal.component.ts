@@ -31,7 +31,7 @@ export interface ConnectionDetailsData {
     relation_label: string;
     relation_color: string;
     relation_icon?: string;
-  };
+  } | null;
 }
 
 export interface NodeDetailsData {

@@ -1410,22 +1410,31 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       level: toNode.level
     };
 
-    // Single connection from UI data
-    modalRef.componentInstance.connections = [{
-      from: conn.from,
-      to: conn.to,
-      fromLevel: fromNode.level,
-      toLevel: toNode.level,
-      fromUid: conn.fromUid,
-      toUid: conn.toUid,
-      metadata: {
-        relation_id: 0,
-        relation_name: conn.relationLabel,
-        relation_label: conn.relationLabel,
-        relation_color: conn.relationColor,
-        relation_icon: conn.relationIcon
-      }
-    }];
+// Check if this is a location-based connection
+const hasMetadata = conn.relationLabel && conn.relationLabel !== 'Unknown';
+
+modalRef.componentInstance.connections = [{
+  from: conn.from,
+  to: conn.to,
+  fromLevel: fromNode.level,
+  toLevel: toNode.level,
+  fromUid: conn.fromUid,
+  toUid: conn.toUid,
+  metadata: hasMetadata ? {
+    relation_id: 0,
+    relation_name: conn.relationLabel,
+    relation_label: conn.relationLabel,
+    relation_color: conn.relationColor,
+    relation_icon: conn.relationIcon
+  } : {
+    relation_id: 0,
+    relation_name: fromNode.label,
+    relation_label: 'Location',
+    relation_color: '#666',
+    relation_icon: 'location_on'
+  }
+}];
+
 
     modalRef.componentInstance.direction = fromNode.level < toNode.level ? 'outgoing' : 'incoming';
   }
@@ -1460,15 +1469,36 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       level: toNode.level
     };
 
-    modalRef.componentInstance.connections = trackedConnections.map(conn => ({
-      from: conn.fromNodeId,
-      to: conn.toNodeId,
-      fromLevel: fromNode.level,
-      toLevel: toNode.level,
-      fromUid: conn.fromUid,
-      toUid: conn.toUid,
-      metadata: conn.metadata
-    }));
+    modalRef.componentInstance.connections = trackedConnections.map(conn => {
+      // Check if metadata exists
+      if (!conn.metadata || !conn.metadata.relation_id) {
+        return {
+          from: conn.fromNodeId,
+          to: conn.toNodeId,
+          fromLevel: fromNode.level,
+          toLevel: toNode.level,
+          fromUid: conn.fromUid,
+          toUid: conn.toUid,
+          metadata: {
+            relation_id: 0,
+            relation_name: fromNode.label,
+            relation_label: 'Location',
+            relation_color: '#666',
+            relation_icon: 'location_on'
+          }
+        };
+      }
+      
+      return {
+        from: conn.fromNodeId,
+        to: conn.toNodeId,
+        fromLevel: fromNode.level,
+        toLevel: toNode.level,
+        fromUid: conn.fromUid,
+        toUid: conn.toUid,
+        metadata: conn.metadata
+      };
+    });
 
     modalRef.componentInstance.direction = fromNode.level < toNode.level ? 'outgoing' : 'incoming';
   }
@@ -1506,19 +1536,41 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     // Convert indexed connections to modal format
     modalRef.componentInstance.connections = indexedConnections.map(edge => {
       const meta = Array.isArray(edge.metadata) ? edge.metadata[0] : edge.metadata;
+      
+      // Check if metadata exists
+      if (!meta || !meta.relation_id) {
+        // Location-based connection - use source node's title
+        return {
+          from: edge.from,
+          to: edge.to,
+          fromLevel: fromNode.level,
+          toLevel: toNode.level,
+          fromUid: '',
+          toUid: '',
+          metadata: {
+            relation_id: 0,
+            relation_name: fromNode.label,  // Use source node title
+            relation_label: 'Location',
+            relation_color: '#666',
+            relation_icon: 'location_on'
+          }
+        };
+      }
+      
+      // Normal connection with metadata
       return {
         from: edge.from,
         to: edge.to,
         fromLevel: fromNode.level,
         toLevel: toNode.level,
-        fromUid: '', // Not needed for indexed data
-        toUid: '',   // Not needed for indexed data
+        fromUid: '',
+        toUid: '',
         metadata: {
-          relation_id: meta?.relation_id,
-          relation_name: meta?.relation_name,
-          relation_label: meta?.relation_label,
-          relation_color: meta?.relation_color,
-          relation_icon: meta?.relation_icon
+          relation_id: meta.relation_id,
+          relation_name: meta.relation_name,
+          relation_label: meta.relation_label,
+          relation_color: meta.relation_color,
+          relation_icon: meta.relation_icon
         }
       };
     });

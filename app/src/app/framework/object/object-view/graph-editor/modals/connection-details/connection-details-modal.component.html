@@ -1,152 +1,159 @@
 <div class="connection-details-modal">
-    <!-- Modal Header -->
-    <div class="modal-header">
-      <div class="header-content">
-        <div class="header-icon">
+  <!-- Modal Header -->
+  <div class="modal-header">
+    <div class="header-content">
+      <div class="header-icon">
+        <span class="material-icons">{{ getDirectionIcon() }}</span>
+      </div>
+      <div class="header-info">
+        <h4 class="modal-title">{{ getDirectionLabel() }}</h4>
+        <p class="connection-summary" *ngIf="hasConnections()">
+          {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
+          between nodes
+        </p>
+      </div>
+    </div>
+    <button type="button" class="btn-close" (click)="close()" aria-label="Close">
+      <span class="material-icons">close</span>
+    </button>
+  </div>
+
+  <!-- Modal Body -->
+  <div class="modal-body">
+    <!-- Node Connection Overview -->
+    <div class="connection-overview" *ngIf="hasValidNodes()">
+      <div class="node-card source-node">
+        <div class="node-header" [style.background-color]="sourceNode.color">
+          <span class="node-type" [style.color]="getTextColor(sourceNode.color)">
+            {{ sourceNode.type }}
+          </span>
+        </div>
+        <div class="node-content">
+          <h5 class="node-title">{{ sourceNode.label }}</h5>
+          <div class="node-details">
+            <span class="detail-item">
+              <span class="material-icons">tag</span>
+              ID: {{ sourceNode.id }}
+            </span>
+            <span class="detail-item">
+              <span class="material-icons">layers</span>
+              Level: {{ sourceNode.level }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="connection-flow">
+        <div class="flow-icon">
           <span class="material-icons">{{ getDirectionIcon() }}</span>
         </div>
-        <div class="header-info">
-          <h4 class="modal-title">{{ getDirectionLabel() }}</h4>
-          <p class="connection-summary" *ngIf="hasConnections()">
-            {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }} 
-            between nodes
-          </p>
+        <div class="connection-count" *ngIf="hasConnections()">
+          {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
         </div>
       </div>
-      <button type="button" class="btn-close" (click)="close()" aria-label="Close">
-        <span class="material-icons">close</span>
-      </button>
-    </div>
-  
-    <!-- Modal Body -->
-    <div class="modal-body">
-      <!-- Node Connection Overview -->
-      <div class="connection-overview" *ngIf="hasValidNodes()">
-        <div class="node-card source-node">
-          <div class="node-header" [style.background-color]="sourceNode.color">
-            <span class="node-type" [style.color]="getTextColor(sourceNode.color)">
-              {{ sourceNode.type }}
+
+      <div class="node-card target-node">
+        <div class="node-header" [style.background-color]="targetNode.color">
+          <span class="node-type" [style.color]="getTextColor(targetNode.color)">
+            {{ targetNode.type }}
+          </span>
+        </div>
+        <div class="node-content">
+          <h5 class="node-title">{{ targetNode.label }}</h5>
+          <div class="node-details">
+            <span class="detail-item">
+              <span class="material-icons">tag</span>
+              ID: {{ targetNode.id }}
+            </span>
+            <span class="detail-item">
+              <span class="material-icons">layers</span>
+              Level: {{ targetNode.level }}
             </span>
           </div>
-          <div class="node-content">
-            <h5 class="node-title">{{ sourceNode.label }}</h5>
-            <div class="node-details">
-              <span class="detail-item">
-                <span class="material-icons">tag</span>
-                ID: {{ sourceNode.id }}
-              </span>
-              <span class="detail-item">
-                <span class="material-icons">layers</span>
-                Level: {{ sourceNode.level }}
-              </span>
-            </div>
-          </div>
         </div>
-  
-        <div class="connection-flow">
-          <div class="flow-icon">
-            <span class="material-icons">{{ getDirectionIcon() }}</span>
-          </div>
-          <div class="connection-count" *ngIf="hasConnections()">
-            {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
-          </div>
-        </div>
-  
-        <div class="node-card target-node">
-          <div class="node-header" [style.background-color]="targetNode.color">
-            <span class="node-type" [style.color]="getTextColor(targetNode.color)">
-              {{ targetNode.type }}
-            </span>
-          </div>
-          <div class="node-content">
-            <h5 class="node-title">{{ targetNode.label }}</h5>
-            <div class="node-details">
-              <span class="detail-item">
-                <span class="material-icons">tag</span>
-                ID: {{ targetNode.id }}
-              </span>
-              <span class="detail-item">
-                <span class="material-icons">layers</span>
-                Level: {{ targetNode.level }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-  
-      <!-- Connections Table -->
-      <div class="connections-section" *ngIf="hasConnections()">
-        <div class="section-header">
-          <h5>
-            <span class="material-icons">list</span>
-            Connection Details
-          </h5>
-        </div>
-  
-        <div class="connections-table-container">
-          <table class="connections-table">
-            <thead>
-              <tr>
-                <th>Relation ID</th>
-                <th>Relation Name</th>
-                <th>Label</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let connection of connections; trackBy: trackByConnectionId" 
-                  class="connection-row">
-                <td class="relation-id">
-                  <span class="id-badge">{{ connection.metadata?.relation_id || 'N/A' }}</span>
-                </td>
-                <td class="relation-name">
-                  {{ connection.metadata?.relation_name || 'Unknown' }}
-                </td>
-                <td class="relation-label">
-                  <span class="label-chip" 
-                        [style.background-color]="connection.metadata?.relation_color || '#666'"
-                        [style.color]="getTextColor(connection.metadata?.relation_color || '#666')">
-                    <i *ngIf="connection.metadata?.relation_icon" 
-                       [ngClass]="connection.metadata.relation_icon"
-                       [title]="connection.metadata.relation_icon"></i>
-                    {{ connection.metadata?.relation_label || 'Unknown' }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-  
-      <!-- Empty State -->
-      <div *ngIf="!hasConnections()" class="empty-state">
-        <div class="empty-icon">
-          <span class="material-icons">link_off</span>
-        </div>
-        <p>No connections found between these nodes.</p>
-      </div>
-  
-      <!-- Error State -->
-      <div *ngIf="!hasValidNodes()" class="error-state">
-        <div class="error-icon">
-          <span class="material-icons">error</span>
-        </div>
-        <p>Invalid node data provided to modal.</p>
       </div>
     </div>
-  
-    <!-- Modal Footer -->
-    <div class="modal-footer">
-      <div class="footer-info">
-        <span class="material-icons">info</span>
-        <span *ngIf="hasConnections()">
-          Showing {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
-        </span>
-        <span *ngIf="!hasConnections()">
-          No connections available
-        </span>
+
+    <!-- Connections Table -->
+    <div class="connections-section" *ngIf="hasConnections()">
+      <div class="section-header">
+        <h5>
+          <span class="material-icons">list</span>
+          Connection Details
+        </h5>
       </div>
-      <button type="button" class="btn btn-secondary" (click)="close()">
-        Close
-      </button>
+
+      <div class="connections-table-container">
+        <table class="connections-table">
+          <thead>
+            <tr>
+              <th>Relation ID</th>
+              <th>Relation Name</th>
+              <th>Label</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let connection of connections; trackBy: trackByConnectionId" class="connection-row">
+              <td class="relation-id">
+                <span class="id-badge">{{ connection.metadata?.relation_id || 'N/A' }}</span>
+              </td>
+
+              <td class="relation-name">
+                {{ connection.metadata?.relation_name || 'Unknown' }}
+              </td>
+
+              <td class="relation-label">
+                <!-- Check if this is a location-based connection -->
+                <span *ngIf="connection.metadata?.relation_label === 'Location'" class="label-chip location-chip">
+                  <span class="material-icons">location_on</span>
+                  Location
+                </span>
+
+                <!-- Normal relation label -->
+                <span *ngIf="connection.metadata?.relation_label !== 'Location'" class="label-chip"
+                  [style.background-color]="connection.metadata?.relation_color || '#666'"
+                  [style.color]="getTextColor(connection.metadata?.relation_color || '#666')">
+                  <i *ngIf="connection.metadata?.relation_icon" [ngClass]="connection.metadata.relation_icon"
+                    [title]="connection.metadata.relation_icon"></i>
+                  {{ connection.metadata?.relation_label || 'Unknown' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div *ngIf="!hasConnections()" class="empty-state">
+      <div class="empty-icon">
+        <span class="material-icons">link_off</span>
+      </div>
+      <p>No connections found between these nodes.</p>
+    </div>
+
+    <!-- Error State -->
+    <div *ngIf="!hasValidNodes()" class="error-state">
+      <div class="error-icon">
+        <span class="material-icons">error</span>
+      </div>
+      <p>Invalid node data provided to modal.</p>
     </div>
   </div>
+
+  <!-- Modal Footer -->
+  <div class="modal-footer">
+    <div class="footer-info">
+      <span class="material-icons">info</span>
+      <span *ngIf="hasConnections()">
+        Showing {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
+      </span>
+      <span *ngIf="!hasConnections()">
+        No connections available
+      </span>
+    </div>
+    <button type="button" class="btn btn-secondary" (click)="close()">
+      Close
+    </button>
+  </div>
+</div>
