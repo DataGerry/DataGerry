@@ -374,17 +374,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 parent_nodes[linked_id] = node_dict
                 parent_edges.append(edge_dict)
 
-        if target_type in (NodeType.BOTH, NodeType.CHILD):
-            response['children_nodes'] = list(child_nodes.values())
-            response['child_edges'] = child_edges
-            response['location_child_node'] = None
-            response['location_child_edge'] = None
-        if target_type in (NodeType.BOTH, NodeType.PARENT):
-            response['parent_nodes'] = list(parent_nodes.values())
-            response['parent_edges'] = parent_edges
-            response['location_parent_nodes'] = None
-            response['location_parent_edges'] = None
-
         if with_locations:
             # Locations are flipped in the Ci-Explorer
             # The child locations will be provided in parents and the parent will be provided in child
@@ -410,30 +399,27 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                                 parent_type = types_manager.get_type(parent_object['type_id'])
                                 parent_title = get_title(parent_object, parent_type)
 
-                                parent_node = [
-                                    {
-                                        "linked_object": parent_object,
-                                        "title": parent_title,
-                                        "type_info": {
-                                            "type_id": parent_type['public_id'],
-                                            "type_color": parent_type.get('ci_explorer_color'),
-                                            "label": parent_type['label'],
-                                            "icon": parent_type['render_meta'].get('icon'),
-                                            "fields": parent_type.get('fields', {}),
-                                        },
-                                        "relation_color": CHILD_LOCATION_REL_COLOR
-                                    }
-                                ]
+                                parent_node = {
+                                    "linked_object": parent_object,
+                                    "title": parent_title,
+                                    "type_info": {
+                                        "type_id": parent_type['public_id'],
+                                        "type_color": parent_type.get('ci_explorer_color'),
+                                        "label": parent_type['label'],
+                                        "icon": parent_type['render_meta'].get('icon'),
+                                        "fields": parent_type.get('fields', {}),
+                                    },
+                                    "relation_color": CHILD_LOCATION_REL_COLOR
+                                }
 
-                                parent_edge: list[dict[str, Any]] = [
-                                    {
-                                        "from": target_id,
-                                        "to": parent_object['public_id'],
-                                    }
-                                ]
 
-                    response['location_child_node'] = parent_node
-                    response['location_child_edge'] = parent_edge
+                                parent_edge: dict[str, Any] = {
+                                    "from": target_id,
+                                    "to": parent_object['public_id'],
+                                }
+
+                                child_nodes[parent_object['public_id']] = parent_node
+                                child_edges.append(parent_edge)
 
                 if target_type in (NodeType.BOTH, NodeType.PARENT):
                     # Location children are placed in the parents
@@ -471,9 +457,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                         types_list = types_manager.find(criteria={"public_id": {"$in": list(type_ids)}})
                         types_by_id = {t['public_id']: t for t in types_list}
 
-                        location_child_nodes = []
-                        location_child_edges = []
-
                         for child_object in child_objects:
                             tmp_child_object = CmdbObject.to_json(child_object)
                             tmp_child_type = types_by_id.get(tmp_child_object['type_id'])
@@ -492,17 +475,20 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                                 "relation_color": PARENT_LOCATION_REL_COLOR
                             }
 
-                            location_child_nodes.append(tmp_child_node)
-
                             tmp_child_edge = {
                                 "from": tmp_child_object['public_id'],
                                 "to": target_id,
                             }
 
-                            location_child_edges.append(tmp_child_edge)
+                            parent_nodes[tmp_child_object['public_id']] = tmp_child_node
+                            parent_edges.append(tmp_child_edge)
 
-                        response['location_parent_nodes'] = location_child_nodes
-                        response['location_parent_edges'] = location_child_edges
+        if target_type in (NodeType.BOTH, NodeType.CHILD):
+            response['children_nodes'] = list(child_nodes.values())
+            response['child_edges'] = child_edges
+        if target_type in (NodeType.BOTH, NodeType.PARENT):
+            response['parent_nodes'] = list(parent_nodes.values())
+            response['parent_edges'] = parent_edges
 
         return DefaultResponse(response).make_response()
     except HTTPException as http_err:
