@@ -8,7 +8,7 @@ export const environment = {
   preCloudMode: false,
   featurePreviewMode: false,
   protocol: 'http',
-  apiUrl: '192.168.64.2',
+  apiUrl: 'localhost',
   apiPort: 4000
 };
 /*
