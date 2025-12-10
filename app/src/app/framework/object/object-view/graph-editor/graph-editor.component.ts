@@ -1365,7 +1365,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     const indexedConnections = this.graphData.getAllEdgesBetween(conn.from, conn.to);
 
     if (indexedConnections.length > 0) {
-      console.log('Opening connection modal with indexed data', indexedConnections);
       this.openConnectionModalWithIndexedData(fromNode, toNode, indexedConnections);
     } else {
       // Try UID tracker as fallback
