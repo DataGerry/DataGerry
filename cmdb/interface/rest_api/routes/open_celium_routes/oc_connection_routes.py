@@ -342,55 +342,6 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 #         LOGGER.error("[get_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
 #         abort(500, f"Failed to retrieve OpenCelium Connection with ID:{connection_id}!")
 
-
-@oc_connections_blueprint.route('/connections/init_data', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving initial data for Connections!")
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
-def get_oc_connection_initial_data(request_user: CmdbUser) -> Response:
-    """
-    GET/HEAD route to retrive an OcConnection with the given connection_id
-
-    Args:
-        request_user (CmdbUser): User requesting this data
-        connection_id (int): connectionId of the OcConnection
-
-    Returns:
-        dict[str, Any]: The OcConnection from OpenCelium
-    """
-    oc_connector_manager: OcConnectorManager = OcConnectorManager(
-        current_app.database_manager,
-        request_user.database
-    )
-    oc_template_manager: OcTemplateManager = OcTemplateManager(
-        current_app.database_manager,
-        request_user.database
-    )
-    dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
-
-    connectors: list[dict[str, Any]] = None
-
-    # Connector adaptions
-    if current_app.cloud_mode and not current_app.local_mode:
-        connector_ids: list[int] = dg_sp_manager.get_connector_ids(request_user.email, request_user.database)
-        connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
-
-        for a_connector in connectors:
-            a_connector['title'] = unmap_oc_name(a_connector['title'])
-    else:
-        connectors: dict[str, Any] = oc_connector_manager.get_all_connectors()
-
-    templates: dict[str, Any] = oc_template_manager.get_all_templates()
-
-    # LOGGER.debug(f"connection: {connection}")
-    init_data: dict[str, dict[str, Any]] = {
-        'connectors': connectors,
-        'templates': templates,
-    }
-
-    return DefaultResponse(init_data).make_response()
-
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['PUT'])

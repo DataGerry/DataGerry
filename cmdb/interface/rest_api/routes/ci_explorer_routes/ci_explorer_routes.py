@@ -155,9 +155,6 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
         abort(500, "An internal server error occured while retrieving CiExplorer Profiles!")
 
 
-
-
-
 @ci_explorer_blueprint.route('/items', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -203,19 +200,20 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         if not NodeType.is_valid(target_type):
             abort(400, f"Invalid target_type '{target_type}'. Need one of: {', '.join(NodeType.__members__.keys())}")
 
-        root_object = objects_manager.get_object(target_id) if with_root else None
+        root_object = objects_manager.get_object(target_id) if (with_root or with_locations) else None
         root_type_info = types_manager.get_type(root_object['type_id']) if root_object else None
 
         # Replace references with summary lines in root object
-        for a_field in root_object['fields']:
-            field_name = a_field['name']
-            field_value = a_field['value']
+        if root_object:
+            for a_field in root_object['fields']:
+                field_name = a_field['name']
+                field_value = a_field['value']
 
-            if objects_manager.is_ref_field(field_name, root_object) and field_value:
-                a_field['value'] = objects_manager.get_summary_line(field_value)
-            if field_name == "dg_location" and field_value:
-                target_location = locations_manager.get_location(field_value)
-                a_field['value'] = target_location['name']
+                if objects_manager.is_ref_field(field_name, root_object) and field_value:
+                    a_field['value'] = objects_manager.get_summary_line(field_value)
+                if field_name == "dg_location" and field_value:
+                    target_location = locations_manager.get_location(field_value)
+                    a_field['value'] = target_location['name']
 
 
         object_relations = list(object_relations_manager.find(
@@ -429,8 +427,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
                                 parent_edge: list[dict[str, Any]] = [
                                     {
-                                        "from": parent_object['public_id'],
-                                        "to": target_id,
+                                        "from": target_id,
+                                        "to": parent_object['public_id'],
                                     }
                                 ]
 
@@ -497,8 +495,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                             location_child_nodes.append(tmp_child_node)
 
                             tmp_child_edge = {
-                                "from": target_id,
-                                "to": tmp_child_object['public_id']
+                                "from": tmp_child_object['public_id'],
+                                "to": target_id,
                             }
 
                             location_child_edges.append(tmp_child_edge)
