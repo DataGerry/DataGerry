@@ -134,7 +134,7 @@ def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
         abort(500, "Failed to retrieve OpenCelium Templates!")
 
 
-@oc_templates_blueprint.route('/templates/<int:from_connector_id>/<int:to_connector_id>', methods=['GET', 'HEAD'])
+@oc_templates_blueprint.route('/templates/all/<int:from_connector_id>/<int:to_connector_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving detailed OpenCelium Business Templates!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
