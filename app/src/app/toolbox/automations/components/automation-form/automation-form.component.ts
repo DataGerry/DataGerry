@@ -82,10 +82,10 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     private loaderService: LoaderService,
     private modalService: NgbModal,
     private authService: AuthService
-  ) { 
+  ) {
   }
 
-  
+
   ngOnInit(): void {
     this.mode = (this.route.snapshot.data['mode'] || 'create') as any;
     this.buildForm();
@@ -106,20 +106,19 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
 
-  private loadInitData(): void {
-    // Load init data and invokers in parallel
+  private loadConnectorsAndInvokers(): void {
+    // Load connectors and invokers in parallel
     combineLatest([
-      this.svc.getInitData(),
+      this.connectorsService.getConnectors(),
       this.connectorsService.getInvokers()
     ]).subscribe({
-      next: ([initData, invokers]) => {
-        this.connectors = initData.connectors || [];
+      next: ([connectors, invokers]) => {
+        this.connectors = connectors || [];
         // Filter out the internal connector from the list of selectable connectors
         this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
-        this.templates = initData.templates || [];
         this.invokers = invokers || [];
 
-        // Set internal connector details from init data
+        // Set internal connector details from connectors list
         const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
         if (internalConnector) {
           this.internalConnectorDetails = internalConnector;
@@ -127,10 +126,10 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
           this.redirectToInternalConnectorSetup();
           return;
         }
-        
+
         // Set up form changes after data is loaded
         this.setupFormChanges();
-        
+
         // Handle edit mode after data is loaded
         if (this.mode === 'edit') {
           // Check if automation was passed via state 
@@ -153,9 +152,30 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
   }
 
+  private loadTemplates(): void {
+    const sourceId = this.currentSourceConnectorId;
+    const targetId = this.currentTargetConnectorId;
+
+    // Only load templates if we have both connector IDs
+    if (!sourceId || !targetId) {
+      this.templates = [];
+      return;
+    }
+
+    this.svc.getTemplatesByConnectors(parseInt(sourceId), parseInt(targetId)).subscribe({
+      next: (templates) => {
+        this.templates = templates || [];
+      },
+      error: (err) => {
+        this.toast.error(err?.error?.message);
+        this.templates = [];
+      }
+    });
+  }
+
 
   private setupFormChanges(): void {
-    
+
     // Separate subscription for direction changes to ensure label updates
     const directionSubscription = this.form.get('direction')!.valueChanges.subscribe(direction => {
       this.updateConnectorFieldVisibility(direction);
@@ -177,7 +197,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.formChangesSubscription.add(directionSubscription);
     this.formChangesSubscription.add(connectorSubscription);
     this.formChangesSubscription.add(templateSubscription);
-    
+
     // Set initial connector IDs
     this.updateConnectorIds();
   }
@@ -193,13 +213,25 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
 
   private updateConnectorIds(): void {
+    const previousSourceId = this.currentSourceConnectorId;
+    const previousTargetId = this.currentTargetConnectorId;
+
     this.currentSourceConnectorId = this.getSourceConnectorId();
     this.currentTargetConnectorId = this.getTargetConnectorId();
+
+    // Load templates if connector IDs have changed and both are available
+    if ((this.currentSourceConnectorId !== previousSourceId || this.currentTargetConnectorId !== previousTargetId) &&
+      this.currentSourceConnectorId && this.currentTargetConnectorId) {
+      this.loadTemplates();
+    } else if (!this.currentSourceConnectorId || !this.currentTargetConnectorId) {
+      // Clear templates if one of the connector IDs is missing
+      this.templates = [];
+    }
   }
 
   private updateConnectorFieldVisibility(direction: string): void {
     this.showConnectorField = !!direction;
-    
+
     if (direction === 'outgoing') {
       this.connectorLabel = 'To Connector';
     } else if (direction === 'incoming') {
@@ -207,11 +239,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     } else {
       this.connectorLabel = '';
     }
-    
+
     // Reset connector selection when direction changes to prevent auto-selection issues
     this.form.patchValue({ connector: '' });
   }
-  
+
 
   private buildForm(): void {
     this.form = this.fb.group({
@@ -224,7 +256,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   private patchForEdit(automation: any): void {
-    
+
     // Store the complete connection data for edit mode
     this.initConnection = automation.connection || null;
 
@@ -240,7 +272,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     // Determine and set the connector value based on direction and connection data
     let connectorId: number | null = null;
-    
+
     if (automation.direction === 'outgoing') {
       // For outgoing, connector is the toConnector
       connectorId = automation.connection?.toConnector?.connectorId;
@@ -269,9 +301,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       next: (exists) => {
         this.internalConnectorExists = exists;
         this.isCheckingInternalConnector = false;
-        
+
         if (exists) {
-          this.loadInitData();
+          this.loadConnectorsAndInvokers();
         } else {
           this.showInternalConnectorModal();
         }
@@ -312,8 +344,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   private redirectToInternalConnectorSetup(): void {
-    this.router.navigate(['/automations/connectors/internal'], { 
-      state: { 
+    this.router.navigate(['/automations/connectors/internal'], {
+      state: {
         connectorExists: false, // Internal connector doesn't exist, so we're creating it
         connector: {
           title: 'DataGerryInternal',
@@ -330,7 +362,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   getSourceConnectorId(): string {
     const direction = this.form.get('direction')?.value;
     const selectedConnectorId = this.form.get('connector')?.value;
-    
+
     if (!direction || !selectedConnectorId) {
       return '';
     }
@@ -347,7 +379,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   getTargetConnectorId(): string {
     const direction = this.form.get('direction')?.value;
     const selectedConnectorId = this.form.get('connector')?.value;
-    
+
     if (!direction || !selectedConnectorId) {
       return '';
     }
@@ -381,18 +413,18 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   isEditorDataReady(): boolean {
     if (this.mode === 'edit') {
       // For edit mode, we need initConnection, token, and data arrays
-      return !!this.initConnection && 
-             !!this.getUserToken() &&
-             this.templates.length > 0 &&
-             this.connectors.length > 0 &&
-             this.invokers.length > 0;
+      return !!this.initConnection &&
+        !!this.getUserToken() &&
+        this.templates.length > 0 &&
+        this.connectors.length > 0 &&
+        this.invokers.length > 0;
     } else {
       // For create mode, we need all the data arrays and token
-      return this.templates.length > 0 && 
-             this.connectors.length > 0 && 
-             this.invokers.length > 0 &&
-             !!this.internalConnectorDetails &&
-             !!this.getUserToken();
+      return this.templates.length > 0 &&
+        this.connectors.length > 0 &&
+        this.invokers.length > 0 &&
+        !!this.internalConnectorDetails &&
+        !!this.getUserToken();
     }
   }
 
@@ -404,8 +436,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       throw new Error('Connection data not available from OpenCelium editor');
     }
 
-    
-    // Use the complete connection from opencelium editor, but override title and description from form
+
+    // complete connection from opencelium editor, but override title and description from form
     const connectionPayload = {
       ...this.currentConnection,
       title: v.name,
@@ -426,9 +458,13 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     };
   }
 
+  onEditorLoad(): void {
+    console.log('OC loaded')
+  }
+
   save(): void {
 
-    
+
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.toast.warning('Please fill in all required fields');
@@ -443,7 +479,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     try {
       const payload = this.toPayload();
-      
+
       const req$ = this.mode === 'create'
         ? this.svc.createAutomation(payload)
         : this.svc.updateAutomation(this.id!, payload);
