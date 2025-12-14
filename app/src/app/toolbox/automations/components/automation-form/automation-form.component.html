@@ -70,19 +70,27 @@
     </form>
   </div>
 
-  <div class="editor-section">
-    <opencelium-editor
-      [token]="getUserToken()"
-      [sourceConnectorId]="currentSourceConnectorId"
-      [targetConnectorId]="currentTargetConnectorId"
-      [templates]="templates"
-      [template]="selectedTemplate"
-      [connectors]="connectors"
-      [invokers]="invokers"
-      [initConnection]="initConnection"
-      (connectionChange)="onConnectionChange($event)"
-      (saveConnection)="onSaveConnection($event)"
-    ></opencelium-editor>
+  <div class="editor-section" [class.disabled]="mode === 'create' && !areRequiredFieldsFilled()">
+    <div class="editor-container">
+      <opencelium-editor
+        [token]="getUserToken()"
+        [sourceConnectorId]="currentSourceConnectorId"
+        [targetConnectorId]="currentTargetConnectorId"
+        [templates]="templates"
+        [template]="selectedTemplate"
+        [connectors]="connectors"
+        [invokers]="invokers"
+        [initConnection]="initConnection"
+        (connectionChange)="onConnectionChange($event)"
+        (saveConnection)="onSaveConnection($event)"
+        (editorLoad)="onEditorLoad()"
+      ></opencelium-editor>
+      <div class="editor-overlay" *ngIf="mode === 'create' && !areRequiredFieldsFilled()">
+        <div class="overlay-message">
+          Please fill the required fields first
+        </div>
+      </div>
+    </div>
   </div>
         <!-- Buttons -->
         <div class="d-flex justify-content-between align-items-center form-actions-margin" *ngIf="mode !== 'edit'">
