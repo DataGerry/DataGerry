@@ -56,19 +56,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   // Internal connector properties
   internalConnectorExists: boolean = false;
   internalConnectorDetails: any = null;
-  isCheckingInternalConnector: boolean = false;
-  isGettingInternalConnector: boolean = false;
 
   private formChangesSubscription?: Subscription;
 
   // Combined loading state for all operations
-  public combinedLoading$ = combineLatest([
-    this.loaderService.isLoading$,
-    new BehaviorSubject(this.isCheckingInternalConnector),
-    new BehaviorSubject(this.isGettingInternalConnector)
-  ]).pipe(
-    map(([loaderLoading, checking, getting]) => loaderLoading || checking || getting)
-  );
+  public combinedLoading$ = this.loaderService.isLoading$;
 
   public isLoading$ = this.loaderService.isLoading$;
 
@@ -107,49 +99,53 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
 
   private loadConnectorsAndInvokers(): void {
+    this.loaderService.show();
+    
     // Load connectors and invokers in parallel
     combineLatest([
       this.connectorsService.getConnectors(),
       this.connectorsService.getInvokers()
-    ]).subscribe({
-      next: ([connectors, invokers]) => {
-        this.connectors = connectors || [];
-        // Filter out the internal connector from the list of selectable connectors
-        this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
-        this.invokers = invokers || [];
+    ])
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: ([connectors, invokers]) => {
+          this.connectors = connectors || [];
+          // Filter out the internal connector from the list of selectable connectors
+          this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
+          this.invokers = invokers || [];
 
-        // Set internal connector details from connectors list
-        const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
-        if (internalConnector) {
-          this.internalConnectorDetails = internalConnector;
-        } else {
-          this.redirectToInternalConnectorSetup();
-          return;
-        }
-
-        // Set up form changes after data is loaded
-        this.setupFormChanges();
-
-        // Handle edit mode after data is loaded
-        if (this.mode === 'edit') {
-          // Check if automation was passed via state 
-          const automation = history.state?.automation;
-          if (automation) {
-            this.patchForEdit(automation);
+          // Set internal connector details from connectors list
+          const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
+          if (internalConnector) {
+            this.internalConnectorDetails = internalConnector;
           } else {
-            this.toast.warning('Automation data not found. Please try editing again.');
+            this.redirectToInternalConnectorSetup();
+            return;
           }
-        } else {
-          // For create mode, trigger initial update based on current form values
-          const currentDirection = this.form.get('direction')?.value;
-          this.updateConnectorFieldVisibility(currentDirection);
+
+          // Set up form changes after data is loaded
+          this.setupFormChanges();
+
+          // Handle edit mode after data is loaded
+          if (this.mode === 'edit') {
+            // Check if automation was passed via state 
+            const automation = history.state?.automation;
+            if (automation) {
+              this.patchForEdit(automation);
+            } else {
+              this.toast.warning('Automation data not found. Please try editing again.');
+            }
+          } else {
+            // For create mode, trigger initial update based on current form values
+            const currentDirection = this.form.get('direction')?.value;
+            this.updateConnectorFieldVisibility(currentDirection);
+          }
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+          this.router.navigate(['/automations']);
         }
-      },
-      error: (err) => {
-        this.toast.error(err?.error?.message);
-        this.router.navigate(['/automations']);
-      }
-    });
+      });
   }
 
   private loadTemplates(): void {
@@ -162,15 +158,19 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.svc.getTemplatesByConnectors(parseInt(sourceId), parseInt(targetId)).subscribe({
-      next: (templates) => {
-        this.templates = templates || [];
-      },
-      error: (err) => {
-        this.toast.error(err?.error?.message);
-        this.templates = [];
-      }
-    });
+    this.loaderService.show();
+    
+    this.svc.getTemplatesByConnectors(parseInt(sourceId), parseInt(targetId))
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (templates) => {
+          this.templates = templates || [];
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+          this.templates = [];
+        }
+      });
   }
 
 
@@ -295,26 +295,26 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   // Internal connector methods
   private checkInternalConnector(): void {
-    this.isCheckingInternalConnector = true;
+    this.loaderService.show();
 
-    this.connectorsService.checkConnectorExists('DataGerryInternal').subscribe({
-      next: (exists) => {
-        this.internalConnectorExists = exists;
-        this.isCheckingInternalConnector = false;
+    this.connectorsService.checkConnectorExists('DataGerryInternal')
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (exists) => {
+          this.internalConnectorExists = exists;
 
-        if (exists) {
-          this.loadConnectorsAndInvokers();
-        } else {
-          this.showInternalConnectorModal();
+          if (exists) {
+            this.loadConnectorsAndInvokers();
+          } else {
+            this.showInternalConnectorModal();
+          }
+        },
+        error: (error) => {
+          this.toast.error(error?.error?.message);
+          this.internalConnectorExists = false;
+          this.router.navigate(['/automations']);
         }
-      },
-      error: (error) => {
-        this.toast.error(error?.error?.message);
-        this.isCheckingInternalConnector = false;
-        this.internalConnectorExists = false;
-        this.router.navigate(['/automations']);
-      }
-    });
+      });
   }
 
 

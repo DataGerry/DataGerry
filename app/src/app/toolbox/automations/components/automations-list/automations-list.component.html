@@ -76,3 +76,9 @@
     <i class="far fa-trash-alt btn-delete" style="margin-left: 5px;" (click)="delete(item)" title="Delete Automation"></i>
   </div>
 </ng-template>
+
+
+<app-loading-popup 
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
