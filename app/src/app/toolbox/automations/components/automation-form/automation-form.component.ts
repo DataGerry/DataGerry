@@ -428,6 +428,29 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
   }
 
+  // Check if required form fields are filled (only for create mode)
+  areRequiredFieldsFilled(): boolean {
+    if (this.mode !== 'create') {
+      return true;
+    }
+
+    const name = this.form.get('name')?.value;
+    const direction = this.form.get('direction')?.value;
+
+    if (!name || !direction) {
+      return false;
+    }
+
+    if (this.showConnectorField) {
+      const connector = this.form.get('connector')?.value;
+      if (!connector) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   // Action methods
   private toPayload(): any {
     const v = this.form.value;
