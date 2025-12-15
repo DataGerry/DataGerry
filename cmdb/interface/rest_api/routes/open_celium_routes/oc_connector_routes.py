@@ -1093,7 +1093,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
         params: dict[str, Any] = request.json or {}
         provided_pw: str | None = params.get("password")
 
-        LOGGER.debug(f"provided PW: {provided_pw}")
+        # LOGGER.debug(f"provided PW: {provided_pw}")
         # Determine name
         if current_app.cloud_mode and not current_app.local_mode:
             target_name = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
