@@ -220,6 +220,10 @@ class OcConnectionManager(OcBaseManager):
         """
         updated_connection_response: Response = self.oc_connector.oc_put(params, f"{CONNECTION_URL}/{connection_id}")
 
+        LOGGER.debug(f"check_connector_response status: {updated_connection_response.status_code}")
+        LOGGER.debug(f"headers: {updated_connection_response.headers}")
+        LOGGER.debug(f"check_connector_response body: {updated_connection_response.text}")
+
         if self.is_valid_response(updated_connection_response):
             return json.loads(updated_connection_response.text)
 
