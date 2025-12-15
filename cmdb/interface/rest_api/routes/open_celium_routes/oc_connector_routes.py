@@ -1093,6 +1093,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
         params: dict[str, Any] = request.json or {}
         provided_pw: str | None = params.get("password")
 
+        LOGGER.debug(f"provided PW: {provided_pw}")
         # Determine name
         if current_app.cloud_mode and not current_app.local_mode:
             target_name = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
@@ -1107,12 +1108,12 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
         connector_id = int(internal_connector["connectorId"])
 
         # ----------------------------------------------------------
-        # ✨ MASTER PASSWORD VALIDATION (cache → DG SP)
+        # MASTER PASSWORD VALIDATION (cache → DG SP)
         # ----------------------------------------------------------
+        pw_valid = False
+
         if provided_pw and current_app.cloud_mode and not current_app.local_mode:
             cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            pw_valid = False
 
             if cached_user:
                 pw_valid = cached_user_manager.check_cached_master_password(
@@ -1126,6 +1127,12 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
                     request_user.email,
                     request_user.database
                 )
+
+            if not pw_valid:
+                abort(403, "Invalid master password!")
+
+        if provided_pw and not current_app.cloud_mode:
+            pw_valid = oc_connector_manager.check_master_pw(provided_pw)
 
             if not pw_valid:
                 abort(403, "Invalid master password!")
