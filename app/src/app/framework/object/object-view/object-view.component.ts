@@ -543,7 +543,6 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
                 const instancesForRelation = groupedInstances[relationId];
                 const definition = relationMap.get(relationId);
                 if (!definition) {
-                  console.warn(`[DEBUG] Definition missing for relation ID ${relationId}`);
                   continue;
                 }
 
@@ -893,5 +892,15 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const targetId = this.pendingSelectedId ?? this.currentObjectID;
     if (!targetId || targetId === this.currentObjectID) return;
     this.router.navigate([`/framework/object/view/${targetId}`], { queryParams: { view: 'graph' } });
+  }
+
+  /**
+   * Handles root node selection from the graph editor
+   * Navigates to the new object's view page while preserving graph mode
+   * @param objectId The ID of the selected root node
+   */
+  public onRootNodeSelected(objectId: number): void {
+    if (!objectId || objectId === this.currentObjectID) return;
+    this.router.navigate([`/framework/object/view/${objectId}`], { queryParams: { view: 'graph' } });
   }
 }

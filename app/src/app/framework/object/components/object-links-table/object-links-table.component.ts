@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -89,7 +89,8 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
     constructor(private linkService: LinkService,
                 private modalService: NgbModal,
-                private toast: ToastService) {
+                private toast: ToastService,
+                private changesRef: ChangeDetectorRef) {
 
     }
 
@@ -191,6 +192,7 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
             this.links = apiResponse.results as Array<CmdbLink>;
             this.totalLinks = apiResponse.total;
             this.loading = false;
+            this.changesRef.markForCheck();
         });
     }
 

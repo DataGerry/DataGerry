@@ -326,7 +326,6 @@ private loadRows(): void {
           searchFilter = raw;                    // already an object
         }
       } catch (e) {
-        console.warn('Could not parse search filter', raw, e);
         searchFilter = {};
       }
     }

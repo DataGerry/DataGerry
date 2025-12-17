@@ -18,11 +18,13 @@ This module provides all errors for OpenCelium Templates
 """
 from .oc_template_errors import (
     OcTemplateError,
+    OcTemplateCreateError,
     OcTemplateGetError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'OcTemplateError',
+    'OcTemplateCreateError',
     'OcTemplateGetError',
 ]

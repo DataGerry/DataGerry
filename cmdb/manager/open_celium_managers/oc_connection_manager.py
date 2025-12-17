@@ -26,14 +26,21 @@ from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
 from cmdb.open_celium.oc_constants import UNIQUE_POSITIVE
 
-from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnectionGetError, OcConnectionUpdateError
+from cmdb.errors.open_celium.connection import (
+    OcConnectionCreateError,
+    OcConnectionGetError,
+    OcConnectionUpdateError,
+    OcConnectionTestError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 CONNECTION_URL: str = "/connection"
+CONNECTION_REMOTE_API_URL: str = f"{CONNECTION_URL}/remoteapi"
 CONNECTIONS_BY_IDS_URL: str = f"{CONNECTION_URL}/list/by-ids"
 CON_UNIQUE_CHECK_URL: str = f"{CONNECTION_URL}/check"
+CONNECTION_TEST_URL: str = f"{CONNECTION_URL}/execution/test"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcConnectionManager - CLASS                                             #
@@ -42,7 +49,6 @@ class OcConnectionManager(OcBaseManager):
     """
     Manages Connections of OpenCelium
     """
-
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     def create_connection(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -64,6 +70,27 @@ class OcConnectionManager(OcBaseManager):
             return json.loads(create_connection_response.text)
 
         raise OcConnectionCreateError("Failed to create the Connection in OpenCelium!")
+
+
+    def send_to_remote_api(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Sends data to remote API
+
+        Args:
+            payload (dict[str, Any]): payload for remote API
+
+        Raises:
+            OcConnectionCreateError: When sending the payload to remote API failed
+
+        Returns:
+            dict[str, Any]: The created OcConnection
+        """
+        create_connection_response: Response = self.oc_connector.oc_post(payload, CONNECTION_REMOTE_API_URL)
+
+        if self.is_valid_response(create_connection_response):
+            return json.loads(create_connection_response.text)
+
+        raise OcConnectionCreateError("Failed to send the payload to remote API!")
 
 
     def get_connections_by_ids(self, connection_ids: list[int]) -> dict[str, Any]:
@@ -93,6 +120,31 @@ class OcConnectionManager(OcBaseManager):
             return json.loads(connections_response.text)
 
         raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connections with IDs: {connection_ids}")
+
+
+    def test_connection(self, connection_data: dict[str, Any], channel_id: int) -> dict[str, Any]:
+        """
+        Tests a Connection in OpenCelium
+
+        Args:
+            connection_data (dict[str, Any]): data of the OcConnection
+            channel_id (int): ID of the channel
+
+        Raises:
+            OcConnectionTestError: When creating the OcConnection failed
+
+        Returns:
+            dict[str, Any]: The result of the OcConnection test
+        """
+        connection_test_response: Response = self.oc_connector.oc_post(
+            connection_data,
+            f"{CONNECTION_TEST_URL}?channelId={channel_id}"
+        )
+
+        if self.is_valid_response(connection_test_response):
+            return json.loads(connection_test_response.text)
+
+        raise OcConnectionTestError("Failed to test OpenCelium Connection!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -167,6 +219,10 @@ class OcConnectionManager(OcBaseManager):
             dict[str, Any]: The updated OcConnection
         """
         updated_connection_response: Response = self.oc_connector.oc_put(params, f"{CONNECTION_URL}/{connection_id}")
+
+        LOGGER.debug(f"check_connector_response status: {updated_connection_response.status_code}")
+        LOGGER.debug(f"headers: {updated_connection_response.headers}")
+        LOGGER.debug(f"check_connector_response body: {updated_connection_response.text}")
 
         if self.is_valid_response(updated_connection_response):
             return json.loads(updated_connection_response.text)

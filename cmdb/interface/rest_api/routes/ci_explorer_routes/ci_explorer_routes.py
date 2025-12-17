@@ -18,6 +18,7 @@ Implementation of all API routes for CI Explorer
 """
 import logging
 import ast
+from typing import Any
 from flask import abort, request
 from werkzeug.exceptions import HTTPException
 
@@ -27,6 +28,7 @@ from cmdb.manager import (
     RelationsManager,
     ObjectRelationsManager,
     CiExplorerProfileManager,
+    LocationsManager,
 )
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -59,6 +61,9 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
+
+PARENT_LOCATION_REL_COLOR: str = "#A855F7"
+CHILD_LOCATION_REL_COLOR: str = "#C084FC"
 
 ci_explorer_blueprint = APIBlueprint('ci_explorer', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
@@ -150,9 +155,6 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
         abort(500, "An internal server error occured while retrieving CiExplorer Profiles!")
 
 
-
-
-
 @ci_explorer_blueprint.route('/items', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -174,16 +176,11 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
     try:
         target_id = request.args.get("target_id", type=int)
         target_type = request.args.get("target_type", default="BOTH").upper()
-        with_root = request.args.get("with_root", default="false").lower() == "true"
+        with_root: bool = request.args.get("with_root", default="false").lower() == "true"
+        with_locations: bool = request.args.get("with_locations", default="false").lower() == "true"
 
         types_filter = parse_int_list_filter("types_filter")
         relations_filter = parse_int_list_filter("relations_filter")
-
-        if target_id is None:
-            abort(400, "Missing ID of target Object!")
-
-        if not NodeType.is_valid(target_type):
-            abort(400, f"Invalid target_type '{target_type}'. Need one of: {', '.join(NodeType.__members__.keys())}")
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -192,9 +189,32 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                                                                             ManagerType.OBJECT_RELATIONS,
                                                                             request_user
                                                                         )
+        locations_manager: LocationsManager =  ManagerProvider.get_manager(
+                                                    ManagerType.LOCATIONS,
+                                                    request_user
+                                               )
 
-        root_object = objects_manager.get_object(target_id) if with_root else None
+        if target_id is None:
+            abort(400, "Missing ID of target Object!")
+
+        if not NodeType.is_valid(target_type):
+            abort(400, f"Invalid target_type '{target_type}'. Need one of: {', '.join(NodeType.__members__.keys())}")
+
+        root_object = objects_manager.get_object(target_id) if (with_root or with_locations) else None
         root_type_info = types_manager.get_type(root_object['type_id']) if root_object else None
+
+        # Replace references with summary lines in root object
+        if root_object:
+            for a_field in root_object['fields']:
+                field_name = a_field['name']
+                field_value = a_field['value']
+
+                if objects_manager.is_ref_field(field_name, root_object) and field_value:
+                    a_field['value'] = objects_manager.get_summary_line(field_value)
+                if field_name == "dg_location" and field_value:
+                    target_location = locations_manager.get_location(field_value)
+                    a_field['value'] = target_location['name']
+
 
         object_relations = list(object_relations_manager.find(
             criteria={"$or": [
@@ -238,6 +258,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
             }
 
         type_ids = {obj['type_id'] for obj in linked_objects.values()}
+
         if root_type_info:
             type_ids.add(root_type_info['public_id'])
 
@@ -309,6 +330,18 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 continue
 
             node_title = get_title(linked_object, linked_type)
+
+            # Replace references with summary lines in linked objects
+            for a_field in linked_object['fields']:
+                field_name = a_field['name']
+                field_value = a_field['value']
+
+                if objects_manager.is_ref_field(field_name, linked_object) and field_value:
+                    a_field['value'] = objects_manager.get_summary_line(field_value)
+                if field_name == "dg_location" and field_value:
+                    target_location = locations_manager.get_location(field_value)
+                    a_field['value'] = target_location['name']
+
             node_dict = {
                 "linked_object": linked_object,
                 "title": node_title,
@@ -341,6 +374,115 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 parent_nodes[linked_id] = node_dict
                 parent_edges.append(edge_dict)
 
+        if with_locations:
+            # Locations are flipped in the Ci-Explorer
+            # The child locations will be provided in parents and the parent will be provided in child
+            target_location = locations_manager.get_location_for_object(target_id)
+
+            if target_location:
+                if target_type in (NodeType.BOTH, NodeType.CHILD):
+                    parent_node: dict[str, Any] = None
+                    parent_edge = None
+
+                    # If the parent is root location then do not send a node
+                    if target_location['parent'] == 1:
+                        pass
+                    else:
+                        parent_location = locations_manager.get_location(target_location['parent'])
+                        parent_object = objects_manager.get_object(parent_location['object_id'])
+
+                        # If the object is filtered out remove it
+                        if parent_object and types_filter and parent_object['type_id'] not in types_filter:
+                            parent_node = None
+                        else: # The object is not filtered out
+                            if parent_object:
+                                parent_type = types_manager.get_type(parent_object['type_id'])
+                                parent_title = get_title(parent_object, parent_type)
+
+                                parent_node = {
+                                    "linked_object": parent_object,
+                                    "title": parent_title,
+                                    "type_info": {
+                                        "type_id": parent_type['public_id'],
+                                        "type_color": parent_type.get('ci_explorer_color'),
+                                        "label": parent_type['label'],
+                                        "icon": parent_type['render_meta'].get('icon'),
+                                        "fields": parent_type.get('fields', {}),
+                                    },
+                                    "relation_color": CHILD_LOCATION_REL_COLOR
+                                }
+
+
+                                parent_edge: dict[str, Any] = {
+                                    "from": target_id,
+                                    "to": parent_object['public_id'],
+                                }
+
+                                child_nodes[parent_object['public_id']] = parent_node
+                                child_edges.append(parent_edge)
+
+                if target_type in (NodeType.BOTH, NodeType.PARENT):
+                    # Location children are placed in the parents
+
+                    # Get all child objects of next level
+                    child_objects = None
+
+                    target_child_locations = locations_manager.get_locations_by(
+                                                                    parent=target_location['public_id']
+                                                                )
+
+                    # If there are any children, then get the corresponding objects
+                    if target_child_locations:
+                        # get all public_ids of child objects
+                        object_ids = [loc.object_id for loc in target_child_locations]
+
+                        # Retrieve all child objects
+                        operator_in = {'$in': []}
+                        filter_public_ids = {'public_id': {}}
+
+                        operator_in.update({'$in': object_ids})
+                        filter_public_ids.update({'public_id': operator_in})
+
+                        child_objects: list[CmdbObject] = objects_manager.get_objects_by(**filter_public_ids)
+
+                        # If type filter is active only keep objects of the type
+                        if types_filter:
+                            child_objects: list[CmdbObject] = [
+                                obj for obj in child_objects if obj["type_id"] in types_filter
+                            ]
+
+                        # Get all types of the remaining objects
+                        type_ids = [obj.type_id for obj in child_objects]
+
+                        types_list = types_manager.find(criteria={"public_id": {"$in": list(type_ids)}})
+                        types_by_id = {t['public_id']: t for t in types_list}
+
+                        for child_object in child_objects:
+                            tmp_child_object = CmdbObject.to_json(child_object)
+                            tmp_child_type = types_by_id.get(tmp_child_object['type_id'])
+                            tmp_child_title = get_title(tmp_child_object, tmp_child_type)
+
+                            tmp_child_node = {
+                                "linked_object": tmp_child_object,
+                                "title": tmp_child_title,
+                                "type_info": {
+                                    "type_id": tmp_child_type['public_id'],
+                                    "type_color": tmp_child_type.get('ci_explorer_color'),
+                                    "label": tmp_child_type['label'],
+                                    "icon": tmp_child_type['render_meta'].get('icon'),
+                                    "fields": tmp_child_type.get('fields', {}),
+                                },
+                                "relation_color": PARENT_LOCATION_REL_COLOR
+                            }
+
+                            tmp_child_edge = {
+                                "from": tmp_child_object['public_id'],
+                                "to": target_id,
+                            }
+
+                            parent_nodes[tmp_child_object['public_id']] = tmp_child_node
+                            parent_edges.append(tmp_child_edge)
+
         if target_type in (NodeType.BOTH, NodeType.CHILD):
             response['children_nodes'] = list(child_nodes.values())
             response['child_edges'] = child_edges
@@ -349,7 +491,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
             response['parent_edges'] = parent_edges
 
         return DefaultResponse(response).make_response()
-
     except HTTPException as http_err:
         raise http_err
     except Exception as err:

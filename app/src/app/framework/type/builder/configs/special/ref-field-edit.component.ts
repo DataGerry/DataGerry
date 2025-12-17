@@ -352,7 +352,6 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
             nestedSummary.label = type.label;
             nestedSummary.icon = type.render_meta.icon;
         } else {
-            console.warn('No matching summary found for type_id:', type.public_id);
         }
     }
 

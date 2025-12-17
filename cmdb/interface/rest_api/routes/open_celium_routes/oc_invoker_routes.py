@@ -19,7 +19,7 @@ All API routes for OpenCelium Invokers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort, request, current_app
 
 from cmdb.manager import OcInvokerManager
 
@@ -57,7 +57,10 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
     try:
         with_operations: bool = request.args.get("opsIncluded", type=bool, default=True)
 
-        oc_invoker_manager: OcInvokerManager = OcInvokerManager()
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         invokers: list[dict[str, Any]] = oc_invoker_manager.get_all_invokers(with_operations)
 
@@ -86,7 +89,10 @@ def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, 
         dict[str, Any]: The Invoker with the given name
     """
     try:
-        oc_invoker_manager: OcInvokerManager = OcInvokerManager()
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         invoker: dict[str, Any] = oc_invoker_manager.get_invoker_by_name(name)
 
@@ -114,7 +120,10 @@ def check_oc_invoker_exists(name: str, request_user: CmdbUser) -> list[dict[str,
         bool: True if the Invoker exists, else False
     """
     try:
-        oc_invoker_manager: OcInvokerManager = OcInvokerManager()
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         invoker_exists: bool = oc_invoker_manager.check_invoker_exists(name)
 

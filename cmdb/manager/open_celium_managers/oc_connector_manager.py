@@ -24,6 +24,7 @@ from flask import current_app
 
 from requests import Response
 
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
 from cmdb.errors.open_celium.connector import OcConnectorCreateError, OcConnectorGetError, OcConnectorUpdateError
@@ -36,6 +37,7 @@ CHECK_CONNECTOR_URL: str = f"{CONNECTOR_URL}/check"
 CONNECTORS_BY_IDS_URL: str = f"{CONNECTOR_URL}/list/by-ids"
 ALL_CONNECTORS_URL: str = f"{CONNECTOR_URL}/all"
 CHECK_MASTER_PW_URL: str = f"{CONNECTOR_URL}/master-password/status"
+CHECK_MASTER_PW_EXISTS_URL: str = f"{CHECK_MASTER_PW_URL}/exist"
 CONNECTOR_EXISTS_URL: str = f"{CONNECTOR_URL}/exists"
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -45,7 +47,7 @@ class OcConnectorManager(OcBaseManager):
     """
     Manages Connectors of OpenCelium
     """
-    def __init__(self) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
         """
         Initialises the OcConnectorManager
         """
@@ -58,7 +60,7 @@ class OcConnectorManager(OcBaseManager):
             if not self.master_pw and not current_app.local_mode:
                 raise ValueError("No OC master password provided via env variables!")
 
-        super().__init__()
+        super().__init__(dbm, db_name)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     def create_connector(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -109,7 +111,7 @@ class OcConnectorManager(OcBaseManager):
         return False
 
 
-    def check_master_pw(self, password: str) -> bool:
+    def check_master_pw(self, password: str, raw: bool = False) -> bool | dict[str, Any]:
         """
         Checks the master password of the Connector
 
@@ -126,10 +128,33 @@ class OcConnectorManager(OcBaseManager):
         # LOGGER.debug(f"[check_master_pw] headers: {check_pw_response.headers}")
         # LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
 
-        if self.is_valid_response(check_pw_response):
-            return True
+        if not raw:
+            if self.is_valid_response(check_pw_response):
+                return True
 
-        return False
+            return False
+
+        if self.is_valid_response(check_pw_response):
+            return json.loads(check_pw_response.text)
+
+        raise OcConnectorGetError("Failed to check master password!")
+
+
+    def check_master_pw_exists(self) -> dict[str, Any]:
+        """
+        Checks if a master password exist in OpenCelium
+        """
+        check_pw_exist_resp: Response = self.oc_connector.oc_get(CHECK_MASTER_PW_EXISTS_URL)
+
+        # LOGGER.debug(f"[check_master_pw] response: {check_pw_response}")
+        # LOGGER.debug(f"[check_master_pw] status_code: {check_pw_response.status_code}")
+        # LOGGER.debug(f"[check_master_pw] headers: {check_pw_response.headers}")
+        # LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
+
+        if self.is_valid_response(check_pw_exist_resp):
+            return json.loads(check_pw_exist_resp.text)
+
+        raise OcConnectorGetError("Failed to check if master password exists!")
 
 
     def get_connectors_by_ids(self, connector_ids: list[int]) -> dict[str, Any]:
@@ -269,8 +294,6 @@ class OcConnectorManager(OcBaseManager):
         # LOGGER.debug(f"[get_all_connectors] body: {all_connectors_response.text}")
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
-
-
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

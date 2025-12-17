@@ -36,7 +36,13 @@ class AuthError(OpenCeliumError):
     """
 
 
-class OcGetError(OpenCeliumError):
+class OcNoSubError(OpenCeliumError):
     """
-    Raised when a GET request fails with OpenCelium
+    Raised when a subscription was not found
+    """
+
+
+class OcMasterPwNotSetError(OpenCeliumError):
+    """
+    Raised when the master password for a subscription is not set
     """

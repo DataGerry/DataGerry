@@ -26,6 +26,7 @@ import { ValidRegexValidator } from '../../../../../layout/validators/valid-rege
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -60,7 +61,11 @@ export class TextFieldEditComponent extends ConfigEditBaseComponent implements O
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -211,5 +216,12 @@ export class TextFieldEditComponent extends ConfigEditBaseComponent implements O
             this.hideFieldControl.enable();
             this.requiredControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'text field identifier');
     }
 }

@@ -1,1 +1,153 @@
-// No styles needed for this component
+.automation-form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  position: relative;
+  z-index: 1;
+}
+
+.form-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 2;
+}
+
+.editor-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 1;
+  margin-top: 2rem;
+  min-height: 650px; 
+}
+
+// Constrain the opencelium-editor container
+opencelium-editor {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 600px;
+  min-height: 600px; 
+  max-height: 600px;
+  overflow: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  
+  // Target the root container to ensure it fills the space
+  ::ng-deep > div:first-child {
+    width: 100% !important;
+    height: 600px !important;
+    min-height: 600px !important;
+    position: relative !important;
+  }
+  
+  // Ensure React root elements maintain height
+  ::ng-deep [id*="root"],
+  ::ng-deep [class*="root"] {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 600px !important;
+  }
+}
+
+// Form actions spacing
+.form-actions-margin {
+  margin-top: 2rem;
+  position: relative;
+  z-index: 2;
+}
+
+// Required field indicator
+.required {
+  color: #dc3545;
+}
+
+// Button spacing
+.btn-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.icon-spacing {
+  margin-right: 0.5rem;
+}
+
+// Editor container for overlay positioning
+.editor-container {
+  position: relative;
+  width: 100%;
+  height: 600px;
+  min-height: 600px;
+  max-height: 600px;
+}
+
+// Disabled state for editor section
+.editor-section.disabled {
+  opacity: 0.6;
+  
+  opencelium-editor {
+    pointer-events: none;
+  }
+}
+
+// Overlay that appears when required fields are missing
+.editor-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: 4px;
+}
+
+.overlay-message {
+  background-color: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 2rem 3rem;
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: #333;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  text-align: center;
+  max-width: 80%;
+}
+
+// Responsive design
+@media (max-width: 768px) {
+  .automation-form-container {
+    gap: 1rem;
+  }
+  
+  .form-section,
+  .editor-section {
+    padding: 1rem;
+    min-height: 450px;
+  }
+  
+  .editor-container,
+  opencelium-editor {
+    height: 400px;
+    min-height: 400px;
+    max-height: 400px;
+  }
+  
+  opencelium-editor {
+    ::ng-deep > div:first-child,
+    ::ng-deep [id*="root"],
+    ::ng-deep [class*="root"] {
+      height: 400px !important;
+      min-height: 400px !important;
+    }
+  }
+}

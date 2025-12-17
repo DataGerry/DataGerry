@@ -212,8 +212,6 @@ export class ConfigureComponent implements OnInit, AfterViewInit {
   public onSaveConfigurations(): void {
     if (this.riskCalculationComponent) {
       this.riskCalculationComponent.saveMatrix();
-    } else {
-      console.error('RiskCalculationComponent not found.');
     }
   }
 

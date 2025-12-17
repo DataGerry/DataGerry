@@ -30,6 +30,12 @@ class OcTemplateError(Exception):
 
 # ------------------------------------------------ OcTemplate - ERRORS ----------------------------------------------- #
 
+class OcTemplateCreateError(OcTemplateError):
+    """
+    Raised when failing to create OcTemplate
+    """
+
+
 class OcTemplateGetError(OcTemplateError):
     """
     Raised when failing to retrieve OcTemplate

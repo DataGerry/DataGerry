@@ -25,6 +25,7 @@ import { ValidationService } from '../../../services/validation.service';
 import { ConfigEditBaseComponent } from '../config.edit';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
 import { CmdbMode } from 'src/app/framework/modes.enum';
+import { CopyService } from '../../../../../core/services/copy.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -50,7 +51,11 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private validationService: ValidationService, private sectionIdentifier: SectionIdentifierService) {
+    public constructor(
+        private validationService: ValidationService, 
+        private sectionIdentifier: SectionIdentifierService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -181,5 +186,12 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
                 name: newData.name
             });
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'section field identifier');
     }
 }

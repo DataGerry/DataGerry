@@ -75,7 +75,6 @@ export class ImportComponent {
     private fetchUsedObjects(): void {
         this.usedObjects$ = this.objectService.countObjects().pipe(
             catchError(error => {
-                console.error('Error fetching used objects count:', error?.error?.message);
                 return of(0);
             })
         );

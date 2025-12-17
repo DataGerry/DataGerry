@@ -19,12 +19,14 @@ This module provides all general errors for OpenCelium
 from .open_celium_errors import (
     OpenCeliumError,
     AuthError,
-    OcGetError,
+    OcNoSubError,
+    OcMasterPwNotSetError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'OpenCeliumError',
     'AuthError',
-    'OcGetError',
+    'OcNoSubError',
+    'OcMasterPwNotSetError',
 ]

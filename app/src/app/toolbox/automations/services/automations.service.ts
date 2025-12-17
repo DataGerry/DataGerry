@@ -37,14 +37,16 @@ export class AutomationsService extends BaseApiService<any> {
     return this.handleGetRequest<any[]>(`${this.servicePrefix}/schedulers`, params);
   }
 
-  // INITIAL DATA
-  getInitData(): Observable<{ connectors: any[], templates: any[] }> {
-    return this.handleGetRequest<any>(`${this.servicePrefix}/connections/init_data`, new HttpParams()).pipe(
-      map((initData) => ({
-        connectors: initData.connectors || [],
-        templates: initData.templates || []
-      }))
-    );
+  // GET TEMPLATES BY CONNECTORS
+  getTemplatesByConnectors(fromConnectorId: number, toConnectorId: number): Observable<any[]> {
+    const params = new HttpParams();
+    return this.handleGetRequest<any[]>(`${this.servicePrefix}/templates/all/${fromConnectorId}/${toConnectorId}`, params);
+  }
+
+  // GET CONNECTION
+  getConnection(connectionId: number): Observable<any> {
+    const params = new HttpParams();
+    return this.handleGetRequest<any>(`${this.servicePrefix}/connections/${connectionId}`, params);
   }
 
   // CREATE

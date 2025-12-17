@@ -39,7 +39,7 @@
         <div class="card h-100 border-primary-20 shadow-sm hover-shadow transition-all">
           <div class="card-header bg-primary-10 border-bottom border-primary-20 py-3">
             <h4 class="h6 mb-0 text-primary-dark">
-              Parent Relation
+              Child Configuration
             </h4>
           </div>
           <div class="card-body">
@@ -69,7 +69,7 @@
                   [iconFormGroup]="parentIconForm"
                   [fallbackIcon]="relation_icon_parent.value"
                   class="w-100"
-                  [inputDescription]="'Symbol for the parent-to-child relation'"
+                  [inputDescription]="'Symbol for this relation'"
                 ></cmdb-icon-picker>
               </div>
               <div class="col-4 ">
@@ -86,7 +86,7 @@
 
             <div class="mb-3">
               <label class="form-label fw-semibold">
-                Allowed Parent Types <span class="text-danger">*</span>
+                Allowed Types <span class="text-danger">*</span>
               </label>
               <ng-select
                 formControlName="parent_type_ids"
@@ -111,7 +111,7 @@
         <div class="card h-100 border-secondary-20 shadow-sm hover-shadow transition-all">
           <div class="card-header bg-secondary-10 border-bottom border-secondary-20 py-3">
             <h4 class="h6 mb-0 text-secondary-dark">
-              Child Relation
+              Parent Configuration
             </h4>
           </div>
           <div class="card-body">
@@ -141,7 +141,7 @@
                   [iconFormGroup]="childIconForm"
                   [fallbackIcon]="relation_icon_child.value"
                   class="w-100"
-                  [inputDescription]="'Symbol for the child-to-parent relation'"
+                  [inputDescription]="'Symbol for this relation'"
                 ></cmdb-icon-picker>
               </div>
               <div class="col-4">
@@ -158,7 +158,7 @@
 
             <div class="mb-3">
               <label class="form-label fw-semibold">
-                Allowed Child Types <span class="text-danger">*</span>
+                Allowed Types <span class="text-danger">*</span>
               </label>
               <ng-select
                 formControlName="child_type_ids"

@@ -19,7 +19,7 @@ All API routes for OpenCelium Invokers
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
+from flask import abort, current_app, request
 from werkzeug import Response
 
 from cmdb.manager import OcTemplateManager
@@ -31,6 +31,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
 from cmdb.errors.open_celium.template import (
+    OcTemplateCreateError,
     OcTemplateGetError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -39,25 +40,61 @@ LOGGER: Logger = getLogger(__name__)
 
 oc_templates_blueprint = APIBlueprint('oc_templates', __name__)
 
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+@oc_templates_blueprint.route('/templates', methods=['POST'])
+@handle_oc_errors("creating the OpenCelium Template!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def create_oc_template(request_user: CmdbUser) -> Response:
+    """
+    **POST** route to create an OcTemplate
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        dict[str, Any]: The created OcTemplate from OpenCelium
+    """
+    try:
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        template_data: dict[str, Any] = request.json
+
+        created_template: dict[str, Any] = oc_template_manager.create_template(template_data)
+
+        # LOGGER.debug(f"template: {template}")
+
+        return DefaultResponse(created_template).make_response()
+    except OcTemplateCreateError as err:
+        LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to create the OpenCelium Template!")
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-@oc_templates_blueprint.route('/templates/<int:template_id>', methods=['GET', 'HEAD'])
+@oc_templates_blueprint.route('/templates/<string:template_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the OpenCelium Template!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_oc_template(request_user: CmdbUser, template_id: int) -> Response:
+def get_oc_template(request_user: CmdbUser, template_id: str) -> Response:
     """
     **GET**/**HEAD** route to retrive a OcTemplate with the given template_id
 
     Args:
         request_user (CmdbUser): User requesting this data
-        template_id (int): templateId of the OcTemplate
+        template_id (str): templateId of the OcTemplate
 
     Returns:
         dict[str, Any]: The OcTemplate from OpenCelium
     """
     try:
-        oc_template_manager: OcTemplateManager = OcTemplateManager()
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         template: dict[str, Any] = oc_template_manager.get_template_by_id(template_id)
 
@@ -66,7 +103,7 @@ def get_oc_template(request_user: CmdbUser, template_id: int) -> Response:
         return DefaultResponse(template).make_response()
     except OcTemplateGetError as err:
         LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, f"Failed to retrieve OpenCelium Connector with ID:{template_id}!")
+        abort(500, f"Failed to retrieve OpenCelium Template with ID:{template_id}!")
 
 
 @oc_templates_blueprint.route('/templates', methods=['GET', 'HEAD'])
@@ -84,26 +121,48 @@ def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
         list[dict[str, Any]]: All OcBusinessTemplates from OpenCelium
     """
     try:
-        oc_template_manager: OcTemplateManager = OcTemplateManager()
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
 
         templates: list[dict[str, Any]] = oc_template_manager.get_all_templates()
-
-        # Filter only templates using a DataGerry invoker
-
-        # datagerry_templates: list[dict[str, Any]] = [
-        #     t for t in templates
-        #     if (
-        #         t.get("connection", {}).get("fromConnector", {})
-        #          .get("invoker", {}).get("name") == "DataGerry"
-        #         or
-        #         t.get("connection", {}).get("toConnector", {})
-        #          .get("invoker", {}).get("name") == "DataGerry"
-        #     )
-        # ]
-        # LOGGER.debug(f"count templates: {len(templates)}")
-        # LOGGER.debug(f"all templates: {templates}")
 
         return DefaultResponse(templates).make_response()
     except OcTemplateGetError as err:
         LOGGER.error("[get_all_oc_templates] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, "Failed to retrieve OpenCelium Business Templates!")
+        abort(500, "Failed to retrieve OpenCelium Templates!")
+
+
+@oc_templates_blueprint.route('/templates/all/<int:from_connector_id>/<int:to_connector_id>', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving detailed OpenCelium Business Templates!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def get_all_oc_templates_detailed(
+        request_user: CmdbUser,
+        from_connector_id: int,
+        to_connector_id: int
+    ) -> list[dict[str, Any]]:
+    """
+    **GET**/**HEAD** route for getting multiple OcBusinessTemplates with connection details
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        from_connector_id (int): fromConnectorId
+        to_connector_id (int): toConnectorId
+
+    Returns:
+        list[dict[str, Any]]: All OcBusinessTemplates from OpenCelium
+    """
+    try:
+        oc_template_manager: OcTemplateManager = OcTemplateManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        templates: list[dict[str, Any]] = oc_template_manager.get_all_templates(from_connector_id, to_connector_id)
+
+        return DefaultResponse(templates).make_response()
+    except OcTemplateGetError as err:
+        LOGGER.error("[get_all_oc_templates_detailed] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to retrieve OpenCelium detailed Templates!")

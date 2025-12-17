@@ -22,6 +22,7 @@ from .oc_template_routes import oc_templates_blueprint
 from .oc_connection_routes import oc_connections_blueprint
 from .oc_scheduler_routes import oc_schedulers_blueprint
 from .oc_license_routes import oc_licenses_blueprint
+from .oc_connection_log_routes import oc_connection_log_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -31,4 +32,5 @@ __all__: list[str] = [
     'oc_connections_blueprint',
     'oc_schedulers_blueprint',
     'oc_licenses_blueprint',
+    'oc_connection_log_blueprint',
 ]

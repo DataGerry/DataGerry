@@ -114,6 +114,11 @@ class OcInvokerManager(OcBaseManager):
 
         all_invokers_response: Response = self.oc_connector.oc_get(invoker_route)
 
+        # LOGGER.debug(f"[get_all_invokers] response: {all_invokers_response}")
+        # LOGGER.debug(f"[get_all_invokers] status_code: {all_invokers_response.status_code}")
+        # LOGGER.debug(f"[get_all_invokers] headers: {all_invokers_response.headers}")
+        # LOGGER.debug(f"[get_all_invokers] body: {all_invokers_response.text}")
+
         if self.is_valid_response(all_invokers_response):
             return json.loads(all_invokers_response.text)
 

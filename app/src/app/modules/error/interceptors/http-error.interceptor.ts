@@ -62,25 +62,15 @@ export class HttpErrorInterceptor implements HttpInterceptor {
             const statusCode = error.status;
 
             if (this.REDIRECT_ERRORS.indexOf(statusCode) !== -1) {
-                // if (statusCode === this.CONNECTION_REFUSED || statusCode === this.INTERNAL_SERVER_ERROR) {
-                //     this.router.navigate(['/connect']);
-                // } else if (statusCode === this.UNAUTHORIZED) {
-                //     this.authService.logout();
-                // } else {
-                //     this.router.navigate(['/error/', statusCode]);
-                // }
                 if (statusCode === this.CONNECTION_REFUSED) {
                     if(!environment.cloudMode){
                         this.router.navigate(['/connect']);
                     }
                     this.toastService.error("The connection to the backend has been refused!");
                 }
-                // else if (statusCode === this.INTERNAL_SERVER_ERROR) {
-                //     // if(!environment.cloudMode){
-                //     //     this.router.navigate(['/connect']);
-                //     // }
-                //     this.toastService.error("An internal server error occured!"); 
-                // }
+                else if (statusCode === this.INTERNAL_SERVER_ERROR) {
+                    // this.toastService.error("An internal server error occured!"); 
+                }
                 else if (statusCode === this.UNAUTHORIZED) {
                     this.authService.logout();
                 } else {

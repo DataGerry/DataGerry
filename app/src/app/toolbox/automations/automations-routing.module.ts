@@ -22,6 +22,7 @@ import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
 import { AuthGuard } from 'src/app/modules/auth/guards/auth.guard';
+import { cloudModeGuard } from 'src/app/modules/auth/guards/cloud-mode.guard';
 
 const routes: Routes = [
   {
@@ -35,7 +36,7 @@ const routes: Routes = [
       {
         path: '',
         component: AutomationsListComponent,
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, cloudModeGuard],
         data: {
           right: 'automation.view',
           breadcrumb: 'Automations'
@@ -44,7 +45,7 @@ const routes: Routes = [
       {
         path: 'add',
         component: AutomationFormComponent,
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, cloudModeGuard],
         data: {
           right: 'automation.create',
           breadcrumb: 'Create Automation',
@@ -54,7 +55,7 @@ const routes: Routes = [
       {
         path: 'edit/:schedulerId',
         component: AutomationFormComponent,
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, cloudModeGuard],
         data: {
           right: 'automation.edit',
           breadcrumb: 'Edit Automation',

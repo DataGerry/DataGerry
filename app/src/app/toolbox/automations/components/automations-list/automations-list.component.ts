@@ -17,7 +17,6 @@
 */
 import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -51,7 +50,6 @@ export class AutomationsListComponent implements OnInit {
   constructor(
     private automationsService: AutomationsService,
     private router: Router,
-    private modalService: NgbModal,
     private toast: ToastService,
     private loaderService: LoaderService,
       private deleteModalService: DeleteModalService
@@ -154,14 +152,37 @@ export class AutomationsListComponent implements OnInit {
     } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
       return 'incoming';
     }
-    return 'unknown';
   }
 
 
   editAutomation(automation: any): void {
-    console.log('Editing automation:', automation);
-    this.router.navigate(['/automations/edit', automation.schedulerId], {
-      state: { automation }
+    const connectionId = automation.connection?.connectionId;
+    
+    if (!connectionId) {
+      this.toast.error('Connection ID not found');
+      return;
+    }
+
+    // Show loading state
+    this.loaderService.show();
+
+    this.automationsService.getConnection(connectionId).subscribe({
+      next: (connectionData) => {
+        // Create updated automation with full connection data
+        const updatedAutomation = {
+          ...automation,
+          connection: connectionData
+        };
+
+        this.router.navigate(['/automations/edit', automation.schedulerId], {
+          state: { automation: updatedAutomation }
+        });
+        this.loaderService.hide();
+      },
+      error: (err) => {
+        this.toast.error(err?.error?.message);
+        this.loaderService.hide();
+      }
     });
   }
 
@@ -185,14 +206,13 @@ export class AutomationsListComponent implements OnInit {
 
 
   executeScheduler(schedulerId: any): void {
-    console.log('Executing automation with schedulerId:', schedulerId);
     this.isExecuting = schedulerId;
 
     this.automationsService.executeScheduler(schedulerId).subscribe({
       next: () => {
         this.toast.success('Automation execution started');
         this.isExecuting = null;
-        // Optionally reload automations to update last execution times
+        // reload automations to update last execution times
         this.loadAutomations();
       },
       error: (err) => {
@@ -218,7 +238,7 @@ export class AutomationsListComponent implements OnInit {
 
   // Helper method to format Unix timestamp to readable date
   private formatDate(timestamp: number): string {
-    if (!timestamp) return 'Never';
+    if (!timestamp) return '-';
     return new Date(timestamp).toLocaleString();
   }
 
@@ -235,7 +255,7 @@ export class AutomationsListComponent implements OnInit {
   getLastSuccessDisplay(automation: any): { date: string, taId: string } {
     const success = automation.lastExecution?.success;
     if (!success) {
-      return { date: 'Never', taId: '' };
+      return { date: '-', taId: '' };
     }
     return {
       date: this.formatDate(success.startTime),

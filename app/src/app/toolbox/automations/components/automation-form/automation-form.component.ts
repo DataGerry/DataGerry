@@ -28,6 +28,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../../connectors/models/connector.model';
 import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
+import { AuthService } from 'src/app/modules/auth/services/auth.service';
 
 @Component({
   selector: 'app-automation-form',
@@ -41,28 +42,25 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   form!: FormGroup;
   templates: any[] = [];
-  filteredTemplates: any[] = [];
   connectors: Connector[] = [];
   externalConnectors: Connector[] = []; // Connectors excluding the internal one
+  invokers: any[] = [];
   showConnectorField = false;
   connectorLabel = '';
+  currentSourceConnectorId = '';
+  currentTargetConnectorId = '';
+  selectedTemplate: any = null;
+  initConnection: any = null;
+  currentConnection: any = null;
 
   // Internal connector properties
   internalConnectorExists: boolean = false;
   internalConnectorDetails: any = null;
-  isCheckingInternalConnector: boolean = false;
-  isGettingInternalConnector: boolean = false;
 
   private formChangesSubscription?: Subscription;
 
   // Combined loading state for all operations
-  public combinedLoading$ = combineLatest([
-    this.loaderService.isLoading$,
-    new BehaviorSubject(this.isCheckingInternalConnector),
-    new BehaviorSubject(this.isGettingInternalConnector)
-  ]).pipe(
-    map(([loaderLoading, checking, getting]) => loaderLoading || checking || getting)
-  );
+  public combinedLoading$ = this.loaderService.isLoading$;
 
   public isLoading$ = this.loaderService.isLoading$;
 
@@ -74,9 +72,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     private connectorsService: ConnectorsService,
     private toast: ToastService,
     private loaderService: LoaderService,
-    private modalService: NgbModal
-  ) { 
+    private modalService: NgbModal,
+    private authService: AuthService
+  ) {
   }
+
 
   ngOnInit(): void {
     this.mode = (this.route.snapshot.data['mode'] || 'create') as any;
@@ -90,86 +90,148 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
   }
 
+
   ngOnDestroy(): void {
     if (this.formChangesSubscription) {
       this.formChangesSubscription.unsubscribe();
     }
   }
 
-  private loadInitData(): void {
-    this.svc.getInitData().subscribe({
-      next: (initData) => {
-        this.connectors = initData.connectors || [];
-        // Filter out the internal connector from the list of selectable connectors
-        this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
-        this.templates = initData.templates || [];
-        this.filteredTemplates = [...this.templates];
 
-        
-        // Set internal connector details from init data
-        const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
-        if (internalConnector) {
-          this.internalConnectorDetails = internalConnector;
-        } else {
-          this.redirectToInternalConnectorSetup();
-          return;
-        }
-        
-        // Set up form changes after data is loaded
-        this.setupFormChanges();
-        
-        // Handle edit mode after data is loaded
-        if (this.mode === 'edit') {
-          // Check if automation was passed via state 
-          const automation = history.state?.automation;
-          if (automation) {
-            this.patchForEdit(automation);
+  private loadConnectorsAndInvokers(): void {
+    this.loaderService.show();
+    
+    // Load connectors and invokers in parallel
+    combineLatest([
+      this.connectorsService.getConnectors(),
+      this.connectorsService.getInvokers()
+    ])
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: ([connectors, invokers]) => {
+          this.connectors = connectors || [];
+          // Filter out the internal connector from the list of selectable connectors
+          this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
+          this.invokers = invokers || [];
+
+          // Set internal connector details from connectors list
+          const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
+          if (internalConnector) {
+            this.internalConnectorDetails = internalConnector;
           } else {
-            this.toast.warning('Automation data not found. Please try editing again.');
+            this.redirectToInternalConnectorSetup();
+            return;
           }
-        } else {
-          // For create mode, trigger initial update based on current form values
-          const currentDirection = this.form.get('direction')?.value;
-          const currentConnector = this.form.get('connector')?.value;
 
-          
-          this.updateConnectorFieldVisibility(currentDirection);
+          // Set up form changes after data is loaded
+          this.setupFormChanges();
 
-          this.filterTemplates(currentDirection, currentConnector);
+          // Handle edit mode after data is loaded
+          if (this.mode === 'edit') {
+            // Check if automation was passed via state 
+            const automation = history.state?.automation;
+            if (automation) {
+              this.patchForEdit(automation);
+            } else {
+              this.toast.warning('Automation data not found. Please try editing again.');
+            }
+          } else {
+            // For create mode, trigger initial update based on current form values
+            const currentDirection = this.form.get('direction')?.value;
+            this.updateConnectorFieldVisibility(currentDirection);
+          }
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+          this.router.navigate(['/automations']);
         }
-      },
-      error: (err) => {
-        this.toast.error(err?.error?.message);
-        this.router.navigate(['/automations']);
-      }
-    });
+      });
   }
 
-  private setupFormChanges(): void {
+  private loadTemplates(): void {
+    const sourceId = this.currentSourceConnectorId;
+    const targetId = this.currentTargetConnectorId;
+
+    // Only load templates if we have both connector IDs
+    if (!sourceId || !targetId) {
+      this.templates = [];
+      return;
+    }
+
+    this.loaderService.show();
     
+    this.svc.getTemplatesByConnectors(parseInt(sourceId), parseInt(targetId))
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (templates) => {
+          this.templates = templates || [];
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+          this.templates = [];
+        }
+      });
+  }
+
+
+  private setupFormChanges(): void {
+
     // Separate subscription for direction changes to ensure label updates
     const directionSubscription = this.form.get('direction')!.valueChanges.subscribe(direction => {
       this.updateConnectorFieldVisibility(direction);
+      this.updateConnectorIds();
     });
 
-    // CombineLatest for template filtering
-    const combineSubscription = combineLatest([
-      this.form.get('direction')!.valueChanges,
-      this.form.get('connector')!.valueChanges
-    ]).subscribe(([direction, connector]) => {
-      this.filterTemplates(direction, connector);
+    // Subscription for connector changes
+    const connectorSubscription = this.form.get('connector')!.valueChanges.subscribe(() => {
+      this.updateConnectorIds();
     });
 
-    // Store both subscriptions
+    // Subscription for template selection
+    const templateSubscription = this.form.get('business_template')!.valueChanges.subscribe(templateId => {
+      this.updateSelectedTemplate(templateId);
+    });
+
+    // Store subscriptions
     this.formChangesSubscription = new Subscription();
     this.formChangesSubscription.add(directionSubscription);
-    this.formChangesSubscription.add(combineSubscription);
-    
+    this.formChangesSubscription.add(connectorSubscription);
+    this.formChangesSubscription.add(templateSubscription);
+
+    // Set initial connector IDs
+    this.updateConnectorIds();
+  }
+
+
+  private updateSelectedTemplate(templateId: string): void {
+    if (templateId) {
+      this.selectedTemplate = this.templates.find(t => t.templateId === templateId) || null;
+    } else {
+      this.selectedTemplate = null;
+    }
+  }
+
+
+  private updateConnectorIds(): void {
+    const previousSourceId = this.currentSourceConnectorId;
+    const previousTargetId = this.currentTargetConnectorId;
+
+    this.currentSourceConnectorId = this.getSourceConnectorId();
+    this.currentTargetConnectorId = this.getTargetConnectorId();
+
+    // Load templates if connector IDs have changed and both are available
+    if ((this.currentSourceConnectorId !== previousSourceId || this.currentTargetConnectorId !== previousTargetId) &&
+      this.currentSourceConnectorId && this.currentTargetConnectorId) {
+      this.loadTemplates();
+    } else if (!this.currentSourceConnectorId || !this.currentTargetConnectorId) {
+      // Clear templates if one of the connector IDs is missing
+      this.templates = [];
+    }
   }
 
   private updateConnectorFieldVisibility(direction: string): void {
     this.showConnectorField = !!direction;
-    
+
     if (direction === 'outgoing') {
       this.connectorLabel = 'To Connector';
     } else if (direction === 'incoming') {
@@ -177,56 +239,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     } else {
       this.connectorLabel = '';
     }
-    
+
     // Reset connector selection when direction changes to prevent auto-selection issues
     this.form.patchValue({ connector: '' });
   }
 
-  private filterTemplates(direction: string, connectorId: number): void {
-    
-    // If no direction or no connector, show empty list (waiting for user selection)
-    if (!direction || !connectorId) {
-      this.filteredTemplates = [];
-      return;
-    }
-
-    const selectedConnector = this.connectors.find(c => c.connectorId === connectorId);
-    
-    if (!selectedConnector) {
-      this.filteredTemplates = [];
-      return;
-    }
-
-    
-    const filtered = this.templates.filter(template => {
-      if (!template.connection) {
-        return false;
-      }
-
-      
-      if (direction === 'outgoing') {
-        const matches = template.connection.fromConnector?.invoker?.name === 'DataGerry' &&
-               template.connection.toConnector?.invoker?.name === selectedConnector.invoker.name;
-
-        return matches;
-      } else if (direction === 'incoming') {
-        const matches = template.connection.toConnector?.invoker?.name === 'DataGerry' &&
-               template.connection.fromConnector?.invoker?.name === selectedConnector.invoker.name;
-        return matches;
-      }
-      return false;
-    });
-    
-    // Map filtered templates to the expected format for the select component
-    this.filteredTemplates = filtered.map(template => ({
-      label: template.name,
-      value: template.templateId,
-      ...template // Keep the full template object for any other needs
-    }));
-    
-
-  }
-  
 
   private buildForm(): void {
     this.form = this.fb.group({
@@ -234,12 +251,15 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       description: [''],
       direction: ['incoming', Validators.required], // Set incoming as default
       connector: [''],
-      business_template: ['', Validators.required]
+      business_template: ['']
     });
   }
 
   private patchForEdit(automation: any): void {
-    
+
+    // Store the complete connection data for edit mode
+    this.initConnection = automation.connection || null;
+
     // Patch basic fields - use root level fields from automation
     this.form.patchValue({
       name: automation.title || automation.connection?.title || '', // Use title from root or connection
@@ -252,7 +272,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     // Determine and set the connector value based on direction and connection data
     let connectorId: number | null = null;
-    
+
     if (automation.direction === 'outgoing') {
       // For outgoing, connector is the toConnector
       connectorId = automation.connection?.toConnector?.connectorId;
@@ -266,11 +286,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       const selectedConnector = this.connectors.find(c => c.connectorId === connectorId);
       if (selectedConnector && selectedConnector.title !== 'DataGerryInternal') {
         this.form.patchValue({ connector: connectorId });
-        
-        // Trigger template filtering with the selected connector
-        setTimeout(() => {
-          this.filterTemplates(automation.direction, connectorId);
-        }, 100);
       } else {
       }
     } else {
@@ -280,26 +295,26 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   // Internal connector methods
   private checkInternalConnector(): void {
-    this.isCheckingInternalConnector = true;
+    this.loaderService.show();
 
-    this.connectorsService.checkConnectorExists('DataGerryInternal').subscribe({
-      next: (exists) => {
-        this.internalConnectorExists = exists;
-        this.isCheckingInternalConnector = false;
-        
-        if (exists) {
-          this.loadInitData();
-        } else {
-          this.showInternalConnectorModal();
+    this.connectorsService.checkConnectorExists('DataGerryInternal')
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (exists) => {
+          this.internalConnectorExists = exists;
+
+          if (exists) {
+            this.loadConnectorsAndInvokers();
+          } else {
+            this.showInternalConnectorModal();
+          }
+        },
+        error: (error) => {
+          this.toast.error(error?.error?.message);
+          this.internalConnectorExists = false;
+          this.router.navigate(['/automations']);
         }
-      },
-      error: (error) => {
-        this.toast.error(error?.error?.message);
-        this.isCheckingInternalConnector = false;
-        this.internalConnectorExists = false;
-        this.router.navigate(['/automations']);
-      }
-    });
+      });
   }
 
 
@@ -329,8 +344,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   private redirectToInternalConnectorSetup(): void {
-    this.router.navigate(['/automations/connectors/internal'], { 
-      state: { 
+    this.router.navigate(['/automations/connectors/internal'], {
+      state: {
         connectorExists: false, // Internal connector doesn't exist, so we're creating it
         connector: {
           title: 'DataGerryInternal',
@@ -343,53 +358,113 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Dynamic connector ID methods
+  getSourceConnectorId(): string {
+    const direction = this.form.get('direction')?.value;
+    const selectedConnectorId = this.form.get('connector')?.value;
+
+    if (!direction || !selectedConnectorId) {
+      return '';
+    }
+
+    if (direction === 'outgoing') {
+      // For outgoing, source is DataGerry (internal connector)
+      return this.internalConnectorDetails?.connectorId?.toString() || '';
+    } else {
+      // For incoming, source is the selected external connector
+      return selectedConnectorId.toString();
+    }
+  }
+
+  getTargetConnectorId(): string {
+    const direction = this.form.get('direction')?.value;
+    const selectedConnectorId = this.form.get('connector')?.value;
+
+    if (!direction || !selectedConnectorId) {
+      return '';
+    }
+
+    if (direction === 'outgoing') {
+      // For outgoing, target is the selected external connector
+      return selectedConnectorId.toString();
+    } else {
+      // For incoming, target is DataGerry (internal connector)
+      return this.internalConnectorDetails?.connectorId?.toString() || '';
+    }
+  }
+
+  // Handle connection changes from OC Editor Component
+  onConnectionChange(connection: any): void {
+    this.currentConnection = connection;
+  }
+
+  // Handle save connection event from OC Editor Component
+  onSaveConnection(connection: any): void {
+    this.currentConnection = connection;
+    this.save();
+  }
+
+  getUserToken(): string {
+    const token = this.authService.currentUserTokenValue?.token;
+    return token ? `Bearer ${token}` : '';
+  }
+
+  // Check if all required data for the editor is ready
+  isEditorDataReady(): boolean {
+    if (this.mode === 'edit') {
+      // For edit mode, we need initConnection, token, and data arrays
+      return !!this.initConnection &&
+        !!this.getUserToken() &&
+        this.templates.length > 0 &&
+        this.connectors.length > 0 &&
+        this.invokers.length > 0;
+    } else {
+      // For create mode, we need all the data arrays and token
+      return this.templates.length > 0 &&
+        this.connectors.length > 0 &&
+        this.invokers.length > 0 &&
+        !!this.internalConnectorDetails &&
+        !!this.getUserToken();
+    }
+  }
+
+  // Check if required form fields are filled (only for create mode)
+  areRequiredFieldsFilled(): boolean {
+    if (this.mode !== 'create') {
+      return true;
+    }
+
+    const name = this.form.get('name')?.value;
+    const direction = this.form.get('direction')?.value;
+
+    if (!name || !direction) {
+      return false;
+    }
+
+    if (this.showConnectorField) {
+      const connector = this.form.get('connector')?.value;
+      if (!connector) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   // Action methods
   private toPayload(): any {
     const v = this.form.value;
 
-    
-    const selectedConnector = this.connectors.find(c => c.connectorId === v.connector);
-    
-    if (!selectedConnector) {
-      throw new Error('Please select a connector');
+    if (!this.currentConnection) {
+      throw new Error('Connection data not available from OpenCelium editor');
     }
 
-    // Determine which connector to use for DataGerry (internal connector)
-    let datagerryConnector;
-    if (this.internalConnectorDetails) {
-      datagerryConnector = {
-        connectorId: this.internalConnectorDetails.connectorId,
-        invoker: { name: this.internalConnectorDetails.invoker.name },
-        icon: "",
-        methods: this.internalConnectorDetails.methods || [],
-        operators: this.internalConnectorDetails.operators || []
-      };
-    } 
 
-    // Build connection payload
+    // complete connection from opencelium editor, but override title and description from form
     const connectionPayload = {
+      ...this.currentConnection,
       title: v.name,
-      description: v.description,
-      fieldBinding: [],
-      fromConnector: v.direction === 'outgoing' 
-        ? datagerryConnector
-        : {
-            connectorId: selectedConnector.connectorId,
-            invoker: { name: selectedConnector.invoker.name },
-            icon: "",
-            methods: [],
-            operators: []
-          },
-      toConnector: v.direction === 'outgoing'
-        ? {
-            connectorId: selectedConnector.connectorId,
-            invoker: { name: selectedConnector.invoker.name },
-            icon: "",
-            methods: [],
-            operators: []
-          }
-        : datagerryConnector,
-      ui: null
+      description: v.description
     };
 
     // Build scheduler payload
@@ -400,17 +475,19 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       status: 1 // Active
     };
 
-
-
     return {
       connection: connectionPayload,
       scheduler: schedulerPayload
     };
   }
 
+  onEditorLoad(): void {
+    console.log('OC loaded')
+  }
+
   save(): void {
 
-    
+
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.toast.warning('Please fill in all required fields');
@@ -425,7 +502,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     try {
       const payload = this.toPayload();
-      
+
       const req$ = this.mode === 'create'
         ? this.svc.createAutomation(payload)
         : this.svc.updateAutomation(this.id!, payload);

@@ -24,7 +24,7 @@ from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
-from cmdb.errors.open_celium.template import OcTemplateGetError
+from cmdb.errors.open_celium.template import OcTemplateGetError, OcTemplateCreateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -40,14 +40,38 @@ class OcTemplateManager(OcBaseManager):
     Manages Templates of OpenCelium
     """
 
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+    def create_template(self, template_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Create an OcTemplate
+
+        Args:
+            template_data (dict[str, Any]): The data of the OcTemplate
+
+        Raises:
+            OcTemplateGetError: When the template_id was not provided
+            OcTemplateGetError: When retrieving the OcTemplate failed
+
+        Returns:
+            dict[str, Any]: The data of the created OcTemplate
+        """
+
+        target_template_response: Response = self.oc_connector.oc_post(template_data, TEMPLATE_URL)
+
+        if self.is_valid_response(target_template_response):
+            return json.loads(target_template_response.text)
+
+        raise OcTemplateCreateError("Failed to create the OpenCelium Template")
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_template_by_id(self, template_id: int) -> dict[str, Any]:
+    def get_template_by_id(self, template_id: str) -> dict[str, Any]:
         """
         Retrieves the OcTemplate with the given template_id
 
         Args:
-            template_id (int): templateId of the target OcTemplate
+            template_id (str): templateId of the target OcTemplate
 
         Raises:
             OcTemplateGetError: When the template_id was not provided
@@ -67,9 +91,13 @@ class OcTemplateManager(OcBaseManager):
         raise OcTemplateGetError(f"Failed to retrieve OpenCelium Template with ID: {template_id}")
 
 
-    def get_all_templates(self) -> Optional[list[dict[str, Any]]]:
+    def get_all_templates(self, from_connector: int = None, to_connector: int = None) -> Optional[list[dict[str, Any]]]:
         """
         Retrieves all busines templates from OpenCelium
+
+        Args:
+        from_connector_id (int): fromConnectorId
+        to_connector_id (int): toConnectorId
 
         Raises:
             OcTemplateGetError: When retrieving the OcTemplates failed
@@ -77,7 +105,13 @@ class OcTemplateManager(OcBaseManager):
         Returns:
             Optional[list[dict[str, Any]]]: list of all business templates from OpenCelium
         """
-        all_templates_response: Response = self.oc_connector.oc_get(ALL_TEMPLATES_URL)
+
+        target = ALL_TEMPLATES_URL
+
+        if from_connector and to_connector:
+            target = f"{ALL_TEMPLATES_URL}/{from_connector}/{to_connector}"
+
+        all_templates_response: Response = self.oc_connector.oc_get(target)
 
         # LOGGER.debug(f"[get_all_templates] response: {all_templates_response}")
         # LOGGER.debug(f"[get_all_templates] status_code: {all_templates_response.status_code}")
@@ -91,7 +125,8 @@ class OcTemplateManager(OcBaseManager):
                 # Filter DataGerry templates
                 datagerry_templates: list[dict[str, Any]] = [
                     t for t in templates
-                    if (
+                    if isinstance(t, dict)
+                    and (
                         t.get("connection", {}).get("fromConnector", {})
                         .get("invoker", {}).get("name") == "DataGerry"
                         or

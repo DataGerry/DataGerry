@@ -170,12 +170,10 @@ export class BuilderComponent implements OnDestroy, AfterViewChecked {
 
 
         if (!this.sections || !Array.isArray(this.sections)) {
-            console.error("Sections array is undefined or not an array, initializing...");
             this.sections = [];
         }
 
         if (!sectionData || typeof sectionData !== 'object') {
-            console.error("Dropped section data is invalid", event.data);
             return;
         }
 
