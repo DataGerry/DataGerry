@@ -21,6 +21,7 @@ import { Routes, RouterModule } from '@angular/router';
 import { LicensesComponent } from './licenses.component';
 import { LicenseOverviewComponent } from './components/license-overview/license-overview.component';
 import { LicenseResolver } from './services/license-resolver.service';
+import { cloudModeGuard } from 'src/app/modules/auth/guards/cloud-mode.guard';
 
 const routes: Routes = [
   {
@@ -30,6 +31,7 @@ const routes: Routes = [
       {
         path: '',
         component: LicenseOverviewComponent,
+        canActivate: [cloudModeGuard],
         resolve: {
           licenseData: LicenseResolver
         },

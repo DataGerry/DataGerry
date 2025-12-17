@@ -19,7 +19,6 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { PermissionGuard } from '../modules/auth/guards/permission.guard';
-import { cloudModeGuard, cloudModeChildGuard } from '../modules/auth/guards/cloud-mode.guard';
 
 import { UserSettingsResolver } from './user-settings/resolvers/user-settings-resolver.service';
 
