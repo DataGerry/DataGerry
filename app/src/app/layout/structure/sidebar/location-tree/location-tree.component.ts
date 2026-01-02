@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
 import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
@@ -63,6 +63,15 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     treeControl = new NestedTreeControl<LocationNode>(node => node.children);
     dataSource = new MatTreeNestedDataSource<LocationNode>();
 
+    /**
+     * Input for sidebar expansion state
+     */
+    @Input() isExpanded: boolean;
+
+    /**
+     * Output event for expand button click
+     */
+    @Output() expandClicked = new EventEmitter<void>();
 
     /**
      * used for highlighting the selected location
@@ -207,8 +216,15 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     /**
      * Updates status of all expanded locations and saves them
      */
-    public onExpandClicked() {
+    public onTreeExpandClicked() {
         this.treeManagerService.extractExpandedIds(this.treeControl.expansionModel.selected);
+    }
+
+    /**
+     * Emits expand event to parent component
+     */
+    public onSidebarExpandClicked() {
+        this.expandClicked.emit();
     }
 
     /**

@@ -50,8 +50,7 @@
               </ng-container>
         </div>
         <div class="sidebar-menu-categories" *ngIf="this.selectedMenu == 'locations'">
-          <button id="expand-button" (click)="onExpandClicked()"> {{!isExpanded ? 'Expand View' : 'Default View'}}</button>
-          <location-tree></location-tree>
+          <location-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()"></location-tree>
         </div>
       </li>
     </ul>

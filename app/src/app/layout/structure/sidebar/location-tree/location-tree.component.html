@@ -21,12 +21,23 @@
         </div>
     </div>
 
+
     <!-- Tree -->
     <div class="tree-scroll-area">
+        <button 
+        class="sidebar-expand-button"
+        (click)="onSidebarExpandClicked()"
+        [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
+        title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
+        <i class="fas fa-expand-alt" *ngIf="!isExpanded"></i>
+        <i class="fas fa-compress-alt" *ngIf="isExpanded"></i>
+    </button>
         <mat-tree 
             [dataSource]="dataSource" 
             [treeControl]="treeControl" 
             class="location-tree">
+
+
             
             <!-- Leaf Node -->
             <mat-tree-node 
@@ -60,7 +71,7 @@
                             class="expand-toggle"
                             [attr.aria-label]="'Toggle ' + node.name" 
                             [attr.aria-expanded]="treeControl.isExpanded(node)"
-                            (click)="onExpandClicked()">
+                            (click)="onTreeExpandClicked()">
                             <svg class="chevron-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
                                 <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>

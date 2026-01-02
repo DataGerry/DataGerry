@@ -103,10 +103,64 @@
 }
 
 /* ========================================================================== */
+/*                           SIDEBAR EXPAND BUTTON                            */
+/* ========================================================================== */
+
+.sidebar-expand-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06),
+                0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    i {
+        font-size: 14px;
+        color: #6b7280;
+        transition: color 0.2s ease;
+    }
+    
+    &:hover {
+        transform: scale(1.08);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1),
+                    0 2px 4px rgba(0, 0, 0, 0.06);
+        
+        i {
+            color: $dg-primary-color;
+        }
+    }
+    
+    &:active {
+        transform: scale(0.95);
+    }
+    
+    &:focus-visible {
+        outline: 2px solid $dg-primary-color;
+        outline-offset: 2px;
+    }
+}
+
+/* ========================================================================== */
 /*                            TREE SCROLL AREA                                */
 /* ========================================================================== */
 
 .tree-scroll-area {
+    position: relative;
+    padding-top: 8px;
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
@@ -137,7 +191,7 @@
 /* ========================================================================== */
 
 .location-tree {
-    padding: 4px 8px 16px;
+    padding: 44px 8px 16px 8px; 
     background: transparent;
     width: 100%;
     max-width: 100%;
