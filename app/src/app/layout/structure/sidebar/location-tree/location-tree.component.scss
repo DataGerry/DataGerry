@@ -446,3 +446,67 @@
         height: 40px;
     }
 }
+
+/* ========================================================================== */
+/*                            EXPANDED MODE STYLES                            */
+/* ========================================================================== */
+
+.tree-scroll-area.expanded-mode {
+    // In expanded mode, allow horizontal scroll if content overflows
+    overflow-x: auto;
+    overflow-y: auto;
+    
+    // Ensure tree container adapts to content width
+    .location-tree {
+        min-width: 100%;
+        width: max-content;
+        padding-right: 16px;
+    }
+    
+
+    .node-text {
+        white-space: nowrap;
+        overflow: visible;
+        text-overflow: clip;
+    }
+    
+    // Adjust node wrapper to not restrict width
+    .node-wrapper {
+        min-width: max-content;
+    }
+    
+    // Ensure parent nodes can expand fully
+    .parent-node {
+        .node-wrapper {
+            width: max-content;
+        }
+    }
+}
+
+/* ========================================================================== */
+/*                    HORIZONTAL SCROLLBAR STYLING                           */
+/* ========================================================================== */
+
+.tree-scroll-area.expanded-mode::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+}
+
+.tree-scroll-area.expanded-mode::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.tree-scroll-area.expanded-mode::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+    
+    &:hover {
+        background: #a8a8a8;
+    }
+}
+
+.tree-scroll-area.expanded-mode {
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+}

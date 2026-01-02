@@ -22,7 +22,7 @@
     </div>
 
     <!-- Tree -->
-    <div class="tree-scroll-area">
+    <div class="tree-scroll-area" [class.expanded-mode]="isExpanded">
         <button 
         class="sidebar-expand-button"
         (click)="onSidebarExpandClicked()"
