@@ -65,7 +65,9 @@ export class SidebarComponent implements OnInit, OnDestroy {
     // String representation of currently selected tab menu in sidebar (Default is Categories)
     selectedMenu: string;
 
-    isExpanded: boolean = false
+    // Sidebar expansion state
+    isExpanded: boolean = false;
+
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -136,16 +138,17 @@ export class SidebarComponent implements OnInit, OnDestroy {
      * Toggle the expansion state of the sidebar and dynamically update its width and related styles.
      * This function is called when the user clicks on the expand/collapse button.
      */
-    onExpandClicked() {
-
+    public onExpandClicked() {
         // Toggle the expansion state
         this.isExpanded = !this.isExpanded;
-
+        console.log('SidebarComponent: onExpandClicked called, isExpanded =', this.isExpanded);
+        
+        // Trigger change detection to update the view
+        this.cdRed.markForCheck();
+        
         // Dynamically set the width of the sidebar
         const newWidth = this.isExpanded ? '500px' : '230px';
         this.setSidebarWidth(newWidth);
-
-        // Update dynamic styles based on the new width
         this.updateDynamicStyles(newWidth);
     }
 
