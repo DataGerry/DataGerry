@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
@@ -84,10 +84,13 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     /* -------------------------------------------------------------------------- */
 
 
-    constructor(private locationService: LocationService,
+    constructor(
+        private locationService: LocationService,
         private treeManagerService: TreeManagerService,
         private objectService: ObjectService,
-        private route: Router) {
+        private route: Router,
+        private cdRef: ChangeDetectorRef
+    ) {
 
     }
 

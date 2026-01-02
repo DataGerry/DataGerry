@@ -21,7 +21,6 @@
         </div>
     </div>
 
-
     <!-- Tree -->
     <div class="tree-scroll-area">
         <button 
@@ -29,16 +28,14 @@
         (click)="onSidebarExpandClicked()"
         [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
         title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
-        <i class="fas fa-expand-alt" *ngIf="!isExpanded"></i>
-        <i class="fas fa-compress-alt" *ngIf="isExpanded"></i>
+        <i class="fas fa-expand" *ngIf="!isExpanded"></i>
+        <i class="fas fa-compress" *ngIf="isExpanded"></i>
     </button>
         <mat-tree 
             [dataSource]="dataSource" 
             [treeControl]="treeControl" 
             class="location-tree">
 
-
-            
             <!-- Leaf Node -->
             <mat-tree-node 
                 *matTreeNodeDef="let node" 

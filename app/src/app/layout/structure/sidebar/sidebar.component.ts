@@ -141,6 +141,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
     public onExpandClicked() {
         // Toggle the expansion state
         this.isExpanded = !this.isExpanded;
+        console.log('SidebarComponent: onExpandClicked called, isExpanded =', this.isExpanded);
+        
+        // Trigger change detection to update the view
+        this.cdRed.markForCheck();
         
         // Dynamically set the width of the sidebar
         const newWidth = this.isExpanded ? '500px' : '230px';
