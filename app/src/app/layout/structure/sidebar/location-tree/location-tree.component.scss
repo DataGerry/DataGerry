@@ -1,9 +1,5 @@
 @import 'src/scss/variables';
 
-/* ========================================================================== */
-/*                          CLEAN MODERN TREE DESIGN                          */
-/* ========================================================================== */
-
 .location-tree-container {
     display: flex;
     flex-direction: column;
@@ -110,8 +106,8 @@
     position: absolute;
     top: 10px;
     right: 10px;
-    width: 36px;
-    height: 36px;
+    width: 22px;
+    height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -191,7 +187,7 @@
 /* ========================================================================== */
 
 .location-tree {
-    padding: 44px 8px 16px 8px; 
+    padding: 16px 5px 8px 5px; 
     background: transparent;
     width: 100%;
     max-width: 100%;
@@ -210,13 +206,13 @@
 
 .tree-node {
     position: relative;
-    margin-bottom: 1px;
+    margin-bottom: 0px;
     width: 100%;
     
     .node-wrapper {
         display: flex;
         align-items: center;
-        min-height: 32px;
+        min-height: 28px;
         border-radius: 6px;
         transition: all 0.15s ease;
         position: relative;
@@ -285,14 +281,13 @@
 }
 
 .node-indent {
-    width: 28px;
+    width: 10px;
     flex-shrink: 0;
 }
 
 .expand-toggle {
-    width: 24px !important;
-    height: 24px !important;
-    min-width: 24px !important;
+    width: 16px !important;
+    height: 16px !important;
     padding: 0 !important;
     margin: 0 0px !important;
     display: flex;
@@ -332,9 +327,9 @@
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 5px;
-    min-height: 32px;
+    gap: 4px;
+    padding: 0 4px;
+    min-height: 25px;
     min-width: 0;
     cursor: pointer;
     user-select: none;
@@ -372,8 +367,8 @@
 /* ========================================================================== */
 
 .children-wrapper {
-    margin-left: 24px;
-    padding-left: 4px;
+    margin-left: 12px;
+    padding-left: 3px;
     position: relative;
     overflow: hidden;
     
