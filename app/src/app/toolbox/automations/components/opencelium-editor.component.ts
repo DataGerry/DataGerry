@@ -39,7 +39,6 @@ export class OpenCeliumEditorComponent
   private ConnectionEditor?: any;
 
   constructor(private host: ElementRef, private connectionService: ConnectionService) {
-    console.log('base url',this.connectionService.getApiBaseUrl()+'/rest/open_celium');
   }
 
   async ngAfterViewInit() {
