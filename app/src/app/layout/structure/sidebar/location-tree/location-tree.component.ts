@@ -77,7 +77,9 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      * used for highlighting the selected location
      */
     public selectedLocationID: number;
-    public searchString: string = '';
+    private _searchString: string = '';
+    public hasLocations: boolean = false;
+    public hasSearchResults: boolean = true;
 
     /* -------------------------------------------------------------------------- */
     /*                                LIFE - CYCLE                                */
@@ -117,6 +119,21 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     */
     handleSearchReset() {
         this.searchString = "";
+    }
+
+    /**
+     * Getter for search string
+     */
+    get searchString(): string {
+        return this._searchString;
+    }
+
+    /**
+     * Setter for search string that updates search results
+     */
+    set searchString(value: string) {
+        this._searchString = value;
+        this.updateSearchResults();
     }
 
 
@@ -181,9 +198,29 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
 
         this.locationService.getLocationsTree(params).pipe(takeUntil(this.unsubscribe))
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.dataSource.data = this.forceCast<LocationNode[]>(apiResponse.results);
+                const locations = this.forceCast<LocationNode[]>(apiResponse.results);
+                this.hasLocations = locations.length > 0;
+                this.dataSource.data = locations;
                 this.treeManagerService.expandNodes(this.dataSource.data, this.treeControl);
+                this.updateSearchResults();
             });
+    }
+
+    /**
+     * Update the search results flag based on current search string and data
+     */
+    private updateSearchResults(): void {
+        if (!this.searchString || !this.dataSource.data.length) {
+            this.hasSearchResults = true; // Show tree when no search or no data
+            return;
+        }
+        
+        // Check if any nodes match the search
+        const hasMatches = this.dataSource.data.some(node => 
+            !this.filterParentNode(node) || 
+            (node.children && node.children.some(child => !this.filterLeafNode(child)))
+        );
+        this.hasSearchResults = hasMatches;
     }
 
 

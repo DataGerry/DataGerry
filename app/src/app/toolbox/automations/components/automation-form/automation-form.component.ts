@@ -482,7 +482,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   onEditorLoad(): void {
-    console.log('OC loaded')
   }
 
   save(): void {
