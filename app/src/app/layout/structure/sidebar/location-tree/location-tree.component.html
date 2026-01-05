@@ -31,7 +31,22 @@
         <i class="fas fa-expand" *ngIf="!isExpanded"></i>
         <i class="fas fa-compress" *ngIf="isExpanded"></i>
     </button>
+        
+        <!-- Empty state: No locations configured -->
+        <div *ngIf="!hasLocations" class="empty-state-message">
+            <i class="fas fa-map-marker-alt"></i>
+            <span>No location was configured</span>
+        </div>
+
+        <!-- Empty state: No search results -->
+        <div *ngIf="hasLocations && searchString && !hasSearchResults" class="empty-state-message">
+            <i class="fas fa-search"></i>
+            <span>No location found.</span>
+        </div>
+
+        <!-- Tree (only show when there are locations and either no search or search has results) -->
         <mat-tree 
+            *ngIf="hasLocations && (!searchString || hasSearchResults)"
             [dataSource]="dataSource" 
             [treeControl]="treeControl" 
             class="location-tree">
