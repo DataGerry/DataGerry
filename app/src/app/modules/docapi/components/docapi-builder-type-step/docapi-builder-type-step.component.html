@@ -29,6 +29,13 @@
                     #typeparam
                     (formValidationEmitter)="typeChildValid = $event"
                 />
+                <cmdb-docapi-builder-type-step-object
+                    *ngSwitchCase="'DEFAULT'"
+                    [preData]="typeParamPreData"
+                    [mode]="mode"
+                    #typeparam
+                    (formValidationEmitter)="typeChildValid = $event"
+                />
             </ng-container>
         </div>
     </div>
