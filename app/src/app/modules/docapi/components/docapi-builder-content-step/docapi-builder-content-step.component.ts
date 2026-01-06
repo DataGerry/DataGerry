@@ -19,7 +19,6 @@ import { Component, Input } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 
 import { TemplateHelperService } from '../../../../settings/services/template-helper.service';
-
 import { CmdbMode } from '../../../../framework/modes.enum';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -43,8 +42,11 @@ export class DocapiBuilderContentStepComponent {
     @Input()
     set typeParam(data: any) {
         if (data) {
-            if (data.type) {
-                this.templateHelperService?.getObjectTemplateHelperData(data?.type).then(helperData => {
+            // Store the template type
+            this.templateType = data.templateType;
+            if (data.parameters?.type) {
+                // Pass the template type to the helper service
+                this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 3, this.templateType).then(helperData => {
                     this.templateHelperData = helperData;
                 });
             }
@@ -55,6 +57,8 @@ export class DocapiBuilderContentStepComponent {
     public modes = CmdbMode;
     public contentForm: UntypedFormGroup;
     public templateHelperData: any;
+    public templateType: string = 'OBJECT';
+
 
     public editorConfig = {
         base_url: '/tinymce',

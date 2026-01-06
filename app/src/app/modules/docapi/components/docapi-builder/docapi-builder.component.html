@@ -15,7 +15,7 @@
         </button>
     </aw-wizard-step>
 
-    <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = typeStep.typeParamComponent.typeParamForm.value">
+    <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = { templateType: typeStep.typeForm.get('template_type').value, parameters: typeStep.typeParamComponent?.typeParamForm?.value }">
         <ng-template awWizardStepSymbol>
             <i class="fas fa-cogs"></i>
         </ng-template>

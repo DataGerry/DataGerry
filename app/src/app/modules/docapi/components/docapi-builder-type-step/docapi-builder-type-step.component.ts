@@ -48,7 +48,8 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
     public modes = CmdbMode;
     public typeForm: UntypedFormGroup;
     public readonly docTypeSelect: any[] = [
-        { label: 'Object Template', content: 'OBJECT', description: 'Template for single objects' }
+        { label: 'Object Template', content: 'OBJECT', description: 'Template for single objects' },
+        { label: 'Default Template', content: 'DEFAULT', description: '' }
     ];
 
     @ViewChild('typeparam')
