@@ -1,17 +1,11 @@
 <div id="sidebar">
   <nav class="sidebar-nav">
     <ul class="nav">
-      <li class="nav-title" *ngIf="!isExpanded">General</li>
-      <li class="nav-item" *ngIf="!isExpanded">
-        <a class="nav-link" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
-          <fa-icon icon="tachometer-alt"></fa-icon>
-          Dashboard</a>
-      </li>
       <li class="nav-item" *ngIf="!isExpanded">
         <a *permissionLink="['base.framework.object.add']"
            class="nav-link" routerLink="/framework/object/add" routerLinkActive="active">
           <fa-icon icon="plus"></fa-icon>
-          Add Object</a>
+          Add new Object</a>
       </li>
       <li id="sidebar-categories" class="category-tree" *ngIf="categoryTree">
         <div *ngIf="!isExpanded">
