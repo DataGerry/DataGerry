@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,14 @@
 """
 Implementation of SystemConfigReader
 """
+import os
 from logging import Logger, getLogger
 from typing import Any, Optional
 import threading
 from requests import Response, delete, post, get, put
 from requests.exceptions import Timeout, RequestException
+
+from flask import current_app
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
@@ -42,35 +45,28 @@ class OcApiConnector:
     """
     Handles the OpenCelium connection
     """
-    # _instance: Optional["OcApiConnector"] = None
-
-    # _initialized: bool = False
     _lock = threading.Lock()
-
-# ------------------------------------------------------ DUNDERS ----------------------------------------------------- #
-
-    # def __new__(cls, dbm: MongoDatabaseManager, db_name: str) -> "OcApiConnector":
-    #     if cls._instance is None:
-    #         with cls._lock:
-    #             if cls._instance is None:  # double-checked locking
-    #                 cls._instance = super().__new__(cls)
-
-    #     return cls._instance
 
 
     def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
-        # if not self._initialized:
-        scr = SystemConfigReader()
+        if current_app.cloud_mode and not current_app.local_mode:
+            self.host: str = os.getenv('OC_HOST')
+            self.port = int(os.getenv('OC_PORT'))
+            self.protocol: str = os.getenv('OC_PROTOCOL')
+            self.email: str = os.getenv('OC_EMAIL')
+            self.user: str = os.getenv('OC_USER')
+            self.password: str = os.getenv('OC_PASSWORD')
+        else:
+            scr = SystemConfigReader()
+            self.host: str = scr.get_value("host", "OpenCelium")
+            self.port = int(scr.get_value("port", "OpenCelium"))
+            self.protocol: str = scr.get_value("protocol", "OpenCelium")
+            self.email: str = scr.get_value("email", "OpenCelium")
+            self.user: str = scr.get_value("user", "OpenCelium")
+            self.password: str = scr.get_value("password", "OpenCelium")
+
         self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
-        self.host: str = scr.get_value("host", "OpenCelium")
-        self.port = int(scr.get_value("port", "OpenCelium"))
-        self.protocol: str = scr.get_value("protocol", "OpenCelium")
-        self.email: str = scr.get_value("email", "OpenCelium")
-        self.user: str = scr.get_value("user", "OpenCelium")
-        self.password: str = scr.get_value("password", "OpenCelium")
         self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
-        # self.jwt_token: Optional[str] = None
-        self._initialized: bool = True
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -329,8 +325,6 @@ class OcApiConnector:
             response: Response = self.oc_post(payload, AUTH_URL, False)
 
             if response.status_code == 200:
-                # self.jwt_token = response.headers['Authorization']
-
                 oc_token_data = {
                     "_id": "oc_token",
                     "token":  response.headers['Authorization']
@@ -356,7 +350,6 @@ class OcApiConnector:
         }
 
         if with_auth:
-            # headers["Authorization"] = self.jwt_token
             headers["Authorization"] = self.get_jwt_token()
         if password:
             headers["X-Master-Password"] = password
