@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 This module contains the implementation of the CategoriesManager
 """
 import logging
+from typing import Optional, Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.errors.manager.manager_errors import BaseManagerDeleteError
@@ -43,32 +44,33 @@ LOGGER = logging.getLogger(__name__)
 class DocapiTemplatesManager(BaseManager):
     """
     The DocapiTemplatesManager handles the interaction between the DocapiTemplates-API and the database
+
     `Extends`: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: Optional[str] = None) -> None:
         """
         Set the database connection for the DocapiTemplatesManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (Optional[str]): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
         """
         super().__init__(DocapiTemplate.COLLECTION, dbm, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_template(self, data: DocapiTemplate | dict) -> int:
+    def insert_template(self, data: DocapiTemplate | dict[str, Any]) -> int:
         """
         Insert a new DocapiTemplate into the database
 
         Args:
-            `data` (DocapiTemplate | dict): The data of the new DocapiTemplate
+            data (DocapiTemplate | dict[str, Any]): The data of the new DocapiTemplate
 
         Raises:
-            `DocapiTemplatesManagerInsertError`: When the creation of DocapiTemplate failed
+            DocapiTemplatesManagerInsertError: When the creation of DocapiTemplate failed
 
         Returns:
-            `int`: public_id of the created DocapiTemplate
+            int: public_id of the created DocapiTemplate
         """
         try:
             if isinstance(data, dict):
@@ -78,7 +80,7 @@ class DocapiTemplatesManager(BaseManager):
 
             return self.insert(new_object.to_database())
         except Exception as err:
-            raise DocapiTemplatesManagerInsertError(err) from err
+            raise DocapiTemplatesManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -107,7 +109,7 @@ class DocapiTemplatesManager(BaseManager):
             DocapiTemplate: The requested DocapiTemplate
         """
         try:
-            result = self.get_one(public_id)
+            result: Optional[dict[str, Any]] = self.get_one(public_id)
 
             return DocapiTemplate(**result)
         except Exception as err:
@@ -183,9 +185,8 @@ class DocapiTemplatesManager(BaseManager):
                 raise DocapiTemplatesManagerGetError('More than 1 type matches this requirement')
 
             return None
-            # raise DocapiTemplatesManagerGetError('No document matches the filter!')
         except Exception as err:
-            raise DocapiTemplatesManagerGetError(err) from err
+            raise DocapiTemplatesManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -217,7 +218,7 @@ class DocapiTemplatesManager(BaseManager):
 
             return ack.acknowledged
         except Exception as err:
-            raise DocapiTemplatesManagerUpdateError(err) from err
+            raise DocapiTemplatesManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -237,4 +238,4 @@ class DocapiTemplatesManager(BaseManager):
         try:
             return self.delete({'public_id': public_id})
         except BaseManagerDeleteError as err:
-            raise DocapiTemplatesManagerDeleteError(err) from err
+            raise DocapiTemplatesManagerDeleteError(str(err)) from err

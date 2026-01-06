@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -27,6 +27,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     DocapiTemplatesManager,
     ObjectsManager,
+    TypesManager,
 )
 
 from cmdb.models.user_model import CmdbUser
@@ -74,6 +75,7 @@ def create_template(request_user: CmdbUser):
         `DefaultResponse`: True if insertion was succesful
     """
     try:
+        # LOGGER.debug("[create_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -83,6 +85,7 @@ def create_template(request_user: CmdbUser):
         new_tpl_data['public_id'] = docapi_manager.get_new_docapi_public_id()
         new_tpl_data['author_id'] = request_user.get_public_id()
 
+        # LOGGER.debug(f"new tempalte data: {new_tpl_data}")
         template_instance = DocapiTemplate(**new_tpl_data)
 
         ack = docapi_manager.insert_template(template_instance)
@@ -114,6 +117,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser):
         `GetMultiResponse`: All the DocapiTemplates matching the CollectionParameters
     """
     try:
+        # LOGGER.debug("[get_templates] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -154,6 +158,7 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser):
         `DefaultResponse`: All DocapiTemplates matching the searchfilter
     """
     try:
+        # LOGGER.debug("[get_template_list_filtered] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
         filterdict = json.loads(searchfilter)
@@ -187,6 +192,7 @@ def get_template(public_id: int, request_user: CmdbUser):
         `DefaultResponse`: The requested DocapiTemplate
     """
     try:
+        # LOGGER.debug("[get_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -219,6 +225,7 @@ def get_template_by_name(name: str, request_user: CmdbUser):
         `DefaultResponse`: The requested DocapiTemplate
     """
     try:
+        # LOGGER.debug("[get_template_by_name] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                                 request_user)
 
@@ -249,10 +256,12 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         Response: The rendered DocapiTemplate with the CmdbObject as a PDF-file
     """
     try:
+        # LOGGER.debug("[render_object_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                                 request_user)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         target_template = docapi_manager.get_template(public_id)
 
@@ -264,7 +273,13 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         if not target_object:
             abort(404, f"Object with ID: {object_id} for Template with ID: {public_id} not found!")
 
-        docapi_renderer = DocApiRenderer(objects_manager, target_template, CmdbObject.from_data(target_object))
+        docapi_renderer = DocApiRenderer(
+            objects_manager,
+            target_template,
+            CmdbObject.from_data(target_object),
+            types_manager
+        )
+
         output = docapi_renderer.render_object_template(request_user)
 
         return Response(
@@ -302,6 +317,7 @@ def update_template(request_user: CmdbUser):
         `DefaultResponse`: The updated DocapiTemplate
     """
     try:
+        # LOGGER.debug("[update_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -341,6 +357,7 @@ def delete_template(public_id: int, request_user: CmdbUser):
         `DefaultResponse`: True if deletion was successful
     """
     try:
+        # LOGGER.debug("[delete_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
