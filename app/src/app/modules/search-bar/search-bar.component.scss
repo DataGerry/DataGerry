@@ -1,6 +1,6 @@
 @import 'src/scss/variables';
 
-$search-bar-width: 100%;
+$search-bar-width: 90%;
 $search-input-font-size: 0.8rem;
 
 :host {
@@ -25,6 +25,7 @@ $search-input-font-size: 0.8rem;
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
+  margin-left: 25px;
 
   cmdb-search-bar-tags {
     position: relative;
