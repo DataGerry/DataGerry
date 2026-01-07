@@ -72,6 +72,7 @@ class ObjectTemplateData:
         # LOGGER.debug(f"cmdb_render_object.object_information: {cmdb_render_object.object_information}")
         data = {
             "id": cmdb_render_object.object_information.get("object_id"),
+            "public_id": cmdb_render_object.object_information.get("object_id"),
             "fields": {}
         }
 

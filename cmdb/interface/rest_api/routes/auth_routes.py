@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -126,7 +126,7 @@ def post_login() -> Response:
                 # There are either no subscriptions or something went wrong => failed path
                 else:
                     LOGGER.error("[post_login] Error: Invalid data. No subscriptions!")
-                    abort(401, "Invalid data. Could not login!")
+                    abort(401, "The user has no assigned subscription!")
 
                 user: dict[str, Any] | None = retrive_user(user_data, user_database)
 
@@ -201,6 +201,8 @@ def post_login() -> Response:
         except Exception as err: #pylint: disable=broad-exception-caught
             LOGGER.error("[post_login] Exception: %s, Type: %s", err, type(err))
             abort(500, "Could not login")
+    except HTTPException as http_err:
+        raise http_err
     except Exception as err:
         LOGGER.error("[post_login] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while validating the login data!")
