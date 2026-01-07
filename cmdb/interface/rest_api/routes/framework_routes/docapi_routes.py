@@ -19,7 +19,7 @@ Implementation of all API routes for DocapiTemplates
 from logging import Logger, getLogger
 import json
 from bson import json_util
-from flask import abort, request, Response
+from flask import abort, request
 from werkzeug.exceptions import HTTPException
 from werkzeug.wrappers.response import Response
 
