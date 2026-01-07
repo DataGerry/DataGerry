@@ -27,6 +27,7 @@ from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.default_template_data import DefaultTemplateData
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.models.user_model.cmdb_user import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class ObjectDocumentGenerator:
             doctype: PdfDocumentType,
             objects_manager: ObjectsManager,
             types_manager: TypesManager = None,
+            request_user: CmdbUser = None,
         ) -> None:
         """
         Initializes the ObjectDocumentGenerator
@@ -71,6 +73,7 @@ class ObjectDocumentGenerator:
         self.doctype = doctype
         self.objects_manager = objects_manager
         self.types_manager = types_manager
+        self.request_user: request_user
 
 
     def generate_doc(self) -> BytesIO:
@@ -90,7 +93,8 @@ class ObjectDocumentGenerator:
                 self.cmdb_render_object,
                 self.objects_manager,
                 self.types_manager,
-                template_str
+                template_str,
+                self.request_user
             ).get_template_data()
         else:
             template_data = ObjectTemplateData(self.cmdb_render_object, self.objects_manager).get_template_data()

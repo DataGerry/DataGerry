@@ -89,6 +89,7 @@ class DocApiRenderer:
                                             cmdb_render_object.result(),
                                             PdfDocumentType(),
                                             self.objects_manager,
-                                            self.types_manager)
+                                            self.types_manager,
+                                            request_user)
 
         return generator.generate_doc()
