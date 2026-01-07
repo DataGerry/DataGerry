@@ -18,7 +18,7 @@ Implementation of SystemConfigReader
 """
 import os
 from logging import Logger, getLogger
-from typing import Any, Optional
+from typing import Any
 import threading
 from requests import Response, delete, post, get, put
 from requests.exceptions import Timeout, RequestException
@@ -56,6 +56,8 @@ class OcApiConnector:
             self.email: str = os.getenv('OC_EMAIL')
             self.user: str = os.getenv('OC_USER')
             self.password: str = os.getenv('OC_PASSWORD')
+            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}"
+
         else:
             scr = SystemConfigReader()
             self.host: str = scr.get_value("host", "OpenCelium")
@@ -64,9 +66,9 @@ class OcApiConnector:
             self.email: str = scr.get_value("email", "OpenCelium")
             self.user: str = scr.get_value("user", "OpenCelium")
             self.password: str = scr.get_value("password", "OpenCelium")
+            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
 
         self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
-        self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -94,7 +96,7 @@ class OcApiConnector:
         return self.base_url
 
 
-    def get_jwt_token(self) -> Optional[str]:
+    def get_jwt_token(self) -> str | None:
         """
         Returns:
             str: Jwt Token of OpenCelium

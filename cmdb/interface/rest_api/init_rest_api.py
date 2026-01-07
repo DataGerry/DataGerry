@@ -16,7 +16,6 @@
 """
 Registration of all REST API Routes for the FlaskApp
 """
-import os
 import logging
 import sys
 import copy
@@ -122,14 +121,6 @@ def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
                 elif not cmdb.__LOCAL_MODE__:
                     # Check for updates in __CLOUD_MODE__
                     execute_update_checks(database_maanger)
-
-                    LOGGER.debug("-----[ENV VARIABLES]-----")
-                    LOGGER.debug(f"OC_HOST : {os.getenv('OC_HOST')}")
-                    LOGGER.debug(f"OC_PORT : {os.getenv('OC_PORT')}")
-                    LOGGER.debug(f"OC_PROTOCOL : {os.getenv('OC_PROTOCOL')}")
-                    LOGGER.debug(f"OC_EMAIL : {os.getenv('OC_EMAIL')}")
-                    LOGGER.debug(f"OC_USER : {os.getenv('OC_USER')}")
-                    LOGGER.debug(f"OC_PASSWORD : {os.getenv('OC_PASSWORD')}")
                 else:
                     # LOCAL_MODE
                     execute_update_checks(database_maanger, local_mode=True)

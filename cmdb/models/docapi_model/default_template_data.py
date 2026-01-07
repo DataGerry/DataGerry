@@ -18,11 +18,12 @@ Implementation of ObjectTemplateData
 """
 from logging import Logger, getLogger
 import re
-from typing import Dict, Set
+from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.type_model import CmdbType
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_result import RenderResult
@@ -41,27 +42,29 @@ REPORT_REGEX = re.compile(r"\{\{\s*report\((\d+)\)\s*\}\}")
 class DefaultTemplateData:
     """
     Prepares and retrieves template data for DEFAULT templates,
-    supporting explicit root object and future extensions for external objects, reports, and relations.
+    supporting explicit root object and extensions for external objects, reports, and relations.
     """
     def __init__(
             self,
             cmdb_render_object: RenderResult,
             objects_manager: ObjectsManager,
             types_manager: TypesManager,
-            template_string: str
+            template_string: str,
+            request_user: CmdbUser
         ) -> None:
         self.objects_manager = objects_manager
         self.types_manager = types_manager
         self.template_string = template_string
+        self.request_user = request_user
 
         # ------------------------------------------------------------------
         # Collect IDs from template
         # ------------------------------------------------------------------
-        self._external_object_ids: Set[int] = {
+        self._external_object_ids: set[int] = {
             int(m) for m in EXTERNAL_OBJECT_REGEX.findall(template_string)
         }
 
-        self._report_ids: Set[int] = {
+        self._report_ids: set[int] = {
             int(m) for m in REPORT_REGEX.findall(template_string)
         }
 
@@ -77,8 +80,8 @@ class DefaultTemplateData:
         # ------------------------------------------------------------------
         # Fetch external objects
         # ------------------------------------------------------------------
-        self._external_objects: Dict[int, dict] = {}
-        self._type_ids: Set[int] = set()
+        self._external_objects: dict[int, dict] = {}
+        self._type_ids: set[int] = set()
 
         if root_type_id:
             self._type_ids.add(root_type_id)
@@ -112,11 +115,14 @@ class DefaultTemplateData:
             "report": self._report_accessor(),
         }
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
 
-    def get_template_data(self) -> dict:
+    def get_template_data(self) -> dict[str, Any]:
+        """
+        Provides the processed template data
+
+        Returns:
+            dict[str, Any]: A dictionary with the values for the template building
+        """
         return self.template_data
 
     # ------------------------------------------------------------------ #
@@ -137,7 +143,7 @@ class DefaultTemplateData:
                     return None
 
                 object_type = CmdbType.from_data(object_type)
-                render = CmdbRender(cmdb_object, object_type, None, False)
+                render = CmdbRender(cmdb_object, object_type, self.request_user, False)
                 return ObjectTemplateData(
                     render.result(),
                     self.objects_manager
@@ -148,6 +154,7 @@ class DefaultTemplateData:
                 return None
 
         return _object_fn
+
 
     def _report_accessor(self):
         def _report_fn(public_id: int):

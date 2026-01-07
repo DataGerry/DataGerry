@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of CachedUserManager
 """
 from logging import Logger, getLogger
-from typing import Any, Optional
+from typing import Any
 from datetime import datetime, timezone
 
 from pymongo.results import UpdateResult
@@ -265,7 +265,7 @@ class CachedUserManager(GenericManager):
         return cached_user
 
 
-    def get_sub_by_db_name(self, user_data: dict[str, Any], db_name: str) -> Optional[dict[str, Any]]:
+    def get_sub_by_db_name(self, user_data: dict[str, Any], db_name: str) -> dict[str, Any] | None:
         """
         Returns the subscription where the provided database is used
 
@@ -274,7 +274,7 @@ class CachedUserManager(GenericManager):
             db_name (str): name of the database
 
         Returns:
-            Optional[dict[str, Any]]: The target subscription data if found
+            dict[str, Any] | None: The target subscription data if found
         """
         return next((sub for sub in user_data["subscriptions"] if sub["database"] == db_name), None)
 
@@ -320,17 +320,18 @@ class CachedUserManager(GenericManager):
         cached_user: dict[str, Any],
         db_name: str,
         id_type: CachedOcIdType
-    ) -> Optional[list[int]]:
+    ) -> list[int] | None:
         """
-
+        Return OpenCelium IDs of the given type for a database from cached user data
 
         Args:
-            cached_user (dict[str, Any]): _description_
-            db_name (str): _description_
-            id_type (CachedOcIdType): _description_
+            cached_user (dict[str, Any]): Cached user data with subscriptions
+            db_name (str): Database name to look up
+            id_type (CachedOcIdType): Type of OpenCelium IDs to retrieve
 
         Returns:
-            Optional[list[int]]: _description_
+            list[int] | None: List of integer IDs, an empty list if none are defined,
+            or None if the subscription or OpenCelium data is missing
         """
         target_sub: dict[str, Any] | None = self.get_sub_by_db_name(cached_user, db_name)
 
