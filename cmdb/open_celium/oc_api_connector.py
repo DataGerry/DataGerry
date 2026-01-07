@@ -102,7 +102,7 @@ class OcApiConnector:
         try:
             token_data: dict[str, Any] | None = self.settings_manager.get_all_values_from_section('oc_token')
             # LOGGER.debug(f"token_data: {token_data}")
-            token:str = token_data.get('token')
+            token: str = token_data.get('token')
         except Exception:
             return None
 
@@ -332,6 +332,7 @@ class OcApiConnector:
 
                 self.settings_manager.write(_id='oc_token', data=oc_token_data)
             else:
+                LOGGER.error("OC Auth error: [%s] %s", response.status_code, response.text)
                 raise AuthError("Authentication in OpenCelium failed!")
 
 

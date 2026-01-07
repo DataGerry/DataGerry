@@ -38,11 +38,22 @@ export class TemplateHelperService implements OnDestroy {
     return firstValueFrom(this.typeService.getType(typeID).pipe(takeUntil(this.subscriber)));
   }
 
-  public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3) {
+  public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3, templateType: string = 'OBJECT') {
     const templateHelperData = [];
+    // Generate Public ID placeholder based on template type
+    let publicIdTemplate: string;
+    if (templateType === 'DEFAULT') {
+      if (prefix) {
+        publicIdTemplate = '{{root.fields' + prefix + '[\'id\']}}';
+      } else {
+        publicIdTemplate = '{{root.public_id}}';
+      }
+    } else {
+      publicIdTemplate = (prefix ? '{{fields' + prefix + '[\'id\']}}' : '{{id}}');
+    }
     templateHelperData.push(({
       label: 'Public ID',
-      templatedata: (prefix ? '{{fields' + prefix + '[\'id\']}}' : '{{id}}')
+      templatedata: publicIdTemplate
     }) as TemplateHelpdataElement);
     await this.typeService.getType(typeId).subscribe({
       next: async (cmdbTypeObj) => {
@@ -66,17 +77,17 @@ export class TemplateHelperService implements OnDestroy {
           let subdata;
 
           if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
-            await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1).then(data => {
+            await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1, templateType).then(data => {
               subdata = data;
             });
           } else if (field.ref_types.length === 1) {
-            await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1).then(data => {
+            await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1, templateType).then(data => {
               subdata = data;
             });
           } else {
             subdata = [];
             await field.ref_types.forEach((type) => {
-              this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1).then(data => {
+              this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1, templateType).then(data => {
                 subdata.push(({
                   label: 'ref_type ' + type,
                   subdata: data
@@ -109,9 +120,15 @@ export class TemplateHelperService implements OnDestroy {
             for (const refFieldName of referenceFieldNames) {
               const refField = referenceType.fields.find(f => f.name === refFieldName);
               if (refField) {
+                let refFieldTemplate: string;
+                if (templateType === 'DEFAULT') {
+                  refFieldTemplate = (changedPrefix ? '{{root.fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{root.fields[\'' + refField.name + '\']}}');
+                } else {
+                  refFieldTemplate = (changedPrefix ? '{{fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{fields[\'' + refField.name + '\']}}');
+                }
                 referenceFields.push(({
                   label: refField.label,
-                  templatedata: (changedPrefix ? '{{fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{fields[\'' + refField.name + '\']}}')
+                  templatedata: refFieldTemplate
                 }) as TemplateHelpdataElement);
               }
             }
@@ -121,9 +138,16 @@ export class TemplateHelperService implements OnDestroy {
             }) as TemplateHelpdataElement);
           });
         } else {
+          // Generate field placeholder based on template type
+          let fieldTemplate: string;
+          if (templateType === 'DEFAULT') {
+            fieldTemplate = (prefix ? '{{root.fields' + prefix + '[\'fields\'][\'' + field.name + '\']}}' : '{{root.fields[\'' + field.name + '\']}}');
+          } else {
+            fieldTemplate = (prefix ? '{{fields' + prefix + '[\'fields\'][\'' + field.name + '\']}}' : '{{fields[\'' + field.name + '\']}}');
+          }
           templateHelperData.push(({
             label: field.label,
-            templatedata: (prefix ? '{{fields' + prefix + '[\'fields\'][\'' + field.name + '\']}}' : '{{fields[\'' + field.name + '\']}}')
+            templatedata: fieldTemplate
           }) as TemplateHelpdataElement);
         }
       }

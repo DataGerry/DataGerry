@@ -109,7 +109,6 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
         const options = this.getBaseOptions();
 
         const searchfilter = {
-            template_type: 'OBJECT',
             template_parameters: { type: typeId }
         };
 

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,10 +20,10 @@ import time
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __title__ = 'DataGerry'
-__version__ = '3.0.0'
+__version__ = '3.1.0'
 __author__ = 'becon GmbH'
 __license__ = 'AGPLv3'
-__copyright__ = 'Copyright 2025 becon GmbH'
+__copyright__ = 'Copyright 2026 becon GmbH'
 __runtime__: float = time.time()
 __MODE__ = 'INFO'
 __CLOUD_MODE__ = False

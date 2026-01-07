@@ -23,141 +23,137 @@ from typing import Dict, Set
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
+from cmdb.models.type_model import CmdbType
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_result import RenderResult
-
+from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-EXTERNAL_OBJECT_REGEX = re.compile(r"object\(\s*(\d+)\s*\)")
-
+EXTERNAL_OBJECT_REGEX = re.compile(r"\{\{\s*object\((\d+)\)")
+REPORT_REGEX = re.compile(r"\{\{\s*report\((\d+)\)\s*\}\}")
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              DefaultTemplateData - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
-class DefaultTemplateData(ObjectTemplateData):
+class DefaultTemplateData:
     """
     Prepares and retrieves template data for DEFAULT templates,
     supporting explicit root object and future extensions for external objects, reports, and relations.
     """
     def __init__(
-        self,
-        cmdb_render_object: RenderResult,
-        objects_manager: ObjectsManager,
-        types_manager: TypesManager,
-        template_string: str
-    ) -> None:
-        # Call base class to extract root object data
-        super().__init__(cmdb_render_object, objects_manager)
+            self,
+            cmdb_render_object: RenderResult,
+            objects_manager: ObjectsManager,
+            types_manager: TypesManager,
+            template_string: str
+        ) -> None:
+        self.objects_manager = objects_manager
+        self.types_manager = types_manager
+        self.template_string = template_string
 
-        self.objects_manager: ObjectsManager = objects_manager
-        self.types_manager: TypesManager = types_manager
+        # ------------------------------------------------------------------
+        # Collect IDs from template
+        # ------------------------------------------------------------------
+        self._external_object_ids: Set[int] = {
+            int(m) for m in EXTERNAL_OBJECT_REGEX.findall(template_string)
+        }
 
-        # Internal caches
-        self._external_object_ids: Set[int] = set()
+        self._report_ids: Set[int] = {
+            int(m) for m in REPORT_REGEX.findall(template_string)
+        }
+
+        # ------------------------------------------------------------------
+        # Root object (already rendered)
+        # ------------------------------------------------------------------
+        self._root_data = ObjectTemplateData(
+            cmdb_render_object,
+            self.objects_manager
+        ).get_template_data()
+
+        root_type_id = cmdb_render_object.type_information.get("type_id")
+        # ------------------------------------------------------------------
+        # Fetch external objects
+        # ------------------------------------------------------------------
+        self._external_objects: Dict[int, dict] = {}
         self._type_ids: Set[int] = set()
 
-        # ---- ROOT DATA -----------------------------------------------------
-        # Base class already extracted root object data into self.template_data
-        root_data = self.template_data
-
-        root_type_id = cmdb_render_object.object_information.get("type_id")
         if root_type_id:
             self._type_ids.add(root_type_id)
 
-        # Wrap root explicitly
+        if self._external_object_ids:
+            cursor = self.objects_manager.find(
+                criteria={"public_id": {"$in": list(self._external_object_ids)}}
+            )
+            for obj in cursor:
+                self._external_objects[obj["public_id"]] = obj
+                if obj.get("type_id"):
+                    self._type_ids.add(obj["type_id"])
+
+        # ------------------------------------------------------------------
+        # Fetch types (cached)
+        # ------------------------------------------------------------------
+        self._type_cache = {}
+
+        if self._type_ids:
+            cursor = self.types_manager.find(
+                criteria={"public_id": {"$in": list(self._type_ids)}}
+            )
+
+            self._type_cache = {t["public_id"]: t for t in cursor}
+        # ------------------------------------------------------------------
+        # Build final template data
+        # ------------------------------------------------------------------
         self.template_data = {
-            "root": root_data,
-            "objects": {},
-            "reports": {},
+            "root": self._root_data,
+            "object": self._object_accessor(),
+            "report": self._report_accessor(),
         }
 
-        # ---- EXTERNAL OBJECTS ---------------------------------------------
-        self._collect_external_object_ids(template_string)
-        self._collect_type_ids_from_objects()
-        self._type_cache = self._fetch_types()
-        self._populate_external_objects()
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
 
-    # ---------------------------------------------------------------------
-    # External object handling
-    # ---------------------------------------------------------------------
+    def get_template_data(self) -> dict:
+        return self.template_data
 
-    def _collect_external_object_ids(self, template_string: str) -> None:
-        """
-        Scans the template for external object placeholders
-        and populates `_external_object_ids`.
-        """
-        matches = EXTERNAL_OBJECT_REGEX.findall(template_string)
-        self._external_object_ids = {int(public_id) for public_id in matches}
+    # ------------------------------------------------------------------ #
+    # Jinja accessors
+    # ------------------------------------------------------------------ #
 
+    def _object_accessor(self):
+        def _object_fn(public_id: int):
+            obj_data = self._external_objects.get(public_id)
+            if not obj_data:
+                return None
 
-    def _collect_type_ids_from_objects(self) -> None:
-        """
-        Collects type_ids from all external objects so they can be fetched in bulk.
-        """
-        if not self._external_object_ids:
-            return
-
-        cursor = self.objects_manager.find(
-            criteria={"public_id": {"$in": list(self._external_object_ids)}}
-        )
-
-        for obj in cursor:
-            type_id = obj.get("type_id")
-            if type_id:
-                self._type_ids.add(type_id)
-
-
-    def _fetch_types(self) -> Dict[int, dict]:
-        """
-        Fetch all required types in one call and cache them.
-        """
-        if not self._type_ids:
-            return {}
-
-        cursor = self.types_manager.find(
-            criteria={"public_id": {"$in": list(self._type_ids)}}
-        )
-
-        return {t["public_id"]: t for t in cursor}
-
-
-    def _populate_external_objects(self) -> None:
-        """
-        Resolves all external objects and renders them like the root object.
-        """
-        if not self._external_object_ids:
-            return
-
-        cursor = self.objects_manager.find(
-            criteria={"public_id": {"$in": list(self._external_object_ids)}}
-        )
-
-        for obj_data in cursor:
             try:
                 cmdb_object = CmdbObject.from_data(obj_data)
-                type_id = cmdb_object.get_type_id()
-                object_type = self._type_cache.get(type_id)
+                object_type = self._type_cache.get(cmdb_object.get_type_id())
 
                 if not object_type:
-                    LOGGER.warning(
-                        "Type %s not found for object %s",
-                        type_id,
-                        cmdb_object.get_public_id(),
-                    )
-                    continue
+                    return None
 
+                object_type = CmdbType.from_data(object_type)
                 render = CmdbRender(cmdb_object, object_type, None, False)
-                rendered_data = self.extract_object_data(render.result(), depth=3)
-
-                self.template_data["objects"][cmdb_object.get_public_id()] = rendered_data
+                return ObjectTemplateData(
+                    render.result(),
+                    self.objects_manager
+                ).get_template_data()
 
             except ObjectsManagerGetError:
-                LOGGER.error(
-                    "Failed to retrieve external object %s", obj_data.get("public_id")
-                )
-            except Exception as err:
-                LOGGER.exception(err)
+                LOGGER.error("Failed to resolve external object %s", public_id)
+                return None
+
+        return _object_fn
+
+    def _report_accessor(self):
+        def _report_fn(public_id: int):
+            if public_id not in self._report_ids:
+                return None
+            # backend resolves report later
+            return {"public_id": public_id}
+
+        return _report_fn
