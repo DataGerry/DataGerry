@@ -126,11 +126,14 @@ export class AutomationsListComponent implements OnInit {
     this.automationsService?.getAutomations()?.subscribe({
       next: (automations) => {
         // Map automations to add direction information
-        this.automations = automations?.map(automation => ({
+        const list = Array.isArray(automations) ? automations : [];
+
+        this.automations = list?.map(automation => ({
           ...automation,
           direction: this.getDirection(automation)
         }));
-        this.totalAutomations = automations?.length;
+      
+        this.totalAutomations = list?.length;
         this.loading = false;
         this.loaderService.hide();
       },
