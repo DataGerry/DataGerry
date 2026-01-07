@@ -123,14 +123,14 @@ export class AutomationsListComponent implements OnInit {
     this.loading = true;
     this.loaderService.show();
 
-    this.automationsService.getAutomations().subscribe({
+    this.automationsService?.getAutomations()?.subscribe({
       next: (automations) => {
         // Map automations to add direction information
-        this.automations = automations.map(automation => ({
+        this.automations = automations?.map(automation => ({
           ...automation,
           direction: this.getDirection(automation)
         }));
-        this.totalAutomations = automations.length;
+        this.totalAutomations = automations?.length;
         this.loading = false;
         this.loaderService.hide();
       },
@@ -144,8 +144,8 @@ export class AutomationsListComponent implements OnInit {
 
 
   private getDirection(automation: any): string {
-    const fromConnector = automation.connection?.fromConnector;
-    const toConnector = automation.connection?.toConnector;
+    const fromConnector = automation?.connection?.fromConnector;
+    const toConnector = automation?.connection?.toConnector;
 
     if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title !== 'DataGerryInternal') {
       return 'outgoing';
@@ -166,7 +166,7 @@ export class AutomationsListComponent implements OnInit {
     // Show loading state
     this.loaderService.show();
 
-    this.automationsService.getConnection(connectionId).subscribe({
+    this.automationsService?.getConnection(connectionId)?.subscribe({
       next: (connectionData) => {
         // Create updated automation with full connection data
         const updatedAutomation = {
@@ -195,7 +195,7 @@ export class AutomationsListComponent implements OnInit {
         itemType: 'Automation',
         itemName: automation.connection?.title || automation.scheduler?.title || automation.name,
         onConfirm: () => {
-          this.automationsService.deleteAutomation(schedulerId).subscribe({
+          this.automationsService?.deleteAutomation(schedulerId)?.subscribe({
             next: () => { this.toast.success('Automation deleted successfully'); this.loadAutomations(); },
             error: () => this.toast.error('Delete failed')
           });
@@ -208,7 +208,7 @@ export class AutomationsListComponent implements OnInit {
   executeScheduler(schedulerId: any): void {
     this.isExecuting = schedulerId;
 
-    this.automationsService.executeScheduler(schedulerId).subscribe({
+    this.automationsService?.executeScheduler(schedulerId)?.subscribe({
       next: () => {
         this.toast.success('Automation execution started');
         this.isExecuting = null;
@@ -253,7 +253,7 @@ export class AutomationsListComponent implements OnInit {
 
   // Helper method to get last success display data
   getLastSuccessDisplay(automation: any): { date: string, taId: string } {
-    const success = automation.lastExecution?.success;
+    const success = automation?.lastExecution?.success;
     if (!success) {
       return { date: '-', taId: '' };
     }
@@ -266,7 +266,7 @@ export class AutomationsListComponent implements OnInit {
 
   // Helper method to get last fail display data
   getLastFailDisplay(automation: any): { date: string, taId: string } {
-    const fail = automation.lastExecution?.fail;
+    const fail = automation?.lastExecution?.fail;
     if (!fail) {
       return { date: '-', taId: '' };
     }
@@ -279,8 +279,8 @@ export class AutomationsListComponent implements OnInit {
 
   // Helper method to get last duration
   getLastDuration(automation: any): string {
-    const success = automation.lastExecution?.success;
-    const fail = automation.lastExecution?.fail;
+    const success = automation?.lastExecution?.success;
+    const fail = automation?.lastExecution?.fail;
 
     if (success?.duration) {
       return `${success.duration}ms`;

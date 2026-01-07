@@ -26,7 +26,6 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CoreDeleteConfirmationModalComponent } from '../dialog/delete-dialog/core-delete-confirmation-modal.component';
 
-// (Optional) Just a small helper so we can display the item name (e.g. "Category", "Status", "Tag", etc.)
 const DEFAULT_MODAL_TITLE = 'Manage Options';
 
 @Component({

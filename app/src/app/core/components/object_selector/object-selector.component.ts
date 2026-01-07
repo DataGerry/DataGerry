@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, OnChanges, SimpleChanges } from '@angular/core';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -32,13 +32,16 @@ import { FilterBuilderService } from 'src/app/core/services/filter-builder.servi
     styleUrls: ['./object-selector.component.scss'],
     standalone: false
 })
-export class ObjectSelectorComponent implements OnInit {
+export class ObjectSelectorComponent implements OnInit, OnChanges {
   @Input() typeIds: number[] = [];
   @Input() multiple = false;
   @Input() selectedIds: any[] = [];
   @Input() isViewMode = false;
   @Input() useInlineLoader = false;
+  @Input() includeFields = false;
+  @Input() closeOnSelect = false;
   @Output() selectionChange = new EventEmitter<number[]>();
+  @Output() fullSelectionChange = new EventEmitter<RenderResult | RenderResult[] | null>();
   @Output() loadingChange = new EventEmitter<boolean>();
 
   public objectList: RenderResult[] = [];
@@ -80,6 +83,13 @@ export class ObjectSelectorComponent implements OnInit {
     });
 
     this.fetchObjects();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    // If typeIds change (and it's not the first change), refetch objects
+    if (changes.typeIds && !changes.typeIds.firstChange) {
+      this.fetchObjects(true);
+    }
   }
 
   private fetchObjects(resetPagination: boolean = true): void {
@@ -230,14 +240,21 @@ export class ObjectSelectorComponent implements OnInit {
       filters.push({ $match: { public_id: { $in: this.selectedIds } } });
     }
 
+    const baseProjection: any = {
+      'object_information.object_id': 1,
+      'object_information.public_id': 1,
+      'summary_line': 1,
+      'type_information': 1
+    };
+
+    // Conditionally include fields if requested
+    if (this.includeFields) {
+      baseProjection['fields'] = 1;
+    }
+
     this.params = {
       filter: filters,
-      projection: {
-        'object_information.object_id': 1,
-        'object_information.public_id': 1,
-        'summary_line': 1,
-        'type_information': 1
-      },
+      projection: baseProjection,
       limit: this.isSearching ? 0 : this.pageSize, // In search mode, get all results
       sort: 'public_id',
       order: 1,
@@ -355,6 +372,7 @@ export class ObjectSelectorComponent implements OnInit {
     if (!selectedValue) {
       this.selectedObjects = this.multiple ? [] : null;
       this.selectionChange.emit([]);
+      this.fullSelectionChange.emit(null);
       return;
     }
   
@@ -364,6 +382,7 @@ export class ObjectSelectorComponent implements OnInit {
         this.selectedObjects = selectedValue; // Type: RenderResult[]
         const idArray = selectedValue.map(obj => obj.object_information.object_id);
         this.selectionChange.emit(idArray);
+        this.fullSelectionChange.emit(selectedValue);
       } else {
       }
     }
@@ -372,6 +391,7 @@ export class ObjectSelectorComponent implements OnInit {
       if (!Array.isArray(selectedValue)) {
         this.selectedObjects = selectedValue; // Type: RenderResult
         this.selectionChange.emit([selectedValue.object_information.object_id]);
+        this.fullSelectionChange.emit(selectedValue);
       } else {
       }
     }
