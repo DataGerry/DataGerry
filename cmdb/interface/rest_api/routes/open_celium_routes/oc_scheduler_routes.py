@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -388,11 +388,15 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
                     request_user.database
                 )
 
-            schedulers = oc_scheduler_manager.get_schedulers_by_ids(scheduler_ids)
+            schedulers = None
 
-            # Unmap for UI
-            for sched in schedulers:
-                sched["title"] = unmap_oc_name(sched["title"])
+            if scheduler_ids:
+                schedulers = oc_scheduler_manager.get_schedulers_by_ids(scheduler_ids)
+
+                # Unmap for UI
+                for sched in schedulers:
+                    sched["title"] = unmap_oc_name(sched["title"])
+
 
         # ------------------------------------------------------------
         # LOCAL MODE → Retrieve all schedulers

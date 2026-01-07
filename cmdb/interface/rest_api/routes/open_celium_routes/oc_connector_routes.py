@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -564,12 +564,15 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
                     request_user.database
                 )
 
-            # Retrieve connectors by IDs
-            connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
+            connectors = None
 
-            # Unmap titles for cloud mode
-            for a_connector in connectors:
-                a_connector['title'] = unmap_oc_name(a_connector['title'])
+            if connector_ids:
+                # Retrieve connectors by IDs
+                connectors = oc_connector_manager.get_connectors_by_ids(connector_ids)
+
+                # Unmap titles for cloud mode
+                for a_connector in connectors:
+                    a_connector['title'] = unmap_oc_name(a_connector['title'])
 
         # -----------------------------
         # 2) LOCAL MODE → retrieve all
