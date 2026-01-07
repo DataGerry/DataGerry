@@ -32,27 +32,23 @@ const routes: Routes = [
       { 
         path: '', 
         component: ConnectorsListComponent,
-        canActivate: [cloudModeGuard],
         data: { breadcrumb: 'Connectors' }
       },
       {
         path: 'add',
         component: ConnectorFormComponent,
-        canActivate: [cloudModeGuard],
         resolve: { invokers: ConnectorsResolver },
         data: { mode: 'create', breadcrumb: 'Create Connector' }
       },
       {
         path: 'edit/:id',
         component: ConnectorFormComponent,
-        canActivate: [cloudModeGuard],
         resolve: { invokers: ConnectorsResolver },
         data: { mode: 'edit', breadcrumb: 'Edit Connector' }
       },
       {
         path: 'internal',
         component: ConnectorFormComponent,
-        canActivate: [cloudModeGuard],
         data: { mode: 'internal', breadcrumb: 'DataGerry Internal' }
       }
     ]
