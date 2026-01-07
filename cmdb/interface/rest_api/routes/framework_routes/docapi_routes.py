@@ -16,11 +16,12 @@
 """
 Implementation of all API routes for DocapiTemplates
 """
-import logging
+from logging import Logger, getLogger
 import json
 from bson import json_util
 from flask import abort, request, Response
 from werkzeug.exceptions import HTTPException
+from werkzeug.wrappers.response import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
@@ -50,7 +51,7 @@ from cmdb.errors.manager.docapi_templates_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 docapi_blueprint = RootBlueprint('docapi', __name__, url_prefix='/docapi')
 
@@ -64,7 +65,7 @@ docs_blueprint = APIBlueprint('docs', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.add')
-def create_template(request_user: CmdbUser):
+def create_template(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a DocapiTemplate into the database
 
@@ -75,7 +76,6 @@ def create_template(request_user: CmdbUser):
         `DefaultResponse`: True if insertion was succesful
     """
     try:
-        # LOGGER.debug("[create_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -105,7 +105,7 @@ def create_template(request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @docs_blueprint.protect(auth=True, right='base.docapi.template.view')
 @docs_blueprint.parse_collection_parameters()
-def get_templates(params: CollectionParameters, request_user: CmdbUser):
+def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple DocapiTemplates
 
@@ -117,7 +117,6 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser):
         `GetMultiResponse`: All the DocapiTemplates matching the CollectionParameters
     """
     try:
-        # LOGGER.debug("[get_templates] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -146,7 +145,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.view')
-def get_template_list_filtered(searchfilter: str, request_user: CmdbUser):
+def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for getting multiple DocapiTemplates filtered by the searchfilter
 
@@ -158,7 +157,6 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser):
         `DefaultResponse`: All DocapiTemplates matching the searchfilter
     """
     try:
-        # LOGGER.debug("[get_template_list_filtered] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
         filterdict = json.loads(searchfilter)
@@ -198,9 +196,7 @@ def get_template(public_id: int, request_user: CmdbUser):
 
         tpl = docapi_manager.get_template(public_id)
 
-        api_response = DefaultResponse(tpl)
-
-        return api_response.make_response()
+        return DefaultResponse(tpl).make_response()
     except DocapiTemplatesManagerGetError as err:
         LOGGER.error("[get_template] %s", err, exc_info=True)
         abort(404, "Could not retrieve the  requested template!")
@@ -225,7 +221,6 @@ def get_template_by_name(name: str, request_user: CmdbUser):
         `DefaultResponse`: The requested DocapiTemplate
     """
     try:
-        # LOGGER.debug("[get_template_by_name] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                                 request_user)
 
@@ -256,7 +251,6 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         Response: The rendered DocapiTemplate with the CmdbObject as a PDF-file
     """
     try:
-        # LOGGER.debug("[render_object_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                                 request_user)
 
@@ -317,7 +311,6 @@ def update_template(request_user: CmdbUser):
         `DefaultResponse`: The updated DocapiTemplate
     """
     try:
-        # LOGGER.debug("[update_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
@@ -345,27 +338,24 @@ def update_template(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.delete')
-def delete_template(public_id: int, request_user: CmdbUser):
+def delete_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single DocapiTemplate
 
     Args:
-        `public_id` (int): public_id of the DocapiTemplate which should be deleted
-        `request_user` (CmdbUser): User requesting this data
+        public_id (int): public_id of the DocapiTemplate which should be deleted
+        request_user (CmdbUser): User requesting this data
 
     Returns:
-        `DefaultResponse`: True if deletion was successful
+        DefaultResponse: True if deletion was successful
     """
     try:
-        # LOGGER.debug("[delete_template] called")
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
         ack = docapi_manager.delete_template(public_id)
 
-        api_response = DefaultResponse(ack)
-
-        return api_response.make_response()
+        return DefaultResponse(ack).make_response()
     except DocapiTemplatesManagerDeleteError as err:
         LOGGER.error("[delete_template] %s", err, exc_info=True)
         abort(400, "Could not delete the template!")

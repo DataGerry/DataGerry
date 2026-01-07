@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -81,7 +81,6 @@ class CmdbRender:
             ref_render (bool, optional): Flag to enable reference rendering. Defaults to False
             dbm (MongoDatabaseManager, optional): Database manager. Defaults to None
         """
-        self.database: str = render_user.database
         self.object_instance: CmdbObject = object_instance
         self.type_instance: CmdbType = type_instance
         self.render_user: CmdbUser = render_user

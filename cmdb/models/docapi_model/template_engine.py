@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -50,6 +50,18 @@ class TemplateEngine:
         """
         # Initialize the Jinja2 environment with ChainableUndefined to handle undefined variables gracefully
         environment = Environment(undefined=ChainableUndefined)
+
+        # ---- REGISTER FUNCTIONS ----
+        environment.globals["object"] = lambda public_id: (
+            template_data.get("objects", {}).get(public_id)
+        )
+
+        environment.globals["root"] = template_data.get("root")
+
+        # reports
+        environment.globals["report"] = lambda public_id: (
+            template_data.get("reports", {}).get(public_id)
+        )
 
         # Load the template string into the Jinja2 environment
         template = environment.from_string(template_string)
