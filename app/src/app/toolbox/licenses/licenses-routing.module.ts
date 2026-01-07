@@ -31,7 +31,6 @@ const routes: Routes = [
       {
         path: '',
         component: LicenseOverviewComponent,
-        canActivate: [cloudModeGuard],
         resolve: {
           licenseData: LicenseResolver
         },
