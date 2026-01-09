@@ -33,6 +33,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../models/connector.model';
 import { Invoker } from '../../models/invoker.model';
+import { environment } from 'src/environments/environment';
 
 
 @Component({
@@ -399,8 +400,11 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       url: ['', Validators.required],
       username: ['', Validators.required],
       password: ['', Validators.required]
-    });
+    }) as FormGroup;
 
+    if (environment.cloudMode) {
+      newGroup.addControl('x-api-key', new FormControl('', Validators.required));
+    }
     
     this.form.setControl('requestData', newGroup);
   }
