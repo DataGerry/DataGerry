@@ -19,7 +19,7 @@ Implementation of the DocApiRenderer in DataGerry
 import logging
 from io import BytesIO
 
-from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager import ObjectsManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
@@ -45,7 +45,6 @@ class DocApiRenderer:
             objects_manager: ObjectsManager,
             target_template: DocapiTemplate,
             target_object: CmdbObject,
-            types_manager: TypesManager = None
         ) -> None:
         """
         Initializes the DocApiRenderer
@@ -57,7 +56,6 @@ class DocApiRenderer:
         self.target_template = target_template
         self.target_object = target_object
         self.objects_manager = objects_manager
-        self.types_manager = types_manager
 
 
     def render_object_template(self, request_user: CmdbUser = None) -> BytesIO:
@@ -89,7 +87,6 @@ class DocApiRenderer:
                                             cmdb_render_object.result(),
                                             PdfDocumentType(),
                                             self.objects_manager,
-                                            self.types_manager,
                                             request_user)
 
         return generator.generate_doc()

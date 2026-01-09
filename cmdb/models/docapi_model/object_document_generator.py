@@ -19,7 +19,7 @@ Represents an ObjectDocumentGenerator in DataGerry
 import logging
 from io import BytesIO
 
-from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager import ObjectsManager
 
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.docapi_model.template_engine import TemplateEngine
@@ -56,7 +56,6 @@ class ObjectDocumentGenerator:
             cmdb_render_object: RenderResult,
             doctype: PdfDocumentType,
             objects_manager: ObjectsManager,
-            types_manager: TypesManager = None,
             request_user: CmdbUser = None,
         ) -> None:
         """
@@ -68,12 +67,11 @@ class ObjectDocumentGenerator:
             doctype (PdfDocumentType): The document type that determines the final output format
             objects_manager (ObjectsManager): The manager responsible for CmdbObject operations
         """
-        self.template = template
-        self.cmdb_render_object = cmdb_render_object
-        self.doctype = doctype
-        self.objects_manager = objects_manager
-        self.types_manager = types_manager
-        self.request_user: request_user
+        self.template: DocapiTemplate = template
+        self.cmdb_render_object: RenderResult = cmdb_render_object
+        self.doctype: PdfDocumentType = doctype
+        self.objects_manager: ObjectsManager = objects_manager
+        self.request_user: CmdbUser = request_user
 
 
     def generate_doc(self) -> BytesIO:
@@ -91,8 +89,6 @@ class ObjectDocumentGenerator:
         if self.template.template_type == "DEFAULT":
             template_data = DefaultTemplateData(
                 self.cmdb_render_object,
-                self.objects_manager,
-                self.types_manager,
                 template_str,
                 self.request_user
             ).get_template_data()
