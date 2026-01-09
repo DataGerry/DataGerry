@@ -28,7 +28,6 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     DocapiTemplatesManager,
     ObjectsManager,
-    TypesManager,
 )
 
 from cmdb.models.user_model import CmdbUser
@@ -255,7 +254,6 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
                                                                                 request_user)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         target_template = docapi_manager.get_template(public_id)
 
@@ -270,8 +268,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         docapi_renderer = DocApiRenderer(
             objects_manager,
             target_template,
-            CmdbObject.from_data(target_object),
-            types_manager
+            CmdbObject.from_data(target_object)
         )
 
         output = docapi_renderer.render_object_template(request_user)

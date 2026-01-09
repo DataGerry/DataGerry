@@ -124,9 +124,9 @@ class OcConnectorManager(OcBaseManager):
         check_pw_response: Response = self.oc_connector.oc_get(CHECK_MASTER_PW_URL, password)
 
         # LOGGER.debug(f"[check_master_pw] response: {check_pw_response}")
-        # LOGGER.debug(f"[check_master_pw] status_code: {check_pw_response.status_code}")
+        LOGGER.debug(f"[check_master_pw] status_code: {check_pw_response.status_code}")
         # LOGGER.debug(f"[check_master_pw] headers: {check_pw_response.headers}")
-        # LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
+        LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
 
         if not raw:
             if self.is_valid_response(check_pw_response):
