@@ -1,10 +1,10 @@
 <div class="page-title">
-  {{ mode === 'create' ? 'Add Connector' : 'Edit Connector' }}
+  {{ mode === 'internal' ? 'Setup your DataGerry credentials' : (mode === 'create' ? 'Add Connector' : 'Edit Connector') }}
 </div>
 
 <div class="row g-3">
   <!-- Left: General Data -->
-  <div class="col-12 col-lg-6">
+  <div class="col-12 col-lg-6" *ngIf="mode !== 'internal'">
     <div class="card">
       <div class="card-header">GENERAL DATA</div>
       <div class="card-body">
@@ -57,9 +57,9 @@
   </div>
 
   <!-- Right: Credentials -->
-  <div class="col-12 col-lg-6">
+  <div [ngClass]="{'col-12': mode === 'internal', 'col-12 col-lg-6': mode !== 'internal'}">
     <div class="card">
-      <div class="card-header">CREDENTIALS</div>
+      <div class="card-header">{{mode === 'internal'?  'Auth Data' : 'CREDENTIALS'}}</div>
 
       <div class="card-body">
         <!-- Credentials Form -->
@@ -106,25 +106,35 @@
           <!-- Show credentials fields when invoker is selected and ready, OR in internal mode -->
           <ng-container *ngIf="(selectedInvoker || mode === 'internal') && credentialsReady">
             <!-- Show invoker hint if available -->
-            <div class="alert alert-light small mb-3" *ngIf="selectedInvoker?.hint">
+            <div class="alert alert-light small mb-3" *ngIf="selectedInvoker?.hint && mode !== 'internal'" >
               <strong>Configuration Help:</strong><br>
               {{ selectedInvoker.hint }}
             </div>
 
-            <!-- Dynamic credential fields with blur effect -->
-            <div formGroupName="requestData" [class.credentials-blurred]="credentialsBlurred">
-              <ng-container *ngFor="let fieldName of getRequestDataControlNames(); trackBy: trackByName">
-                <div class="mb-3">
-                  <app-form-input [formControl]="getRequestControl(fieldName)" [label]="fieldName | titlecase"
-                    [required]="true">
-                  </app-form-input>
-                  <small class="text-danger" *ngIf="getRequestControl(fieldName)?.touched && 
-                                getRequestControl(fieldName)?.hasError('required')">
-                    {{ fieldName | titlecase }} is required
-                  </small>
-                </div>
-              </ng-container>
-            </div>
+          <!-- Dynamic credential fields with blur effect -->
+          <div formGroupName="requestData" [class.credentials-blurred]="credentialsBlurred">
+            <ng-container *ngFor="let fieldName of getDisplayedRequestDataControlNames(); trackBy: trackByName">
+              <div class="mb-3">
+                <app-form-input [formControl]="getRequestControl(fieldName)" [label]="fieldName | titlecase"
+                  [required]="true">
+                </app-form-input>
+                <!-- Hints for internal mode -->
+                <small class="form-text text-muted" *ngIf="mode === 'internal' && fieldName === 'username'">
+                  Your DataGerry username
+                </small>
+                <small class="form-text text-muted" *ngIf="mode === 'internal' && fieldName === 'password'">
+                  Your DataGerry password
+                </small>
+                <small class="form-text text-muted" *ngIf="mode === 'internal' && fieldName === 'x-api-key'">
+                  Get your API key from the DataGerry service portal
+                </small>
+                <small class="text-danger" *ngIf="getRequestControl(fieldName)?.touched && 
+                              getRequestControl(fieldName)?.hasError('required')">
+                  {{ fieldName | titlecase }} is required
+                </small>
+              </div>
+            </ng-container>
+          </div>
           </ng-container>
 
           <!-- Test Status -->

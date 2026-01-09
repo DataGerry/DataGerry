@@ -396,17 +396,33 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   
 
   private buildDataGerryCredentials(): void {
-    const newGroup = this.fb.group({
-      url: ['', Validators.required],
-      username: ['', Validators.required],
-      password: ['', Validators.required]
-    }) as FormGroup;
+    const newGroup = this.fb.group({});
+
+    // URL: set from environment in cloud mode, otherwise empty string
+    const urlValue = environment.cloudMode 
+      ? `${environment.protocol}://${environment.apiUrl}:${environment.apiPort}`
+      : '';
+    
+    newGroup.addControl('url', new FormControl(urlValue, Validators.required));
+    newGroup.addControl('username', new FormControl('', Validators.required));
+    newGroup.addControl('password', new FormControl('', Validators.required));
 
     if (environment.cloudMode) {
       newGroup.addControl('x-api-key', new FormControl('', Validators.required));
     }
     
     this.form.setControl('requestData', newGroup);
+  }
+
+  getDisplayedRequestDataControlNames(): string[] {
+    const allControls = this.getRequestDataControlNames();
+    
+    // Filter out URL field in internal mode when cloudMode is enabled
+    if (this.mode === 'internal' && environment.cloudMode) {
+      return allControls.filter(controlName => controlName !== 'url');
+    }
+    
+    return allControls;
   }
 
   private getDataGerryInvoker(): Invoker {
