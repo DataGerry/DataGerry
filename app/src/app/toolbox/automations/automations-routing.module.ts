@@ -22,6 +22,7 @@ import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
 import { AuthGuard } from 'src/app/modules/auth/guards/auth.guard';
+import { ConnectorFormComponent } from '../connectors/components/connector-form/connector-form.component';
 
 const routes: Routes = [
   {
@@ -60,7 +61,12 @@ const routes: Routes = [
           breadcrumb: 'Edit Automation',
           mode: 'edit'
         }
-      }
+      },
+            {
+              path: 'internal',
+              component: ConnectorFormComponent,
+              data: { mode: 'internal', breadcrumb: 'DataGerry API Credentials' }
+            }
     ]
   }
 ];

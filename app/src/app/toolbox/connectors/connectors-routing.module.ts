@@ -45,11 +45,6 @@ const routes: Routes = [
         component: ConnectorFormComponent,
         resolve: { invokers: ConnectorsResolver },
         data: { mode: 'edit', breadcrumb: 'Edit Connector' }
-      },
-      {
-        path: 'internal',
-        component: ConnectorFormComponent,
-        data: { mode: 'internal', breadcrumb: 'DataGerry Internal' }
       }
     ]
   }

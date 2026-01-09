@@ -22,6 +22,8 @@ import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
+import { ConnectorsService } from 'src/app/toolbox/connectors/services/connectors.service';
+import { finalize } from 'rxjs';
 
 @Component({
   selector: 'app-automations-list',
@@ -48,6 +50,7 @@ export class AutomationsListComponent implements OnInit {
   public isExecuting: string | null = null;
 
   constructor(
+    private svc: ConnectorsService,
     private automationsService: AutomationsService,
     private router: Router,
     private toast: ToastService,
@@ -144,6 +147,32 @@ export class AutomationsListComponent implements OnInit {
       }
     });
   }
+
+    configInternal(): void {
+      this.loaderService.show();
+      this.svc.checkConnectorExists('DataGerryInternal')
+        .pipe(finalize(() => this.loaderService.hide()))
+        .subscribe({
+          next: (exists: boolean) => {
+            // Redirect to internal route without resolver
+            this.router.navigate(['automations/internal'], {
+              state: { 
+                connectorExists: exists,
+                connector: {
+                  title: 'DataGerryInternal',
+                  description: 'Internal DATAGerry connector for automations',
+                  invoker: { name: 'DataGerry' },
+                  sslCert: false,
+                  timeout: 1000
+                }
+              }
+            });
+          },
+          error: (err) => {
+            this.toast.error(err?.error?.message);
+          }
+        });
+    }
 
 
   private getDirection(automation: any): string {
