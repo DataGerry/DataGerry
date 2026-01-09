@@ -17,9 +17,11 @@
 */
 import { Component, Input } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { TemplateHelperService } from '../../../../settings/services/template-helper.service';
 import { CmdbMode } from '../../../../framework/modes.enum';
+import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -121,7 +123,10 @@ export class DocapiBuilderContentStepComponent {
         return this.contentForm?.get('template_data');
     }
 
-    constructor(private templateHelperService: TemplateHelperService) {
+    constructor(
+        private templateHelperService: TemplateHelperService,
+        private modalService: NgbModal
+    ) {
         this.contentForm = new UntypedFormGroup({
             template_data: new UntypedFormControl('', [Validators.required, Validators.max(15 * 1024 * 1024)])
         });
@@ -139,6 +144,11 @@ export class DocapiBuilderContentStepComponent {
                 return this.getObjectDataMenuItems(editor);
             }
         });
+        
+        if (this.templateType === 'DEFAULT') {
+            items.push(this.getExternalObjectsMenuItem(editor));
+        }
+        
         return items;
     }
 
@@ -244,5 +254,28 @@ export class DocapiBuilderContentStepComponent {
             }
         };
         return item;
+    }
+
+    public getExternalObjectsMenuItem(editor) {
+        const item = {
+            type: 'menuitem',
+            text: 'External objects',
+            icon: 'link',
+            onAction: () => {
+                this.openExternalObjectsModal(editor);
+            }
+        };
+        return item;
+    }
+
+    private openExternalObjectsModal(editor: any): void {
+        const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
+            size: 'lg',
+            backdrop: 'static'
+        });
+        
+        modalRef.componentInstance.insertTemplate.subscribe((template: string) => {
+            editor.insertContent(template);
+        });
     }
 }
