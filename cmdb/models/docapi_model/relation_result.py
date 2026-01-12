@@ -122,7 +122,8 @@ class RelationResult:
             result.append(
                 ObjectTemplateData(
                     render.result(),
-                    self.objects_manager
+                    self.objects_manager,
+                    self.request_user
                 ).get_template_data()["fields"]
             )
 

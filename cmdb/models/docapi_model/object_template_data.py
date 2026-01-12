@@ -16,18 +16,20 @@
 """
 Implementation of ObjectTemplateData
 """
-import logging
+from logging import Logger, getLogger
 
-from cmdb.manager import ObjectsManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager import ObjectsManager, LocationsManager
 
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.user_model import CmdbUser
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_result import RenderResult
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ObjectTemplateData - CLASS                                              #
@@ -36,7 +38,12 @@ class ObjectTemplateData:
     """
     Prepares and retrieves template data for a given RenderResult
     """
-    def __init__(self, cmdb_render_object: RenderResult, objects_manager: ObjectsManager) -> None:
+    def __init__(
+            self,
+            cmdb_render_object: RenderResult,
+            objects_manager: ObjectsManager,
+            request_user: CmdbUser
+    ) -> None:
         """
         Initializes the ObjectTemplateData
 
@@ -45,6 +52,12 @@ class ObjectTemplateData:
             objects_manager (ObjectsManager): The manager handling CmdbObject
         """
         self.objects_manager: ObjectsManager = objects_manager
+        self.request_user: CmdbUser = request_user
+
+        self.locations_manager: LocationsManager = ManagerProvider.get_manager(
+            ManagerType.LOCATIONS, request_user
+        )
+
         self.template_data = self.extract_object_data(cmdb_render_object, 3)
 
 
@@ -85,7 +98,18 @@ class ObjectTemplateData:
                 continue
 
             try:
-                if field_type in ("ref", "location") and field_value and depth > 0:
+                if field_name == "dg_location" and field_value:
+                    try:
+                        location = self.locations_manager.get_location(field_value)
+                        data["fields"][field_name] = location.get("name")
+                    except Exception as err:
+                        LOGGER.error(
+                            "Failed to resolve location %s for field dg_location: %s",
+                            field_value,
+                            err,
+                        )
+                        data["fields"][field_name] = None
+                elif field_type in ("ref", "location") and field_value and depth > 0:
                     # resolve type
                     related_object = self.objects_manager.get_object(field_value)
                     related_object = CmdbObject.from_data(related_object)
