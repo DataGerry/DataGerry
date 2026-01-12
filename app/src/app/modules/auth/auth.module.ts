@@ -27,6 +27,7 @@ import { PermissionGuard } from './guards/permission.guard';
 
 import { LoginComponent } from './login/login.component';
 import { SessionTimeoutModalComponent } from './modals/session-timeout-modal/session-timeout-modal.component';
+import { AuthCallbackComponent } from './callback/auth-callback.component';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { LayoutModule } from 'src/app/layout/layout.module';
 import { CoreModule } from 'src/app/core/core.module';
@@ -36,7 +37,8 @@ import { CoreModule } from 'src/app/core/core.module';
     declarations: [
         LoginComponent,
         PermissionLinkDirective,
-        SessionTimeoutModalComponent
+        SessionTimeoutModalComponent,
+        AuthCallbackComponent
     ],
     exports: [
         PermissionLinkDirective

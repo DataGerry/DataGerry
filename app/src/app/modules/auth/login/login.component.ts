@@ -63,7 +63,8 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     public isLoading$ = this.loaderService?.isLoading$;
 
-    public  isCloudMode = environment.cloudMode;
+    public isCloudMode = environment.cloudMode;
+    public isEntraIdEnabled: boolean = false;
 
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
     get controls() {
@@ -106,6 +107,11 @@ export class LoginComponent implements OnInit, OnDestroy {
             ),
             password: new UntypedFormControl('', [Validators.required]),
             subscription: new UntypedFormControl(null)
+        });
+
+        // Check if Entra ID is enabled
+        this.authenticationService.getEntraIdStatus().subscribe(status => {
+            this.isEntraIdEnabled = status.enabled;
         });
     }
 
@@ -253,5 +259,9 @@ export class LoginComponent implements OnInit, OnDestroy {
      */
     public togglePasswordVisibility(): void {
         this.passwordVisible = !this.passwordVisible;
+    }
+
+    public onEntraIdLogin(): void {
+        this.authenticationService.initiateEntraIdLogin();
     }
 }

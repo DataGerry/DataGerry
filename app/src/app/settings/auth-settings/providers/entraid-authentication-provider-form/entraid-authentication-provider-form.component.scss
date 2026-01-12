@@ -1,0 +1,44 @@
+/* Entra ID Authentication Provider Form Styles */
+
+.card-header {
+    .nav-link {
+        &.active {
+            border-bottom-color: #fff;
+        }
+    }
+}
+
+.form-group {
+    .input-group {
+        .btn-outline-secondary {
+            border-left: none;
+
+            &:hover {
+                background-color: #f8f9fa;
+            }
+        }
+    }
+}
+
+.description {
+    font-size: 0.85em;
+    color: #6c757d;
+}
+
+/* Group mapping section */
+[formArrayName="mapping"] {
+    .row {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #eee;
+
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+}
+
+.badge {
+    &.bg-info {
+        background-color: #0078d4 !important;
+    }
+}

@@ -64,7 +64,7 @@
                     ">
                       <!-- Required Error -->
                       <small *ngIf="controls.password.errors?.['required']">
-                       Password is required.
+                        Password is required.
                       </small>
                     </div>
                   </div>
@@ -73,6 +73,19 @@
                     [disabled]="!loginForm.valid" (click)="onSubmit()">
                     Login
                   </button>
+
+                  <div *ngIf="isEntraIdEnabled" class="entra-id-section mt-3">
+                    <div class="divider-with-text mb-3">
+                      <span class="divider-line"></span>
+                      <span class="divider-text text-muted">OR</span>
+                      <span class="divider-line"></span>
+                    </div>
+                    <button type="button" id="entraid-login-button"
+                      class="btn btn-lg w-100 btn-microsoft font-weight-bold" (click)="onEntraIdLogin()">
+                      <img src="assets/img/microsoft-logo.svg" alt="Microsoft" class="microsoft-icon me-2" />
+                      Sign in with Microsoft
+                    </button>
+                  </div>
                 </ng-container>
 
                 <!-- Subscription Selection -->
@@ -109,16 +122,20 @@
         </div>
       </div>
     </div>
-    <footer style="text-align: center !important; font-size: 0.8em !important; padding: 10px !important; color: gray !important; position: absolute !important;right: 57px !important;bottom: 0px;">
-      <p style="text-align: center !important; font-size: 0.9em !important; float: left !important; width: 290px !important;">
+    <footer
+      style="text-align: center !important; font-size: 0.8em !important; padding: 10px !important; color: gray !important; position: absolute !important;right: 57px !important;bottom: 0px;">
+      <p
+        style="text-align: center !important; font-size: 0.9em !important; float: left !important; width: 290px !important;">
         <a href="https://github.com/DATAGerry/DataGerry" target="_blank">
           <i class="fab fa-github"></i> Source Code auf GitHub
         </a>
       </p>
-      
-      <p style="text-align: center !important; font-size: 0.9em !important; color: gray !important; float: left !important; width: 290px !important;">
+
+      <p
+        style="text-align: center !important; font-size: 0.9em !important; color: gray !important; float: left !important; width: 290px !important;">
         Made with ❤️ by <a target="_blank" href="https://becon.de">becon GmbH</a>
-      </p></footer>
+      </p>
+    </footer>
   </div>
 </div>
 

@@ -21,6 +21,7 @@ import { Routes, RouterModule, PreloadAllModules } from '@angular/router';
 import { AuthGuard } from './modules/auth/guards/auth.guard';
 
 import { LoginComponent } from './modules/auth/login/login.component';
+import { AuthCallbackComponent } from './modules/auth/callback/auth-callback.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -30,6 +31,10 @@ const routes: Routes = [
             view: 'embedded'
         },
         loadChildren: () => import('./modules/connect/connect.module').then(m => m.ConnectModule)
+    },
+    {
+        path: 'auth/callback',
+        component: AuthCallbackComponent
     },
     {
         path: 'auth',
@@ -58,4 +63,4 @@ const routes: Routes = [
         RouterModule
     ]
 })
-export class AppRoutingModule {}
+export class AppRoutingModule { }

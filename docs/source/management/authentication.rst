@@ -53,6 +53,8 @@ Available providers are:
 the stored SHA256 HMAC.
 2. **LdapAuthenticationProvider** - Using the user name, tries to find a user in the directory service and authenticate
 with the password.
+3. **EntraIdAuthenticationProvider** - Authenticates users via Microsoft Entra ID (Azure AD) using OAuth2 
+authorization code flow. Supports automatic user creation and group mapping.
 
 .. note::
     The order in which the providers are queried is determined by the installation order of the
@@ -84,3 +86,54 @@ the same DataGerry group.
 The order of the mappings is important. If a LDAP user appears in several mappings,
 the first successful mapping is taken. If the user cannot be found in any mapping, he will be moved to the
 default group.
+
+| 
+
+Microsoft Entra ID Authentication
+---------------------------------
+
+DataGerry supports authentication via Microsoft Entra ID (formerly Azure Active Directory) using the OAuth2 
+authorization code flow. This allows users to sign in with their Microsoft corporate accounts.
+
+**Prerequisites**
+
+Before configuring Entra ID authentication in DataGerry, you need to create an App Registration in the 
+Azure Portal:
+
+1. Go to Azure Portal → Microsoft Entra ID → App registrations
+2. Click "New registration"
+3. Enter a name (e.g., "DataGerry")
+4. Select supported account types
+5. Add a Redirect URI: ``https://your-datagerry-server/rest/auth/entraid/callback``
+6. After creation, note the **Application (client) ID** and **Directory (tenant) ID**
+7. Go to Certificates & secrets → New client secret → Copy the **Value** (shown only once)
+
+**Configuration**
+
+In DataGerry, navigate to Settings → Authentication → Config. Enable the EntraIdAuthenticationProvider and 
+configure the following fields:
+
+- **Tenant ID**: Your Azure AD tenant ID (Directory ID)
+- **Client ID**: Application (client) ID from the App Registration
+- **Client Secret**: The secret value you created in Azure
+- **Redirect URI**: Must match exactly what you configured in Azure (e.g., ``https://your-datagerry-server/rest/auth/entraid/callback``)
+
+.. note::
+    The Redirect URI must match exactly between Azure and DataGerry configuration, including the protocol (https).
+
+**Just-In-Time User Provisioning**
+
+When a user signs in via Microsoft for the first time, DataGerry automatically creates a local user account. 
+The user is assigned to the configured default group. On subsequent logins, the user's group membership can be 
+automatically updated based on group mapping rules.
+
+**Group Mapping**
+
+Similar to LDAP, you can map Azure AD groups to DataGerry groups. Enable group mapping and define which 
+Azure AD group names should map to which DataGerry groups. Users are assigned to the first matching group, 
+or the default group if no mapping matches.
+
+.. note::
+    To receive group claims from Azure AD, you must configure the App Registration to include group claims 
+    in the ID token (Azure Portal → App Registration → Token configuration → Add groups claim).
+

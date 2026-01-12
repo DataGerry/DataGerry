@@ -1,0 +1,167 @@
+<div class="card-header">
+    <ul class="nav nav-tabs card-header-tabs">
+        <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#entraid-global-panel" role="tab">
+                Entra ID Authentication Provider
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#entraid-group-mapping-panel" role="tab">
+                Group Mapping
+            </a>
+        </li>
+    </ul>
+</div>
+<div class="card-body" [formGroup]="form">
+    <div class="tab-content">
+        <!-- Global Settings Tab -->
+        <div id="entraid-global-panel" class="tab-pane fade show active">
+            <!-- Active Toggle -->
+            <div class="form-group row mb-3">
+                <div class="col-sm-3">Active:</div>
+                <div class="col-sm-9">
+                    <div class="form-check">
+                        <input class="custom-control-input" type="checkbox" formControlName="active"
+                            id="entraid-provider-active-input">
+                        <label class="custom-control-label" for="entraid-provider-active-input"></label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tenant ID -->
+            <div class="form-group row mb-3">
+                <label class="col-sm-3 col-form-label" for="tenant-id-input">Tenant ID:</label>
+                <div class="col-sm-9">
+                    <div class="input-group">
+                        <input class="form-control" type="text" id="tenant-id-input" formControlName="tenant_id"
+                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    </div>
+                    <small class="description form-text text-muted">
+                        Your Azure AD Directory (tenant) ID
+                    </small>
+                </div>
+            </div>
+
+            <!-- Client ID -->
+            <div class="form-group row mb-3">
+                <label class="col-sm-3 col-form-label" for="client-id-input">Client ID:</label>
+                <div class="col-sm-9">
+                    <div class="input-group">
+                        <input class="form-control" type="text" id="client-id-input" formControlName="client_id"
+                            placeholder="Application (client) ID">
+                    </div>
+                    <small class="description form-text text-muted">
+                        Application (client) ID from Azure App Registration
+                    </small>
+                </div>
+            </div>
+
+            <!-- Client Secret -->
+            <div class="form-group row mb-3">
+                <label class="col-sm-3 col-form-label" for="client-secret-input">Client Secret:</label>
+                <div class="col-sm-9">
+                    <div class="input-group">
+                        <input class="form-control" [type]="showClientSecret ? 'text' : 'password'"
+                            id="client-secret-input" formControlName="client_secret">
+                        <button class="btn btn-outline-secondary" type="button"
+                            (click)="toggleClientSecretVisibility()">
+                            <i class="fas" [ngClass]="showClientSecret ? 'fa-eye-slash' : 'fa-eye'"></i>
+                        </button>
+                    </div>
+                    <small class="description form-text text-muted">
+                        Client secret value from Azure App Registration
+                    </small>
+                </div>
+            </div>
+
+            <!-- Redirect URI -->
+            <div class="form-group row mb-3">
+                <label class="col-sm-3 col-form-label" for="redirect-uri-input">Redirect URI:</label>
+                <div class="col-sm-9">
+                    <div class="input-group">
+                        <input class="form-control" type="text" id="redirect-uri-input" formControlName="redirect_uri"
+                            placeholder="https://your-domain.com/rest/auth/entraid/callback">
+                    </div>
+                    <small class="description form-text text-muted">
+                        OAuth2 callback URL (must match Azure App Registration)
+                    </small>
+                </div>
+            </div>
+
+            <!-- Default Group -->
+            <div class="form-group row mb-3">
+                <label class="col-sm-3 col-form-label" for="entraid-default-group-input">Default Group:</label>
+                <div class="col-sm-9">
+                    <div class="input-group">
+                        <select class="form-select" id="entraid-default-group-input" formControlName="default_group">
+                            <option *ngFor="let group of groups" [value]="group.public_id">{{group.label ? group.label :
+                                group.name}}</option>
+                        </select>
+                    </div>
+                    <small class="description form-text text-muted">
+                        Default group for new users
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Group Mapping Tab -->
+        <div id="entraid-group-mapping-panel" [formGroup]="groupsControl" class="tab-pane fade" role="tabpanel">
+            <div class="form-group row mb-3">
+                <div class="col-sm-3">Active:</div>
+                <div class="col-sm-9">
+                    <div class="form-check">
+                        <input class="custom-control-input" type="checkbox" formControlName="active"
+                            id="entraid-provider-group-mapping-active-input">
+                        <label class="custom-control-label" for="entraid-provider-group-mapping-active-input"></label>
+                    </div>
+                    <small class="description form-text text-muted">
+                        If no mapping is activated, <strong>new</strong> users will be moved to the default group.
+                    </small>
+                </div>
+            </div>
+
+            <!-- Group Mapping List -->
+            <div class="form-group row mb-3">
+                <label class="col-sm-12 col-form-label">Azure AD Group to DataGerry Group Mapping:</label>
+            </div>
+
+            <div formArrayName="mapping">
+                <div *ngFor="let mapping of groupMappingControl.controls; let i = index" class="row mb-2"
+                    [formGroupName]="i">
+                    <div class="col-sm-5">
+                        <input class="form-control" type="text" formControlName="group_name"
+                            placeholder="Azure AD Group Name">
+                    </div>
+                    <div class="col-sm-1 text-center pt-2">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                    <div class="col-sm-5">
+                        <select class="form-select" formControlName="group_id">
+                            <option *ngFor="let group of groups" [value]="group.public_id">
+                                {{group.label ? group.label : group.name}}
+                            </option>
+                        </select>
+                    </div>
+                    <div class="col-sm-1">
+                        <button class="btn btn-danger btn-sm" type="button" (click)="removeGroupMapping(i)">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-3">
+                <div class="col-12">
+                    <button class="btn btn-success btn-sm" type="button" (click)="addGroupMapping()">
+                        <i class="fas fa-plus"></i> Add Mapping
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card-footer text-muted text-end">
+    <span class="badge bg-primary">External</span>
+    <span class="badge bg-info ms-1">OAuth2/OIDC</span>
+</div>

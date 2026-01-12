@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from flask import request, current_app, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
+import secrets
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -34,6 +35,8 @@ from cmdb.manager import (
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.security.auth.providers.entraid_auth_provider import EntraIdAuthenticationProvider
+from cmdb.security.encryption_manager import EncryptionManager
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -340,6 +343,16 @@ def update_auth_settings(request_user: CmdbUser):
         if not new_auth_settings_values:
             abort(400, 'No new data was provided')
 
+        # Encrypt sensitive data (Entra ID client secret)
+        providers = new_auth_settings_values.get('providers', [])
+        for provider in providers:
+            if provider.get('class_name') == EntraIdAuthenticationProvider.get_name():
+                config = provider.get('config', {})
+                secret = config.get('client_secret')
+                # If secret is present and doesn't start with encryption prefix, encrypt it
+                if secret and not secret.startswith(EncryptionManager.PREFIX):
+                    config['client_secret'] = EncryptionManager().encrypt(secret)
+
         try:
             new_auth_setting_instance = CmdbAuthSettings(**new_auth_settings_values)
         except AuthSettingsInitError as err:
@@ -395,3 +408,138 @@ def generate_token_with_params(
     token_expire = int(tg.get_expire_time().timestamp())
 
     return token, token_issued_at, token_expire
+
+# ------------------------------------------------- ENTRA ID OAUTH ROUTES -------------------------------------------- #
+
+@auth_blueprint.route('/entraid/login', methods=['GET'])
+def entraid_login() -> Response:
+    """
+    Initiates the Entra ID OAuth2 authorization flow.
+    
+    Redirects the user to Microsoft's login page. After successful authentication,
+    Microsoft will redirect back to the callback endpoint with an authorization code.
+
+    Returns:
+        Response: A redirect to Microsoft's authorization endpoint
+    """
+    try:
+        settings_manager = SettingsManager(current_app.database_manager)
+        auth_settings = settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
+        auth_module = AuthModule(auth_settings)
+
+        entraid_provider = auth_module.get_provider(EntraIdAuthenticationProvider.get_name())
+
+        if not entraid_provider or not entraid_provider.is_active():
+            abort(400, "Entra ID authentication is not configured or not active")
+
+        # Generate state for CSRF protection
+        state = secrets.token_urlsafe(32)
+        # In production, store state in session for validation in callback
+        
+        authorization_url = entraid_provider.get_authorization_url(state=state)
+        return redirect(authorization_url)
+
+    except Exception as err:
+        LOGGER.error("[entraid_login] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occurred while initiating Entra ID login")
+
+
+@auth_blueprint.route('/entraid/callback', methods=['GET'])
+def entraid_callback() -> Response:
+    """
+    Handles the OAuth2 callback from Microsoft Entra ID.
+    
+    Exchanges the authorization code for tokens, validates the ID token,
+    and issues a DataGerry JWT token for the authenticated user.
+
+    Returns:
+        Response: A redirect to the frontend with the authentication token
+    """
+    try:
+        # Get authorization code from query parameters
+        authorization_code = request.args.get('code')
+        error = request.args.get('error')
+        error_description = request.args.get('error_description')
+
+        if error:
+            LOGGER.error("[entraid_callback] OAuth error: %s - %s", error, error_description)
+            abort(401, f"Authentication failed: {error_description or error}")
+
+        if not authorization_code:
+            abort(400, "No authorization code provided")
+
+        # Get Entra ID provider
+        settings_manager = SettingsManager(current_app.database_manager)
+        security_manager = SecurityManager(current_app.database_manager)
+        users_manager = UsersManager(current_app.database_manager)
+        
+        auth_settings = settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
+        auth_module = AuthModule(
+            auth_settings,
+            security_manager=security_manager,
+            users_manager=users_manager
+        )
+
+        entraid_provider = auth_module.get_provider(EntraIdAuthenticationProvider.get_name())
+
+        if not entraid_provider or not entraid_provider.is_active():
+            abort(400, "Entra ID authentication is not configured or not active")
+
+        # Exchange code for tokens
+        token_response = entraid_provider.exchange_code_for_tokens(authorization_code)
+        id_token = token_response.get('id_token')
+
+        if not id_token:
+            abort(401, "No ID token received from Microsoft")
+
+        # Authenticate user with the ID token
+        user_instance = entraid_provider.authenticate_with_token(id_token)
+
+        if not user_instance:
+            abort(401, "Failed to authenticate user")
+
+        # Generate DataGerry JWT token
+        token, token_issued_at, token_expire = generate_token_with_params(
+            user_instance,
+            current_app.database_manager
+        )
+
+        # Redirect to frontend with token
+        # The frontend should extract the token from the URL fragment
+        frontend_url = request.url_root.rstrip('/')
+        redirect_url = f"{frontend_url}/auth/callback?token={token.decode('utf-8')}&expires={token_expire}"
+        
+        return redirect(redirect_url)
+
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        LOGGER.error("[entraid_callback] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occurred during Entra ID authentication")
+
+
+@auth_blueprint.route('/entraid/status', methods=['GET'])
+def entraid_status() -> Response:
+    """
+    Returns the status of Entra ID authentication configuration.
+    
+    This endpoint can be used by the frontend to determine whether to show
+    the "Sign in with Microsoft" button.
+
+    Returns:
+        Response: JSON with 'enabled' boolean
+    """
+    try:
+        settings_manager = SettingsManager(current_app.database_manager)
+        auth_settings = settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
+        auth_module = AuthModule(auth_settings)
+
+        entraid_provider = auth_module.get_provider(EntraIdAuthenticationProvider.get_name())
+
+        is_enabled = entraid_provider is not None and entraid_provider.is_active()
+
+        return DefaultResponse({'enabled': is_enabled}).make_response()
+
+    except Exception as err:
+        LOGGER.error("[entraid_status] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        return DefaultResponse({'enabled': False}).make_response()
