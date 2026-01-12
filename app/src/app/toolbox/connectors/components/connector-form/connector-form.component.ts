@@ -398,10 +398,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   private buildDataGerryCredentials(): void {
     const newGroup = this.fb.group({});
 
-    // URL: set from environment in cloud mode, otherwise empty string
-    const urlValue = environment.cloudMode 
-      ? `${environment.protocol}://${environment.apiUrl}:${environment.apiPort}`
-      : '';
+    // URL: always derive from environment in internal mode
+    const urlValue = this.getInternalUrlFromEnvironment();
     
     newGroup.addControl('url', new FormControl(urlValue, Validators.required));
     newGroup.addControl('username', new FormControl('', Validators.required));
@@ -589,7 +587,9 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       invoker: { name: invokerName },
       sslCert: v.sslCert,
       timeout: v.timeout,
-      requestData: v.requestData
+      requestData: this.mode === 'internal'
+        ? { ...v.requestData, url: this.getInternalUrlFromEnvironment() }
+        : v.requestData
     };
   }
 
@@ -677,6 +677,10 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
   cancel(): void {
     this.router.navigate(['../'], { relativeTo: this.route });
+  }
+
+  private getInternalUrlFromEnvironment(): string {
+    return `${environment.protocol}://${environment.apiUrl}`;
   }
 
   
