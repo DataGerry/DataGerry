@@ -482,7 +482,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     const internalConnectorData = {
       title: 'DataGerryInternal',
       description: 'Internal DATAGerry connector for automations',
-      invoker: { name: 'DataGerry', hint: "This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/latest/api/rest/" },
+      invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry' , hint: "This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/latest/api/rest/" },
       sslCert: false,
       timeout: 1000
     };
