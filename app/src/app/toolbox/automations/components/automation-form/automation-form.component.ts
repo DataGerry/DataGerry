@@ -29,6 +29,7 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../../connectors/models/connector.model';
 import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 import { AuthService } from 'src/app/modules/auth/services/auth.service';
+import { environment } from 'src/environments/environment';
 
 @Component({
   selector: 'app-automation-form',
@@ -324,9 +325,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       backdrop: 'static'
     });
 
-    modalRef.componentInstance.title = 'Internal Connector Required';
-    modalRef.componentInstance.message = 'Internal connector is not configured. Do you want to configure it now?';
-    modalRef.componentInstance.confirmButtonText = 'Configure';
+    modalRef.componentInstance.title = 'DataGerry API Credentials Required';
+    modalRef.componentInstance.message = 'DataGerry API Credentials are not saved. Do you want to save it now?';
+    modalRef.componentInstance.confirmButtonText = 'Save Now';
     modalRef.componentInstance.cancelButtonText = 'Cancel';
     modalRef.componentInstance.confirmButtonClass = 'btn-primary';
 
@@ -350,7 +351,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         connector: {
           title: 'DataGerryInternal',
           description: 'Internal DataGerry connector for automations',
-          invoker: { name: 'DataGerry' },
+          invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry' },
           sslCert: false,
           timeout: 1000
         }
