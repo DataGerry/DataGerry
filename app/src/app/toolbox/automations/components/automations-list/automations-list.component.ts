@@ -24,6 +24,7 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { ConnectorsService } from 'src/app/toolbox/connectors/services/connectors.service';
 import { finalize } from 'rxjs';
+import { environment } from 'src/environments/environment';
 
 @Component({
   selector: 'app-automations-list',
@@ -161,7 +162,7 @@ export class AutomationsListComponent implements OnInit {
                 connector: {
                   title: 'DataGerryInternal',
                   description: 'Internal DATAGerry connector for automations',
-                  invoker: { name: 'DataGerry' },
+          invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry' },
                   sslCert: false,
                   timeout: 1000
                 }
