@@ -25,6 +25,7 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { finalize } from 'rxjs';
 import { environment } from 'src/environments/environment';
+import { InternalConnectorHelperService } from '../../services/internal-connector-helper.service';
 
 @Component({
   selector: 'app-connectors-list',
@@ -45,7 +46,8 @@ export class ConnectorsListComponent implements OnInit {
     private router: Router,
     private toast: ToastService,
     private loaderService: LoaderService,
-    private deleteModalService: DeleteModalService
+    private deleteModalService: DeleteModalService,
+    private internalConnectorHelper: InternalConnectorHelperService
   ) { }
 
   ngOnInit(): void {
@@ -54,7 +56,13 @@ export class ConnectorsListComponent implements OnInit {
       { display: 'Label', name: 'title', data: 'title', sortable: false , style: {'text-align': 'center' } },
       { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '100px', 'text-align': 'center' } }
     ];
-    this.loadConnectors();
+    this.internalConnectorHelper.checkInternalConnector({
+      onExists: () => this.loadConnectors(),
+      redirectRoute: ['automations/connectors/internal'],
+      description: 'Internal DATAGerry connector for automations',
+      cancelRoute: ['/automations'],
+      errorRoute: ['/automations']
+    });
   }
 
   loadConnectors(): void {
