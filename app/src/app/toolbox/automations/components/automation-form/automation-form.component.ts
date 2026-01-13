@@ -20,16 +20,13 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { combineLatest, Subscription, BehaviorSubject } from 'rxjs';
 import { finalize, map } from 'rxjs/operators';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-
 import { AutomationsService } from '../../services/automations.service';
 import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { Connector } from '../../../connectors/models/connector.model';
-import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 import { AuthService } from 'src/app/modules/auth/services/auth.service';
-import { environment } from 'src/environments/environment';
+import { InternalConnectorHelperService } from '../../../connectors/services/internal-connector-helper.service';
 
 @Component({
   selector: 'app-automation-form',
@@ -54,8 +51,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   initConnection: any = null;
   currentConnection: any = null;
 
-  // Internal connector properties
-  internalConnectorExists: boolean = false;
   internalConnectorDetails: any = null;
 
   private formChangesSubscription?: Subscription;
@@ -73,8 +68,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     private connectorsService: ConnectorsService,
     private toast: ToastService,
     private loaderService: LoaderService,
-    private modalService: NgbModal,
-    private authService: AuthService
+    private authService: AuthService,
+    private internalConnectorHelper: InternalConnectorHelperService
   ) {
   }
 
@@ -84,7 +79,13 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.buildForm();
 
     // First check if internal connector exists
-    this.checkInternalConnector();
+    this.internalConnectorHelper.checkInternalConnector({
+      onExists: () => this.loadConnectorsAndInvokers(),
+      redirectRoute: ['/automations/internal'],
+      description: 'Internal DataGerry connector for automations',
+      cancelRoute: ['/automations'],
+      errorRoute: ['/automations']
+    });
 
     if (this.mode === 'edit') {
       this.id = +this.route.snapshot.paramMap.get('connectorId')!;
@@ -120,7 +121,10 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
           if (internalConnector) {
             this.internalConnectorDetails = internalConnector;
           } else {
-            this.redirectToInternalConnectorSetup();
+            this.internalConnectorHelper.redirectToInternalConnectorSetup(
+              ['/automations/internal'],
+              'Internal DataGerry connector for automations'
+            );
             return;
           }
 
@@ -292,71 +296,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     } else {
     }
 
-  }
-
-  // Internal connector methods
-  private checkInternalConnector(): void {
-    this.loaderService.show();
-
-    this.connectorsService.checkConnectorExists('DataGerryInternal')
-      .pipe(finalize(() => this.loaderService.hide()))
-      .subscribe({
-        next: (exists) => {
-          this.internalConnectorExists = exists;
-
-          if (exists) {
-            this.loadConnectorsAndInvokers();
-          } else {
-            this.showInternalConnectorModal();
-          }
-        },
-        error: (error) => {
-          this.toast.error(error?.error?.message);
-          this.internalConnectorExists = false;
-          this.router.navigate(['/automations']);
-        }
-      });
-  }
-
-
-  private showInternalConnectorModal(): void {
-    const modalRef = this.modalService.open(CoreConfirmationModalComponent, {
-      centered: true,
-      backdrop: 'static'
-    });
-
-    modalRef.componentInstance.title = 'DataGerry API Credentials Required';
-    modalRef.componentInstance.message = 'DataGerry API Credentials are not saved. Do you want to save it now?';
-    modalRef.componentInstance.confirmButtonText = 'Save Now';
-    modalRef.componentInstance.cancelButtonText = 'Cancel';
-    modalRef.componentInstance.confirmButtonClass = 'btn-primary';
-
-    modalRef.result.then(
-      (result) => {
-        if (result === 'confirmed') {
-          this.redirectToInternalConnectorSetup();
-        }
-      },
-      (dismissReason) => {
-        // User dismissed the modal (clicked cancel or outside)
-        this.router.navigate(['/automations']);
-      }
-    );
-  }
-
-  private redirectToInternalConnectorSetup(): void {
-    this.router.navigate(['/automations/connectors/internal'], {
-      state: {
-        connectorExists: false, // Internal connector doesn't exist, so we're creating it
-        connector: {
-          title: 'DataGerryInternal',
-          description: 'Internal DataGerry connector for automations',
-          invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry' },
-          sslCert: false,
-          timeout: 1000
-        }
-      }
-    });
   }
 
   // Dynamic connector ID methods
