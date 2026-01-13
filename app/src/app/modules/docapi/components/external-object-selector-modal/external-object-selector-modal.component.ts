@@ -97,19 +97,57 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     // Add Public ID as first option
     this.fieldOptions.push({
       value: 'public_id',
-      label: 'Public ID'
+      label: 'Public ID',
+      group: 'Object [1]'
     });
 
-    // Add object fields if available
-    if (this.selectedObject && this.selectedObject.fields) {
-      this.selectedObject.fields.forEach((field: any) => {
-        this.fieldOptions.push({
-          value: field.name,
-          label: field.label || field.name,
-          type: field.type
-        });
-      });
+    // Add object fields grouped by section
+    if (!this.selectedObject || !this.selectedObject.fields) {
+      return;
     }
+
+    const fields = Array.isArray(this.selectedObject.fields) ? this.selectedObject.fields : [];
+    const sections = Array.isArray(this.selectedObject.sections) ? this.selectedObject.sections : [];
+    const fieldByName = new Map<string, any>();
+    const groupedFieldNames = new Set<string>();
+
+    fields.forEach((field: any) => {
+      if (field?.name) {
+        fieldByName.set(field.name, field);
+      }
+    });
+
+    const addFieldOption = (field: any, groupLabel: string) => {
+      this.fieldOptions.push({
+        value: field.name,
+        label: field.label || field.name,
+        type: field.type,
+        group: groupLabel
+      });
+    };
+
+    sections.forEach((section: any) => {
+      const sectionFields = Array.isArray(section?.fields) ? section.fields : [];
+      const groupLabelBase = section?.label || section?.name || 'Section';
+      const groupLabel = `${groupLabelBase} [${sectionFields.length}]`;
+
+      sectionFields.forEach((fieldName: string) => {
+        const field = fieldByName.get(fieldName);
+        if (field) {
+          addFieldOption(field, groupLabel);
+          groupedFieldNames.add(fieldName);
+        }
+      });
+    });
+
+    const remainingCount = fields.filter((field: any) => field?.name && !groupedFieldNames.has(field.name)).length;
+    const remainingGroupLabel = `Other Fields [${remainingCount}]`;
+
+    fields.forEach((field: any) => {
+      if (field?.name && !groupedFieldNames.has(field.name)) {
+        addFieldOption(field, remainingGroupLabel);
+      }
+    });
   }
 
   onFieldSelectionChange(field: any): void {
@@ -138,4 +176,3 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activeModal.dismiss();
   }
 }
-
