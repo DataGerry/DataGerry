@@ -86,14 +86,14 @@ export class OpenCeliumEditorComponent
       initConnection: this.initConnection,
       connectors: this.connectors,
       invokers: this.invokers,
-      baseUrl: this.connectionService.getApiBaseUrl()+'/rest/open_celium/',
+      baseUrl: '',
       onChange: (connection: any) => {
         this.connectionChange.emit(connection);
       },
       saveConnection: async (connection: any) => {
         this.saveConnection.emit(connection);
       },
-      onLoad: () => { console.log('OpenCelium Editor loaded'); }
+      onLoad: () => {  }
     };
 
     // Only send connector IDs in create mode
