@@ -17,7 +17,7 @@
 Implementation of APIBlueprint
 """
 from functools import wraps
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from cerberus import Validator #type: ignore
 from flask import Blueprint, abort, request, current_app
@@ -33,13 +33,15 @@ from cmdb.security.token.validator import TokenValidator
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIBlueprint - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class APIBlueprint(Blueprint):
-    """Wrapper class for Blueprints with nested elements"""
+    """
+    Wrapper class for Blueprints with nested elements
+    """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -94,7 +96,6 @@ class APIBlueprint(Blueprint):
                                         users_manager = UsersManager(current_app.database_manager, database)
 
                                     user_dict: dict = CmdbUser.to_json(users_manager.get_user(user_id))
-
 
                                     for exe_key, exe_value in excepted.items():
                                         try:

@@ -182,7 +182,7 @@ class WebhooksManager(BaseManager):
 
                 self.webhooks_event_manager.insert_webhook_event(payload)
         except Exception as err:
-            LOGGER.debug("[send_webhook_event] Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[send_webhook_event] Exception: %s, Type: %s", str(err), type(err))
 
 
     def build_payload(

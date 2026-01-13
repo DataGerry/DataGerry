@@ -129,4 +129,37 @@ class ObjectTemplateData:
             except Exception as err:
                 LOGGER.error("Exception processing field '%s': %s", field_name, err)
 
+        # ------------------------------------------------------------
+        # Multi Data Sections (MDS)
+        # ------------------------------------------------------------
+        mds_result = {}
+
+        for section in cmdb_render_object.multi_data_sections or []:
+            section_id = section.get("section_id")
+            if not section_id:
+                continue
+
+            aggregated: dict[str, list] = {}
+
+            for entry in section.get("values", []):
+                for field in entry.get("data", []):
+                    name = field.get("name")
+                    value = field.get("value")
+
+                    if name is None:
+                        continue
+
+                    aggregated.setdefault(name, []).append(value)
+
+            # convert lists to comma-separated strings
+            mds_result[section_id] = {
+                field_name: ", ".join(
+                    "" if v is None else str(v) for v in values
+                )
+                for field_name, values in aggregated.items()
+            }
+
+        if mds_result:
+            data["mds"] = mds_result
+
         return data
