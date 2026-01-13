@@ -15,13 +15,14 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Output, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, EventEmitter, Output, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { finalize } from 'rxjs';
+import { TemplateHelperService } from 'src/app/settings/services/template-helper.service';
 
 @Component({
   selector: 'cmdb-external-object-selector-modal',
@@ -35,13 +36,17 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
   public typeIds: number[] = [];
   public selectedObject: RenderResult | null = null;
   public selectedField: any = null;
-  public fieldOptions: any[] = [];
+  public fieldMenuItems: any[] = [];
+  public fieldMenuOpen = false;
+  public activePath: any[] = [];
+  public activeItems: any[] = [];
   public loading = false;
 
   constructor(
     public activeModal: NgbActiveModal,
     private typeService: TypeService,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+    private templateHelperService: TemplateHelperService
   ) {}
 
   ngOnInit(): void {
@@ -82,76 +87,65 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
         // Single selection
         this.selectedObject = selectedObjects;
       }
-      this.updateFieldOptions();
+      void this.updateFieldOptions();
       this.selectedField = null;
+      this.fieldMenuOpen = false;
+      this.activePath = [];
+      this.activeItems = [];
     } else {
       this.selectedObject = null;
-      this.fieldOptions = [];
+      this.fieldMenuItems = [];
       this.selectedField = null;
+      this.fieldMenuOpen = false;
+      this.activePath = [];
+      this.activeItems = [];
     }
   }
 
-  updateFieldOptions(): void {
-    this.fieldOptions = [];
-    
-    // Add Public ID as first option
-    this.fieldOptions.push({
-      value: 'public_id',
-      label: 'Public ID',
-      group: 'Object [1]'
-    });
+  async updateFieldOptions(): Promise<void> {
+    this.fieldMenuItems = [];
 
-    // Add object fields grouped by section
-    if (!this.selectedObject || !this.selectedObject.fields) {
+    if (!this.selectedObject) {
       return;
     }
 
-    const fields = Array.isArray(this.selectedObject.fields) ? this.selectedObject.fields : [];
-    const sections = Array.isArray(this.selectedObject.sections) ? this.selectedObject.sections : [];
-    const fieldByName = new Map<string, any>();
-    const groupedFieldNames = new Set<string>();
-
-    fields.forEach((field: any) => {
-      if (field?.name) {
-        fieldByName.set(field.name, field);
-      }
-    });
-
-    const addFieldOption = (field: any, groupLabel: string) => {
-      this.fieldOptions.push({
-        value: field.name,
-        label: field.label || field.name,
-        type: field.type,
-        group: groupLabel
-      });
-    };
-
-    sections.forEach((section: any) => {
-      const sectionFields = Array.isArray(section?.fields) ? section.fields : [];
-      const groupLabelBase = section?.label || section?.name || 'Section';
-      const groupLabel = `${groupLabelBase} [${sectionFields.length}]`;
-
-      sectionFields.forEach((fieldName: string) => {
-        const field = fieldByName.get(fieldName);
-        if (field) {
-          addFieldOption(field, groupLabel);
-          groupedFieldNames.add(fieldName);
-        }
-      });
-    });
-
-    const remainingCount = fields.filter((field: any) => field?.name && !groupedFieldNames.has(field.name)).length;
-    const remainingGroupLabel = `Other Fields [${remainingCount}]`;
-
-    fields.forEach((field: any) => {
-      if (field?.name && !groupedFieldNames.has(field.name)) {
-        addFieldOption(field, remainingGroupLabel);
-      }
-    });
+    const objectId = this.selectedObject.object_information.object_id;
+    const typeId = this.selectedObject.type_information.type_id;
+    const helperData = await this.templateHelperService.getObjectTemplateHelperData(typeId, '', 3, 'OBJECT');
+    const externalHelperData = this.mapExternalTemplateData(helperData, objectId);
+    this.fieldMenuItems = externalHelperData;
+    this.activePath = [];
+    this.activeItems = [];
   }
 
-  onFieldSelectionChange(field: any): void {
-    this.selectedField = field;
+  toggleFieldMenu(): void {
+    this.fieldMenuOpen = !this.fieldMenuOpen;
+    if (!this.fieldMenuOpen) {
+      this.activePath = [];
+      this.activeItems = [];
+    }
+  }
+
+  onMenuItemClick(item: any, path: string[], event: MouseEvent): void {
+    if (item?.subdata?.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.setActiveReference(item, path);
+      return;
+    }
+
+    if (!item?.templatedata) {
+      return;
+    }
+
+    this.selectedField = {
+      label: this.buildSelectedLabel(path, item.label),
+      template: item.templatedata,
+      type: item.type
+    };
+    this.fieldMenuOpen = false;
+    this.activePath = [];
+    this.activeItems = [];
   }
 
   insert(): void {
@@ -159,13 +153,9 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
       return;
     }
 
-    const objectId = this.selectedObject.object_information.object_id;
-    let template: string;
-
-    if (this.selectedField.value === 'public_id') {
-      template = `{{ object(${objectId}).public_id }}`;
-    } else {
-      template = `{{ object(${objectId}).fields['${this.selectedField.value}'] }}`;
+    const template = this.selectedField.template;
+    if (!template) {
+      return;
     }
 
     this.insertTemplate.emit(template);
@@ -174,5 +164,55 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
 
   cancel(): void {
     this.activeModal.dismiss();
+  }
+
+  private mapExternalTemplateData(data: any[], objectId: number): any[] {
+    return (data || []).map((item) => ({
+      ...item,
+      templatedata: this.mapExternalTemplate(item.templatedata, objectId),
+      subdata: item.subdata ? this.mapExternalTemplateData(item.subdata, objectId) : undefined
+    }));
+  }
+
+  private mapExternalTemplate(template: string, objectId: number): string {
+    if (!template) {
+      return template;
+    }
+    if (template === '{{id}}') {
+      return `{{ object(${objectId}).public_id }}`;
+    }
+    if (template.startsWith('{{fields')) {
+      return template.replace('{{fields', `{{ object(${objectId}).fields`);
+    }
+    return template;
+  }
+
+  private buildSelectedLabel(path: any[], label: string): string {
+    if (!path?.length) {
+      return label;
+    }
+    const labels = path.map((entry) => typeof entry === 'string' ? entry : entry?.label).filter(Boolean);
+    return `${labels.join(' > ')} > ${label}`;
+  }
+
+  public setActiveReference(item: any, path: any[]): void {
+    if (!item?.subdata?.length) {
+      this.activePath = [];
+      this.activeItems = [];
+      return;
+    }
+    this.activePath = [...(path || []), item];
+    this.activeItems = item.subdata;
+  }
+
+  public jumpToPathIndex(index: number): void {
+    if (index < 0) {
+      this.activePath = [];
+      this.activeItems = [];
+      return;
+    }
+    this.activePath = this.activePath.slice(0, index + 1);
+    const last = this.activePath[this.activePath.length - 1];
+    this.activeItems = last?.subdata || [];
   }
 }
