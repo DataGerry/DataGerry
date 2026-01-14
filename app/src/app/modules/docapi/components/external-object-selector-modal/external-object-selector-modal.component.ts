@@ -181,6 +181,9 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     if (template === '{{id}}') {
       return `{{ object(${objectId}).public_id }}`;
     }
+    if (template.startsWith('{{mds')) {
+      return template.replace('{{mds', `{{ object(${objectId}).mds`);
+    }
     if (template.startsWith('{{fields')) {
       return template.replace('{{fields', `{{ object(${objectId}).fields`);
     }
