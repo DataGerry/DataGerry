@@ -112,8 +112,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       .subscribe({
         next: ([connectors, invokers]) => {
           this.connectors = connectors || [];
-          // Filter out the internal connector from the list of selectable connectors
-          this.externalConnectors = this.connectors.filter(connector => connector.title !== 'DataGerryInternal');
+          // Keep the internal connector in the list, but present a friendlier label
+          this.externalConnectors = this.connectors.map(connector =>
+            connector.title === 'DataGerryInternal'
+              ? { ...connector, title: 'Built-in DataGerry' }
+              : connector
+          );
           this.invokers = invokers || [];
 
           // Set internal connector details from connectors list
@@ -238,9 +242,9 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.showConnectorField = !!direction;
 
     if (direction === 'outgoing') {
-      this.connectorLabel = 'To Connector';
+      this.connectorLabel = 'Send data to Connector';
     } else if (direction === 'incoming') {
-      this.connectorLabel = 'From Connector';
+      this.connectorLabel = 'Get data from Connector';
     } else {
       this.connectorLabel = '';
     }
