@@ -45,6 +45,7 @@ import { environment } from 'src/environments/environment';
 export class ConnectorFormComponent implements OnInit, OnDestroy {
   mode: 'create' | 'edit' | 'internal' = 'create';
   id?: number;
+  isCloudMode = environment.cloudMode;
 
   invokers: Invoker[] = [];
   form!: FormGroup;
@@ -63,6 +64,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   credentialsBlurred = false;
   verifyingPassword = false;
   showPassword = false;
+  showDataGerryPassword = false;
   originalInvokerName: string | null = null;
 
   // Internal connector state
@@ -325,8 +327,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   
       if (connectorExists) {
         // Fetch actual existing internal connector (for ID + possibly real requestData)
+        this.loaderService.show();
         this.svc.getInternalConnector({})
-          .pipe(takeUntil(this.destroy$))
+          .pipe(
+            finalize(() => this.loaderService.hide()),
+            takeUntil(this.destroy$)
+          )
           .subscribe({
             next: (actual) => {
               this.id = actual?.connectorId;
@@ -445,8 +451,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
           
           if (exists) {
             // Connector exists - show update button and load connector data
+            this.loaderService.show();
             this.svc.getInternalConnector({})
-              .pipe(takeUntil(this.destroy$))
+              .pipe(
+                finalize(() => this.loaderService.hide()),
+                takeUntil(this.destroy$)
+              )
               .subscribe({
                 next: (connector) => {
                   this.patchForInternal(connector, true);
@@ -569,6 +579,10 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     this.showPassword = !this.showPassword;
   }
 
+  toggleDataGerryPasswordVisibility(): void {
+    this.showDataGerryPassword = !this.showDataGerryPassword;
+  }
+
   // Action methods
   private toPayload(): Connector {
     // Use getRawValue() to get all form values including disabled fields
@@ -587,7 +601,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       invoker: { name: invokerName },
       sslCert: v.sslCert,
       timeout: v.timeout,
-      requestData: this.mode === 'internal'
+      requestData: this.mode === 'internal' && environment.cloudMode
         ? { ...v.requestData, url: this.getInternalUrlFromEnvironment() }
         : v.requestData
     };
@@ -681,6 +695,11 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
   private getInternalUrlFromEnvironment(): string {
     return `${environment.protocol}://${environment.apiUrl}`;
+    if (environment.cloudMode) {
+      return `${environment.protocol}://${environment.apiUrl}`;
+    }
+
+    return this.requestDataGroup?.get('url')?.value ?? '';
   }
 
   
