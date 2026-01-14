@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 This module contains the implementation of the WebhooksManager
 """
-import logging
+from logging import Logger, getLogger
 import json
 from datetime import datetime, timezone
 import requests
@@ -34,7 +34,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.errors.manager import BaseManagerInsertError, BaseManagerGetError, BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                WebhooksManager - CLASS                                               #
@@ -45,7 +45,7 @@ class WebhooksManager(BaseManager):
     Extends: BaseManager
     """
 
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database:str = None) -> None:
         """
         Set the database connection and the queue for sending events
 
@@ -98,7 +98,7 @@ class WebhooksManager(BaseManager):
             raise BaseManagerGetError(f"Webhook with ID: {public_id}! 'GET' Error: {err}") from err
 
         if requested_webhook:
-            requested_webhook = CmdbWebhook.from_data(requested_webhook)
+            requested_webhook: CmdbWebhook = CmdbWebhook.from_data(requested_webhook)
 
             return requested_webhook
 
@@ -160,6 +160,10 @@ class WebhooksManager(BaseManager):
             # Check all webhooks
             webhook: CmdbWebhook
             for webhook in webhooks:
+                # Check if webhook is active
+                if not webhook.active:
+                    continue
+
                 # Check if operation is registered in the webhook
                 if operation not in webhook.event_types:
                     continue
