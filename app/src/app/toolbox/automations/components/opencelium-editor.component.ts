@@ -12,6 +12,7 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import { ConnectionService } from 'src/app/modules/connect/services/connection.service';
+import { environment } from 'src/environments/environment';
 import ConnectionEditor from './automation-form/opencelium-editor/connection-editor.js';
 
 
@@ -86,14 +87,14 @@ export class OpenCeliumEditorComponent
       initConnection: this.initConnection,
       connectors: this.connectors,
       invokers: this.invokers,
-      baseUrl: '',
+      baseUrl: this.getBaseUrl(),
       onChange: (connection: any) => {
         this.connectionChange.emit(connection);
       },
       saveConnection: async (connection: any) => {
         this.saveConnection.emit(connection);
       },
-      onLoad: () => {  }
+      onLoad: () => {}
     };
 
     // Only send connector IDs in create mode
@@ -102,11 +103,27 @@ export class OpenCeliumEditorComponent
       props.targetConnectorId = this.targetConnectorId;
     } 
 
+    console.log('[OpenCeliumEditorComponent] props sent to React', props);
+
     ReactDOM.render(
       React.createElement(this.ConnectionEditor, props),
       this.container
     );
 
+  }
+
+  private getBaseUrl(): string {
+    if (environment.cloudMode) {
+      const host = environment.apiUrl.replace(/^https?:\/\//, '');
+      const port =
+        environment.protocol === 'https' ? 443 : environment.apiPort;
+      const base = port
+        ? `${environment.protocol}://${host}:${port}`
+        : `${environment.protocol}://${host}`;
+      return `${base}/rest/open_celium/`;
+    }
+
+    return `${this.connectionService.getApiBaseUrl()}/rest/open_celium/`;
   }
 
   private integrateStyles() {
