@@ -111,14 +111,14 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       .pipe(finalize(() => this.loaderService.hide()))
       .subscribe({
         next: ([connectors, invokers]) => {
-          this.connectors = connectors || [];
+          this.invokers = invokers || [];
+          this.connectors = this.replaceConnectorInvokers(connectors || [], this.invokers);
           // Keep the internal connector in the list, but present a friendlier label
           this.externalConnectors = this.connectors.map(connector =>
             connector.title === 'DataGerryInternal'
               ? { ...connector, title: 'Built-in DataGerry' }
               : connector
           );
-          this.invokers = invokers || [];
 
           // Set internal connector details from connectors list
           const internalConnector = this.connectors.find(c => c.title === 'DataGerryInternal');
@@ -156,6 +156,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
         }
       });
   }
+
 
   private loadTemplates(): void {
     const sourceId = this.currentSourceConnectorId;
@@ -474,4 +475,31 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   cancel(): void {
     this.router.navigate(['/automations'], { relativeTo: this.route });
   }
+
+
+    
+  // Replace each connector's invoker with the full invoker object from the invokers list.
+  private replaceConnectorInvokers(connectors: Connector[], invokers: any[]): Connector[] {
+    const invokerMap = new Map<string, any>();
+    invokers.forEach(invoker => {
+      if (invoker?.name) {
+        invokerMap.set(invoker.name, invoker);
+      }
+    });
+
+    return connectors.map((connector: any) => {
+      const invokerName = connector?.invoker?.name ?? connector?.invoker;
+      if (!invokerName) {
+        return connector;
+      }
+
+      const invoker = invokerMap.get(invokerName);
+      if (!invoker) {
+        return connector;
+      }
+
+      return { ...connector, invoker };
+    });
+  }
+
 }
