@@ -49,7 +49,7 @@ RELATION_PLACEHOLDER_REGEX = re.compile(
     r"""
     root
     (?:
-        \.relation\(\s*\d+\s*,\s*(?:parent|child)\s*\)
+        \.relation\(\s*\d+\s*,\s*(?:'parent'|'child')\s*\)
         (?:\.type\(\s*\d+\s*\))?
     )+
     (?:
@@ -63,7 +63,7 @@ RELATION_PLACEHOLDER_REGEX = re.compile(
 RELATION_STEP_REGEX = re.compile(
     r"""
     \.relation\(
-        \s*(\d+)\s*,\s*(parent|child)\s*
+        \s*(\d+)\s*,\s*('parent'|'child')\s*
     \)
     (?:\.type\(\s*(\d+)\s*\))?
     """,
@@ -142,6 +142,8 @@ class DefaultTemplateData:
             for m in RELATION_PLACEHOLDER_REGEX.finditer(template_string)
         ]
 
+        # LOGGER.debug(f"self.relation_placeholders: {self.relation_placeholders}")
+
         # --------------------------------------------------------------
         # Caches
         # --------------------------------------------------------------
@@ -188,6 +190,8 @@ class DefaultTemplateData:
             for rel_id, _, _ in RELATION_STEP_REGEX.findall(placeholder):
                 relation_ids.add(int(rel_id))
 
+        # LOGGER.debug(f"relation_ids: {relation_ids}")
+
         if relation_ids:
             cursor = self.relations_manager.find(
                 criteria={"public_id": {"$in": list(relation_ids)}}
@@ -200,9 +204,9 @@ class DefaultTemplateData:
             )
             self.object_relations = list(cursor)
 
-        # --------------------------------------------------------------
+        # LOGGER.debug(f"self.object_relations: {self.object_relations}")
+
         # Final template data
-        # --------------------------------------------------------------
         self.template_data = {
             "root": self._root_accessor(),
             "object": self._object_accessor(),
@@ -251,10 +255,41 @@ class DefaultTemplateData:
             if rel["relation_id"] != relation_id:
                 continue
 
-            if side == "parent" and rel["child_id"] == start_object_id:
-                matches.append(rel["parent_id"])
-            elif side == "child" and rel["parent_id"] == start_object_id:
-                matches.append(rel["child_id"])
+            if side == "parent" and rel["relation_child_id"] == start_object_id:
+                matches.append(rel["relation_parent_id"])
+            elif side == "child" and rel["relation_parent_id"] == start_object_id:
+                matches.append(rel["relation_child_id"])
+
+        # ------------------------------------------------------------------
+        # Ensure related objects are cached
+        # ------------------------------------------------------------------
+        missing_ids = [
+            oid for oid in matches
+            if oid not in self.object_cache
+        ]
+
+        if missing_ids:
+            cursor = self.objects_manager.find(
+                criteria={"public_id": {"$in": missing_ids}}
+            )
+            for obj in cursor:
+                self.object_cache[obj["public_id"]] = obj
+
+        # ------------------------------------------------------------------
+        # Ensure related object TYPES are cached
+        # ------------------------------------------------------------------
+        missing_type_ids = {
+            obj["type_id"]
+            for obj in self.object_cache.values()
+            if obj.get("type_id") and obj["type_id"] not in self.type_cache
+        }
+
+        if missing_type_ids:
+            cursor = self.types_manager.find(
+                criteria={"public_id": {"$in": list(missing_type_ids)}}
+            )
+            for t in cursor:
+                self.type_cache[t["public_id"]] = t
 
         return RelationResult(
             matches,
