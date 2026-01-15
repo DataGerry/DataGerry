@@ -14,15 +14,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of the CSVContent
+TODO: document
 """
-from cmdb.framework.importer.content_types.base_content import BaseContent
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class CSVContent(BaseContent):
-    """
-    Identifier for Comma-Separated Values files
-    """
-    ICON = 'fas fa-file-csv'
-    CONTENT_TYPE = 'text/csv'
-    FILE_TYPE = 'csv'
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               AggregatedFields - CLASS                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class AggregatedFields:
+    """TODO: document"""
+    def __init__(self, field_dicts: list[dict]):
+        self._field_dicts = field_dicts
+
+    def __getitem__(self, field_name: str) -> str:
+        values = []
+
+        for d in self._field_dicts:
+            val = d.get(field_name)
+            if val is None or val == "":
+                continue
+            values.append(str(val))
+
+        return ", ".join(values)

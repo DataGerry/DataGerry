@@ -21,6 +21,7 @@ from logging import Logger, getLogger
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
+from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -69,16 +70,17 @@ class RelationResult:
 
     def relation(self, relation_id: int, side: str):
         """TODO: document"""
+        LOGGER.debug("[RelationResult->relation] called")
         next_ids = []
 
         for rel in self.object_relations:
             if rel["relation_id"] != relation_id:
                 continue
 
-            if side == "parent" and rel["child_id"] in self.object_ids:
-                next_ids.append(rel["parent_id"])
-            elif side == "child" and rel["parent_id"] in self.object_ids:
-                next_ids.append(rel["child_id"])
+            if side == "parent" and rel["relation_child_id"] in self.object_ids:
+                next_ids.append(rel["relation_parent_id"])
+            elif side == "child" and rel["relation_parent_id"] in self.object_ids:
+                next_ids.append(rel["relation_child_id"])
 
         return RelationResult(
             next_ids,
@@ -102,9 +104,11 @@ class RelationResult:
     def fields(self):
         """TODO: document"""
         result = []
+
         for oid in self.object_ids:
             obj = self.object_cache.get(oid)
             if not obj:
+                LOGGER.debug(">>>>[No obj]<<<<")
                 continue
 
             cmdb_object = CmdbObject.from_data(obj)
@@ -127,4 +131,4 @@ class RelationResult:
                 ).get_template_data()["fields"]
             )
 
-        return result
+        return AggregatedFields(result)
