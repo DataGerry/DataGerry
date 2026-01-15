@@ -21,8 +21,8 @@ import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
-import { finalize } from 'rxjs';
-import { TemplateHelperService } from 'src/app/settings/services/template-helper.service';
+import { finalize, firstValueFrom } from 'rxjs';
+import { ObjectService } from 'src/app/framework/services/object.service';
 
 @Component({
   selector: 'cmdb-external-object-selector-modal',
@@ -41,12 +41,13 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
   public activePath: any[] = [];
   public activeItems: any[] = [];
   public loading = false;
+  private objectCache = new Map<number, RenderResult>();
 
   constructor(
     public activeModal: NgbActiveModal,
     private typeService: TypeService,
     private loaderService: LoaderService,
-    private templateHelperService: TemplateHelperService
+    private objectService: ObjectService<RenderResult>
   ) {}
 
   ngOnInit(): void {
@@ -109,11 +110,11 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
       return;
     }
 
-    const objectId = this.selectedObject.object_information.object_id;
-    const typeId = this.selectedObject.type_information.type_id;
-    const helperData = await this.templateHelperService.getObjectTemplateHelperData(typeId, '', 3, 'OBJECT');
-    const externalHelperData = this.mapExternalTemplateData(helperData, objectId);
-    this.fieldMenuItems = externalHelperData;
+    const rootObjectId = this.selectedObject.object_information?.object_id;
+    if (!rootObjectId) {
+      return;
+    }
+    this.fieldMenuItems = await this.buildMenuForRenderObject(this.selectedObject, 3, rootObjectId, ['fields'], true);
     this.activePath = [];
     this.activeItems = [];
   }
@@ -166,30 +167,6 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activeModal.dismiss();
   }
 
-  private mapExternalTemplateData(data: any[], objectId: number): any[] {
-    return (data || []).map((item) => ({
-      ...item,
-      templatedata: this.mapExternalTemplate(item.templatedata, objectId),
-      subdata: item.subdata ? this.mapExternalTemplateData(item.subdata, objectId) : undefined
-    }));
-  }
-
-  private mapExternalTemplate(template: string, objectId: number): string {
-    if (!template) {
-      return template;
-    }
-    if (template === '{{id}}') {
-      return `{{ object(${objectId}).public_id }}`;
-    }
-    if (template.startsWith('{{mds')) {
-      return template.replace('{{mds', `{{ object(${objectId}).mds`);
-    }
-    if (template.startsWith('{{fields')) {
-      return template.replace('{{fields', `{{ object(${objectId}).fields`);
-    }
-    return template;
-  }
-
   private buildSelectedLabel(path: any[], label: string): string {
     if (!path?.length) {
       return label;
@@ -217,5 +194,254 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activePath = this.activePath.slice(0, index + 1);
     const last = this.activePath[this.activePath.length - 1];
     this.activeItems = last?.subdata || [];
+  }
+
+  private async buildMenuForRenderObject(
+    object: RenderResult,
+    depth: number,
+    rootObjectId: number,
+    baseSegments: string[],
+    includePublicId: boolean,
+    refPublicIdSegments?: string[]
+  ): Promise<any[]> {
+    const items = [];
+    const objectId = object?.object_information?.object_id;
+    if (!objectId) {
+      return items;
+    }
+
+    if (includePublicId) {
+      items.push({
+        label: 'Public ID',
+        templatedata: refPublicIdSegments
+          ? this.buildObjectTemplate(rootObjectId, refPublicIdSegments)
+          : this.buildObjectTemplate(rootObjectId, ['public_id']),
+        name: 'public_id',
+        type: 'public_id'
+      });
+    }
+
+    const fields = Array.isArray(object.fields) ? object.fields : [];
+    const sections = Array.isArray(object.sections) ? object.sections : [];
+    const fieldByName = new Map<string, any>();
+    const groupedFieldNames = new Set<string>();
+
+    fields.forEach((field: any) => {
+      if (field?.name) {
+        fieldByName.set(field.name, field);
+      }
+    });
+
+    const buildFieldMenuItem = async (field: any, segments: string[]): Promise<any | null> => {
+      const fieldType = field?.type;
+      if (fieldType === 'ref' || fieldType === 'ref-section-field') {
+        const subdata = await this.buildReferenceSubmenu(field, depth - 1, rootObjectId, segments);
+        if (subdata.length === 0) {
+          return null;
+        }
+        return {
+          label: field.label || field.name,
+          subdata,
+          name: field.name,
+          type: field.type
+        };
+      }
+
+      return {
+        label: field.label || field.name,
+        templatedata: this.buildObjectTemplate(rootObjectId, [...segments, field.name]),
+        name: field.name,
+        type: field.type
+      };
+    };
+
+    const addSectionGroup = (labelBase: string, sectionItems: any[], name?: string, type?: string) => {
+      if (!sectionItems.length) {
+        return;
+      }
+      items.push({
+        label: `[${sectionItems.length}] ${labelBase}`,
+        subdata: sectionItems,
+        name,
+        type
+      });
+    };
+
+    for (const section of sections) {
+      const sectionFields = Array.isArray(section?.fields) ? section.fields : [];
+      const sectionLabel = section?.label || section?.name || 'Section';
+      const sectionType = section?.type;
+
+      sectionFields.forEach((fieldName: string) => groupedFieldNames.add(fieldName));
+
+      if (sectionType === 'multi-data-section') {
+        const sectionItems = [];
+        const mdsSegments = this.buildMdsSegments(baseSegments);
+
+        for (const fieldName of sectionFields) {
+          const field = fieldByName.get(fieldName);
+          if (!field) {
+            continue;
+          }
+          if (field.type === 'ref' || field.type === 'ref-section-field') {
+            continue;
+          }
+          sectionItems.push({
+            label: field.label || field.name,
+            templatedata: this.buildObjectTemplate(rootObjectId, [...mdsSegments, section.name, field.name]),
+            name: field.name,
+            type: field.type
+          });
+        }
+
+        addSectionGroup(sectionLabel, sectionItems, section?.name, 'multi-data-section');
+        continue;
+      }
+
+      const sectionItems = [];
+      for (const fieldName of sectionFields) {
+        const field = fieldByName.get(fieldName);
+        if (!field) {
+          continue;
+        }
+        const item = await buildFieldMenuItem(field, baseSegments);
+        if (item) {
+          sectionItems.push(item);
+        }
+      }
+
+      addSectionGroup(sectionLabel, sectionItems, section?.name, sectionType);
+    }
+
+    const otherItems = [];
+    for (const field of fields) {
+      if (!field?.name || groupedFieldNames.has(field.name)) {
+        continue;
+      }
+      const item = await buildFieldMenuItem(field, baseSegments);
+      if (item) {
+        otherItems.push(item);
+      }
+    }
+
+    addSectionGroup('Other Fields', otherItems, 'other-fields', 'other');
+
+    return items;
+  }
+
+  private async buildReferenceSubmenu(
+    field: any,
+    depth: number,
+    rootObjectId: number,
+    baseSegments: string[]
+  ): Promise<any[]> {
+    if (!field?.value || depth < 0) {
+      return [];
+    }
+
+    const referenced = await this.getRenderObject(field.value);
+    if (!referenced) {
+      return [];
+    }
+
+    if (field.type === 'ref-section-field') {
+      const referenceFields = field?.references?.fields || [];
+      const nextBaseSegments = [...baseSegments, field.name, 'fields'];
+      return this.buildMenuFromReferenceFields(referenced, referenceFields, depth, rootObjectId, nextBaseSegments);
+    }
+
+    const nextBaseSegments = [...baseSegments, field.name, 'fields'];
+    const publicIdSegments = [...baseSegments, field.name, 'public_id'];
+    return this.buildMenuForRenderObject(
+      referenced,
+      depth,
+      rootObjectId,
+      nextBaseSegments,
+      true,
+      publicIdSegments
+    );
+  }
+
+  private async buildMenuFromReferenceFields(
+    object: RenderResult,
+    referenceFields: any[],
+    depth: number,
+    rootObjectId: number,
+    baseSegments: string[]
+  ): Promise<any[]> {
+    const items = [];
+    const objectId = object?.object_information?.object_id;
+    if (!objectId) {
+      return items;
+    }
+
+    for (const refFieldDef of referenceFields) {
+      const actualField = (object.fields || []).find((f) => f.name === refFieldDef.name) || refFieldDef;
+      const fieldType = actualField?.type;
+
+      if (fieldType === 'ref' || fieldType === 'ref-section-field') {
+        const subdata = await this.buildReferenceSubmenu(actualField, depth - 1, rootObjectId, baseSegments);
+        if (subdata.length === 0) {
+          continue;
+        }
+        items.push({
+          label: actualField.label || actualField.name,
+          subdata,
+          name: actualField.name,
+          type: fieldType
+        });
+        continue;
+      }
+
+      items.push({
+        label: refFieldDef.label || refFieldDef.name,
+        templatedata: this.buildObjectTemplate(rootObjectId, [...baseSegments, refFieldDef.name]),
+        name: refFieldDef.name,
+        type: refFieldDef.type
+      });
+    }
+
+    return items;
+  }
+
+  private buildObjectTemplate(rootObjectId: number, segments: string[]): string {
+    const path = segments.map((segment, index) => {
+      if (index === 0 && (segment === 'fields' || segment === 'mds')) {
+        return `.${segment}`;
+      }
+      return `['${segment}']`;
+    }).join('');
+    return `{{ object(${rootObjectId})${path} }}`;
+  }
+
+  private buildMdsSegments(baseSegments: string[]): string[] {
+    if (!baseSegments?.length) {
+      return ['mds'];
+    }
+    const segments = [...baseSegments];
+    if (segments[segments.length - 1] === 'fields') {
+      segments[segments.length - 1] = 'mds';
+    } else {
+      segments.push('mds');
+    }
+    return segments;
+  }
+
+  private async getRenderObject(objectId: number): Promise<RenderResult | null> {
+    if (!objectId) {
+      return null;
+    }
+    if (this.objectCache.has(objectId)) {
+      return this.objectCache.get(objectId) || null;
+    }
+    try {
+      const renderObject = await firstValueFrom(this.objectService.getObject<RenderResult>(objectId));
+      if (renderObject) {
+        this.objectCache.set(objectId, renderObject);
+      }
+      return renderObject || null;
+    } catch (error) {
+      return null;
+    }
   }
 }
