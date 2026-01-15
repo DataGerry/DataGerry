@@ -23,7 +23,7 @@
 
       <!-- Direction Field -->
       <div class="form-group">
-        <label for="direction">Direction: <span class="required">*</span></label>
+        <label for="direction">Direction of data flow: <span class="required">*</span></label>
         <app-form-select
           id="direction"
           label=""
@@ -31,8 +31,8 @@
           formControlName="direction"
           [required]="true"
           [items]="[
-            { label: 'Incoming', value: 'incoming' },
-            { label: 'Outgoing', value: 'outgoing' }
+            { label: 'Incoming Data', value: 'incoming' },
+            { label: 'Outgoing Data', value: 'outgoing' }
           ]"
           bindLabel="label"
           bindValue="value"
@@ -56,7 +56,7 @@
 
       <!-- Business Template Field -->
       <div class="form-group">
-        <label for="business_template">Business Template: </label>
+        <label for="business_template">Use a predefined interface template: </label>
         <app-form-select
           id="business_template"
           label=""

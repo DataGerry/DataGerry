@@ -250,6 +250,7 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     // Conditionally include fields if requested
     if (this.includeFields) {
       baseProjection['fields'] = 1;
+      baseProjection['sections'] = 1;
     }
 
     this.params = {

@@ -53,10 +53,14 @@ export class TemplateHelperService implements OnDestroy {
     }
     templateHelperData.push(({
       label: 'Public ID',
-      templatedata: publicIdTemplate
+      templatedata: publicIdTemplate,
+      name: 'public_id',
+      type: 'public_id'
     }) as TemplateHelpdataElement);
-    await this.typeService.getType(typeId).subscribe({
-      next: async (cmdbTypeObj) => {
+    try {
+      const cmdbTypeObj = await firstValueFrom(
+        this.typeService.getType(typeId).pipe(takeUntil(this.subscriber))
+      );
     
       const multiDataSectionFieldsSet = new Set(
         cmdbTypeObj.render_meta.sections
@@ -76,29 +80,28 @@ export class TemplateHelperService implements OnDestroy {
           const changedPrefix = (prefix ? prefix + '[\'fields\'][\'' + field.name + '\']' : '[\'' + field.name + '\']');
           let subdata;
 
-          if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
-            await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1, templateType).then(data => {
-              subdata = data;
-            });
+          if (!field.ref_types) {
+            subdata = [];
+          } else if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
+            subdata = await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1, templateType);
           } else if (field.ref_types.length === 1) {
-            await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1, templateType).then(data => {
-              subdata = data;
-            });
+            subdata = await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1, templateType);
           } else {
             subdata = [];
-            await field.ref_types.forEach((type) => {
-              this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1, templateType).then(data => {
-                subdata.push(({
-                  label: 'ref_type ' + type,
-                  subdata: data
-                }));
-              });
-            });
+            for (const type of field.ref_types) {
+              const data = await this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1, templateType);
+              subdata.push(({
+                label: 'ref_type ' + type,
+                subdata: data
+              }));
+            }
           }
 
           templateHelperData.push(({
             label: field.label,
-            subdata
+            subdata,
+            name: field.name,
+            type: field.type
           }) as TemplateHelpdataElement);
         } else if (field.type === 'ref-section-field') {
           const refSection = cmdbTypeObj.render_meta.sections.find(s => s.name === field.name.substring(0, field.name.length - 6));
@@ -128,13 +131,17 @@ export class TemplateHelperService implements OnDestroy {
                 }
                 referenceFields.push(({
                   label: refField.label,
-                  templatedata: refFieldTemplate
+                  templatedata: refFieldTemplate,
+                  name: refField.name,
+                  type: refField.type
                 }) as TemplateHelpdataElement);
               }
             }
             templateHelperData.push(({
               label: field.label,
-              subdata: referenceFields
+              subdata: referenceFields,
+              name: field.name,
+              type: field.type
             }) as TemplateHelpdataElement);
           });
         } else {
@@ -147,15 +154,53 @@ export class TemplateHelperService implements OnDestroy {
           }
           templateHelperData.push(({
             label: field.label,
-            templatedata: fieldTemplate
+            templatedata: fieldTemplate,
+            name: field.name,
+            type: field.type
           }) as TemplateHelpdataElement);
         }
       }
-    },
-    error: (error) => {
+
+      const multiDataSections = cmdbTypeObj.render_meta.sections
+        .filter(section => section.type === 'multi-data-section');
+
+      for (const section of multiDataSections) {
+        const sectionFields: TemplateHelpdataElement[] = [];
+        for (const fieldName of section.fields || []) {
+          const field = cmdbTypeObj.fields.find(f => f.name === fieldName);
+          if (!field || field.type === 'ref' || field.type === 'ref-section-field') {
+            continue;
+          }
+          let mdsTemplate: string;
+          if (templateType === 'DEFAULT') {
+            mdsTemplate = prefix
+              ? `{{root.fields${prefix}['mds']['${section.name}']['${field.name}']}}`
+              : `{{root.mds['${section.name}']['${field.name}']}}`;
+          } else {
+            mdsTemplate = prefix
+              ? `{{fields${prefix}['mds']['${section.name}']['${field.name}']}}`
+              : `{{mds['${section.name}']['${field.name}']}}`;
+          }
+          sectionFields.push(({
+            label: field.label,
+            templatedata: mdsTemplate,
+            name: field.name,
+            type: field.type
+          }) as TemplateHelpdataElement);
+        }
+
+        if (sectionFields.length > 0) {
+          templateHelperData.push(({
+            label: section.label,
+            subdata: sectionFields,
+            name: section.name,
+            type: 'multi-data-section'
+          }) as TemplateHelpdataElement);
+        }
+      }
+    } catch (error) {
       console.error(error);
-  }}
-    );
+    }
     return templateHelperData;
   }
 
