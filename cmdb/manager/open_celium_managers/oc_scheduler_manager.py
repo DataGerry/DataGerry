@@ -34,7 +34,7 @@ from cmdb.errors.open_celium.scheduler import (
 LOGGER: Logger = getLogger(__name__)
 
 SCHEDULER_URL: str = "/scheduler"
-SCHEDULERS_BY_IDS_URL: str = f"{SCHEDULER_URL}/list/by-ids"
+SCHEDULERS_BY_IDS_URL: str = f"{SCHEDULER_URL}/list/get"
 ALL_SCHEDULERS_URL: str = f"{SCHEDULER_URL}/all"
 EXECUTE_SCHEDULER_URL: str = f"{SCHEDULER_URL}/execute"
 
