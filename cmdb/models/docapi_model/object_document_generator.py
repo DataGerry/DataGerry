@@ -90,13 +90,15 @@ class ObjectDocumentGenerator:
             template_data = DefaultTemplateData(
                 self.cmdb_render_object,
                 template_str,
-                self.request_user
+                self.request_user,
+                self.template.template_type,
             ).get_template_data()
         else:
             template_data = ObjectTemplateData(
                 self.cmdb_render_object,
                 self.objects_manager,
-                self.request_user
+                self.request_user,
+                self.template.template_type
             ).get_template_data()
 
         # LOGGER.debug(f"template_data: {template_data}")

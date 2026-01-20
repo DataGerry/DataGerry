@@ -30,14 +30,9 @@ from cmdb.manager import (
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
-# from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.type_model import CmdbType
 from cmdb.framework.rendering.cmdb_render import CmdbRender
-# from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.docapi_model.relation_result import RelationResult
-
-
-# from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -95,9 +90,11 @@ class DefaultTemplateData:
         cmdb_render_object,
         template_string: str,
         request_user,
+        template_type
     ) -> None:
         self.template_string = template_string
         self.request_user = request_user
+        self.template_type = template_type
 
         # --------------------------------------------------------------
         # Managers
@@ -121,7 +118,8 @@ class DefaultTemplateData:
         self.root_data = ObjectTemplateData(
             cmdb_render_object,
             self.objects_manager,
-            self.request_user
+            self.request_user,
+            self.template_type
         ).get_template_data()
 
         self.root_object_id = self.root_data["public_id"]
@@ -298,6 +296,7 @@ class DefaultTemplateData:
             self.object_relations,
             self.request_user,
             self.objects_manager,
+            self.template_type
         )
 
     # ------------------------------------------------------------------
@@ -325,7 +324,8 @@ class DefaultTemplateData:
             return ObjectTemplateData(
                 render.result(),
                 self.objects_manager,
-                self.request_user
+                self.request_user,
+                self.template_type
             ).get_template_data()
 
         return _object_fn
