@@ -42,7 +42,8 @@ class ObjectTemplateData:
             self,
             cmdb_render_object: RenderResult,
             objects_manager: ObjectsManager,
-            request_user: CmdbUser
+            request_user: CmdbUser,
+            template_type: str
     ) -> None:
         """
         Initializes the ObjectTemplateData
@@ -53,6 +54,9 @@ class ObjectTemplateData:
         """
         self.objects_manager: ObjectsManager = objects_manager
         self.request_user: CmdbUser = request_user
+        self.template_type = template_type
+
+        self.modern_templates = (self.template_type == "DEFAULT")
 
         self.locations_manager: LocationsManager = ManagerProvider.get_manager(
             ManagerType.LOCATIONS, request_user
@@ -69,6 +73,79 @@ class ObjectTemplateData:
             dict: The structured template data extracted from the RenderResult
         """
         return self.template_data
+
+
+    def _resolve_reference(self, public_id, depth):
+        try:
+            related_object = self.objects_manager.get_object(public_id)
+            related_object = CmdbObject.from_data(related_object)
+
+            object_type = self.objects_manager.get_object_type(
+                related_object.get_type_id()
+            )
+
+            related_render = CmdbRender(
+                related_object,
+                object_type,
+                None,
+                False
+            )
+
+            return self.extract_object_data(
+                related_render.result(),
+                depth - 1
+            )
+        except Exception:
+            return None
+
+
+    def _resolve_field(self, name, ftype, value, references, depth):
+        # -------------------------
+        # Location
+        # -------------------------
+        if name == "dg_location" and value:
+            try:
+                location = self.locations_manager.get_location(value)
+                return location.get("name")
+            except Exception:
+                return None
+
+        # -------------------------
+        # OBJECT templates (legacy)
+        # -------------------------
+        if not self.modern_templates:
+            if ftype in ("ref", "location"):
+                if value and depth > 0:
+                    return self._resolve_reference(value, depth)
+                return value
+            if ftype == "ref-section-field":
+                return {
+                    "fields": {
+                        ref["name"]: ref.get("value")
+                        for ref in (references or {}).get("fields", [])
+                    }
+                }
+            return value
+
+        # -------------------------
+        # DEFAULT templates (modern)
+        # -------------------------
+        if ftype in ("ref", "location") and value and depth > 0:
+            return self._resolve_reference(value, depth)
+
+        if ftype == "ref-section-field":
+            section_fields = {}
+            for ref in (references or {}).get("fields", []):
+                section_fields[ref["name"]] = self._resolve_field(
+                    name=ref.get("name"),
+                    ftype=ref.get("type"),
+                    value=ref.get("value"),
+                    references=ref.get("references"),
+                    depth=depth,
+                )
+            return {"fields": section_fields}
+
+        return value
 
 
     def extract_object_data(self, cmdb_render_object: RenderResult, depth: int) -> dict:
@@ -89,41 +166,58 @@ class ObjectTemplateData:
             "fields": {}
         }
 
+        # for field in cmdb_render_object.fields:
+        #     field_name = field.get("name")
+        #     field_type = field.get("type")
+        #     field_value = field.get("value")
+
+        #     if not field_name:
+        #         continue
+
+        #     try:
+        #         if field_name == "dg_location" and field_value:
+        #             try:
+        #                 location = self.locations_manager.get_location(field_value)
+        #                 data["fields"][field_name] = location.get("name")
+        #             except Exception as err:
+        #                 LOGGER.error(
+        #                     "Failed to resolve location %s for field dg_location: %s",
+        #                     field_value,
+        #                     err,
+        #                 )
+        #                 data["fields"][field_name] = None
+        #         elif field_type in ("ref", "location") and field_value and depth > 0:
+        #             # resolve type
+        #             related_object = self.objects_manager.get_object(field_value)
+        #             related_object = CmdbObject.from_data(related_object)
+        #             object_type = self.objects_manager.get_object_type(related_object.get_type_id())
+
+        #             related_render = CmdbRender(related_object, object_type, None, False)
+
+        #             data["fields"][field_name] = self.extract_object_data(related_render.result(), depth - 1)
+        #         elif field_type == 'ref-section-field':
+        #             data["fields"][field_name] = {
+        #                 "fields": {ref["name"]: ref["value"] for ref in field.get("references", {}).get("fields", [])}
+        #             }
+        #         else:
+        #             data["fields"][field_name] = field_value
+        #     except ObjectsManagerGetError:
+        #         LOGGER.error("Failed to retrieve object for field '%s'. Skipping.", field_name)
+        #     except Exception as err:
+        #         LOGGER.error("Exception processing field '%s': %s", field_name, err)
         for field in cmdb_render_object.fields:
             field_name = field.get("name")
-            field_type = field.get("type")
-            field_value = field.get("value")
-
             if not field_name:
                 continue
 
             try:
-                if field_name == "dg_location" and field_value:
-                    try:
-                        location = self.locations_manager.get_location(field_value)
-                        data["fields"][field_name] = location.get("name")
-                    except Exception as err:
-                        LOGGER.error(
-                            "Failed to resolve location %s for field dg_location: %s",
-                            field_value,
-                            err,
-                        )
-                        data["fields"][field_name] = None
-                elif field_type in ("ref", "location") and field_value and depth > 0:
-                    # resolve type
-                    related_object = self.objects_manager.get_object(field_value)
-                    related_object = CmdbObject.from_data(related_object)
-                    object_type = self.objects_manager.get_object_type(related_object.get_type_id())
-
-                    related_render = CmdbRender(related_object, object_type, None, False)
-
-                    data["fields"][field_name] = self.extract_object_data(related_render.result(), depth - 1)
-                elif field_type == 'ref-section-field':
-                    data["fields"][field_name] = {
-                        "fields": {ref["name"]: ref["value"] for ref in field.get("references", {}).get("fields", [])}
-                    }
-                else:
-                    data["fields"][field_name] = field_value
+                data["fields"][field_name] = self._resolve_field(
+                    name=field_name,
+                    ftype=field.get("type"),
+                    value=field.get("value"),
+                    references=field.get("references"),
+                    depth=depth,
+                )
             except ObjectsManagerGetError:
                 LOGGER.error("Failed to retrieve object for field '%s'. Skipping.", field_name)
             except Exception as err:

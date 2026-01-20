@@ -43,6 +43,7 @@ class RelationResult:
         object_relations: list[dict],
         request_user,
         objects_manager,
+        template_type
     ):
         self.object_ids = object_ids
         self.object_cache = object_cache
@@ -50,6 +51,7 @@ class RelationResult:
         self.object_relations = object_relations
         self.request_user = request_user
         self.objects_manager = objects_manager
+        self.template_type = template_type
 
     def type(self, type_id: int):
         """TODO: document"""
@@ -66,7 +68,9 @@ class RelationResult:
             self.object_relations,
             self.request_user,
             self.objects_manager,
+            self.template_type
         )
+
 
     def relation(self, relation_id: int, side: str):
         """TODO: document"""
@@ -89,6 +93,7 @@ class RelationResult:
             self.object_relations,
             self.request_user,
             self.objects_manager,
+            self.template_type
         )
 
     # -----------------------------
@@ -99,6 +104,7 @@ class RelationResult:
     def public_id(self):
         """TODO: document"""
         return [oid for oid in self.object_ids]
+
 
     @property
     def fields(self):
@@ -127,8 +133,33 @@ class RelationResult:
                 ObjectTemplateData(
                     render.result(),
                     self.objects_manager,
-                    self.request_user
+                    self.request_user,
+                    self.template_type
                 ).get_template_data()["fields"]
             )
 
         return AggregatedFields(result)
+
+
+    @property
+    def relation_fields(self):
+        """TODO: document"""
+        field_dicts = []
+
+        for rel in self.object_relations:
+            # Only consider relations touching our current objects
+            if (
+                rel.get("relation_parent_id") in self.object_ids
+                or rel.get("relation_child_id") in self.object_ids
+            ):
+                fields = {}
+                for fv in rel.get("field_values", []):
+                    name = fv.get("name")
+                    value = fv.get("value")
+                    if name:
+                        fields[name] = value
+
+                if fields:
+                    field_dicts.append(fields)
+
+        return AggregatedFields(field_dicts)
