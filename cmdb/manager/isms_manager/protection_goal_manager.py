@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -71,8 +71,8 @@ class ProtectionGoalManager(GenericManager):
             if risk_using_protection_goal:
                 raise ProtectionGoalManagerRiskUsageError('ProtectionGoal is used by IsmsRisks!')
 
-            return self.delete(public_id)
+            return self.delete_item(public_id)
         except ProtectionGoalManagerRiskUsageError as err:
             raise err
         except Exception as err:
-            raise ProtectionGoalManagerDeleteError(err) from err
+            raise ProtectionGoalManagerDeleteError(str(err)) from err
