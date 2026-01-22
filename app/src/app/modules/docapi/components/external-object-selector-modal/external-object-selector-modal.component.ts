@@ -55,6 +55,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.fetchTypeIds();
   }
 
+  
   fetchTypeIds(): void {
     const params: any = { filter: '', limit: 0, sort: 'public_id', order: 1, page: 1 };
     this.loading = true;
@@ -103,6 +104,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     }
   }
 
+
   async updateFieldOptions(): Promise<void> {
     this.fieldMenuItems = [];
 
@@ -119,6 +121,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activeItems = [];
   }
 
+
   toggleFieldMenu(): void {
     this.fieldMenuOpen = !this.fieldMenuOpen;
     if (!this.fieldMenuOpen) {
@@ -126,6 +129,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
       this.activeItems = [];
     }
   }
+
 
   onMenuItemClick(item: any, path: string[], event: MouseEvent): void {
     if (item?.subdata?.length) {
@@ -149,6 +153,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activeItems = [];
   }
 
+
   insert(): void {
     if (!this.selectedObject || !this.selectedField) {
       return;
@@ -163,9 +168,11 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activeModal.close();
   }
 
+
   cancel(): void {
     this.activeModal.dismiss();
   }
+
 
   private buildSelectedLabel(path: any[], label: string): string {
     if (!path?.length) {
@@ -174,6 +181,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     const labels = path.map((entry) => typeof entry === 'string' ? entry : entry?.label).filter(Boolean);
     return `${labels.join(' > ')} > ${label}`;
   }
+
 
   public setActiveReference(item: any, path: any[]): void {
     if (!item?.subdata?.length) {
@@ -185,6 +193,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activeItems = item.subdata;
   }
 
+
   public jumpToPathIndex(index: number): void {
     if (index < 0) {
       this.activePath = [];
@@ -195,6 +204,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     const last = this.activePath[this.activePath.length - 1];
     this.activeItems = last?.subdata || [];
   }
+
 
   private async buildMenuForRenderObject(
     object: RenderResult,
@@ -329,6 +339,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     return items;
   }
 
+
   private async buildReferenceSubmenu(
     field: any,
     depth: number,
@@ -361,6 +372,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
       publicIdSegments
     );
   }
+
 
   private async buildMenuFromReferenceFields(
     object: RenderResult,
@@ -404,6 +416,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     return items;
   }
 
+
   private buildObjectTemplate(rootObjectId: number, segments: string[]): string {
     const path = segments.map((segment, index) => {
       if (index === 0 && (segment === 'fields' || segment === 'mds')) {
@@ -413,6 +426,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     }).join('');
     return `{{ object(${rootObjectId})${path} }}`;
   }
+
 
   private buildMdsSegments(baseSegments: string[]): string[] {
     if (!baseSegments?.length) {
@@ -426,6 +440,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     }
     return segments;
   }
+
 
   private async getRenderObject(objectId: number): Promise<RenderResult | null> {
     if (!objectId) {

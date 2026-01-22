@@ -40,6 +40,7 @@ import { DocapiEditComponent } from './components/docapi-edit/docapi-edit.compon
 import { DocapiBuilderTypeStepBaseComponent } from './components/docapi-builder-type-step-base/docapi-builder-type-step-base.component';
 import { DocapiBuilderStyleStepComponent } from './components/docapi-builder-style-step/docapi-builder-style-step.component';
 import { ExternalObjectSelectorModalComponent } from './components/external-object-selector-modal/external-object-selector-modal.component';
+import { RelationTemplateSelectorModalComponent } from './components/relation-template-selector-modal/relation-template-selector-modal.component';
 import { CoreModule } from 'src/app/core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
@@ -54,7 +55,8 @@ import { CoreModule } from 'src/app/core/core.module';
         DocapiBuilderTypeStepObjectComponent,
         DocapiBuilderTypeStepBaseComponent,
         DocapiBuilderStyleStepComponent,
-        ExternalObjectSelectorModalComponent
+        ExternalObjectSelectorModalComponent,
+        RelationTemplateSelectorModalComponent
     ],
     imports: [
         CommonModule,

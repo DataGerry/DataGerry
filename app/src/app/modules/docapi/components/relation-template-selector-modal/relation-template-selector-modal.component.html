@@ -1,0 +1,186 @@
+<div class="modal fade show" tabindex="-1" style="display: block;" aria-modal="true" role="dialog">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">Insert Relation Template</h4>
+        <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
+      </div>
+
+      <div class="modal-body">
+        <div *ngIf="!rootTypeId" class="empty-state">
+          <div class="empty-icon"><i class="fas fa-info-circle"></i></div>
+          <h4>Select a template type first</h4>
+          <p class="text-muted">Return to step 2 and choose a template type so relation placeholders can be generated.</p>
+        </div>
+
+        <div class="relation-layout" *ngIf="rootTypeId">
+          <aside class="relation-sidebar">
+            <section class="relation-section">
+              <h5 class="section-title"><i class="fas fa-project-diagram"></i>Relation Path</h5>
+              <div class="step-list">
+                <button
+                  type="button"
+                  class="step-item"
+                  *ngFor="let step of steps; let i = index"
+                  [class.active]="activeStepIndex === i"
+                  (click)="setActiveStep(i)">
+                  {{ getStepLabel(step, i) }}
+                </button>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline-danger btn-sm"
+                (click)="removeLastStep()"
+                [disabled]="steps.length <= 1">
+                Remove last step
+              </button>
+            </section>
+
+            <section class="relation-section" *ngIf="activeStep">
+              <h5 class="section-title"><i class="fas fa-sliders-h"></i>Step Configuration</h5>
+
+              <div class="mb-3">
+                <label class="form-label">Relation</label>
+                <select
+                  class="form-select"
+                  [value]="activeStep.relation?.public_id || ''"
+                  (change)="onRelationSelect(activeStepIndex, $event.target.value)">
+                  <option value="">Select relation</option>
+                  <option *ngFor="let relation of activeStep.availableRelations" [value]="relation.public_id">
+                    {{ relation.relation_name || ('Relation ' + relation.public_id) }}
+                  </option>
+                </select>
+                <div class="form-text" *ngIf="activeStep.loadingRelations">Loading relations...</div>
+              </div>
+
+              <div class="mb-3" *ngIf="activeStep.relation">
+                <label class="form-label">Direction</label>
+                <select
+                  class="form-select"
+                  [value]="activeStep.direction || ''"
+                  (change)="onDirectionSelect(activeStepIndex, $event.target.value)">
+                  <option value="">Select direction</option>
+                  <option
+                    *ngIf="activeStep.relation.parent_type_ids?.includes(activeStep.baseTypeId)"
+                    value="child">
+                    {{ getDirectionLabel(activeStep, 'child') }}
+                  </option>
+                  <option
+                    *ngIf="activeStep.relation.child_type_ids?.includes(activeStep.baseTypeId)"
+                    value="parent">
+                    {{ getDirectionLabel(activeStep, 'parent') }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="mb-3" *ngIf="activeStep.direction">
+                <label class="form-label">Type</label>
+                <select
+                  class="form-select"
+                  [value]="activeStep.typeId || ''"
+                  (change)="onTypeSelect(activeStepIndex, $event.target.value)">
+                  <option value="">Select type</option>
+                  <option *ngFor="let type of activeStep.availableTypes" [value]="type.public_id">
+                    {{ type.label || type.name || type.public_id }}
+                  </option>
+                </select>
+                <div class="form-text" *ngIf="activeStep.loadingTypes">Loading types...</div>
+              </div>
+
+              <div class="mb-3" *ngIf="activeStep.typeId">
+                <label class="form-label">Output</label>
+                <div class="output-options">
+                  <label class="form-check">
+                    <input
+                      type="radio"
+                      name="outputKind"
+                      class="form-check-input"
+                      [checked]="activeStep.outputKind === 'field'"
+                      (change)="onOutputKindSelect(activeStepIndex, 'field')">
+                    <span class="form-check-label">Object field</span>
+                  </label>
+                  <label class="form-check">
+                    <input
+                      type="radio"
+                      name="outputKind"
+                      class="form-check-input"
+                      [checked]="activeStep.outputKind === 'relation_field'"
+                      (change)="onOutputKindSelect(activeStepIndex, 'relation_field')">
+                    <span class="form-check-label">Relation field</span>
+                  </label>
+                  <label class="form-check">
+                    <input
+                      type="radio"
+                      name="outputKind"
+                      class="form-check-input"
+                      [checked]="activeStep.outputKind === 'relation'"
+                      (change)="onOutputKindSelect(activeStepIndex, 'relation')">
+                    <span class="form-check-label">Relation + direction</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="mb-3" *ngIf="activeStep.outputKind === 'field'">
+                <label class="form-label">Type Field</label>
+                <select
+                  class="form-select"
+                  [value]="activeStep.fieldName || ''"
+                  (change)="onFieldSelect(activeStepIndex, $event.target.value)">
+                  <option value="">Select field</option>
+                  <option *ngFor="let field of activeStep.typeFields" [value]="field.name">
+                    {{ field.label }}
+                  </option>
+                </select>
+                <div class="form-text" *ngIf="activeStep.loadingFields">Loading fields...</div>
+              </div>
+
+              <div class="mb-3" *ngIf="activeStep.outputKind === 'relation_field'">
+                <label class="form-label">Relation Field</label>
+                <select
+                  class="form-select"
+                  [value]="activeStep.relationFieldName || ''"
+                  (change)="onRelationFieldSelect(activeStepIndex, $event.target.value)">
+                  <option value="">Select relation field</option>
+                  <option *ngFor="let field of activeStep.relationFields" [value]="field.name">
+                    {{ field.label }}
+                  </option>
+                </select>
+                <div class="form-text" *ngIf="!activeStep.relationFields.length">No relation fields defined.</div>
+              </div>
+
+              <div class="mb-3" *ngIf="activeStep.outputKind === 'relation'">
+                <div class="alert alert-info">
+                  Continue by configuring the next relation step using the selected type.
+                </div>
+              </div>
+            </section>
+          </aside>
+
+          <main class="relation-preview">
+            <div *ngIf="previewTemplate; else previewEmpty" class="preview-card">
+              <h5 class="section-title"><i class="fas fa-eye"></i>Template Preview</h5>
+              <div class="preview-code"><code>{{ previewTemplate }}</code></div>
+              <div class="preview-meta">
+                <span>Path steps: {{ steps.length }}</span>
+                <span *ngIf="activeStep?.typeId">Current type: {{ activeStep.typeId }}</span>
+              </div>
+            </div>
+
+            <ng-template #previewEmpty>
+              <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-hand-pointer"></i></div>
+                <h4>Build a relation template</h4>
+                <p class="text-muted">Select a relation, direction, type, and output to generate a placeholder.</p>
+              </div>
+            </ng-template>
+          </main>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="cancel()">Cancel</button>
+        <button class="btn btn-success" [disabled]="!previewTemplate" (click)="insert()">Insert Template</button>
+      </div>
+    </div>
+  </div>
+</div>
