@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of all CmdbReport API routes
 """
 import re
-import logging
+from logging import Logger, getLogger
 import json
 from typing import Any
 from datetime import datetime
@@ -54,7 +54,7 @@ from cmdb.errors.manager.reports_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 reports_blueprint = APIBlueprint('reports', __name__)
 
@@ -217,6 +217,8 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
         DefaultResponse: Dict of the query result
     """
     try:
+        preview_mode: bool = request.args.get("preview", default="false").lower() == "true"
+
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
@@ -242,6 +244,10 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
             builder_params = BuilderParameters(criteria=report_query)
 
             result = objects_manager.iterate(builder_params).results
+
+            # Only show maximum 2 elements if preview_mode
+            if preview_mode:
+                result = result[:2]
 
         return DefaultResponse(result).make_response()
     except HTTPException as http_err:
