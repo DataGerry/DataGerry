@@ -54,7 +54,7 @@
               </div>
 
               <div class="mb-3" *ngIf="activeStep.relation">
-                <label class="form-label">Direction</label>
+                <label class="form-label">Direction to</label>
                 <select
                   class="form-select"
                   [value]="activeStep.direction || ''"
@@ -63,12 +63,12 @@
                   <option
                     *ngIf="activeStep.relation.parent_type_ids?.includes(activeStep.baseTypeId)"
                     value="child">
-                    {{ getDirectionLabel(activeStep, 'child') }}
+                    {{ getCurrentSideLabel(activeStep.relation, 'parent') }}
                   </option>
                   <option
                     *ngIf="activeStep.relation.child_type_ids?.includes(activeStep.baseTypeId)"
                     value="parent">
-                    {{ getDirectionLabel(activeStep, 'parent') }}
+                    {{ getCurrentSideLabel(activeStep.relation, 'child') }}
                   </option>
                 </select>
               </div>

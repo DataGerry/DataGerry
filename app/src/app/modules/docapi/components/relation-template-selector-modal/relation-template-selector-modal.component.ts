@@ -231,6 +231,15 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       : `Child (${step.relation.relation_name_child || 'child'})`;
   }
 
+  public getCurrentSideLabel(relation: CmdbRelation, side: 'parent' | 'child'): string {
+    if (!relation) {
+      return side === 'parent' ? 'Parent' : 'Child';
+    }
+    return side === 'parent'
+      ? `Parent (${relation.relation_name_parent || 'parent'})`
+      : `Child (${relation.relation_name_child || 'child'})`;
+  }
+
   public getStepLabel(step: RelationTemplateStep, index: number): string {
     const relationName = step.relation?.relation_name || 'Select relation';
     const directionLabel = step.direction ? step.direction : 'direction';
@@ -408,7 +417,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       if (!step?.relation || !step.direction || !step.typeId) {
         return null;
       }
-      template += `.relation(${step.relation.public_id}, ${step.direction})`;
+      template += `.relation(${step.relation.public_id}, '${step.direction}')`;
       template += `.type(${step.typeId})`;
 
       const isLast = index === this.steps.length - 1;
@@ -433,7 +442,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
         if (!step.relationFieldName) {
           return null;
         }
-        template += `.relation_field['${step.relationFieldName}']`;
+        template += `.relation_fields['${step.relationFieldName}']`;
       } else {
         return null;
       }
