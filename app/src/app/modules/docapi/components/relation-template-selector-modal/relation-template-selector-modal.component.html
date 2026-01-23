@@ -42,48 +42,48 @@
               <div class="mb-3">
                 <label class="form-label">Relation</label>
                 <select
-                  class="form-select"
-                  [value]="activeStep.relation?.public_id || ''"
-                  (change)="onRelationSelect(activeStepIndex, $event.target.value)">
-                  <option value="">Select relation</option>
-                  <option *ngFor="let relation of activeStep.availableRelations" [value]="relation.public_id">
-                    {{ relation.relation_name || ('Relation ' + relation.public_id) }}
-                  </option>
-                </select>
+                class="form-select"
+                [(ngModel)]="activeStep.relationId"
+                (ngModelChange)="onRelationSelect(activeStepIndex, $event?.toString() || '')">
+                <option [ngValue]="undefined">Select relation</option>
+                <option *ngFor="let relation of activeStep.availableRelations" [ngValue]="relation.public_id">
+                  {{ relation.relation_name || ('Relation ' + relation.public_id) }}
+                </option>
+              </select>
                 <div class="form-text" *ngIf="activeStep.loadingRelations">Loading relations...</div>
               </div>
 
               <div class="mb-3" *ngIf="activeStep.relation">
                 <label class="form-label">Direction to</label>
                 <select
-                  class="form-select"
-                  [value]="activeStep.direction || ''"
-                  (change)="onDirectionSelect(activeStepIndex, $event.target.value)">
-                  <option value="">Select direction</option>
-                  <option
-                    *ngIf="activeStep.relation.parent_type_ids?.includes(activeStep.baseTypeId)"
-                    value="child">
-                    {{ getCurrentSideLabel(activeStep.relation, 'parent') }}
-                  </option>
-                  <option
-                    *ngIf="activeStep.relation.child_type_ids?.includes(activeStep.baseTypeId)"
-                    value="parent">
-                    {{ getCurrentSideLabel(activeStep.relation, 'child') }}
-                  </option>
-                </select>
+                class="form-select"
+                [(ngModel)]="activeStep.direction"
+                (ngModelChange)="onDirectionSelect(activeStepIndex, $event || '')">
+                <option [ngValue]="undefined">Select direction</option>
+                <option
+                  *ngIf="activeStep.relation.parent_type_ids?.includes(activeStep.baseTypeId)"
+                  value="child">
+                  {{ getCurrentSideLabel(activeStep.relation, 'parent') }}
+                </option>
+                <option
+                  *ngIf="activeStep.relation.child_type_ids?.includes(activeStep.baseTypeId)"
+                  value="parent">
+                  {{ getCurrentSideLabel(activeStep.relation, 'child') }}
+                </option>
+              </select>
               </div>
 
               <div class="mb-3" *ngIf="activeStep.direction">
                 <label class="form-label">Type</label>
                 <select
-                  class="form-select"
-                  [value]="activeStep.typeId || ''"
-                  (change)="onTypeSelect(activeStepIndex, $event.target.value)">
-                  <option value="">Select type</option>
-                  <option *ngFor="let type of activeStep.availableTypes" [value]="type.public_id">
-                    {{ type.label || type.name || type.public_id }}
-                  </option>
-                </select>
+                class="form-select"
+                [(ngModel)]="activeStep.typeId"
+                (ngModelChange)="onTypeSelect(activeStepIndex, $event?.toString() || '')">
+                <option [ngValue]="undefined">Select type</option>
+                <option *ngFor="let type of activeStep.availableTypes" [ngValue]="type.public_id">
+                  {{ type.label || type.name || type.public_id }}
+                </option>
+              </select>
                 <div class="form-text" *ngIf="activeStep.loadingTypes">Loading types...</div>
               </div>
 
@@ -123,28 +123,28 @@
               <div class="mb-3" *ngIf="activeStep.outputKind === 'field'">
                 <label class="form-label">Type Field</label>
                 <select
-                  class="form-select"
-                  [value]="activeStep.fieldName || ''"
-                  (change)="onFieldSelect(activeStepIndex, $event.target.value)">
-                  <option value="">Select field</option>
-                  <option *ngFor="let field of activeStep.typeFields" [value]="field.name">
-                    {{ field.label }}
-                  </option>
-                </select>
+                class="form-select"
+                [(ngModel)]="activeStep.fieldName"
+                (ngModelChange)="onFieldSelect(activeStepIndex, $event || '')">
+                <option [ngValue]="undefined">Select field</option>
+                <option *ngFor="let field of activeStep.typeFields" [ngValue]="field.name">
+                  {{ field.label }}
+                </option>
+              </select>
                 <div class="form-text" *ngIf="activeStep.loadingFields">Loading fields...</div>
               </div>
 
               <div class="mb-3" *ngIf="activeStep.outputKind === 'relation_field'">
                 <label class="form-label">Relation Field</label>
                 <select
-                  class="form-select"
-                  [value]="activeStep.relationFieldName || ''"
-                  (change)="onRelationFieldSelect(activeStepIndex, $event.target.value)">
-                  <option value="">Select relation field</option>
-                  <option *ngFor="let field of activeStep.relationFields" [value]="field.name">
-                    {{ field.label }}
-                  </option>
-                </select>
+                class="form-select"
+                [(ngModel)]="activeStep.relationFieldName"
+                (ngModelChange)="onRelationFieldSelect(activeStepIndex, $event || '')">
+                <option [ngValue]="undefined">Select relation field</option>
+                <option *ngFor="let field of activeStep.relationFields" [ngValue]="field.name">
+                  {{ field.label }}
+                </option>
+              </select>
                 <div class="form-text" *ngIf="!activeStep.relationFields.length">No relation fields defined.</div>
               </div>
 

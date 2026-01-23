@@ -17,7 +17,7 @@
 */
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule } from '@angular/forms';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 import { EditorModule, TINYMCE_SCRIPT_SRC } from '@tinymce/tinymce-angular';
 import { NgSelectModule } from '@ng-select/ng-select';
@@ -69,6 +69,7 @@ import { CoreModule } from 'src/app/core/core.module';
         LayoutModule,
         TableModule,
         FontAwesomeModule,
+        FormsModule,
         CoreModule
     ],
     providers: [
