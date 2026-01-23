@@ -36,7 +36,7 @@ import { InternalConnectorHelperService } from '../../../connectors/services/int
 })
 export class AutomationFormComponent implements OnInit, OnDestroy {
   mode: 'create' | 'edit' = 'create';
-  id?: number;
+  connectionId?: number;
 
   form!: FormGroup;
   templates: any[] = [];
@@ -90,7 +90,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
 
     if (this.mode === 'edit') {
-      this.id = +this.route.snapshot.paramMap.get('connectorId')!;
+      this.connectionId = +this.route.snapshot.paramMap.get('connectorId')!;
     }
   }
 
@@ -280,7 +280,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       business_template: '' // Set to empty since it's not in automation data, will be selected by user
     });
 
-    this.id = automation.schedulerId;
+    this.connectionId = automation.connection?.connectionId ?? null;
     this.existingCronExp = automation?.cronExp || automation?.scheduler?.cronExp || null;
     this.existingStatus = typeof automation?.status === 'boolean' ? automation.status : null;
 
@@ -458,7 +458,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
       const req$ = this.mode === 'create'
         ? this.svc.createAutomation(payload)
-        : this.svc.updateConnection(this.id!, payload);
+        : this.svc.updateConnection(this.connectionId!, payload);
 
       this.loaderService.show();
 
