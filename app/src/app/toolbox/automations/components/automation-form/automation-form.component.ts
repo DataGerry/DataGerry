@@ -50,6 +50,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   selectedTemplate: any = null;
   initConnection: any = null;
   currentConnection: any = null;
+  existingCronExp: string | null = null;
+  existingStatus: boolean | null = null;
 
   internalConnectorDetails: any = null;
 
@@ -279,6 +281,8 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
 
     this.id = automation.schedulerId;
+    this.existingCronExp = automation?.cronExp || automation?.scheduler?.cronExp || null;
+    this.existingStatus = typeof automation?.status === 'boolean' ? automation.status : null;
 
     // Determine and set the connector value based on direction and connection data
     let connectorId: number | null = null;
@@ -413,12 +417,17 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     };
 
     // Build scheduler payload
-    const schedulerPayload = {
+    const schedulerPayload: any = {
       title: v.name,
       debugMode: false,
-      cronExp: '0 1 * * * ?', // Default cron expression (1 AM daily)
-      status: 1 // Active
+      status: this.mode === 'edit' && this.existingStatus !== null ? (this.existingStatus ? 1 : 0) : 1 // Active
     };
+
+    if (this.mode === 'edit' && this.existingCronExp) {
+      schedulerPayload.cronExp = this.existingCronExp;
+    } else if (this.mode === 'create') {
+      schedulerPayload.cronExp = null;
+    }
 
     return {
       connection: connectionPayload,
@@ -449,7 +458,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
       const req$ = this.mode === 'create'
         ? this.svc.createAutomation(payload)
-        : this.svc.updateAutomation(this.id!, payload);
+        : this.svc.updateConnection(this.id!, payload);
 
       this.loaderService.show();
 

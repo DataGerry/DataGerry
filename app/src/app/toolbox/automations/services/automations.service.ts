@@ -55,9 +55,9 @@ export class AutomationsService extends BaseApiService<any> {
   }
 
   // UPDATE
-  updateAutomation(automationId: number, payload: any): Observable<any> {
-    const body: any = { ...payload, automationId };
-    return this.handlePutRequest<any>(`${this.servicePrefix}/schedulers/${automationId}`, body);
+  updateConnection(connectionId: number, payload: any): Observable<any> {
+    const body: any = { ...payload, connectionId };
+    return this.handlePutRequest<any>(`${this.servicePrefix}/connections/${connectionId}`, body);
   }
 
   // DELETE

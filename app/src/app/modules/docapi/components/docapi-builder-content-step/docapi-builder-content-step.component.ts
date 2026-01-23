@@ -22,6 +22,7 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { TemplateHelperService } from '../../../../settings/services/template-helper.service';
 import { CmdbMode } from '../../../../framework/modes.enum';
 import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
+import { RelationTemplateSelectorModalComponent } from '../relation-template-selector-modal/relation-template-selector-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -46,6 +47,7 @@ export class DocapiBuilderContentStepComponent {
         if (data) {
             // Store the template type
             this.templateType = data.templateType;
+            this.templateTypeId = data?.parameters?.type ?? null;
             if (data.parameters?.type) {
                 // Pass the template type to the helper service
                 this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 3, this.templateType).then(helperData => {
@@ -60,6 +62,7 @@ export class DocapiBuilderContentStepComponent {
     public contentForm: UntypedFormGroup;
     public templateHelperData: any;
     public templateType: string = 'OBJECT';
+    public templateTypeId: number | null = null;
 
 
     public editorConfig = {
@@ -141,7 +144,7 @@ export class DocapiBuilderContentStepComponent {
             text: 'Object Template Data',
             icon: 'code-sample',
             getSubmenuItems: () => {
-                return this.getObjectDataMenuItems(editor);
+                return this.getObjectDataMenuItems(editor, this.templateHelperData, true);
             }
         });
         
@@ -153,7 +156,7 @@ export class DocapiBuilderContentStepComponent {
     }
 
 
-    public getObjectDataMenuItems(editor, templateHelperData = this.templateHelperData) {
+    public getObjectDataMenuItems(editor, templateHelperData = this.templateHelperData, isRoot: boolean = false) {
         const items = [];
         for (const item of templateHelperData) {
             if (item.subdata) {
@@ -181,6 +184,10 @@ export class DocapiBuilderContentStepComponent {
                     }
                 });
             }
+        }
+
+        if (isRoot) {
+            items.push(this.getRelationsMenuItem(editor));
         }
 
         return items;
@@ -268,12 +275,36 @@ export class DocapiBuilderContentStepComponent {
         return item;
     }
 
+    public getRelationsMenuItem(editor) {
+        const item = {
+            type: 'menuitem',
+            text: 'Relations',
+            icon: 'share',
+            onAction: () => {
+                this.openRelationTemplateModal(editor);
+            }
+        };
+        return item;
+    }
+
     private openExternalObjectsModal(editor: any): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
             size: 'lg',
             backdrop: 'static'
         });
         
+        modalRef.componentInstance.insertTemplate.subscribe((template: string) => {
+            editor.insertContent(template);
+        });
+    }
+
+    private openRelationTemplateModal(editor: any): void {
+        const modalRef = this.modalService.open(RelationTemplateSelectorModalComponent, {
+            size: 'lg',
+            backdrop: 'static'
+        });
+
+        modalRef.componentInstance.rootTypeId = this.templateTypeId;
         modalRef.componentInstance.insertTemplate.subscribe((template: string) => {
             editor.insertContent(template);
         });
