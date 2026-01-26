@@ -1,0 +1,139 @@
+<div class="modal-header">
+  <h4 class="modal-title">Set Cron Job</h4>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="onCancel()"></button>
+</div>
+
+<div class="modal-body">
+  <div class="automation-info" *ngIf="automationName">
+    <i class="fas fa-robot"></i>
+    <div>
+      <span class="info-label">Automation</span>
+      <span class="info-value">{{ automationName }}</span>
+    </div>
+  </div>
+
+  <form [formGroup]="form">
+    <!-- Tabbed Interface -->
+    <div class="cron-tabs">
+      <button 
+        type="button" 
+        class="tab-btn"
+        [class.active]="mode === 'generate'"
+        (click)="form.patchValue({mode: 'generate'})">
+        <i class="fas fa-magic"></i>
+        <span>Generator</span>
+      </button>
+      <button 
+        type="button" 
+        class="tab-btn"
+        [class.active]="mode === 'manual'"
+        (click)="form.patchValue({mode: 'manual'})">
+        <i class="fas fa-code"></i>
+        <span>Manual Entry</span>
+      </button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+      <!-- Generator Tab -->
+      <div *ngIf="mode === 'generate'" class="tab-pane active">
+        <div class="generator-form">
+          <div class="form-row">
+            <div class="form-col">
+              <label class="form-label">When should this run?</label>
+              <app-form-select
+                formControlName="frequency"
+                [items]="frequencyOptions"
+                bindLabel="label"
+                bindValue="value"
+                placeholder="Select frequency">
+              </app-form-select>
+            </div>
+          </div>
+
+          <div class="form-row" *ngIf="form.get('frequency')?.value">
+            <!-- Every Minutes -->
+            <div class="form-col" *ngIf="form.get('frequency')?.value === 'everyMinutes'">
+              <label for="interval" class="form-label">Every X minutes</label>
+              <input id="interval" type="number" class="form-control" formControlName="interval" min="1" max="60" placeholder="15">
+            </div>
+
+            <!-- Minute (for other frequencies) -->
+            <div class="form-col" *ngIf="form.get('frequency')?.value !== 'everyMinutes'">
+              <label for="minute" class="form-label">Minute</label>
+              <input id="minute" type="number" class="form-control" formControlName="minute" min="0" max="59" placeholder="0">
+            </div>
+
+            <!-- Hour -->
+            <div class="form-col" *ngIf="form.get('frequency')?.value === 'daily' || form.get('frequency')?.value === 'weekly' || form.get('frequency')?.value === 'monthly'">
+              <label for="hour" class="form-label">Hour (24h format)</label>
+              <input id="hour" type="number" class="form-control" formControlName="hour" min="0" max="23" placeholder="12">
+            </div>
+
+            <!-- Day of Week -->
+            <div class="form-col" *ngIf="form.get('frequency')?.value === 'weekly'">
+              <label class="form-label">Day of Week</label>
+              <app-form-select
+                formControlName="dayOfWeek"
+                [items]="dayOfWeekOptions"
+                bindLabel="label"
+                bindValue="value"
+                placeholder="Select day">
+              </app-form-select>
+            </div>
+
+            <!-- Day of Month -->
+            <div class="form-col" *ngIf="form.get('frequency')?.value === 'monthly'">
+              <label for="dayOfMonth" class="form-label">Day of Month</label>
+              <input id="dayOfMonth" type="number" class="form-control" formControlName="dayOfMonth" min="1" max="31" placeholder="1">
+            </div>
+          </div>
+
+          <button 
+            type="button" 
+            class="btn-generate-cron" 
+            (click)="generateCron()"
+            *ngIf="form.get('frequency')?.value">
+            Generate Cron Expression
+          </button>
+        </div>
+      </div>
+
+      <!-- Manual Entry Tab -->
+      <!-- <div *ngIf="mode === 'manual'" class="tab-pane active">
+        <div class="manual-entry-info">
+          <i class="fas fa-info-circle"></i>
+          <p>Enter a cron expression directly using Quartz format</p>
+        </div>
+      </div> -->
+    </div>
+
+    <!-- Cron Expression (always visible) -->
+    <div class="cron-result" *ngIf="mode === 'manual'">
+      <label for="cronExp" class="form-label">
+        <i class="fas fa-terminal"></i>
+        Cron Expression
+      </label>
+      <div class="cron-input-wrapper">
+        <input 
+          id="cronExp" 
+          type="text" 
+          class="form-control cron-expression" 
+          formControlName="cronExp" 
+          placeholder="0 0 * * * ?"
+          [class.has-error]="form.get('cronExp')?.touched && form.get('cronExp')?.invalid">
+        <span class="cron-format">Quartz</span>
+      </div>
+      <div class="error-message" *ngIf="form.get('cronExp')?.touched && form.get('cronExp')?.invalid">
+        Please enter a valid cron expression
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
+  <button type="button" class="btn btn-primary" (click)="onSubmit()" [disabled]="form.invalid">
+    Save
+  </button>
+</div>

@@ -26,6 +26,7 @@ import { AutomationsListComponent } from './components/automations-list/automati
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
 import { InternalConnectorPasswordModalComponent } from './components/internal-connector-password-modal/internal-connector-password-modal.component';
 import { AutomationsWrapperComponent } from './components/automations-wrapper/automations-wrapper.component';
+import { CronExpressionModalComponent } from './components/cron-expression-modal/cron-expression-modal.component';
 
 import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
@@ -39,6 +40,7 @@ import { OpenCeliumEditorComponent } from './components/opencelium-editor.compon
     AutomationsListComponent,
     AutomationFormComponent,
     InternalConnectorPasswordModalComponent,
+    CronExpressionModalComponent,
     OpenCeliumEditorComponent
   ],
   imports: [
