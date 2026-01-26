@@ -25,6 +25,9 @@ import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { ConnectorsService } from 'src/app/toolbox/connectors/services/connectors.service';
 import { finalize } from 'rxjs';
 import { environment } from 'src/environments/environment';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { switchMap } from 'rxjs/operators';
+import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 
 @Component({
   selector: 'app-automations-list',
@@ -56,7 +59,8 @@ export class AutomationsListComponent implements OnInit {
     private router: Router,
     private toast: ToastService,
     private loaderService: LoaderService,
-      private deleteModalService: DeleteModalService
+    private deleteModalService: DeleteModalService,
+    private modalService: NgbModal
   ) { }
 
   ngOnInit(): void {
@@ -115,7 +119,7 @@ export class AutomationsListComponent implements OnInit {
         name: 'actions',
         template: this.actionsTemplate,
         sortable: false,
-        style: { width: '100px', 'text-align': 'center' }
+        style: { width: '140px', 'text-align': 'center' }
       }
     ];
 
@@ -217,6 +221,62 @@ export class AutomationsListComponent implements OnInit {
         this.loaderService.hide();
       }
     });
+  }
+
+  setCron(automation: any): void {
+    const modalRef = this.modalService.open(CronExpressionModalComponent, { size: 'lg' });
+    modalRef.componentInstance.currentCron = automation?.cronExp || automation?.scheduler?.cronExp || '';
+    modalRef.componentInstance.automationName = automation?.connection?.title || automation?.scheduler?.title || automation?.name || '';
+
+    modalRef.result
+      .then((cronExp: string) => {
+        if (!cronExp) {
+          return;
+        }
+        this.updateCronExp(automation, cronExp);
+      })
+      .catch(() => {});
+  }
+
+  private updateCronExp(automation: any, cronExp: string): void {
+    const schedulerId = automation?.schedulerId;
+    const connectionId = automation?.connection?.connectionId || automation?.connectionId;
+
+    if (!schedulerId || !connectionId) {
+      this.toast.error('Scheduler or connection ID not found');
+      return;
+    }
+
+    this.loaderService.show();
+
+    this.automationsService.getConnection(connectionId)
+      .pipe(
+        switchMap((connectionData) => {
+          const schedulerPayload = {
+            title: connectionData?.title || automation?.connection?.title || automation?.scheduler?.title || automation?.name || '',
+            debugMode: false,
+            cronExp,
+            status: automation?.status === false ? 0 : 1
+          };
+
+          const payload = {
+            connection: connectionData,
+            scheduler: schedulerPayload
+          };
+
+          return this.automationsService.updateConnection(schedulerId, payload);
+        }),
+        finalize(() => this.loaderService.hide())
+      )
+      .subscribe({
+        next: () => {
+          this.toast.success('Cron job updated successfully');
+          this.loadAutomations();
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+        }
+      });
   }
 
 

@@ -336,9 +336,10 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 field_name = a_field['name']
                 field_value = a_field['value']
 
-                if objects_manager.is_ref_field(field_name, linked_object) and field_value:
+                if objects_manager.is_ref_field(field_name, linked_object) and field_value and\
+                    isinstance(field_value, int):
                     a_field['value'] = objects_manager.get_summary_line(field_value)
-                if field_name == "dg_location" and field_value:
+                if field_name == "dg_location" and field_value and isinstance(field_value, int):
                     target_location = locations_manager.get_location(field_value)
                     a_field['value'] = target_location['name']
 
