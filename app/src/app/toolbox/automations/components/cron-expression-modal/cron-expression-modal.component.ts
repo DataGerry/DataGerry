@@ -64,7 +64,11 @@ export class CronExpressionModalComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.form.patchValue({ cronExp: this.currentCron || '' });
+    if (this.currentCron) {
+      this.form.patchValue({ cronExp: this.currentCron, mode: 'manual' as CronMode });
+    } else {
+      this.form.patchValue({ cronExp: '' });
+    }
   }
 
   get mode(): CronMode {
