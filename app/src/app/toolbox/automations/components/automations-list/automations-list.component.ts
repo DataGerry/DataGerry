@@ -26,7 +26,6 @@ import { ConnectorsService } from 'src/app/toolbox/connectors/services/connector
 import { finalize } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { switchMap } from 'rxjs/operators';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 
 @Component({
@@ -196,7 +195,6 @@ export class AutomationsListComponent implements OnInit {
     const connectionId = automation.connection?.connectionId;
     
     if (!connectionId) {
-      this.toast.error('Connection ID not found');
       return;
     }
 
@@ -240,34 +238,28 @@ export class AutomationsListComponent implements OnInit {
 
   private updateCronExp(automation: any, cronExp: string): void {
     const schedulerId = automation?.schedulerId;
-    const connectionId = automation?.connection?.connectionId || automation?.connectionId;
-
-    if (!schedulerId || !connectionId) {
-      this.toast.error('Scheduler or connection ID not found');
+    const connectionId = automation?.connection?.connectionId;
+    if (!schedulerId) {
+      return;
+    }
+    if (!connectionId) {
       return;
     }
 
     this.loaderService.show();
 
-    this.automationsService.getConnection(connectionId)
-      .pipe(
-        switchMap((connectionData) => {
-          const schedulerPayload = {
-            title: connectionData?.title || automation?.connection?.title || automation?.scheduler?.title || automation?.name || '',
-            debugMode: false,
-            cronExp,
-            status: automation?.status === false ? 0 : 1
-          };
+    const schedulerPayload = {
+      schedulerId,
+      connectionId,
+      title: automation?.title,
+      status: automation.status,
+      cronExp,
+      debugMode: automation?.debugMode,
+      notificationResources: []
+    };
 
-          const payload = {
-            connection: connectionData,
-            scheduler: schedulerPayload
-          };
-
-          return this.automationsService.updateConnection(schedulerId, payload);
-        }),
-        finalize(() => this.loaderService.hide())
-      )
+    this.automationsService.updateScheduler(schedulerId, schedulerPayload)
+      .pipe(finalize(() => this.loaderService.hide()))
       .subscribe({
         next: () => {
           this.toast.success('Cron job updated successfully');

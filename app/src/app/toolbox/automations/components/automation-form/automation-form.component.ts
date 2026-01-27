@@ -401,7 +401,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   // Action methods
-  private toPayload(): any {
+  private toPayload(includeScheduler: boolean): any {
     const v = this.form.value;
 
     if (!this.currentConnection) {
@@ -416,7 +416,11 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       description: v.description
     };
 
-    // Build scheduler payload
+    if (!includeScheduler) {
+      return connectionPayload;
+    }
+
+    // Build scheduler payload (create only)
     const schedulerPayload: any = {
       title: v.name,
       debugMode: false,
@@ -454,7 +458,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
 
     try {
-      const payload = this.toPayload();
+      const payload = this.toPayload(this.mode === 'create');
 
       const req$ = this.mode === 'create'
         ? this.svc.createAutomation(payload)
