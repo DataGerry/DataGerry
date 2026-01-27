@@ -73,6 +73,7 @@
     [title]="'Execute Scheduler'"
     (click)="executeScheduler(item.schedulerId)">
  </i>
+    <i class="fas fa-clock icon-margin btn-cron"  (click)="setCron(item)" title="Set Cron Job"></i>
     <i class="far fa-edit icon-margin btn-edit" style="margin-left: 5px;" (click)="editAutomation(item)" title="Edit Automation"></i>
     <i class="far fa-trash-alt btn-delete" style="margin-left: 5px;" (click)="delete(item)" title="Delete Automation"></i>
   </div>
