@@ -22,6 +22,7 @@ import { CmdbRelation } from 'src/app/framework/models/relation.model';
 import { CmdbType } from 'src/app/framework/models/cmdb-type';
 import { RelationService } from 'src/app/framework/services/relaion.service';
 import { TypeService } from 'src/app/framework/services/type.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 interface RelationFieldOption {
   name: string;
@@ -38,8 +39,10 @@ interface TypeFieldOption {
 interface RelationTemplateStep {
   baseTypeId: number;
   availableRelations: CmdbRelation[];
+  relationId?: number;
   relation?: CmdbRelation;
   direction?: 'parent' | 'child';
+  directionOptions?: Array<{ value: 'parent' | 'child'; label: string }>;
   availableTypes: CmdbType[];
   typeId?: number;
   typeFields: TypeFieldOption[];
@@ -64,13 +67,20 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
 
   public steps: RelationTemplateStep[] = [];
   public activeStepIndex = 0;
+  public isLoading$ = this.loaderService.isLoading$;
+  public readonly outputKindOptions = [
+    { value: 'field', label: 'Object Field' },
+    { value: 'relation_field', label: 'Relation Field' },
+    { value: 'relation', label: 'Continue Path' }
+  ];
 
   private destroy$ = new Subject<void>();
 
   constructor(
     public activeModal: NgbActiveModal,
     private relationService: RelationService,
-    private typeService: TypeService
+    private typeService: TypeService,
+    private loaderService: LoaderService
   ) {}
 
   ngOnInit(): void {
@@ -99,6 +109,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       return;
     }
     this.activeStepIndex = index;
+    this.ensureStepDataLoaded(index);
   }
 
   public onRelationSelect(stepIndex: number, relationIdValue: string): void {
@@ -111,9 +122,11 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       this.resetStepFromRelation(stepIndex);
       return;
     }
+    step.relationId = relationId;
     const relation = step.availableRelations.find(rel => rel.public_id === relationId);
     step.relation = relation;
     step.direction = undefined;
+    step.directionOptions = this.getDirectionOptions(step);
     step.availableTypes = [];
     step.typeId = undefined;
     step.typeFields = [];
@@ -240,11 +253,41 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       : `Child (${relation.relation_name_child || 'child'})`;
   }
 
+  public getDirectionOptions(step: RelationTemplateStep | null): Array<{ value: 'parent' | 'child'; label: string }> {
+    if (!step?.relation) {
+      return [];
+    }
+    const options: Array<{ value: 'parent' | 'child'; label: string }> = [];
+    if (step.relation.parent_type_ids?.includes(step.baseTypeId)) {
+      options.push({ value: 'child', label: this.getCurrentSideLabel(step.relation, 'parent') });
+    }
+    if (step.relation.child_type_ids?.includes(step.baseTypeId)) {
+      options.push({ value: 'parent', label: this.getCurrentSideLabel(step.relation, 'child') });
+    }
+    return options;
+  }
+
+  public normalizeDirectionSelection(selection: any): 'parent' | 'child' | undefined {
+    if (!selection) {
+      return undefined;
+    }
+    if (typeof selection === 'string') {
+      return selection as 'parent' | 'child';
+    }
+    return selection.value as 'parent' | 'child';
+  }
+
   public getStepLabel(step: RelationTemplateStep, index: number): string {
     const relationName = step.relation?.relation_name || 'Select relation';
     const directionLabel = step.direction ? step.direction : 'direction';
     const typeLabel = step.typeId ? `type ${step.typeId}` : 'type';
     return `Step ${index + 1}: ${relationName} / ${directionLabel} / ${typeLabel}`;
+  }
+
+  public getStepCrumbLabel(step: RelationTemplateStep, index: number): string {
+    const relationName = step.relation?.relation_name || 'Relation';
+    const directionLabel = step.direction ? step.direction : 'direction';
+    return `${index + 1}. ${relationName} • ${directionLabel}`;
   }
 
   public get previewTemplate(): string | null {
@@ -259,6 +302,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       availableTypes: [],
       typeFields: [],
       relationFields: [],
+      directionOptions: [],
       loadingRelations: false,
       loadingTypes: false,
       loadingFields: false
@@ -270,8 +314,10 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
     if (!step) {
       return;
     }
+    step.relationId = undefined;
     step.relation = undefined;
     step.direction = undefined;
+    step.directionOptions = [];
     step.availableTypes = [];
     step.typeId = undefined;
     step.typeFields = [];
@@ -288,6 +334,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       return;
     }
     step.loadingRelations = true;
+    this.loaderService.show();
     const params = {
       filter: {
         $or: [
@@ -302,10 +349,28 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
     };
 
     this.relationService.getRelations(params)
-      .pipe(takeUntil(this.destroy$), finalize(() => step.loadingRelations = false))
+      .pipe(
+        takeUntil(this.destroy$),
+        finalize(() => {
+          step.loadingRelations = false;
+          this.loaderService.hide();
+        })
+      )
       .subscribe({
         next: (response) => {
-          step.availableRelations = response?.results || [];
+          const relations = response?.results || [];
+          step.availableRelations = relations.map((relation) => ({
+            ...relation,
+            displayLabel: relation?.relation_name || `Relation ${relation?.public_id}`
+          }));
+          if (step.relationId) {
+            const matched = step.availableRelations.find(rel => rel.public_id === step.relationId);
+            if (matched) {
+              step.relation = matched;
+            }
+          } else if (step.relation?.public_id) {
+            step.relationId = step.relation.public_id;
+          }
         },
         error: () => {
           step.availableRelations = [];
@@ -328,6 +393,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
     }
 
     step.loadingTypes = true;
+    this.loaderService.show();
     const params = {
       filter: { public_id: { $in: typeIds } },
       limit: 0,
@@ -337,10 +403,20 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
     } as any;
 
     this.typeService.getTypes(params)
-      .pipe(takeUntil(this.destroy$), finalize(() => step.loadingTypes = false))
+      .pipe(
+        takeUntil(this.destroy$),
+        finalize(() => {
+          step.loadingTypes = false;
+          this.loaderService.hide();
+        })
+      )
       .subscribe({
         next: (response: any) => {
-          step.availableTypes = response?.results || [];
+          const types = response?.results || [];
+          step.availableTypes = types.map((type) => ({
+            ...type,
+            displayLabel: type?.label || type?.name || type?.public_id
+          }));
         },
         error: () => {
           step.availableTypes = [];
@@ -354,8 +430,15 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       return;
     }
     step.loadingFields = true;
+    this.loaderService.show();
     this.typeService.getType(typeId)
-      .pipe(takeUntil(this.destroy$), finalize(() => step.loadingFields = false))
+      .pipe(
+        takeUntil(this.destroy$),
+        finalize(() => {
+          step.loadingFields = false;
+          this.loaderService.hide();
+        })
+      )
       .subscribe({
         next: (type: CmdbType) => {
           const fields = Array.isArray(type?.fields) ? type.fields : [];
@@ -404,6 +487,31 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       label: field.label || field.name,
       type: field.type
     }));
+  }
+
+  private ensureStepDataLoaded(stepIndex: number): void {
+    const step = this.steps[stepIndex];
+    if (!step) {
+      return;
+    }
+    if (!step.availableRelations.length) {
+      this.loadRelationsForStep(stepIndex);
+    }
+    if (!step.relation && step.relationId && step.availableRelations.length) {
+      step.relation = step.availableRelations.find(rel => rel.public_id === step.relationId);
+    }
+    if (step.relation && (!step.directionOptions || step.directionOptions.length === 0)) {
+      step.directionOptions = this.getDirectionOptions(step);
+    }
+    if (step.relation && step.relationFields.length === 0) {
+      step.relationFields = this.buildRelationFields(step.relation);
+    }
+    if (step.relation && step.direction && step.availableTypes.length === 0) {
+      this.loadTypesForStep(stepIndex);
+    }
+    if (step.typeId && step.typeFields.length === 0) {
+      this.loadTypeFields(stepIndex, step.typeId);
+    }
   }
 
   private buildTemplate(): string | null {
