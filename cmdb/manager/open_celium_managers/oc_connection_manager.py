@@ -69,6 +69,7 @@ class OcConnectionManager(OcBaseManager):
         if self.is_valid_response(create_connection_response):
             return json.loads(create_connection_response.text)
 
+        LOGGER.error("[create_connection] OC Error: %s", create_connection_response.text)
         raise OcConnectionCreateError("Failed to create the Connection in OpenCelium!")
 
 
@@ -90,6 +91,7 @@ class OcConnectionManager(OcBaseManager):
         if self.is_valid_response(create_connection_response):
             return json.loads(create_connection_response.text)
 
+        LOGGER.error("[send_to_remote_api] OC Error: %s", create_connection_response.text)
         raise OcConnectionCreateError("Failed to send the payload to remote API!")
 
 
@@ -119,6 +121,7 @@ class OcConnectionManager(OcBaseManager):
         if self.is_valid_response(connections_response):
             return json.loads(connections_response.text)
 
+        LOGGER.error("[get_connections_by_ids] OC Error: %s", connections_response.text)
         raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connections with IDs: {connection_ids}")
 
 
@@ -144,6 +147,7 @@ class OcConnectionManager(OcBaseManager):
         if self.is_valid_response(connection_test_response):
             return json.loads(connection_test_response.text)
 
+        LOGGER.error("[test_connection] OC Error: %s", connection_test_response.text)
         raise OcConnectionTestError("Failed to test OpenCelium Connection!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -170,6 +174,7 @@ class OcConnectionManager(OcBaseManager):
         if self.is_valid_response(target_connection_response):
             return json.loads(target_connection_response.text)
 
+        LOGGER.error("[get_connection] OC Error: %s", target_connection_response.text)
         raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connection with ID: {connection_id}")
 
 
@@ -188,9 +193,6 @@ class OcConnectionManager(OcBaseManager):
         """
         conn_name_check_response: Response = self.oc_connector.oc_get(f"{CON_UNIQUE_CHECK_URL}/{conn_name}")
 
-        # LOGGER.debug(f"check_connector_response: {conn_name_check_response}")
-        # LOGGER.debug(f"check_connector_response status: {conn_name_check_response.status_code}")
-        # LOGGER.debug(f"headers: {conn_name_check_response.headers}")
         # LOGGER.debug(f"check_connector_response body: {conn_name_check_response.text}")
 
         if self.is_valid_response(conn_name_check_response):
@@ -200,7 +202,8 @@ class OcConnectionManager(OcBaseManager):
 
             return True
 
-        raise OcConnectionGetError(f"Failed to check Connection name for uniqueness: {conn_name} !")
+        LOGGER.error("[check_connection_name_exists] OC Error: %s", conn_name_check_response.text)
+        raise OcConnectionGetError(f"Failed to check Connection name for uniqueness: {conn_name}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -220,13 +223,10 @@ class OcConnectionManager(OcBaseManager):
         """
         updated_connection_response: Response = self.oc_connector.oc_put(params, f"{CONNECTION_URL}/{connection_id}")
 
-        LOGGER.debug(f"check_connector_response status: {updated_connection_response.status_code}")
-        LOGGER.debug(f"headers: {updated_connection_response.headers}")
-        LOGGER.debug(f"check_connector_response body: {updated_connection_response.text}")
-
         if self.is_valid_response(updated_connection_response):
             return json.loads(updated_connection_response.text)
 
+        LOGGER.error("[update_connection] OC Error: %s", updated_connection_response.text)
         raise OcConnectionUpdateError(f"Failed to update Connection with ID:{connection_id} in OpenCelium!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
