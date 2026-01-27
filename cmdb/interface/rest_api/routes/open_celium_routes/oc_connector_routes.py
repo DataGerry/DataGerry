@@ -898,22 +898,15 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
-        # ----------------------------------------------------------
-        # 1) Set title — mapping only required in cloud mode
-        # ----------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
             params["title"] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
         else:
             params["title"] = OC_INTERNAL_CONNECTOR_NAME
 
-        # ----------------------------------------------------------
-        # 2) Create connector in OC
-        # ----------------------------------------------------------
+        # Create connector in OC
         created_oc_connector = oc_connector_manager.create_connector(params)
 
-        # ----------------------------------------------------------
-        # 3) Cloud mode → save connector ID and unmap title
-        # ----------------------------------------------------------
+        # Cloud mode → save connector ID and unmap title
         if current_app.cloud_mode and not current_app.local_mode:
             dg_sp_manager.save_connector_id(
                 created_oc_connector["connectorId"],
@@ -923,49 +916,12 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
 
             cached_user_manager.delete_cached_user(request_user.email)
 
-            # Return unmapped name to frontend
             created_oc_connector["title"] = unmap_oc_name(created_oc_connector["title"])
 
         return DefaultResponse(created_oc_connector).make_response()
     except OcConnectorCreateError as err:
         LOGGER.error("[create_oc_internal_connector] OcConnectorCreateError: %s", err, exc_info=True)
         abort(400, "Failed to create the internal DG Connector!")
-# def create_oc_internal_connector(request_user: CmdbUser) -> Response:
-#     """
-#     POST route to create an OcConnector in OpenCelium
-
-#     Args:
-#         request_user (CmdbUser): User requesting this data
-
-#     Returns:
-#         dict[str, Any]: The created OcConnector
-#     """
-#     try:
-#         oc_connector_manager: OcConnectorManager = OcConnectorManager()
-#         dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
-
-#         params: dict[str, Any] = request.json
-
-#         if current_app.cloud_mode and not current_app.local_mode:
-#             params['title'] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
-#         else:
-#             params['title'] = OC_INTERNAL_CONNECTOR_NAME
-
-#         created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
-
-#         if current_app.cloud_mode and not current_app.local_mode:
-#             dg_sp_manager.save_connector_id(
-#                 created_oc_connector['connectorId'],
-#                 request_user.email,
-#                 request_user.database
-#             )
-
-#             created_oc_connector['title'] = unmap_oc_name(created_oc_connector['title'])
-
-#         return DefaultResponse(created_oc_connector).make_response()
-#     except OcConnectorCreateError as err:
-#         LOGGER.error("[create_oc_internal_connector] OcConnectorCreateError: %s", err, exc_info=True)
-#         abort(400, "Failed to create the internal DG Connector!")
 
 
 @oc_connectors_blueprint.route('/connectors/internal', methods=['PUT'])
@@ -1029,45 +985,6 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
     except OcConnectorUpdateError as err:
         LOGGER.error("[update_internal_oc_connector] %s: %s", type(err).__name__,  err, exc_info=True)
         abort(400, "Failed to update the internal Connector!")
-# def update_internal_oc_connector(request_user: CmdbUser) -> Response:
-#     """
-#     **PUT** route to update an OcConnector
-
-#     Args:
-#         request_user (CmdbUser): User requesting this data
-
-#     Returns:
-#         dict[str, Any]: The updated OcConnector
-#     """
-#     try:
-#         oc_connector_manager: OcConnectorManager = OcConnectorManager()
-
-#         params: dict[str, Any] = request.json
-
-#         if current_app.cloud_mode and not current_app.local_mode:
-#             params['title'] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
-#         else:
-#             params['title'] = OC_INTERNAL_CONNECTOR_NAME
-
-#         internal_connector = oc_connector_manager.get_connector_by_name(params['title'])
-
-#         if not internal_connector:
-#             abort(400, "No internal DataGerry Connector created!")
-
-#         updated_oc_connector: dict[str, Any] = oc_connector_manager.update_connector(
-#                                                     params,
-#                                                     internal_connector['connectorId']
-#                                                )
-
-#         if current_app.cloud_mode and not current_app.local_mode:
-#             updated_oc_connector['title'] = unmap_oc_name(updated_oc_connector['title'])
-
-#         return DefaultResponse(updated_oc_connector).make_response()
-#     except HTTPException as http_err:
-#         raise http_err
-#     except OcConnectorUpdateError as err:
-#         LOGGER.error("[update_internal_oc_connector] %s: %s", type(err), err, exc_info=True)
-#         abort(400, "Failed to update the internal Connector!")
 
 
 @oc_connectors_blueprint.route('/connectors/internal/get', methods=['POST'])
@@ -1110,9 +1027,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
 
         connector_id = int(internal_connector["connectorId"])
 
-        # ----------------------------------------------------------
         # MASTER PASSWORD VALIDATION (cache → DG SP)
-        # ----------------------------------------------------------
         pw_valid = False
 
         if provided_pw and current_app.cloud_mode and not current_app.local_mode:
@@ -1140,9 +1055,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
             if not pw_valid:
                 abort(403, "Invalid master password!")
 
-        # ----------------------------------------------------------
         # Validate connector ID (cache → DG SP), only when pw is used
-        # ----------------------------------------------------------
         if provided_pw and current_app.cloud_mode and not current_app.local_mode:
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
@@ -1162,9 +1075,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
 
             if not is_valid:
                 abort(400, f"The target Connector with ID:{connector_id} was not found!")
-        # ----------------------------------------------------------
         # Retrieve connector (use real master PW in cloud mode)
-        # ----------------------------------------------------------
         if provided_pw:
             if current_app.cloud_mode and not current_app.local_mode:
                 internal_connector = oc_connector_manager.get_connector(
@@ -1187,58 +1098,3 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
     except OcConnectorGetError as err:
         LOGGER.error("[get_internal_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
         abort(500, "Failed to retrieve the internal connector!")
-# def get_internal_oc_connector(request_user: CmdbUser) -> Response:
-#     """
-#     GET/HEAD route to retrive the internal OC Connector
-
-#     Args:
-#         request_user (CmdbUser): User requesting this data
-
-#     Returns:
-#         dict[str, Any]: The OcConnector from OpenCelium
-#     """
-#     try:
-#         oc_connector_manager: OcConnectorManager = OcConnectorManager()
-#         dg_sp_manager: DgServicePortalManager = DgServicePortalManager()
-
-#         params: dict[str, Any] = request.json
-
-#         password: str = params.get('password', None)
-
-#         target_name: str = None
-
-#         if current_app.cloud_mode and not current_app.local_mode:
-#             target_name = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
-#         else:
-#             target_name = OC_INTERNAL_CONNECTOR_NAME
-
-#         internal_connector = oc_connector_manager.get_connector_by_name(target_name)
-
-#         if not internal_connector:
-#             return DefaultResponse({}).make_response()
-
-#         if password:
-#             if current_app.cloud_mode and not current_app.local_mode:
-#                 is_valid_connector: bool = dg_sp_manager.check_connector_in_sub(
-#                     internal_connector['connectorId'],
-#                     request_user.email,
-#                     request_user.database
-#                 )
-
-#                 if not is_valid_connector:
-#                     abort(400, f"The target Connector with ID:{internal_connector['connectorId']} was not found!")
-
-#             internal_connector: dict[str, Any] = oc_connector_manager.get_connector(
-#                                                         internal_connector['connectorId'],
-#                                                         password
-#                                                 )
-
-#         if current_app.cloud_mode and not current_app.local_mode:
-#             internal_connector['title'] = unmap_oc_name(internal_connector['title'])
-
-#         return DefaultResponse(internal_connector).make_response()
-#     except HTTPException as http_err:
-#         raise http_err
-#     except OcConnectorGetError as err:
-#         LOGGER.error("[get_internal_oc_connector] OcConnectorGetError: %s.", err, exc_info=True)
-#         abort(500, "Failed to retrieve the internal connector!")

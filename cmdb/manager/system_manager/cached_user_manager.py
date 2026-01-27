@@ -24,6 +24,7 @@ from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import DG_CACHE_DB
+from cmdb.manager.system_manager.dg_service_portal_manager import DgServicePortalManager
 
 from cmdb.open_celium import CachedOcIdType
 
@@ -47,6 +48,7 @@ class CachedUserManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        self.dg_sp_manager = DgServicePortalManager()
         super().__init__(dbm, CmdbCachedUser, CACHED_USER_MANAGER_ERRORS, DG_CACHE_DB)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
@@ -93,6 +95,18 @@ class CachedUserManager(GenericManager):
             db_name=self.db_name,
             filter={"email": email}
         )
+
+        if not cached_user:
+            user_data = self.dg_sp_manager.get_dg_sp_user_data(email)
+
+            if user_data:
+                self.insert_cached_user(user_data)
+
+                cached_user: dict[str, Any] | None = self.dbm.find_one_by(
+                    collection=CmdbCachedUser.COLLECTION,
+                    db_name=self.db_name,
+                    filter={"email": email}
+                )
 
         return cached_user
 

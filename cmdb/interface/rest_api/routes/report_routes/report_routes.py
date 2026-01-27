@@ -223,6 +223,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         requested_report: dict = reports_manager.get_item(public_id, as_dict=True)
+        LOGGER.debug(f"requested_report: {requested_report}")
 
         if not requested_report:
             abort(404, f"The Report with ID:{public_id} was not found!")
@@ -249,6 +250,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
             if preview_mode:
                 result = result[:2]
 
+        LOGGER.debug(f"report result: {result}")
         return DefaultResponse(result).make_response()
     except HTTPException as http_err:
         raise http_err
