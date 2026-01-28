@@ -45,6 +45,8 @@ GET_CONNECTION_IDS: str = f"{CONNECTION_ID_URL}/list"
 SCHEDULER_ID_URL: str = "/datagerry/opencelium/entity/scheduler"
 GET_SCHEDULER_IDS: str = f"{SCHEDULER_ID_URL}/list"
 
+GET_USER_DATA_URL: str = "/datagerry/lookup"
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            DgServicePortalManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -464,6 +466,23 @@ class DgServicePortalManager:
         scheduler_ids: list[int] = self.get_scheduler_ids(email, db_name)
 
         return scheduler_id in scheduler_ids
+
+# ----------------------------------------------------- USER DATA ---------------------------------------------------- #
+
+    def get_dg_sp_user_data(self, email: str) -> dict[str, Any]:
+        """TODO: document"""
+        payload: dict[str, Any] = {
+                "email": email,
+        }
+
+        response: Response = self.sp_post(GET_USER_DATA_URL, payload)
+
+        if self.is_valid_response(response):
+            return json.loads(response.text)
+
+        LOGGER.error("[get_dg_sp_user_data] Error: %s", response.text)
+        #TODO: add explicit exception
+        raise Exception("Failed retrieving user data from Service Portal!")
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 

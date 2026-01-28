@@ -46,6 +46,8 @@ CONNECTOR_EXISTS_URL: str = f"{CONNECTOR_URL}/exists"
 class OcConnectorManager(OcBaseManager):
     """
     Manages Connectors of OpenCelium
+
+    Extends: OcBaseManager
     """
     def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
         """
@@ -53,9 +55,8 @@ class OcConnectorManager(OcBaseManager):
         """
         self.master_pw: str = None
 
-        if current_app.cloud_mode:
+        if current_app.cloud_mode and not current_app.local_mode:
             self.master_pw = os.getenv('OC_MASTER_PW')
-
 
             if not self.master_pw and not current_app.local_mode:
                 raise ValueError("No OC master password provided via env variables!")
@@ -78,8 +79,6 @@ class OcConnectorManager(OcBaseManager):
         """
         create_connector_response: Response = self.oc_connector.oc_post(params, CONNECTOR_URL)
 
-        # LOGGER.debug(f"[create_connector] create_connector_response: {create_connector_response}")
-        # LOGGER.debug(f"[create_connector] create_connector_response status: {create_connector_response.status_code}")
         # LOGGER.debug(f"[create_connector] create_connector_response body: {create_connector_response.text}")
 
         if self.is_valid_response(create_connector_response):
@@ -100,9 +99,6 @@ class OcConnectorManager(OcBaseManager):
         """
         check_connector_response: Response = self.oc_connector.oc_post(params, CHECK_CONNECTOR_URL)
 
-        # LOGGER.debug(f"[check_connector] check_connector_response: {check_connector_response}")
-        # LOGGER.debug(f"[check_connector] check_connector_response status: {check_connector_response.status_code}")
-        # LOGGER.debug(f"[check_connector] headers: {check_connector_response.headers}")
         # LOGGER.debug(f"[check_connector] check_connector_response body: {check_connector_response.text}")
 
         if self.is_valid_response(check_connector_response):
@@ -123,10 +119,7 @@ class OcConnectorManager(OcBaseManager):
         """
         check_pw_response: Response = self.oc_connector.oc_get(CHECK_MASTER_PW_URL, password)
 
-        # LOGGER.debug(f"[check_master_pw] response: {check_pw_response}")
-        LOGGER.debug(f"[check_master_pw] status_code: {check_pw_response.status_code}")
-        # LOGGER.debug(f"[check_master_pw] headers: {check_pw_response.headers}")
-        LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
+        # LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
 
         if not raw:
             if self.is_valid_response(check_pw_response):
@@ -146,9 +139,6 @@ class OcConnectorManager(OcBaseManager):
         """
         check_pw_exist_resp: Response = self.oc_connector.oc_get(CHECK_MASTER_PW_EXISTS_URL)
 
-        # LOGGER.debug(f"[check_master_pw] response: {check_pw_response}")
-        # LOGGER.debug(f"[check_master_pw] status_code: {check_pw_response.status_code}")
-        # LOGGER.debug(f"[check_master_pw] headers: {check_pw_response.headers}")
         # LOGGER.debug(f"[check_master_pw] body: {check_pw_response.text}")
 
         if self.is_valid_response(check_pw_exist_resp):
@@ -208,8 +198,6 @@ class OcConnectorManager(OcBaseManager):
 
         target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}/{connector_id}", password)
 
-        # LOGGER.debug(f"[get_connector] status_code: {target_connector_response.status_code}")
-        # LOGGER.debug(f"[get_connector] headers: {target_connector_response.headers}")
         # LOGGER.debug(f"[get_connector] body: {target_connector_response.text}")
 
         if self.is_valid_response(target_connector_response):
@@ -277,9 +265,6 @@ class OcConnectorManager(OcBaseManager):
         """
         all_connectors_response: Response = self.oc_connector.oc_get(ALL_CONNECTORS_URL)
 
-        # LOGGER.debug(f"[get_all_connectors] response: {all_connectors_response}")
-        # LOGGER.debug(f"[get_all_connectors] status_code: {all_connectors_response.status_code}")
-        # LOGGER.debug(f"[get_all_connectors] headers: {all_connectors_response.headers}")
         # LOGGER.debug(f"[get_all_connectors] body: {all_connectors_response.text}")
 
         if self.is_valid_response(all_connectors_response):
@@ -288,9 +273,6 @@ class OcConnectorManager(OcBaseManager):
 
             return None
 
-        # LOGGER.debug(f"[get_all_connectors] response: {all_connectors_response}")
-        # LOGGER.debug(f"[get_all_connectors] status_code: {all_connectors_response.status_code}")
-        # LOGGER.debug(f"[get_all_connectors] headers: {all_connectors_response.headers}")
         # LOGGER.debug(f"[get_all_connectors] body: {all_connectors_response.text}")
 
         raise OcConnectorGetError("Failed to retrieve Connectors from OpenCelium!")
