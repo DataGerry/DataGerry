@@ -429,25 +429,41 @@ class DefaultTemplateData:
 
 
     def _build_report_table(self, headers, rows):
-        """TODO: document"""
+        """
+        Builds an HTML table that renders correctly in xhtml2pdf (PDF output)
+
+        - Forces column widths inline (xhtml2pdf ignores most CSS layout rules)
+        - First column is narrow (Public ID)
+        - Remaining columns share the rest of the width evenly
+        """
+
+        # ----- Column Width Calculation -----
+        num_cols = len(headers)
+        if num_cols < 1:
+            return ""
+
+        first_col_pct = 10  # % width for first column
+        remaining_pct = 100 - first_col_pct
+
+        if num_cols > 1:
+            other_col_pct = remaining_pct / (num_cols - 1)
+        else:
+            other_col_pct = 100
+
+        # ----- CSS (minimal, xhtml2pdf-friendly) -----
         style = """
         <style>
         .report-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
-            table-layout: auto;
         }
 
         .report-table th,
         .report-table td {
             border: 1px solid #444;
-            padding: 6px;
-            font-size: 10pt;
-            vertical-align: top;
-            word-break: break-word;
-            white-space: normal;
-            min-width: 80px;
+            padding: 2px;
+            font-size: 7pt;
+            word-wrap: break-word;
         }
 
         .report-table th {
@@ -455,37 +471,151 @@ class DefaultTemplateData:
             font-weight: bold;
             text-align: left;
         }
-
-        /* Make first column smaller (Public ID) */
-        .report-table th:first-child,
-        .report-table td:first-child {
-            min-width: 50px;
-            width: 50px;
-            text-align: center;
-        }
         </style>
         """
 
         tpl_html = [style]
         tpl_html.append("<table class='report-table'>")
 
-        # Header
+        # ----- Header -----
         tpl_html.append("<thead><tr>")
-        for h in headers:
-            tpl_html.append(f"<th>{h}</th>")
+        for i, h in enumerate(headers):
+            if i == 0:
+                tpl_html.append(
+                    f"<th style='width:{first_col_pct}%'>{h}</th>"
+                )
+            else:
+                tpl_html.append(
+                    f"<th style='width:{other_col_pct}%'>{h}</th>"
+                )
         tpl_html.append("</tr></thead>")
 
-        # Body
+        # ----- Body -----
         tpl_html.append("<tbody>")
         for row in rows:
             tpl_html.append("<tr>")
-            for cell in row:
+            for i, cell in enumerate(row):
                 safe = "" if cell is None else str(cell)
-                tpl_html.append(f"<td>{safe}</td>")
+
+                if i == 0:
+                    tpl_html.append(
+                        f"<td style='width:{first_col_pct}%'>{safe}</td>"
+                    )
+                else:
+                    tpl_html.append(
+                        f"<td style='width:{other_col_pct}%'>{safe}</td>"
+                    )
             tpl_html.append("</tr>")
         tpl_html.append("</tbody></table>")
 
         return "".join(tpl_html)
+    # def _build_report_table(self, headers, rows):
+    #     """TODO: document"""
+    #     style = """
+    #     <style>
+    #     .report-table {
+    #         width: 100%;
+    #         border-collapse: collapse;
+    #         margin-top: 10px;
+    #         table-layout: fixed;
+    #     }
+
+    #     .report-table th,
+    #     .report-table td {
+    #         border: 1px solid #444;
+    #         padding: 4px;
+    #         vertical-align: top;
+    #     }
+
+    #     .report-table th {
+    #         background-color: #f0f0f0;
+    #         font-weight: bold;
+    #         text-align: left;
+    #     }
+    #     </style>
+    #     """
+
+    #     tpl_html = [style]
+    #     tpl_html.append("<table class='report-table'>")
+
+    #     # Header
+    #     tpl_html.append("<thead><tr>")
+    #     for h in headers:
+    #         tpl_html.append(f"<th>{h}</th>")
+    #     tpl_html.append("</tr></thead>")
+
+    #     # Body
+    #     tpl_html.append("<tbody>")
+    #     for row in rows:
+    #         tpl_html.append("<tr>")
+    #         for cell in row:
+    #             safe = "" if cell is None else str(cell)
+    #             tpl_html.append(f"<td>{safe}</td>")
+    #         tpl_html.append("</tr>")
+    #     tpl_html.append("</tbody></table>")
+
+    #     result = "".join(tpl_html)
+    #     # LOGGER.debug(f"result: {result}")
+    #     return result
+
+    # def _build_report_table(self, headers, rows):
+    #     """TODO: document"""
+    #     style = """
+    #     <style>
+    #     .report-table {
+    #         width: 100%;
+    #         border-collapse: collapse;
+    #         margin-top: 10px;
+    #         table-layout: auto;
+    #     }
+
+    #     .report-table th,
+    #     .report-table td {
+    #         border: 1px solid #444;
+    #         padding: 6px;
+    #         font-size: 10pt;
+    #         vertical-align: top;
+    #         word-break: break-word;
+    #         white-space: normal;
+    #         min-width: 80px;
+    #     }
+
+    #     .report-table th {
+    #         background-color: #f0f0f0;
+    #         font-weight: bold;
+    #         text-align: left;
+    #     }
+
+    #     /* Make first column smaller (Public ID) */
+    #     .report-table th:first-child,
+    #     .report-table td:first-child {
+    #         min-width: 50px;
+    #         width: 50px;
+    #         text-align: center;
+    #     }
+    #     </style>
+    #     """
+
+    #     tpl_html = [style]
+    #     tpl_html.append("<table class='report-table'>")
+
+    #     # Header
+    #     tpl_html.append("<thead><tr>")
+    #     for h in headers:
+    #         tpl_html.append(f"<th>{h}</th>")
+    #     tpl_html.append("</tr></thead>")
+
+    #     # Body
+    #     tpl_html.append("<tbody>")
+    #     for row in rows:
+    #         tpl_html.append("<tr>")
+    #         for cell in row:
+    #             safe = "" if cell is None else str(cell)
+    #             tpl_html.append(f"<td>{safe}</td>")
+    #         tpl_html.append("</tr>")
+    #     tpl_html.append("</tbody></table>")
+
+    #     return "".join(tpl_html)
 
 
     def replace_datetime(self, match: re.Match) -> str:
