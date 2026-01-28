@@ -290,7 +290,7 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         else:
             schedulers = oc_scheduler_manager.get_all_schedulers()
 
-        LOGGER.debug(f"schedulers: {schedulers}")
+        # LOGGER.debug(f"schedulers: {schedulers}")
         return DefaultResponse(schedulers).make_response()
     except OcSchedulerGetError as err:
         LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
@@ -498,19 +498,6 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             if not valid_conn:
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
-        # DELETE CONNECTION FIRST
-        oc_connection_manager.delete_connection(connection_id)
-
-        # Cleanup ServicePortal entry
-        if current_app.cloud_mode and not current_app.local_mode:
-            dg_sp_manager.delete_connection_id(
-                connection_id,
-                request_user.email,
-                request_user.database
-            )
-
-            cached_user_manager.delete_cached_user(request_user.email)
-
         # DELETE SCHEDULER
         deleted_scheduler: bool = oc_scheduler_manager.delete_scheduler(scheduler_id)
 
@@ -518,6 +505,19 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         if current_app.cloud_mode and not current_app.local_mode:
             dg_sp_manager.delete_scheduler_id(
                 scheduler_id,
+                request_user.email,
+                request_user.database
+            )
+
+            cached_user_manager.delete_cached_user(request_user.email)
+
+        # Delete Connection
+        oc_connection_manager.delete_connection(connection_id)
+
+        # Cleanup ServicePortal entry
+        if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager.delete_connection_id(
+                connection_id,
                 request_user.email,
                 request_user.database
             )
