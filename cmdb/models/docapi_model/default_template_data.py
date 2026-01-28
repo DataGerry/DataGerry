@@ -16,9 +16,12 @@
 """
 Implementation of ObjectTemplateData
 """
+import html
 from logging import Logger, getLogger
 import re
 from typing import Any
+from datetime import datetime
+from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
@@ -26,6 +29,7 @@ from cmdb.manager import (
     TypesManager,
     ObjectRelationsManager,
     RelationsManager,
+    ReportsManager,
 )
 
 from cmdb.models.object_model import CmdbObject
@@ -36,6 +40,8 @@ from cmdb.models.docapi_model.relation_result import RelationResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+DATETIME_PATTERN = r"datetime\.datetime\((.*?)\)"
 
 EXTERNAL_OBJECT_REGEX = re.compile(r"\{\{\s*object\((\d+)\)")
 REPORT_REGEX = re.compile(r"\{\{\s*report\((\d+)\)\s*\}\}")
@@ -96,9 +102,6 @@ class DefaultTemplateData:
         self.request_user = request_user
         self.template_type = template_type
 
-        # --------------------------------------------------------------
-        # Managers
-        # --------------------------------------------------------------
         self.objects_manager: ObjectsManager = ManagerProvider.get_manager(
             ManagerType.OBJECTS, request_user
         )
@@ -111,10 +114,11 @@ class DefaultTemplateData:
         self.object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_RELATIONS, request_user
         )
+        self.reports_manager: ReportsManager = ManagerProvider.get_manager(
+            ManagerType.REPORTS, request_user
+        )
 
-        # --------------------------------------------------------------
         # Root object
-        # --------------------------------------------------------------
         self.root_data = ObjectTemplateData(
             cmdb_render_object,
             self.objects_manager,
@@ -330,13 +334,177 @@ class DefaultTemplateData:
 
         return _object_fn
 
-    # ------------------------------------------------------------------
-    # Report accessor (stub)
-    # ------------------------------------------------------------------
 
     def _report_accessor(self):
         def _report_fn(public_id: int):
             if public_id not in self.report_ids:
                 return None
-            return {"public_id": public_id}
+
+            # --------------------------------------------------
+            # Load report
+            # --------------------------------------------------
+            report = self.reports_manager.get_item(public_id, as_dict=True)
+            if not report:
+                return None
+
+            # --------------------------------------------------
+            # Run report query (copied from route)
+            # --------------------------------------------------
+            query_str = report["report_query"]["data"]
+
+            processed_query_string = re.sub(
+                DATETIME_PATTERN,
+                self.replace_datetime,
+                query_str.replace("datetime.datetime", "datetime"),
+            )
+
+            safe_globals = {"datetime": datetime}
+            report_query = eval(processed_query_string, safe_globals)
+
+            objects = []
+            if report_query:
+                builder_params = BuilderParameters(criteria=report_query)
+                # objects = self.objects_manager.iterate(builder_params).results
+                tmp_objects = self.objects_manager.iterate(builder_params).results
+                objects = [object_.__dict__ for object_ in tmp_objects]
+            # --------------------------------------------------
+            # Build label map
+            # --------------------------------------------------
+            field_label_map = {}
+            type_id = report.get("type_id")
+
+            if type_id:
+                obj_type = self.types_manager.get_type(type_id)
+                for field in obj_type.get("fields", []):
+                    field_label_map[field["name"]] = field.get("label", field["name"])
+
+            # --------------------------------------------------
+            # Build table
+            # --------------------------------------------------
+            headers = ["Public ID"]
+            for field_id in report.get("selected_fields", []):
+                headers.append(field_label_map.get(field_id, field_id))
+
+            rows = []
+            for obj in objects:
+                row = [str(obj.get("public_id", ""))]
+
+                # THIS IS THE CRITICAL FIX
+                field_map = {
+                    f.get("name"): f.get("value")
+                    for f in obj.get("fields", [])
+                    if f.get("name") is not None
+                }
+
+                for field_id in report.get("selected_fields", []):
+                    value = field_map.get(field_id, "")
+                    row.append("" if value is None else str(value))
+
+                rows.append(row)
+
+            return self._build_report_table(headers, rows)
+            # return {
+            #     "headers": headers,
+            #     "rows": rows
+            # }
+
         return _report_fn
+
+# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
+
+    def _get_field_label_map(self, type_id) -> dict:
+        """TODO: document"""
+        obj_type = self.types_manager.get_type(type_id)
+
+        label_map = {}
+        for field in obj_type.get("fields", []):
+            label_map[field["id"]] = field.get("label", field["id"])
+
+        return label_map
+
+
+    def _esc(self, value):
+        """TODO: document"""
+        return html.escape("" if value is None else str(value))
+
+
+    def _build_report_table(self, headers, rows):
+        """TODO: document"""
+        style = """
+        <style>
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            table-layout: auto;
+        }
+
+        .report-table th,
+        .report-table td {
+            border: 1px solid #444;
+            padding: 6px;
+            font-size: 10pt;
+            vertical-align: top;
+            word-break: break-word;
+            white-space: normal;
+            min-width: 80px;
+        }
+
+        .report-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            text-align: left;
+        }
+
+        /* Make first column smaller (Public ID) */
+        .report-table th:first-child,
+        .report-table td:first-child {
+            min-width: 50px;
+            width: 50px;
+            text-align: center;
+        }
+        </style>
+        """
+
+        tpl_html = [style]
+        tpl_html.append("<table class='report-table'>")
+
+        # Header
+        tpl_html.append("<thead><tr>")
+        for h in headers:
+            tpl_html.append(f"<th>{h}</th>")
+        tpl_html.append("</tr></thead>")
+
+        # Body
+        tpl_html.append("<tbody>")
+        for row in rows:
+            tpl_html.append("<tr>")
+            for cell in row:
+                safe = "" if cell is None else str(cell)
+                tpl_html.append(f"<td>{safe}</td>")
+            tpl_html.append("</tr>")
+        tpl_html.append("</tbody></table>")
+
+        return "".join(tpl_html)
+
+
+    def replace_datetime(self, match: re.Match) -> str:
+        """
+        Replaces a regex match containing datetime arguments with a Python datetime object
+
+        Args:
+            match (re.Match): A regular expression match object containing 
+                            a string of datetime arguments (e.g., "2025, 11, 26, 0, 0").
+
+        Returns:
+            str: A string representation (repr) of the evaluated datetime object.
+
+        Notes:
+            - This function expects the match to contain arguments suitable for datetime().
+            - The returned value is the repr of the datetime object, 
+            which can be used in source code or serialization.
+        """
+        args = match.group(1)
+
+        #pylint: disable=W0123
+        return repr(eval(f"datetime({args})"))
