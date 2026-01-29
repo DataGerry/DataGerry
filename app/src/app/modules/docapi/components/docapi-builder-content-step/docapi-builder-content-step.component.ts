@@ -23,6 +23,7 @@ import { TemplateHelperService } from '../../../../settings/services/template-he
 import { CmdbMode } from '../../../../framework/modes.enum';
 import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../relation-template-selector-modal/relation-template-selector-modal.component';
+import { ReportTemplateSelectorModalComponent } from '../report-template-selector-modal/report-template-selector-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -151,6 +152,8 @@ export class DocapiBuilderContentStepComponent {
         if (this.templateType === 'DEFAULT') {
             items.push(this.getExternalObjectsMenuItem(editor));
         }
+
+        items.push(this.getReportMenuItem(editor));
         
         return items;
     }
@@ -287,6 +290,18 @@ export class DocapiBuilderContentStepComponent {
         return item;
     }
 
+    public getReportMenuItem(editor) {
+        const item = {
+            type: 'menuitem',
+            text: 'Report',
+            icon: 'table',
+            onAction: () => {
+                this.openReportTemplateModal(editor);
+            }
+        };
+        return item;
+    }
+
     private openExternalObjectsModal(editor: any): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
             size: 'lg',
@@ -305,6 +320,17 @@ export class DocapiBuilderContentStepComponent {
         });
 
         modalRef.componentInstance.rootTypeId = this.templateTypeId;
+        modalRef.componentInstance.insertTemplate.subscribe((template: string) => {
+            editor.insertContent(template);
+        });
+    }
+
+    private openReportTemplateModal(editor: any): void {
+        const modalRef = this.modalService.open(ReportTemplateSelectorModalComponent, {
+            size: 'xl',
+            backdrop: 'static'
+        });
+
         modalRef.componentInstance.insertTemplate.subscribe((template: string) => {
             editor.insertContent(template);
         });
