@@ -22,8 +22,7 @@ import ConnectionEditor from './automation-form/opencelium-editor/connection-edi
   template: `<div></div>`,
 })
 export class OpenCeliumEditorComponent
-  implements AfterViewInit, OnChanges, OnDestroy
-{
+  implements AfterViewInit, OnChanges, OnDestroy {
   @Input() token = '';
   @Input() sourceConnectorId = '';
   @Input() targetConnectorId = '';
@@ -34,13 +33,25 @@ export class OpenCeliumEditorComponent
   @Input() initConnection: any = null;
   @Output() connectionChange = new EventEmitter<any>();
   @Output() saveConnection = new EventEmitter<any>();
-  @Output() load =  new EventEmitter<void>();
+  @Output() load = new EventEmitter<void>();
 
   private container?: HTMLElement;
   private ConnectionEditor?: any;
 
+  private static readonly styleIdPrefix = 'opencelium-editor-style';
+  private static readonly styleIdSuffixes = [
+    'connection-editor-css',
+    'fonts-css',
+    'graphiql-module-css'
+  ];
+  private static readonly styleIds = OpenCeliumEditorComponent.styleIdSuffixes.map(
+    suffix => `${OpenCeliumEditorComponent.styleIdPrefix}-${suffix}`
+  );
+
+  
   constructor(private host: ElementRef, private connectionService: ConnectionService) {
   }
+
 
   async ngAfterViewInit() {
     this.ConnectionEditor = ConnectionEditor;
@@ -49,29 +60,30 @@ export class OpenCeliumEditorComponent
     this.render();
   }
 
+
   /** Re-render when inputs change */
   ngOnChanges(changes: SimpleChanges) {
-    
-    // Object.keys(changes).forEach(key => {
-    //   const change = changes[key];
-    //   console.log(`  - ${key}:`, {
-    //     previousValue: change.previousValue,
-    //     currentValue: change.currentValue,
-    //     firstChange: change.firstChange
-    //   });
-    // });
+    if (this.container) {
+      ReactDOM.unmountComponentAtNode(this.container);
+    }
 
     if (this.container && this.ConnectionEditor) {
       this.render();
     }
   }
 
+
   /** Unmount React when Angular destroys the component */
   ngOnDestroy() {
     if (this.container) {
       ReactDOM.unmountComponentAtNode(this.container);
     }
+    this.removeStyles();
+    document
+      .querySelectorAll('.react-scope, #oc_xml_modal, #oc_generator_modal')
+      .forEach(el => el.remove());
   }
+
 
   /** Mount or re-render the React component */
   private render() {
@@ -94,16 +106,14 @@ export class OpenCeliumEditorComponent
       saveConnection: async (connection: any) => {
         this.saveConnection.emit(connection);
       },
-      onLoad: () => {}
+      onLoad: () => { }
     };
 
     // Only send connector IDs in create mode
     if (!this.initConnection) {
       props.sourceConnectorId = this.sourceConnectorId;
       props.targetConnectorId = this.targetConnectorId;
-    } 
-
-    console.log('[OpenCeliumEditorComponent] props sent to React', props);
+    }
 
     ReactDOM.render(
       React.createElement(this.ConnectionEditor, props),
@@ -111,6 +121,7 @@ export class OpenCeliumEditorComponent
     );
 
   }
+
 
   private getBaseUrl(): string {
     if (environment.cloudMode) {
@@ -126,6 +137,7 @@ export class OpenCeliumEditorComponent
     return `${this.connectionService.getApiBaseUrl()}/rest/open_celium/`;
   }
 
+
   private integrateStyles() {
     const stylePaths = [
       'assets/connection_editor/connection-editor.css',
@@ -135,7 +147,7 @@ export class OpenCeliumEditorComponent
 
     // Load each file once
     stylePaths.forEach((path, index) => {
-      const id = `connection-editor-style-${index}`;
+      const id = OpenCeliumEditorComponent.styleIds[index];
 
       if (!document.getElementById(id)) {
         const link = document.createElement('link');
@@ -144,6 +156,16 @@ export class OpenCeliumEditorComponent
         link.href = path;
 
         document.head.appendChild(link);
+      }
+    });
+  }
+
+
+  private removeStyles() {
+    OpenCeliumEditorComponent.styleIds.forEach(id => {
+      const link = document.getElementById(id);
+      if (link) {
+        link.remove();
       }
     });
   }
