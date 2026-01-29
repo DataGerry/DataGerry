@@ -138,8 +138,11 @@ export class ReportService<T = any> implements ApiServicePrefix {
     /**
      * Runs a report by its public ID.
      */
-    public runReport(publicID: number): Observable<T> {
+    public runReport(publicID: number, preview: boolean = false): Observable<T> {
         let httpParams = new HttpParams();
+        if (preview) {
+            httpParams = httpParams.set('preview', 'true');
+        }
         this.options.params = httpParams;
 
         return this.api.callGet<T>(`${this.servicePrefix}/run/${publicID}`, this.options).pipe(
