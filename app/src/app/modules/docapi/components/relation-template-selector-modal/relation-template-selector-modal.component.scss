@@ -345,6 +345,36 @@ $dg-primary-color: #e94d18;
                 white-space: pre-wrap;
               }
             }
+
+            .preview-details {
+              display: flex;
+              flex-direction: column;
+              gap: 0.75rem;
+
+              .detail-item {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0.5rem 0;
+                border-bottom: 1px solid rgba(#dee2e6, 0.3);
+
+                &:last-child {
+                  border-bottom: none;
+                }
+
+                .detail-label {
+                  font-weight: 500;
+                  color: #6c757d;
+                  font-size: 0.85rem;
+                }
+
+                .detail-value {
+                  font-weight: 500;
+                  color: #4a4a4a;
+                  font-size: 0.9rem;
+                }
+              }
+            }
           }
 
           .empty-state {
