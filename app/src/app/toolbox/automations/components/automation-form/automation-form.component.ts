@@ -261,7 +261,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.form = this.fb.group({
       name: ['', Validators.required],
       description: [''],
-      direction: ['incoming', Validators.required], // Set incoming as default
+      direction: ['incoming'], // Set incoming as default
       connector: [''],
       business_template: ['']
     });
