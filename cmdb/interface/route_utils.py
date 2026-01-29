@@ -275,7 +275,9 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
             try:
                 auth_method = __get_request_auth_method()
                 api_user_dict = __get_request_api_user()
+                LOGGER.debug(f"[verify_api_access] api_user_dict: {api_user_dict}")
                 x_api_key = __get_x_api_key()
+                LOGGER.debug(f"[verify_api_access] x_api_key: {x_api_key}")
 
                 if auth_method == AuthMethod.BASIC:
                     user_instance = check_user_in_service_portal(
@@ -284,6 +286,7 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
                                                                 x_api_key,
                                                                 api_key_required=True
                                                            )
+                    LOGGER.debug(f"[verify_api_access] user_instance: {user_instance}")
 
                     # Set the user as request User
                     if required_api_level != ApiLevel.SUPER_ADMIN:
