@@ -48,6 +48,25 @@ class ObjectDocumentGenerator:
         td {
             padding: 1px;
         }
+
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .report-table th,
+        .report-table td {
+            border: 1px solid #444;
+            padding: 2px;
+            font-size: 7pt;
+            word-wrap: break-word;
+        }
+
+        .report-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            text-align: left;
+        }
     """
 
     def __init__(

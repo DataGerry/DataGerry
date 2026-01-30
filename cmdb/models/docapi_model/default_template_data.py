@@ -450,31 +450,7 @@ class DefaultTemplateData:
         else:
             other_col_pct = 100
 
-        # ----- CSS (minimal, xhtml2pdf-friendly) -----
-        style = """
-        <style>
-        .report-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .report-table th,
-        .report-table td {
-            border: 1px solid #444;
-            padding: 2px;
-            font-size: 7pt;
-            word-wrap: break-word;
-        }
-
-        .report-table th {
-            background-color: #f0f0f0;
-            font-weight: bold;
-            text-align: left;
-        }
-        </style>
-        """
-
-        tpl_html = [style]
+        tpl_html = []
         tpl_html.append("<table class='report-table'>")
 
         # ----- Header -----
