@@ -297,6 +297,69 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         abort(500, "Failed to retrieve OpenCelium Schedulers!")
 
 
+@oc_schedulers_blueprint.route('/schedulers/logs', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving OpenCelium Schedulers!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
+    """
+    GET/HEAD route to retrieve logs of an OC scheduler
+
+    status (str): It can either be s (success) or f (failed)
+    """
+    try:
+        scheduler_id: int | None = request.args.get("scheduler_id", type=int)
+        status: str | None = request.args.get("status")
+
+        if not scheduler_id:
+            abort(400, "No schedulerId for Logs provided!")
+
+        if not status:
+            abort(400, "No status is provided. Provide either 's' for success or 'f' for failed logs!")
+
+        if not status in ["s", "f"]:
+            abort(400, "Invalid status provided. Status can be either 's' for success or 'f' for failed logs!")
+
+
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+        dg_sp_manager = DgServicePortalManager()
+        cached_user_manager = CachedUserManager(current_app.database_manager)
+
+        # Validate scheduler exists in subscription
+        if current_app.cloud_mode and not current_app.local_mode:
+            cached_user = cached_user_manager.get_cached_user(request_user.email)
+
+            if cached_user:
+                is_valid = cached_user_manager.oc_id_exists(
+                    cached_user,
+                    request_user.database,
+                    CachedOcIdType.SCHEDULERS,
+                    scheduler_id
+                )
+            else:
+                is_valid = dg_sp_manager.check_scheduler_in_sub(
+                    scheduler_id,
+                    request_user.email,
+                    request_user.database
+                )
+
+            if not is_valid:
+                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
+
+        # Retrieve the Logs
+        scheduler_logs: list[dict[str, Any]] = oc_scheduler_manager.get_scheduler_logs(scheduler_id, status)
+
+        return DefaultResponse(scheduler_logs).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcSchedulerGetError as err:
+        LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to retrieve OpenCelium Schedulers!")
+
+
 @oc_schedulers_blueprint.route('/schedulers/execute/<int:scheduler_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("executing the OpenCelium Scheduler!")
 @insert_request_user

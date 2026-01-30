@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -19,6 +19,7 @@ Implementation of OpenCelium SchedulerManager
 import json
 from logging import Logger, getLogger
 from typing import Any
+from datetime import datetime, timezone
 
 from requests import Response
 
@@ -38,7 +39,7 @@ SCHEDULER_URL: str = "/scheduler"
 SCHEDULERS_BY_IDS_URL: str = f"{SCHEDULER_URL}/list/get"
 ALL_SCHEDULERS_URL: str = f"{SCHEDULER_URL}/all"
 EXECUTE_SCHEDULER_URL: str = f"{SCHEDULER_URL}/execute"
-
+SCHEDULER_LOGS_URL: str = "/execution/log-files"
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcSchedulerManager - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -176,6 +177,46 @@ class OcSchedulerManager(OcBaseManager):
         LOGGER.error("[execute_scheduler] OC Error: %s", target_scheduler_response.text)
         raise OcSchedulerGetError(f"Failed to execute OpenCelium Scheduler with ID: {scheduler_id}")
 
+
+    def get_scheduler_logs(self, scheduler_id: int, status: str) -> list[dict[str, Any]]:
+        """
+        Executes an OcScheduler in OpenCelium with the given scheduler_id
+
+        Args:
+            scheduler_id (int): schedulerId of the OcScheduler which should be executed
+
+        Raises:
+            OcSchedulerGetError: When the schedulerId was not provided to this method
+            OcSchedulerGetError: When the OcScheduler could not be executed
+
+        Returns:
+            dict[str, Any]: The result of the OcScheduler execution
+        """
+        if not scheduler_id:
+            raise OcSchedulerGetError("No schedulerId for Scheduler logs provided!")
+
+        if not status:
+            raise OcSchedulerGetError("No status for Scheduler logs provided!")
+
+        scheduler_logs_resp: Response = self.oc_connector.oc_get(
+            f"{SCHEDULER_LOGS_URL}?schedulerId={scheduler_id}&status={status}"
+        )
+
+        if self.is_valid_response(scheduler_logs_resp):
+            raw_scheduler_logs = json.loads(scheduler_logs_resp.text)
+
+            formatted_logs: list[dict[str, Any]] = []
+
+            if raw_scheduler_logs:
+                formatted_logs = [
+                    self._format_scheduler_log(a_log)
+                    for a_log in raw_scheduler_logs
+                ]
+
+            return formatted_logs
+        LOGGER.error("[get_scheduler_logs] OC Error: %s", scheduler_logs_resp.text)
+        raise OcSchedulerGetError(f"Failed to execute OpenCelium Scheduler with ID: {scheduler_id}")
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_scheduler(self, params: dict[str, Any], scheduler_id: int) -> dict[str, Any]:
@@ -219,3 +260,35 @@ class OcSchedulerManager(OcBaseManager):
 
         LOGGER.error("[delete_scheduler] OC Error: %s", delete_scheduler_response.text)
         raise OcSchedulerDeleteError(f"Failed to delete Scheduler with ID:{scheduler_id} in OpenCelium!")
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def _format_scheduler_log(self, log: str) -> dict[str, Any]:
+        """
+        TODO: document
+        
+        expected formated string in style: "2026-01-30_12-46_734_s_892.log"
+
+        Mapping: {date}_{hh-mm}_{connectionId}_{s/f}_{executionId}.log
+        """
+        # Remove file extension
+        base = log.removesuffix(".log")
+
+        try:
+            date_part, time_part, connection_id, status, execution_id = base.split("_")
+
+            # Build datetime object
+            log_date = datetime.strptime(
+                f"{date_part} {time_part}",
+                "%Y-%m-%d %H-%M"
+            ).replace(tzinfo=timezone.utc)
+
+            return {
+                "log_date": log_date,
+                "connection_id": int(connection_id),
+                "status": status,
+                "execution_id": int(execution_id),
+            }
+
+        except (ValueError, AttributeError) as e:
+            raise ValueError(f"Invalid log format: {log}") from e
