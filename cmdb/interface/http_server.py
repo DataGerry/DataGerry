@@ -16,6 +16,7 @@
 """
 Server module for web-based services
 """
+import os
 import logging
 import multiprocessing
 from gunicorn.app.base import BaseApplication
@@ -57,7 +58,32 @@ class HTTPServer(BaseApplication):
             self.options['check_config'] = True
             LOGGER.debug("Gunicorn starting with auto reload option")
 
-        LOGGER.info("Interfaces started @ http://%s:%s",self.options['host'], self.options['port'])
+        # optional SSL Configuration
+        ssl_enabled = str(self.options.get('ssl', 'false')).lower() == 'true'
+
+        if ssl_enabled:
+            LOGGER.debug("in ssl_enabled")
+            certfile = self.options.get('certfile')
+            keyfile = self.options.get('keyfile')
+
+            if not certfile or not keyfile:
+                raise RuntimeError("SSL enabled but certfile or keyfile not configured")
+
+            if not os.path.exists(certfile):
+                raise RuntimeError(f"SSL certfile not found: {certfile}")
+
+            if not os.path.exists(keyfile):
+                raise RuntimeError(f"SSL keyfile not found: {keyfile}")
+
+            self.options['certfile'] = certfile
+            self.options['keyfile'] = keyfile
+        else:
+            self.options.pop('ssl', None)
+            self.options.pop('certfile', None)
+            self.options.pop('keyfile', None)
+
+        protocol = "https" if ssl_enabled else "http"
+        LOGGER.info("Interfaces started @ %s://%s:%s", protocol, self.options['host'], self.options['port'])
         self.application = app
         super().__init__()
 
