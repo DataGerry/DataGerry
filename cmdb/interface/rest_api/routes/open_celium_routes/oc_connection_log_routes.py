@@ -40,7 +40,7 @@ oc_connection_log_blueprint = APIBlueprint('oc_connection_logs', __name__)
 
 # --------------------------------------------------- GET - ROUTES --------------------------------------------------- #
 
-@oc_connection_log_blueprint.route('/connections/logs/<int:target_id>', methods=['GET', 'HEAD'])
+@oc_connection_log_blueprint.route('/connections/logs/<string:target_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -70,7 +70,7 @@ def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: int) ->
         abort(500, f"Failed to retrieve details for Method/Operator with ID:{target_id}!")
 
 
-@oc_connection_log_blueprint.route('/connections/logs/children/<int:target_id>', methods=['GET', 'HEAD'])
+@oc_connection_log_blueprint.route('/connections/logs/children/<string:target_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -91,7 +91,7 @@ def oc_get_operator_children(request_user: CmdbUser, target_id: int) -> Response
             request_user.database
         )
 
-        loop_index = request.args.get("loopIndex", type=int)
+        loop_index = request.args.get("loopIndex", type=str)
 
         if not loop_index:
             abort(400, "The loopIndex was not provided!")
@@ -135,7 +135,7 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
         abort(500, f"Failed to retrieve Flowcharts for target with ID:{target_id}!")
 
 
-@oc_connection_log_blueprint.route('/connections/logs/first_level/<int:target_id>', methods=['GET', 'HEAD'])
+@oc_connection_log_blueprint.route('/connections/logs/first_level/<string:target_id>', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving the first level Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)

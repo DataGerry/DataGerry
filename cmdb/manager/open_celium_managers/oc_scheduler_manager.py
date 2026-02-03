@@ -201,10 +201,9 @@ class OcSchedulerManager(OcBaseManager):
         scheduler_logs_resp: Response = self.oc_connector.oc_get(
             f"{SCHEDULER_LOGS_URL}?schedulerId={scheduler_id}&status={status}"
         )
-
         if self.is_valid_response(scheduler_logs_resp):
             raw_scheduler_logs = json.loads(scheduler_logs_resp.text)
-
+            raw_scheduler_logs = raw_scheduler_logs['result']
             formatted_logs: list[dict[str, Any]] = []
 
             if raw_scheduler_logs:
