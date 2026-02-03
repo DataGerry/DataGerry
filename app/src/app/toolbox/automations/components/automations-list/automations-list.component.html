@@ -1,13 +1,10 @@
 <div class="d-flex justify-content-between align-items-center">
   <h2>Automations</h2>
   <div>
-    <button type="button" class="btn btn-sm btn-internal-connectors  ms-2 text-white" (click)="configInternal()">
-      <i class="fa-solid fa-plug"></i> Save DataGerry API Credentials
-    </button>
     <button type="button" class="btn btn-sm btn-connectors ms-2 text-white" [routerLink]="['/automations/connectors']">
       <i class="fa-solid fa-plug"></i> Manage Connectors
     </button>
-    <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']">
+  <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']" *ngIf="!isCloudMode">
       <i class="fa-solid fa-key"></i> View Licenses
     </button>
     <button type="button" class="btn btn-sm btn-add ms-2 text-white" [routerLink]="['/automations/add']">
@@ -27,7 +24,8 @@
 <ng-template #directionTemplate let-item="item">
   <span class="badge" [ngClass]="{
     'bg-primary': item.direction === 'incoming',
-    'bg-success': item.direction === 'outgoing'
+    'bg-success': item.direction === 'outgoing',
+    'bg-success': item.direction === 'internal'
   }" style="color: white;">
     {{ item.direction}}
   </span>
@@ -45,17 +43,31 @@
 
 <!-- Last Success Template -->
 <ng-template #lastSuccessTemplate let-item="item">
-  <div class="text-center">
-    <div>{{ getLastSuccessDisplay(item).date }}</div>
-    <div class="text-muted small">{{ getLastSuccessDisplay(item).taId }}</div>
+  <div class="last-execution-cell">
+    <div class="text-center">
+      <div>{{ getLastSuccessDisplay(item).date }}</div>
+      <div class="text-muted small">{{ getLastSuccessDisplay(item).taId }}</div>
+    </div>
+    <app-automation-logs-menu
+      *ngIf="item.debugMode && hasLastSuccess(item)"
+      [schedulerId]="item.schedulerId"
+      status="s">
+    </app-automation-logs-menu>
   </div>
 </ng-template>
 
 <!-- Last Fail Template -->
 <ng-template #lastFailTemplate let-item="item">
-  <div class="text-center">
-    <div>{{ getLastFailDisplay(item).date }}</div>
-    <div class="text-muted small">{{ getLastFailDisplay(item).taId }}</div>
+  <div class="last-execution-cell">
+    <div class="text-center">
+      <div>{{ getLastFailDisplay(item).date }}</div>
+      <div class="text-muted small">{{ getLastFailDisplay(item).taId }}</div>
+    </div>
+    <app-automation-logs-menu
+      *ngIf="item.debugMode && hasLastFail(item)"
+      [schedulerId]="item.schedulerId"
+      status="f">
+    </app-automation-logs-menu>
   </div>
 </ng-template>
 
@@ -63,6 +75,20 @@
 <ng-template #lastDurationTemplate let-item="item">
   <div class="text-center">
     {{ getLastDuration(item) }}
+  </div>
+</ng-template>
+
+<!-- Logs Template -->
+<ng-template #logsTemplate let-item="item">
+  <div class="logs-toggle-cell">
+    <label class="logs-toggle" [class.is-loading]="logToggleLoading[item.schedulerId]">
+      <input
+        type="checkbox"
+        [checked]="item.debugMode"
+        [disabled]="logToggleLoading[item.schedulerId]"
+        (change)="toggleDebugMode(item, $event)" />
+      <span class="slider"></span>
+    </label>
   </div>
 </ng-template>
 

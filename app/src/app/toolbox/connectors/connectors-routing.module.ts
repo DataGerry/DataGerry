@@ -22,7 +22,6 @@ import { ConnectorsComponent } from './connectors.component';
 import { ConnectorsResolver } from './services/connectors-resolver.service';
 import { ConnectorFormComponent } from './components/connector-form/connector-form.component';
 import { ConnectorsListComponent } from './components/connectors-list/connectors-list.component';
-import { cloudModeGuard } from 'src/app/modules/auth/guards/cloud-mode.guard';
 
 const routes: Routes = [
   {

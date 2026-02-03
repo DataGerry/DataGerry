@@ -13,7 +13,6 @@ import {
 } from '@angular/core';
 import { ConnectionService } from 'src/app/modules/connect/services/connection.service';
 import { environment } from 'src/environments/environment';
-import ConnectionEditor from './automation-form/opencelium-editor/connection-editor.js';
 
 
 @Component({
@@ -54,9 +53,10 @@ export class OpenCeliumEditorComponent
 
 
   async ngAfterViewInit() {
-    this.ConnectionEditor = ConnectionEditor;
     this.container = this.host.nativeElement.querySelector('div');
     this.integrateStyles();
+    const module = await import('./automation-form/opencelium-editor/connection-editor.js');
+    this.ConnectionEditor = (module as any).default ?? module;
     this.render();
   }
 

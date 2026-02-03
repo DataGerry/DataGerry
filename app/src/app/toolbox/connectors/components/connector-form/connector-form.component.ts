@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,7 +24,7 @@ import {
   FormGroup,
   Validators
 } from '@angular/forms';
-import { map, distinctUntilChanged, debounceTime, finalize } from 'rxjs/operators';
+import { distinctUntilChanged, debounceTime, finalize } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
@@ -43,6 +43,8 @@ import { environment } from 'src/environments/environment';
   standalone: false
 })
 export class ConnectorFormComponent implements OnInit, OnDestroy {
+  public isLoading$ = this.loaderService.isLoading$;
+
   mode: 'create' | 'edit' | 'internal' = 'create';
   id?: number;
   isCloudMode = environment.cloudMode;
@@ -54,7 +56,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   isValidCredentials = false;
   inlineLoading = false;
 
-  // Add flag to control rendering
+  // flag to control rendering
   credentialsReady = false;
   selectedInvoker: Invoker | null = null;
 
@@ -70,8 +72,6 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   // Internal connector state
   internalConnectorExists = false;
 
-  public isLoading$ = this.loaderService.isLoading$;
-
   private destroy$ = new Subject<void>();
   private initializing = false;
 
@@ -83,6 +83,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     private toast: ToastService,
     private loaderService: LoaderService
   ) { }
+
 
   ngOnInit(): void {
     // Use state mode if provided, otherwise use route data
@@ -117,21 +118,23 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
     if (this.mode === 'edit') {
       this.id = +this.route.snapshot.paramMap.get('id')!;
-      
+
       // Check if connector was passed via state 
       const connector = history.state?.connector;
       if (connector) {
         this.patchForEdit(connector);
-      } 
+      }
     } else if (this.mode === 'internal') {
       this.checkInternalConnectorExists();
     }
   }
 
+
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
   }
+
 
   private buildForm(): void {
     this.form = this.fb.group({
@@ -146,6 +149,168 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       masterPassword: ['']
     });
   }
+
+
+  patchForEdit(c: Connector) {
+    this.credentialsReady = false;
+    this.initializing = true;
+
+    this.originalInvokerName = c.invoker?.name ?? null;
+    this.form.get(['invoker', 'name'])!.setValue(this.originalInvokerName, { emitEvent: false });
+    this.selectedInvoker = this.findInvokerByName(this.originalInvokerName);
+
+    this.form.patchValue({
+      title: c.title,
+      description: c.description ?? '',
+      sslCert: c.sslCert,
+      timeout: c.timeout
+    }, { emitEvent: false });
+
+    this.rebuildCredentials(this.selectedInvoker);
+    this.requestDataGroup.patchValue(c.requestData ?? {}, { emitEvent: false });
+    this.requestDataGroup.updateValueAndValidity({ emitEvent: false });
+
+    const missing = this.areCredentialsMissing(this.requestDataGroup.getRawValue());
+    this.showMasterPassword = missing;
+    this.credentialsBlurred = missing;
+    this.credentialsReady = true;
+
+    this.initializing = false;
+  }
+
+
+  private patchForInternal(c: Connector | any, connectorExists: boolean = false): void {
+
+    this.credentialsReady = false;
+    this.initializing = true;
+
+    try {
+      //  Set invoker without emitting and resolve selectedInvoker
+      this.originalInvokerName = c?.invoker?.name ?? null;
+      this.form.get(['invoker', 'name'])!.setValue(this.originalInvokerName, { emitEvent: false });
+      this.selectedInvoker = this.findInvokerByName(this.originalInvokerName);
+
+      // Ensure selectedInvoker has the DATAGerry hint in internal mode
+      if (this.mode === 'internal' && (!this.selectedInvoker || !this.selectedInvoker.hint)) {
+        this.selectedInvoker = this.getDataGerryInvoker();
+      }
+
+      //  Patch basic fields (no emission)
+      this.form.patchValue({
+        title: c?.title ?? 'DataGerryInternal',
+        description: c?.description ?? 'Internal DATAGerry connector for automations',
+        sslCert: false,
+        timeout: 1000
+      }, { emitEvent: false });
+
+      //  Build fixed internal credential fields synchronously
+      this.buildDataGerryCredentials();
+      this.form.updateValueAndValidity({ emitEvent: false });
+
+      if (connectorExists) {
+        // Fetch actual existing internal connector (for ID + possibly real requestData)
+        this.loaderService.show();
+        this.svc.getInternalConnector({})
+          .pipe(
+            finalize(() => this.loaderService.hide()),
+            takeUntil(this.destroy$)
+          )
+          .subscribe({
+            next: (actual) => {
+              this.id = actual?.connectorId;
+
+              // Patch requestData if backend provided it
+              const rd = actual?.requestData ?? null;
+              if (rd) {
+                this.requestDataGroup.patchValue(rd, { emitEvent: false });
+                this.requestDataGroup.updateValueAndValidity({ emitEvent: false });
+              }
+
+              // Check if we have request data values - if values are empty, show master password
+              const hasRequestData = rd && Object.keys(rd).length > 0;
+              const hasEmptyValues = hasRequestData && Object.values(rd).every(value => !value || value.toString().trim() === '');
+
+              // Show master password if we have empty values OR no request data
+              const shouldShowMasterPassword = !hasRequestData || hasEmptyValues;
+              this.showMasterPassword = shouldShowMasterPassword;
+              this.credentialsBlurred = shouldShowMasterPassword;
+              this.masterPasswordVerified = !shouldShowMasterPassword;
+
+              // Disable fixed fields in internal mode (after patching)
+              this.form.get('title')?.disable({ emitEvent: false });
+              this.form.get('description')?.disable({ emitEvent: false });
+              this.form.get('invoker')?.disable({ emitEvent: false });
+              this.form.get('sslCert')?.disable({ emitEvent: false });
+              this.form.get('timeout')?.disable({ emitEvent: false });
+
+              this.credentialsReady = true;
+            },
+            error: (error) => {
+              this.toast.error(error?.error?.message);
+
+              // Without secrets, require master password
+              this.showMasterPassword = true;
+              this.credentialsBlurred = true;
+
+              // Disable fixed fields in internal mode
+              this.form.get('title')?.disable({ emitEvent: false });
+              this.form.get('description')?.disable({ emitEvent: false });
+              this.form.get('invoker')?.disable({ emitEvent: false });
+              this.form.get('sslCert')?.disable({ emitEvent: false });
+              this.form.get('timeout')?.disable({ emitEvent: false });
+
+              this.credentialsReady = true;
+            }
+          });
+      } else {
+        //  Internal connector does not exist – allow creation, no overlay
+        this.showMasterPassword = false;
+        this.credentialsBlurred = false;
+
+        // Disable fixed fields in internal mode (they’re predefined)
+        this.form.get('title')?.disable({ emitEvent: false });
+        this.form.get('description')?.disable({ emitEvent: false });
+        this.form.get('invoker')?.disable({ emitEvent: false });
+        this.form.get('sslCert')?.disable({ emitEvent: false });
+        this.form.get('timeout')?.disable({ emitEvent: false });
+
+        this.credentialsReady = true;
+      }
+    } finally {
+      this.initializing = false;
+    }
+  }
+
+
+  private enableFormForInternalCreation(): void {
+    // When in internal mode without connector data, pre-fill with default internal connector data
+    const internalConnectorData = {
+      title: 'DataGerryInternal',
+      description: 'Internal DATAGerry connector for automations',
+      invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry', hint: "This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/latest/api/rest/" },
+      sslCert: false,
+      timeout: 1000
+    };
+
+    this.form.patchValue(internalConnectorData);
+
+    // Set the selected invoker for internal mode to ensure hint is displayed
+    this.selectedInvoker = this.getDataGerryInvoker();
+
+    // Disable fixed fields in internal mode (they're predefined)
+    this.form.get('title')?.disable({ emitEvent: false });
+    this.form.get('description')?.disable({ emitEvent: false });
+    this.form.get('invoker')?.disable({ emitEvent: false });
+    this.form.get('sslCert')?.disable({ emitEvent: false });
+    this.form.get('timeout')?.disable({ emitEvent: false });
+
+    // Build hardcoded credential fields for DataGerry invoker
+    setTimeout(() => {
+      this.buildDataGerryCredentials();
+      this.credentialsReady = true;
+    }, 0);
+  }
+
 
   private handleInvokerChange(name: string | null): void {
     // Skip invoker change handling in internal mode 
@@ -163,13 +328,13 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     // Handle master password logic for invoker switching
     if (this.mode === 'edit' && this.originalInvokerName) {
       const isOriginalInvoker = name === this.originalInvokerName;
-      
+
       if (isOriginalInvoker) {
         // Switching back to original invoker
         // Check if we have loaded credentials or if we need master password
         const currentRequestData = this.requestDataGroup?.value;
         const credentialsMissing = this.areCredentialsMissing(currentRequestData);
-        
+
         if (credentialsMissing && !this.masterPasswordVerified) {
           // Show master password for original invoker with missing credentials
           this.showMasterPassword = true;
@@ -194,6 +359,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     }, 0);
   }
 
+
   private rebuildCredentials(inv?: Invoker | null): void {
     const newGroup = this.fb.group({});
 
@@ -211,62 +377,39 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     this.form.setControl('requestData', newGroup);
   }
 
+
   private findInvokerByName(name?: string | null): Invoker | null {
     if (!name) return null;
     return this.invokers.find(i => i.name === name) || null;
   }
+
 
   // Template helper methods
   get requestDataGroup(): FormGroup {
     return this.form.get('requestData') as FormGroup;
   }
 
+
   getRequestDataControlNames(): string[] {
     return Object.keys(this.requestDataGroup?.controls ?? {});
   }
+
 
   getRequestControl(name: string): FormControl {
     return this.requestDataGroup?.get(name) as FormControl;
   }
 
+
   trackByName = (_: number, name: string) => name;
+
 
   hasErr(path: string, err: string): boolean {
     const c = this.form.get(path);
     return !!c && c.touched && c.hasError(err);
   }
 
-  patchForEdit(c: Connector) {
-    this.credentialsReady = false;
-    this.initializing = true;
-  
-    this.originalInvokerName = c.invoker?.name ?? null;
-    this.form.get(['invoker','name'])!.setValue(this.originalInvokerName, { emitEvent: false });
-    this.selectedInvoker = this.findInvokerByName(this.originalInvokerName);
-  
-    this.form.patchValue({
-      title: c.title,
-      description: c.description ?? '',
-      sslCert: c.sslCert,
-      timeout: c.timeout
-    }, { emitEvent: false });
-  
-    this.rebuildCredentials(this.selectedInvoker);
-    this.requestDataGroup.patchValue(c.requestData ?? {}, { emitEvent: false });
-    this.requestDataGroup.updateValueAndValidity({ emitEvent: false });
-  
-    const missing = this.areCredentialsMissing(this.requestDataGroup.getRawValue());
-    this.showMasterPassword = missing;
-    this.credentialsBlurred = missing;
-    this.credentialsReady = true;
-  
-    this.initializing = false;
-  }
-  
 
   private areCredentialsMissing(requestData: any): boolean {
-
-    
     if (!requestData) {
       return true;
     }
@@ -278,7 +421,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
     // Get the required fields from the selected invoker's configuration
     const requiredFields = Object.keys(this.selectedInvoker.requiredData || {});
-    
+
     // If no required fields are defined, assume credentials are complete
     if (requiredFields.length === 0) {
       return false;
@@ -287,7 +430,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     // Check if any required field is missing or empty
     for (const field of requiredFields) {
       const value = requestData[field];
-      
+
       // Check if field exists and has a non-empty value
       if (!value || value.toString().trim() === '') {
         return true;
@@ -297,149 +440,10 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     return false;
   }
 
-  private patchForInternal(c: Connector | any, connectorExists: boolean = false): void {
-
-    this.credentialsReady = false;
-    this.initializing = true;
-  
-    try {
-      //  Set invoker without emitting and resolve selectedInvoker
-      this.originalInvokerName = c?.invoker?.name ?? null;
-      this.form.get(['invoker', 'name'])!.setValue(this.originalInvokerName, { emitEvent: false });
-      this.selectedInvoker = this.findInvokerByName(this.originalInvokerName);
-      
-      // Ensure selectedInvoker has the DATAGerry hint in internal mode
-      if (this.mode === 'internal' && (!this.selectedInvoker || !this.selectedInvoker.hint)) {
-        this.selectedInvoker = this.getDataGerryInvoker();
-      }
-  
-      //  Patch basic fields (no emission)
-      this.form.patchValue({
-        title: c?.title ?? 'DataGerryInternal',
-        description: c?.description ?? 'Internal DATAGerry connector for automations',
-        sslCert: false,
-        timeout: 1000
-      }, { emitEvent: false });
-  
-      //  Build fixed internal credential fields synchronously
-      this.buildDataGerryCredentials();
-      this.form.updateValueAndValidity({ emitEvent: false });
-  
-      if (connectorExists) {
-        // Fetch actual existing internal connector (for ID + possibly real requestData)
-        this.loaderService.show();
-        this.svc.getInternalConnector({})
-          .pipe(
-            finalize(() => this.loaderService.hide()),
-            takeUntil(this.destroy$)
-          )
-          .subscribe({
-            next: (actual) => {
-              this.id = actual?.connectorId;
-
-              // Patch requestData if backend provided it
-              const rd = actual?.requestData ?? null;
-              if (rd) {
-                this.requestDataGroup.patchValue(rd, { emitEvent: false });
-                this.requestDataGroup.updateValueAndValidity({ emitEvent: false });
-              }
-
-              // Check if we have request data values - if values are empty, show master password
-              const hasRequestData = rd && Object.keys(rd).length > 0;
-              const hasEmptyValues = hasRequestData && Object.values(rd).every(value => !value || value.toString().trim() === '');
-              
-              // Show master password if we have empty values OR no request data
-              const shouldShowMasterPassword = !hasRequestData || hasEmptyValues;
-              this.showMasterPassword = shouldShowMasterPassword;
-              this.credentialsBlurred = shouldShowMasterPassword;
-              this.masterPasswordVerified = !shouldShowMasterPassword;
-  
-              // Disable fixed fields in internal mode (after patching)
-              this.form.get('title')?.disable({ emitEvent: false });
-              this.form.get('description')?.disable({ emitEvent: false });
-              this.form.get('invoker')?.disable({ emitEvent: false });
-              this.form.get('sslCert')?.disable({ emitEvent: false });
-              this.form.get('timeout')?.disable({ emitEvent: false });
-  
-              this.credentialsReady = true;
-            },
-            error: (error) => {
-              this.toast.error(error?.error?.message);
-  
-              // Without secrets, require master password
-              this.showMasterPassword = true;
-              this.credentialsBlurred = true;
-  
-              // Disable fixed fields in internal mode
-              this.form.get('title')?.disable({ emitEvent: false });
-              this.form.get('description')?.disable({ emitEvent: false });
-              this.form.get('invoker')?.disable({ emitEvent: false });
-              this.form.get('sslCert')?.disable({ emitEvent: false });
-              this.form.get('timeout')?.disable({ emitEvent: false });
-  
-              this.credentialsReady = true;
-            }
-          });
-      } else {
-        //  Internal connector does not exist – allow creation, no overlay
-        this.showMasterPassword = false;
-        this.credentialsBlurred = false;
-  
-        // Disable fixed fields in internal mode (they’re predefined)
-        this.form.get('title')?.disable({ emitEvent: false });
-        this.form.get('description')?.disable({ emitEvent: false });
-        this.form.get('invoker')?.disable({ emitEvent: false });
-        this.form.get('sslCert')?.disable({ emitEvent: false });
-        this.form.get('timeout')?.disable({ emitEvent: false });
-  
-        this.credentialsReady = true;
-      }
-    } finally {
-      this.initializing = false;
-    }
-  }
-  
-  
-
-  private buildDataGerryCredentials(): void {
-    const newGroup = this.fb.group({});
-
-    // URL: always derive from environment in internal mode
-    const urlValue = this.getInternalUrlFromEnvironment();
-    
-    newGroup.addControl('url', new FormControl(urlValue, Validators.required));
-    newGroup.addControl('username', new FormControl('', Validators.required));
-    newGroup.addControl('password', new FormControl('', Validators.required));
-
-    if (environment.cloudMode) {
-      newGroup.addControl('x-api-key', new FormControl('', Validators.required));
-    }
-    
-    this.form.setControl('requestData', newGroup);
-  }
-
-  getDisplayedRequestDataControlNames(): string[] {
-    const allControls = this.getRequestDataControlNames();
-    
-    // Filter out URL field in internal mode when cloudMode is enabled
-    if (this.mode === 'internal' && environment.cloudMode) {
-      return allControls.filter(controlName => controlName !== 'url');
-    }
-    
-    return allControls;
-  }
-
-  private getDataGerryInvoker(): Invoker {
-    return {
-      name: 'DataGerry',
-      hint: "This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/latest/api/rest/",
-      requiredData: {}
-    };
-  }
 
   private checkInternalConnectorExists(): void {
     this.loaderService.show();
-    
+
     this.svc.checkConnectorExists('DataGerryInternal')
       .pipe(
         finalize(() => this.loaderService.hide()),
@@ -448,7 +452,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (exists: boolean) => {
           this.internalConnectorExists = exists;
-          
+
           if (exists) {
             // Connector exists - show update button and load connector data
             this.loaderService.show();
@@ -478,41 +482,38 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       });
   }
 
-  get saveButtonLabel(): string {
-    if (this.mode === 'internal') {
-      return this.internalConnectorExists ? 'Update' : 'Create';
+
+  private buildDataGerryCredentials(): void {
+    const newGroup = this.fb.group({});
+
+    // URL: set from environment in cloud mode, otherwise empty string
+    const urlValue = environment.cloudMode
+      ? `${environment.protocol}://${environment.apiUrl}:${environment.apiPort}`
+      : '';
+
+    newGroup.addControl('url', new FormControl(urlValue, Validators.required));
+    newGroup.addControl('username', new FormControl('', Validators.required));
+    newGroup.addControl('password', new FormControl('', Validators.required));
+
+    if (environment.cloudMode) {
+      newGroup.addControl('x-api-key', new FormControl('', Validators.required));
     }
-    return this.mode === 'create' ? 'Create' : 'Update';
+
+    this.form.setControl('requestData', newGroup);
   }
 
-  private enableFormForInternalCreation(): void {
-    // When in internal mode without connector data, pre-fill with default internal connector data
-    const internalConnectorData = {
-      title: 'DataGerryInternal',
-      description: 'Internal DATAGerry connector for automations',
-      invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry' , hint: "This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/latest/api/rest/" },
-      sslCert: false,
-      timeout: 1000
-    };
 
-    this.form.patchValue(internalConnectorData);
+  getDisplayedRequestDataControlNames(): string[] {
+    const allControls = this.getRequestDataControlNames();
 
-    // Set the selected invoker for internal mode to ensure hint is displayed
-    this.selectedInvoker = this.getDataGerryInvoker();
+    // Filter out URL field in internal mode when cloudMode is enabled
+    if (this.mode === 'internal' && environment.cloudMode) {
+      return allControls.filter(controlName => controlName !== 'url');
+    }
 
-    // Disable fixed fields in internal mode (they're predefined)
-    this.form.get('title')?.disable({ emitEvent: false });
-    this.form.get('description')?.disable({ emitEvent: false });
-    this.form.get('invoker')?.disable({ emitEvent: false });
-    this.form.get('sslCert')?.disable({ emitEvent: false });
-    this.form.get('timeout')?.disable({ emitEvent: false });
-
-    // Build hardcoded credential fields for DataGerry invoker
-    setTimeout(() => {
-      this.buildDataGerryCredentials();
-      this.credentialsReady = true;
-    }, 0);
+    return allControls;
   }
+
 
   // Master password verification
   verifyMasterPassword(): void {
@@ -542,24 +543,24 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     }
 
     verification$.pipe(
-        finalize(() => {
-          this.loaderService.hide();
-          this.verifyingPassword = false;
-        }),
-        takeUntil(this.destroy$)
-      )
+      finalize(() => {
+        this.loaderService.hide();
+        this.verifyingPassword = false;
+      }),
+      takeUntil(this.destroy$)
+    )
       .subscribe({
         next: (connector: Connector) => {
           // Password is correct, populate the form with connector data
           this.masterPasswordVerified = true;
           this.showMasterPassword = false;
           this.credentialsBlurred = false;
-          
+
           // Patch the form with the actual credential values
           if (connector.requestData) {
             this.requestDataGroup.patchValue(connector.requestData);
           }
-          
+
           this.credentialsReady = true;
           this.toast.success('Credentials loaded successfully');
         },
@@ -574,20 +575,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       });
   }
 
-  // Toggle password visibility
-  togglePasswordVisibility(): void {
-    this.showPassword = !this.showPassword;
-  }
-
-  toggleDataGerryPasswordVisibility(): void {
-    this.showDataGerryPassword = !this.showDataGerryPassword;
-  }
 
   // Action methods
   private toPayload(): Connector {
     // Use getRawValue() to get all form values including disabled fields
     const v = this.form.getRawValue();
-    
+
     // Handle internal mode where invoker might be disabled
     let invokerName = v.invoker?.name;
     if (!invokerName && this.mode === 'internal') {
@@ -607,6 +600,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     };
   }
 
+
   test(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -624,11 +618,11 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       .pipe(
         finalize(() => {
           this.loaderService.hide();
+          this.testing = false;
         }),
         takeUntil(this.destroy$))
       .subscribe({
         next: (ok: boolean) => {
-          this.testing = false;
           this.isValidCredentials = !!ok;
 
           if (ok) {
@@ -643,6 +637,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
         }
       });
   }
+
 
   save(): void {
     if (this.form.invalid) {
@@ -689,9 +684,11 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
       });
   }
 
+
   cancel(): void {
     this.router.navigate(['../'], { relativeTo: this.route });
   }
+
 
   private getInternalUrlFromEnvironment(): string {
     return `${environment.protocol}://${environment.apiUrl}`;
@@ -702,5 +699,31 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
     return this.requestDataGroup?.get('url')?.value ?? '';
   }
 
-  
+
+  get saveButtonLabel(): string {
+    if (this.mode === 'internal') {
+      return this.internalConnectorExists ? 'Update' : 'Create';
+    }
+    return this.mode === 'create' ? 'Create' : 'Update';
+  }
+
+
+  // Toggle password visibility
+  togglePasswordVisibility(): void {
+    this.showPassword = !this.showPassword;
+  }
+
+
+  toggleDataGerryPasswordVisibility(): void {
+    this.showDataGerryPassword = !this.showDataGerryPassword;
+  }
+
+
+  private getDataGerryInvoker(): Invoker {
+    return {
+      name: 'DataGerry',
+      hint: "This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/latest/api/rest/",
+      requiredData: {}
+    };
+  }
 }

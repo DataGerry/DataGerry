@@ -24,9 +24,9 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { ConnectorsService } from 'src/app/toolbox/connectors/services/connectors.service';
 import { finalize } from 'rxjs';
-import { environment } from 'src/environments/environment';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
+import { environment } from 'src/environments/environment';
 
 @Component({
   selector: 'app-automations-list',
@@ -42,6 +42,7 @@ export class AutomationsListComponent implements OnInit {
   @ViewChild('lastSuccessTemplate', { static: true }) lastSuccessTemplate: TemplateRef<any>;
   @ViewChild('lastFailTemplate', { static: true }) lastFailTemplate: TemplateRef<any>;
   @ViewChild('lastDurationTemplate', { static: true }) lastDurationTemplate: TemplateRef<any>;
+  @ViewChild('logsTemplate', { static: true }) logsTemplate: TemplateRef<any>;
 
   public automations: any[] = [];
   public totalAutomations: number = 0;
@@ -51,6 +52,8 @@ export class AutomationsListComponent implements OnInit {
   public columns: Array<any>;
   public isLoading$ = this.loaderService.isLoading$;
   public isExecuting: string | null = null;
+  public logToggleLoading: Record<string, boolean> = {};
+  public isCloudMode = environment.cloudMode;
 
   constructor(
     private svc: ConnectorsService,
@@ -76,7 +79,7 @@ export class AutomationsListComponent implements OnInit {
         name: 'direction',
         template: this.directionTemplate,
         sortable: false,
-        style: { width: '120px', 'text-align': 'center' }
+        style: { width: '100px', 'text-align': 'center' }
       },
       {
         display: 'Cron',
@@ -105,6 +108,13 @@ export class AutomationsListComponent implements OnInit {
         template: this.lastDurationTemplate,
         sortable: false,
         style: { width: '120px' }
+      },
+      {
+        display: 'Logs',
+        name: 'logs',
+        template: this.logsTemplate,
+        sortable: false,
+        style: { width: '80px', 'text-align': 'center' }
       },
       {
         display: 'Status',
@@ -159,7 +169,7 @@ export class AutomationsListComponent implements OnInit {
         .subscribe({
           next: (exists: boolean) => {
             // Redirect to internal route without resolver
-            this.router.navigate(['automations/internal'], {
+            this.router.navigate(['automations/connectors/internal'], {
               state: { 
                 connectorExists: exists,
                 connector: {
@@ -187,6 +197,8 @@ export class AutomationsListComponent implements OnInit {
       return 'outgoing';
     } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
       return 'incoming';
+    } else if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title === 'DataGerryInternal') {
+      return 'internal';
     }
   }
 
@@ -221,6 +233,7 @@ export class AutomationsListComponent implements OnInit {
     });
   }
 
+
   setCron(automation: any): void {
     const modalRef = this.modalService.open(CronExpressionModalComponent, { size: 'lg' });
     modalRef.componentInstance.currentCron = automation?.cronExp || automation?.scheduler?.cronExp || '';
@@ -235,6 +248,7 @@ export class AutomationsListComponent implements OnInit {
       })
       .catch(() => {});
   }
+
 
   private updateCronExp(automation: any, cronExp: string): void {
     const schedulerId = automation?.schedulerId;
@@ -251,7 +265,7 @@ export class AutomationsListComponent implements OnInit {
     const schedulerPayload = {
       schedulerId,
       connectionId,
-      title: automation?.title,
+      title: automation?.title || automation?.scheduler?.title || automation?.name,
       status: automation.status,
       cronExp,
       debugMode: automation?.debugMode,
@@ -267,6 +281,46 @@ export class AutomationsListComponent implements OnInit {
         },
         error: (err) => {
           this.toast.error(err?.error?.message);
+        }
+      });
+  }
+
+  toggleDebugMode(automation: any, event: Event): void {
+    event?.stopPropagation();
+    const schedulerId = automation?.schedulerId;
+    const connectionId = automation?.connection?.connectionId;
+    if (!schedulerId || !connectionId) {
+      return;
+    }
+
+    const enabled = !!(event?.target as HTMLInputElement)?.checked;
+    const schedulerPayload = {
+      schedulerId,
+      connectionId,
+      title: automation?.title,
+      status: automation.status,
+      cronExp: automation?.cronExp,
+      debugMode: enabled,
+      notificationResources: []
+    };
+
+    this.logToggleLoading[schedulerId] = true;
+
+    this.automationsService.updateScheduler(schedulerId, schedulerPayload)
+      .pipe(finalize(() => {
+        this.logToggleLoading[schedulerId] = false;
+      }))
+      .subscribe({
+        next: () => {
+          automation.debugMode = enabled;
+          this.toast.success(enabled ? 'Logs enabled' : 'Logs disabled');
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message || 'Failed to update logs');
+          const input = event?.target as HTMLInputElement;
+          if (input) {
+            input.checked = !enabled;
+          }
         }
       });
   }
@@ -374,4 +428,13 @@ export class AutomationsListComponent implements OnInit {
     }
     return 'N/A';
   }
+
+  hasLastSuccess(automation: any): boolean {
+    return !!automation?.lastExecution?.success;
+  }
+
+  hasLastFail(automation: any): boolean {
+    return !!automation?.lastExecution?.fail;
+  }
+
 }
