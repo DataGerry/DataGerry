@@ -18,8 +18,8 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { combineLatest, Subscription, BehaviorSubject } from 'rxjs';
-import { finalize, map } from 'rxjs/operators';
+import { combineLatest, Subscription } from 'rxjs';
+import { finalize } from 'rxjs/operators';
 import { AutomationsService } from '../../services/automations.service';
 import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -83,7 +83,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     // First check if internal connector exists
     this.internalConnectorHelper.checkInternalConnector({
       onExists: () => this.loadConnectorsAndInvokers(),
-      redirectRoute: ['/automations/internal'],
+      redirectRoute: ['/automations/connectors/internal'],
       description: 'Internal DataGerry connector for automations',
       cancelRoute: ['/automations'],
       errorRoute: ['/automations']
@@ -128,7 +128,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
             this.internalConnectorDetails = internalConnector;
           } else {
             this.internalConnectorHelper.redirectToInternalConnectorSetup(
-              ['/automations/internal'],
+              ['/automations/connectors/internal'],
               'Internal DataGerry connector for automations'
             );
             return;
@@ -261,7 +261,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.form = this.fb.group({
       name: ['', Validators.required],
       description: [''],
-      direction: ['incoming', Validators.required], // Set incoming as default
+      direction: ['incoming'], // Set incoming as default
       connector: [''],
       business_template: ['']
     });
@@ -281,7 +281,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     });
 
     this.connectionId = automation.connection?.connectionId ?? null;
-    this.existingCronExp = automation?.cronExp || automation?.scheduler?.cronExp || null;
+    this.existingCronExp = automation?.cronExp || automation?.scheduler?.cronExp ;
     this.existingStatus = typeof automation?.status === 'boolean' ? automation.status : null;
 
     // Determine and set the connector value based on direction and connection data
@@ -430,7 +430,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     if (this.mode === 'edit' && this.existingCronExp) {
       schedulerPayload.cronExp = this.existingCronExp;
     } else if (this.mode === 'create') {
-      schedulerPayload.cronExp = null;
+      schedulerPayload.cronExp = '';
     }
 
     return {
@@ -452,10 +452,10 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
 
     // Additional validation for connector when direction is selected
-    if (this.showConnectorField && !this.form.get('connector')?.value) {
-      this.toast.warning('Please select a connector');
-      return;
-    }
+    // if (this.showConnectorField && !this.form.get('connector')?.value) {
+    //   this.toast.warning('Please select a connector');
+    //   return;
+    // }
 
     try {
       const payload = this.toPayload(this.mode === 'create');

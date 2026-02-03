@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { ReportService } from 'src/app/reporting/services/report.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -35,16 +35,27 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     styleUrls: ['./run-report.component.scss'],
     standalone: false
 })
-export class RunReportComponent implements OnInit {
-    public reportId: number;
+export class RunReportComponent implements OnInit, OnChanges {
+    @Input() public reportId: number;
+    @Input() public typeId: number;
+    @Input() public selectedFields: string[] = [];
+    @Input() public mdsMode: string;
+    @Input() public previewMode: boolean = false;
+    @Input() public showHeader: boolean = true;
+    @Input() public showActions: boolean = true;
+    @Input() public showGoBack: boolean = true;
+    @Input() public showExport: boolean = true;
+    @Input() public enablePagination: boolean = true;
+    @Input() public enableSearch: boolean = true;
+    @Input() public enableSorting: boolean = true;
+    @Input() public enablePageSize: boolean = true;
+    @Input() public enableInfo: boolean = true;
+
     public reportResults: any[] = [];
     public loading = false;
     public types: any;
     public columns: Array<any> = [];
     public items: Array<any> = [];
-    public typeId: number;
-    public selectedFields: string[] = [];
-    public mdsMode: string;
     public collectionFilterParameter: any[] = [];
     public sort = { order: -1, name: 'public_id' };
     public selectedObjectsIDs: number[] = [];
@@ -57,6 +68,7 @@ export class RunReportComponent implements OnInit {
     public limit: number = 10;
     public page: number = 1;
     public total: number = 0;
+    private initializedFromInputs = false;
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
     constructor(
@@ -76,6 +88,15 @@ export class RunReportComponent implements OnInit {
      * Loads types and report data, then processes the report results.
      */
     ngOnInit(): void {
+        if (this.initializedFromInputs) {
+            return;
+        }
+
+        if (this.reportId) {
+            this.initializeFromInputs();
+            return;
+        }
+
         this.route.paramMap.pipe(
             switchMap((params) => {
                 this.reportId = +params.get('id');
@@ -86,27 +107,13 @@ export class RunReportComponent implements OnInit {
                             this.selectedFields = queryParams['selected_fields'];
                             this.mdsMode = queryParams['mds_mode'];
 
-                            // Ensure selectedFields is an array
-                            if (Array.isArray(this.selectedFields)) {
-                                // If it's already an array, do nothing
-                            } else if (typeof this.selectedFields === 'string') {
-                                try {
-                                    // Parse the JSON string into an array
-                                    this.selectedFields = JSON.parse(this.selectedFields);
-                                } catch (e) {
-                                    // If parsing fails, perhaps it's a comma-separated list
-                                    // this.selectedFields = this.selectedFields.split(',');
-                                }
-                            } else {
-                                // If selectedFields is undefined or null, set it to an empty array
-                                this.selectedFields = [];
-                            }
+                            this.normalizeSelectedFields();
 
                             this.loading = true;
                             // Load types and run report concurrently
                             return forkJoin([
                                 this.loadType(),
-                                this.runReport(this.reportId)
+                                this.runReport(this.reportId, this.previewMode)
                             ]);
                         })
                     );
@@ -127,6 +134,58 @@ export class RunReportComponent implements OnInit {
         });
     }
 
+    ngOnChanges(changes: SimpleChanges): void {
+        if (changes['reportId'] && this.reportId) {
+            this.initializeFromInputs();
+        }
+    }
+
+    private initializeFromInputs(): void {
+        if (this.initializedFromInputs) {
+            // Allow refresh when report id changes
+            this.items = [];
+            this.columns = [];
+            this.reportResults = [];
+        }
+
+        this.initializedFromInputs = true;
+        this.normalizeSelectedFields();
+
+        if (!this.reportId) {
+            return;
+        }
+
+        this.loading = true;
+        forkJoin([
+            this.loadType(),
+            this.runReport(this.reportId, this.previewMode)
+        ]).subscribe({
+            next: () => {
+                this.processReportResults();
+                this.loading = false;
+            },
+            error: (error) => {
+                this.toast.error(error?.error?.message);
+                this.loading = false;
+            }
+        });
+    }
+
+    private normalizeSelectedFields(): void {
+        if (Array.isArray(this.selectedFields)) {
+            return;
+        }
+        if (typeof this.selectedFields === 'string') {
+            try {
+                this.selectedFields = JSON.parse(this.selectedFields);
+                return;
+            } catch (e) {
+                // Fallback to empty if parsing fails
+            }
+        }
+        this.selectedFields = [];
+    }
+
     /* --------------------------------------------------- API CALLS -------------------------------------------------- */
 
 
@@ -135,9 +194,9 @@ export class RunReportComponent implements OnInit {
      * @param id - The ID of the report to run.
      * @returns An observable of the report execution response.
      */
-    private runReport(id: number): Observable<any> {
+    private runReport(id: number, preview: boolean = false): Observable<any> {
         this.loaderService.show();
-        return this.reportService.runReport(id).pipe(
+        return this.reportService.runReport(id, preview).pipe(
             finalize(() => this.loaderService.hide()),
             tap((response) => {
                 this.reportResults = response;
@@ -500,7 +559,7 @@ export class RunReportComponent implements OnInit {
         let filteredItems = this.items;
 
         // Apply search filter
-        if (this.filter) {
+        if (this.enableSearch && this.filter) {
             const searchLower = this.filter.toLowerCase();
             filteredItems = filteredItems.filter(item => {
                 return this.columns.some(column => {
@@ -514,7 +573,7 @@ export class RunReportComponent implements OnInit {
         this.total = filteredItems.length;
 
         // Apply sorting
-        if (this.sort) {
+        if (this.enableSorting && this.sort) {
             const sortColumn = this.sort.name;
             const sortOrder = this.sort.order === SortDirection.DESCENDING ? -1 : 1;
             filteredItems.sort((a, b) => {
@@ -525,9 +584,13 @@ export class RunReportComponent implements OnInit {
         }
 
         // Apply pagination
-        const startIndex = (this.page - 1) * this.limit;
-        const endIndex = startIndex + this.limit;
-        this.displayedItems = filteredItems.slice(startIndex, endIndex);
+        if (this.enablePagination) {
+            const startIndex = (this.page - 1) * this.limit;
+            const endIndex = startIndex + this.limit;
+            this.displayedItems = filteredItems.slice(startIndex, endIndex);
+        } else {
+            this.displayedItems = filteredItems;
+        }
     }
 
 

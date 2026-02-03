@@ -19,7 +19,7 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { PermissionGuard } from '../modules/auth/guards/permission.guard';
-import { cloudModeGuard, cloudModeChildGuard } from '../modules/auth/guards/cloud-mode.guard';
+import { cloudModeChildGuard } from '../modules/auth/guards/cloud-mode.guard';
 
 import { SettingsComponent } from './settings.component';
 import { DateSettingsComponent } from './date-settings/date-settings.component';

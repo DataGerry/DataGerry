@@ -32,6 +32,9 @@ import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
 import { OpenCeliumEditorComponent } from './components/opencelium-editor.component';
+import { OpenCeliumLogsViewComponent } from './components/opencelium-log-viewer.component';
+import { AutomationLogsMenuComponent } from './components/automation-logs-menu/automation-logs-menu.component';
+import { OpenCeliumLogsModalComponent } from './components/opencelium-logs-modal/opencelium-logs-modal.component';
 
 @NgModule({
   declarations: [
@@ -41,7 +44,9 @@ import { OpenCeliumEditorComponent } from './components/opencelium-editor.compon
     AutomationFormComponent,
     InternalConnectorPasswordModalComponent,
     CronExpressionModalComponent,
-    OpenCeliumEditorComponent
+    OpenCeliumEditorComponent,
+    AutomationLogsMenuComponent,
+    OpenCeliumLogsModalComponent
   ],
   imports: [
     CommonModule,
@@ -51,7 +56,8 @@ import { OpenCeliumEditorComponent } from './components/opencelium-editor.compon
     CoreModule,
     TableModule,
     AutomationsRoutingModule,
-    AuthModule
+    AuthModule,
+    OpenCeliumLogsViewComponent
   ]
 })
 export class AutomationsModule {}

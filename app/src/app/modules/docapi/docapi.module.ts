@@ -41,7 +41,9 @@ import { DocapiBuilderTypeStepBaseComponent } from './components/docapi-builder-
 import { DocapiBuilderStyleStepComponent } from './components/docapi-builder-style-step/docapi-builder-style-step.component';
 import { ExternalObjectSelectorModalComponent } from './components/external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from './components/relation-template-selector-modal/relation-template-selector-modal.component';
+import { ReportTemplateSelectorModalComponent } from './components/report-template-selector-modal/report-template-selector-modal.component';
 import { CoreModule } from 'src/app/core/core.module';
+import { RunReportModule } from 'src/app/reporting/report/run-report.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [
@@ -56,7 +58,8 @@ import { CoreModule } from 'src/app/core/core.module';
         DocapiBuilderTypeStepBaseComponent,
         DocapiBuilderStyleStepComponent,
         ExternalObjectSelectorModalComponent,
-        RelationTemplateSelectorModalComponent
+        RelationTemplateSelectorModalComponent,
+        ReportTemplateSelectorModalComponent
     ],
     imports: [
         CommonModule,
@@ -70,7 +73,8 @@ import { CoreModule } from 'src/app/core/core.module';
         TableModule,
         FontAwesomeModule,
         FormsModule,
-        CoreModule
+        CoreModule,
+        RunReportModule
     ],
     providers: [
         {
