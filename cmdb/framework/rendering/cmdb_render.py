@@ -571,6 +571,9 @@ class CmdbRender:
                 ref_object = self.objects_manager.get_object(int(current_field['value']),
                                                              self.render_user,
                                                              AccessControlPermission.READ)
+                if not ref_object:
+                    return TypeReference.to_json(reference)
+
                 ref_object = CmdbObject.from_data(ref_object)
             except AccessDeniedError as err:
                 return err
