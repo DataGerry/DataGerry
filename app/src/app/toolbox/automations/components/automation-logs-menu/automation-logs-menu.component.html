@@ -1,0 +1,26 @@
+<div class="log-menu-container" (click)="$event.stopPropagation()">
+  <button
+    type="button"
+    class="log-menu-trigger"
+    title="Log list"
+    (click)="toggleMenu($event)">
+    <i class="fa-solid fa-ellipsis-vertical"></i>
+  </button>
+
+  <div class="log-menu" *ngIf="isOpen">
+    <div class="log-menu-header">Log list</div>
+    <div *ngIf="isLoading" class="log-menu-loading">Loading...</div>
+    <button
+      *ngFor="let entry of entries"
+      type="button"
+      class="log-menu-item"
+      (click)="selectLogEntry(entry, $event)">
+      <span>#{{ entry.execution_id }}</span>
+      <span class="text-muted">{{ formatLogDate(entry.log_date) }}</span>
+    </button>
+    <div *ngIf="!isLoading && (!entries || entries.length === 0)"
+         class="log-menu-empty">
+      No logs found
+    </div>
+  </div>
+</div>

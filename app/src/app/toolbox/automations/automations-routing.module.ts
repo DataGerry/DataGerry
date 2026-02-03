@@ -62,11 +62,16 @@ const routes: Routes = [
           mode: 'edit'
         }
       },
-            {
-              path: 'internal',
-              component: ConnectorFormComponent,
-              data: { mode: 'internal', breadcrumb: 'DataGerry API Credentials' }
-            }
+      {
+        path: 'internal',
+        component: ConnectorFormComponent,
+        data: { mode: 'internal', breadcrumb: 'DataGerry API Credentials' }
+      },
+      {
+        path: 'connectors/internal',
+        component: ConnectorFormComponent,
+        data: { mode: 'internal', breadcrumb: 'DataGerry API Credentials' }
+      }
     ]
   }
 ];
