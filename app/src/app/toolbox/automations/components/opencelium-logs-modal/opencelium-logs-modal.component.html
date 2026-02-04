@@ -1,22 +1,18 @@
 <div class="modal-header">
   <h4 class="modal-title">Logs</h4>
   <div class="modal-actions">
-    <button
-      type="button"
-      class="btn-action"
-      [attr.aria-label]="isFullscreen ? 'Restore' : 'Maximize'"
-      [attr.title]="isFullscreen ? 'Restore' : 'Maximize'"
-      (click)="toggleFullscreen()">
+    <button type="button" class="btn-action" [attr.aria-label]="isFullscreen ? 'Restore' : 'Maximize'"
+      [attr.title]="isFullscreen ? 'Restore' : 'Maximize'" (click)="toggleFullscreen()">
       <i class="fas" [ngClass]="isFullscreen ? 'fa-compress' : 'fa-expand'"></i>
     </button>
     <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss()"></button>
   </div>
 </div>
 <div class="modal-body">
-  <opencelium-log-viewer
-    *ngIf="executionId"
-    [baseUrl]="baseUrl"
-    [token]="token"
-    [executionId]="executionId">
+  <opencelium-log-viewer *ngIf="executionId" [baseUrl]="baseUrl" [token]="token" [executionId]="executionId"
+    (logViewLoad)="onLogViewLoaded()">
   </opencelium-log-viewer>
 </div>
+
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

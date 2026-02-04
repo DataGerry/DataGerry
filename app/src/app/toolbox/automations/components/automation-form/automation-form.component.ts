@@ -18,8 +18,8 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { combineLatest, Subscription } from 'rxjs';
-import { finalize } from 'rxjs/operators';
+import { BehaviorSubject, combineLatest, Subscription } from 'rxjs';
+import { finalize, map } from 'rxjs/operators';
 import { AutomationsService } from '../../services/automations.service';
 import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -57,10 +57,13 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   private formChangesSubscription?: Subscription;
 
-  // Combined loading state for all operations
-  public combinedLoading$ = this.loaderService.isLoading$;
+  private editorLoaded$ = new BehaviorSubject<boolean>(false);
 
-  public isLoading$ = this.loaderService.isLoading$;
+  // Combined loading state for all operations
+  public combinedLoading$ = combineLatest([
+    this.loaderService.isLoading$,
+    this.editorLoaded$
+  ]).pipe(map(([apiLoading, editorLoaded]) => apiLoading || !editorLoaded));
 
   constructor(
     private fb: FormBuilder,
@@ -104,6 +107,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   private loadConnectorsAndInvokers(): void {
     this.loaderService.show();
+    this.editorLoaded$.next(false);
     
     // Load connectors and invokers in parallel
     combineLatest([
@@ -171,6 +175,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     }
 
     this.loaderService.show();
+    this.editorLoaded$.next(false);
     
     this.svc.getTemplatesByConnectors(parseInt(sourceId), parseInt(targetId))
       .pipe(finalize(() => this.loaderService.hide()))
@@ -440,6 +445,7 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
   }
 
   onEditorLoad(): void {
+    this.editorLoaded$.next(true);
   }
 
   save(): void {
