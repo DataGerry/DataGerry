@@ -21,6 +21,7 @@ from logging import Logger, getLogger
 import re
 from typing import Any
 from datetime import datetime
+from itertools import product
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -44,6 +45,7 @@ LOGGER: Logger = getLogger(__name__)
 DATETIME_PATTERN = r"datetime\.datetime\((.*?)\)"
 
 EXTERNAL_OBJECT_REGEX = re.compile(r"\{\{\s*object\((\d+)\)")
+
 REPORT_REGEX = re.compile(r"\{\{\s*report\((\d+)\)\s*\}\}")
 
 RELATION_PLACEHOLDER_REGEX = re.compile(
@@ -84,13 +86,8 @@ TERMINAL_REGEX = re.compile(
 # -------------------------------------------------------------------------------------------------------------------- #
 class DefaultTemplateData:
     """
-    FINAL stable DEFAULT template data builder.
+    Class to process the template data for default templates
     """
-
-    # ------------------------------------------------------------------
-    # Init
-    # ------------------------------------------------------------------
-
     def __init__(
         self,
         cmdb_render_object,
@@ -128,9 +125,7 @@ class DefaultTemplateData:
 
         self.root_object_id = self.root_data["public_id"]
 
-        # --------------------------------------------------------------
         # Parse template once
-        # --------------------------------------------------------------
         self.external_object_ids = {
             int(m) for m in EXTERNAL_OBJECT_REGEX.findall(template_string)
         }
@@ -144,19 +139,13 @@ class DefaultTemplateData:
             for m in RELATION_PLACEHOLDER_REGEX.finditer(template_string)
         ]
 
-        # LOGGER.debug(f"self.relation_placeholders: {self.relation_placeholders}")
-
-        # --------------------------------------------------------------
         # Caches
-        # --------------------------------------------------------------
         self.object_cache: dict[int, dict] = {}
         self.type_cache: dict[int, dict] = {}
         self.relation_cache: dict[int, dict] = {}
         self.object_relations: dict[dict] = []
 
-        # --------------------------------------------------------------
         # Fetch objects
-        # --------------------------------------------------------------
         object_ids = set(self.external_object_ids)
         object_ids.add(self.root_object_id)
 
@@ -167,9 +156,7 @@ class DefaultTemplateData:
             for obj in cursor:
                 self.object_cache[obj["public_id"]] = obj
 
-        # --------------------------------------------------------------
         # Fetch types
-        # --------------------------------------------------------------
         type_ids = {
             obj["type_id"]
             for obj in self.object_cache.values()
@@ -183,16 +170,12 @@ class DefaultTemplateData:
             for t in cursor:
                 self.type_cache[t["public_id"]] = t
 
-        # --------------------------------------------------------------
         # Fetch relations + object relations
-        # --------------------------------------------------------------
         relation_ids = set()
 
         for placeholder in self.relation_placeholders:
             for rel_id, _, _ in RELATION_STEP_REGEX.findall(placeholder):
                 relation_ids.add(int(rel_id))
-
-        # LOGGER.debug(f"relation_ids: {relation_ids}")
 
         if relation_ids:
             cursor = self.relations_manager.find(
@@ -206,36 +189,27 @@ class DefaultTemplateData:
             )
             self.object_relations = list(cursor)
 
-        # LOGGER.debug(f"self.object_relations: {self.object_relations}")
-
         # Final template data
-        self.template_data = {
+        self.template_data: dict[str, Any] = {
             "root": self._root_accessor(),
             "object": self._object_accessor(),
             "report": self._report_accessor(),
         }
 
-    # ------------------------------------------------------------------
-    # Public
-    # ------------------------------------------------------------------
-
     def get_template_data(self) -> dict[str, Any]:
-        """TODO: document"""
+        """
+        Returns the template_data
+        """
         return self.template_data
 
-    # ------------------------------------------------------------------
-    # Root accessor (relations start here)
-    # ------------------------------------------------------------------
-
+    # Root element accessor
     def _root_accessor(self):
         root = dict(self.root_data)
         root["relation"] = self._relation_accessor(self.root_object_id)
+
         return root
 
-    # ------------------------------------------------------------------
     # Relation traversal engine
-    # ------------------------------------------------------------------
-
     def _relation_accessor(self, start_object_id: int):
         def _relation_fn(relation_id: int, side: str):
             return self._relation_traversal(
@@ -244,6 +218,7 @@ class DefaultTemplateData:
                 side
             )
         return _relation_fn
+
 
     def _relation_traversal(
         self,
@@ -262,9 +237,7 @@ class DefaultTemplateData:
             elif side == "child" and rel["relation_parent_id"] == start_object_id:
                 matches.append(rel["relation_child_id"])
 
-        # ------------------------------------------------------------------
         # Ensure related objects are cached
-        # ------------------------------------------------------------------
         missing_ids = [
             oid for oid in matches
             if oid not in self.object_cache
@@ -277,9 +250,7 @@ class DefaultTemplateData:
             for obj in cursor:
                 self.object_cache[obj["public_id"]] = obj
 
-        # ------------------------------------------------------------------
-        # Ensure related object TYPES are cached
-        # ------------------------------------------------------------------
+        # Ensure related types are cached
         missing_type_ids = {
             obj["type_id"]
             for obj in self.object_cache.values()
@@ -303,10 +274,7 @@ class DefaultTemplateData:
             self.template_type
         )
 
-    # ------------------------------------------------------------------
     # External object accessor
-    # ------------------------------------------------------------------
-
     def _object_accessor(self):
         def _object_fn(public_id: int):
             obj = self.object_cache.get(public_id)
@@ -340,73 +308,104 @@ class DefaultTemplateData:
             if public_id not in self.report_ids:
                 return None
 
-            # --------------------------------------------------
-            # Load report
-            # --------------------------------------------------
             report = self.reports_manager.get_item(public_id, as_dict=True)
             if not report:
                 return None
 
-            # --------------------------------------------------
-            # Run report query (copied from route)
-            # --------------------------------------------------
+            # Run report query
             query_str = report["report_query"]["data"]
 
             processed_query_string = re.sub(
                 DATETIME_PATTERN,
                 self.replace_datetime,
-                query_str.replace("datetime.datetime", "datetime"),
+                query_str.replace("datetime.datetime", "datetime")
             )
 
             safe_globals = {"datetime": datetime}
+            #pylint: disable=W0123
             report_query = eval(processed_query_string, safe_globals)
 
             objects = []
+
             if report_query:
                 builder_params = BuilderParameters(criteria=report_query)
-                # objects = self.objects_manager.iterate(builder_params).results
-                tmp_objects = self.objects_manager.iterate(builder_params).results
-                objects = [object_.__dict__ for object_ in tmp_objects]
-            # --------------------------------------------------
-            # Build label map
-            # --------------------------------------------------
+                objects = self.objects_manager.iterate(builder_params).results
+
+            # Build label map for headers
             field_label_map = {}
             type_id = report.get("type_id")
 
             if type_id:
-                obj_type = self.types_manager.get_type(type_id)
-                for field in obj_type.get("fields", []):
+                type_obj = self.types_manager.get_type(type_id)
+
+                for field in type_obj.get("fields", []):
                     field_label_map[field["name"]] = field.get("label", field["name"])
 
-            # --------------------------------------------------
-            # Build table
-            # --------------------------------------------------
+                for section in type_obj.get("multi_data_sections", []):
+                    for field in section.get("fields", []):
+                        field_label_map[field["name"]] = field.get("label", field["name"])
+
+            # Build headers
             headers = ["Public ID"]
             for field_id in report.get("selected_fields", []):
                 headers.append(field_label_map.get(field_id, field_id))
 
             rows = []
-            for obj in objects:
-                row = [str(obj.get("public_id", ""))]
 
-                # THIS IS THE CRITICAL FIX
-                field_map = {
-                    f.get("name"): f.get("value")
-                    for f in obj.get("fields", [])
-                    if f.get("name") is not None
+            for obj in objects:
+                # Base fields
+                base_fields = {
+                    "public_id": obj.public_id
                 }
 
-                for field_id in report.get("selected_fields", []):
-                    value = field_map.get(field_id, "")
-                    row.append("" if value is None else str(value))
+                for field in obj.fields:
+                    base_fields[field["name"]] = field.get("value")
 
-                rows.append(row)
+                # Extract MDS sections
+                mds_sections = []
 
+                for section in obj.multi_data_sections:
+                    section_rows = []
+
+                    for entry in section.get("values", []):
+                        row_data = {}
+                        for field in entry.get("data", []):
+                            row_data[field["name"]] = field.get("value")
+                        section_rows.append(row_data)
+
+                    mds_sections.append(section_rows)
+
+                mds_mode = report.get("mds_mode", "ROWS")
+
+                if mds_mode == "COLUMNS":
+                    expanded = self._expand_mds_columns(
+                        base_fields,
+                        mds_sections
+                    )
+
+                    row = [str(expanded.get("public_id", ""))]
+                    for field_id in report.get("selected_fields", []):
+                        val = expanded.get(field_id, "")
+                        row.append("" if val is None else str(val))
+
+                    rows.append(row)
+
+                else:
+                    expanded_rows = self._expand_mds_rows(
+                        base_fields,
+                        mds_sections
+                    )
+
+                    for expanded in expanded_rows:
+                        row = [str(expanded.get("public_id", ""))]
+                        for field_id in report.get("selected_fields", []):
+                            val = expanded.get(field_id, "")
+                            row.append("" if val is None else str(val))
+
+                        rows.append(row)
+
+            # Render table
             return self._build_report_table(headers, rows)
-            # return {
-            #     "headers": headers,
-            #     "rows": rows
-            # }
 
         return _report_fn
 
@@ -423,8 +422,10 @@ class DefaultTemplateData:
         return label_map
 
 
-    def _esc(self, value):
-        """TODO: document"""
+    def _esc(self, value: Any) -> str:
+        """
+        Method to escape HTML input
+        """
         return html.escape("" if value is None else str(value))
 
 
@@ -437,7 +438,7 @@ class DefaultTemplateData:
         - Remaining columns share the rest of the width evenly
         """
 
-        # ----- Column Width Calculation -----
+        # Column Width Calculation
         num_cols = len(headers)
         if num_cols < 1:
             return ""
@@ -485,113 +486,6 @@ class DefaultTemplateData:
         tpl_html.append("</tbody></table>")
 
         return "".join(tpl_html)
-    # def _build_report_table(self, headers, rows):
-    #     """TODO: document"""
-    #     style = """
-    #     <style>
-    #     .report-table {
-    #         width: 100%;
-    #         border-collapse: collapse;
-    #         margin-top: 10px;
-    #         table-layout: fixed;
-    #     }
-
-    #     .report-table th,
-    #     .report-table td {
-    #         border: 1px solid #444;
-    #         padding: 4px;
-    #         vertical-align: top;
-    #     }
-
-    #     .report-table th {
-    #         background-color: #f0f0f0;
-    #         font-weight: bold;
-    #         text-align: left;
-    #     }
-    #     </style>
-    #     """
-
-    #     tpl_html = [style]
-    #     tpl_html.append("<table class='report-table'>")
-
-    #     # Header
-    #     tpl_html.append("<thead><tr>")
-    #     for h in headers:
-    #         tpl_html.append(f"<th>{h}</th>")
-    #     tpl_html.append("</tr></thead>")
-
-    #     # Body
-    #     tpl_html.append("<tbody>")
-    #     for row in rows:
-    #         tpl_html.append("<tr>")
-    #         for cell in row:
-    #             safe = "" if cell is None else str(cell)
-    #             tpl_html.append(f"<td>{safe}</td>")
-    #         tpl_html.append("</tr>")
-    #     tpl_html.append("</tbody></table>")
-
-    #     result = "".join(tpl_html)
-    #     # LOGGER.debug(f"result: {result}")
-    #     return result
-
-    # def _build_report_table(self, headers, rows):
-    #     """TODO: document"""
-    #     style = """
-    #     <style>
-    #     .report-table {
-    #         width: 100%;
-    #         border-collapse: collapse;
-    #         margin-top: 10px;
-    #         table-layout: auto;
-    #     }
-
-    #     .report-table th,
-    #     .report-table td {
-    #         border: 1px solid #444;
-    #         padding: 6px;
-    #         font-size: 10pt;
-    #         vertical-align: top;
-    #         word-break: break-word;
-    #         white-space: normal;
-    #         min-width: 80px;
-    #     }
-
-    #     .report-table th {
-    #         background-color: #f0f0f0;
-    #         font-weight: bold;
-    #         text-align: left;
-    #     }
-
-    #     /* Make first column smaller (Public ID) */
-    #     .report-table th:first-child,
-    #     .report-table td:first-child {
-    #         min-width: 50px;
-    #         width: 50px;
-    #         text-align: center;
-    #     }
-    #     </style>
-    #     """
-
-    #     tpl_html = [style]
-    #     tpl_html.append("<table class='report-table'>")
-
-    #     # Header
-    #     tpl_html.append("<thead><tr>")
-    #     for h in headers:
-    #         tpl_html.append(f"<th>{h}</th>")
-    #     tpl_html.append("</tr></thead>")
-
-    #     # Body
-    #     tpl_html.append("<tbody>")
-    #     for row in rows:
-    #         tpl_html.append("<tr>")
-    #         for cell in row:
-    #             safe = "" if cell is None else str(cell)
-    #             tpl_html.append(f"<td>{safe}</td>")
-    #         tpl_html.append("</tr>")
-    #     tpl_html.append("</tbody></table>")
-
-    #     return "".join(tpl_html)
 
 
     def replace_datetime(self, match: re.Match) -> str:
@@ -614,3 +508,55 @@ class DefaultTemplateData:
 
         #pylint: disable=W0123
         return repr(eval(f"datetime({args})"))
+
+
+    def _expand_mds_rows(self, base_fields: dict, mds_sections: list[dict]) -> list[dict]:
+        """
+        Expands multi data sections into cartesian product rows.
+
+        Args:
+            base_fields: dict of normal object fields (including public_id)
+            mds_sections: list of MDS sections, each section is a list of row dicts
+
+        Returns:
+            List of fully expanded row dicts
+        """
+        # No MDS → single row
+        if not mds_sections:
+            return [base_fields]
+
+        # If any section is empty → no rows
+        for section in mds_sections:
+            if not section:
+                return []
+
+        rows = []
+        for combo in product(*mds_sections):
+            row = dict(base_fields)
+            for section_entry in combo:
+                row.update(section_entry)
+            rows.append(row)
+
+        return rows
+
+
+    def _expand_mds_columns(self, base_fields, mds_sections):
+        """
+        Collapse MDS values into stacked columns
+        """
+        result = dict(base_fields)
+
+        # field_name -> [values...]
+        collected = {}
+
+        for section in mds_sections:
+            for row in section:
+                for field_name, value in row.items():
+                    collected.setdefault(field_name, []).append(value)
+
+        for field_name, values in collected.items():
+            result[field_name] = "<br>".join(
+                "" if v is None else str(v) for v in values
+            )
+
+        return result
