@@ -144,12 +144,12 @@ opencelium-editor {
     max-height: 400px;
   }
   
-  opencelium-editor {
-    ::ng-deep > div:first-child,
-    ::ng-deep [id*="root"],
-    ::ng-deep [class*="root"] {
-      height: 400px !important;
-      min-height: 400px !important;
-    }
-  }
+  // opencelium-editor {
+  //   ::ng-deep > div:first-child,
+  //   ::ng-deep [id*="root"],
+  //   ::ng-deep [class*="root"] {
+  //     height: 400px !important;
+  //     min-height: 400px !important;
+  //   }
+  // }
 }

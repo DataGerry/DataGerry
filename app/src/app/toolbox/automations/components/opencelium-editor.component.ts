@@ -55,7 +55,7 @@ export class OpenCeliumEditorComponent
   async ngAfterViewInit() {
     this.container = this.host.nativeElement.querySelector('div');
     this.integrateStyles();
-    const module = await import('./automation-form/opencelium-editor/connection-editor.js');
+    const module = await import('../../../../assets/connection_editor/connection-editor.js');
     this.ConnectionEditor = (module as any).default ?? module;
     this.render();
   }
