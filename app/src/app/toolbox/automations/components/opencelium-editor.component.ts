@@ -32,7 +32,7 @@ export class OpenCeliumEditorComponent
   @Input() initConnection: any = null;
   @Output() connectionChange = new EventEmitter<any>();
   @Output() saveConnection = new EventEmitter<any>();
-  @Output() load = new EventEmitter<void>();
+  @Output() editorLoad = new EventEmitter<void>();
 
   private container?: HTMLElement;
   private ConnectionEditor?: any;
@@ -106,7 +106,7 @@ export class OpenCeliumEditorComponent
       saveConnection: async (connection: any) => {
         this.saveConnection.emit(connection);
       },
-      onLoad: () => { }
+      onLoad: () => { this.editorLoad.emit(); }
     };
 
     // Only send connector IDs in create mode

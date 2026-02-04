@@ -20,8 +20,6 @@
 .editor-section {
   background: #fff;
   border-radius: 8px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   position: relative;
   z-index: 1;
   margin-top: 2rem;
@@ -41,25 +39,24 @@ opencelium-editor {
   border-radius: 4px;
   
   // Target the root container to ensure it fills the space
-  ::ng-deep > div:first-child {
-    width: 100% !important;
-    height: 600px !important;
-    min-height: 600px !important;
-    position: relative !important;
-  }
+  // ::ng-deep > div:first-child {
+  //   width: 100% !important;
+  //   height: 600px !important;
+  //   min-height: 600px !important;
+  //   position: relative !important;
+  // }
   
-  // Ensure React root elements maintain height
-  ::ng-deep [id*="root"],
-  ::ng-deep [class*="root"] {
-    width: 100% !important;
-    height: 100% !important;
-    min-height: 600px !important;
-  }
+  // // Ensure React root elements maintain height
+  // ::ng-deep [id*="root"],
+  // ::ng-deep [class*="root"] {
+  //   width: 100% !important;
+  //   height: 100% !important;
+  //   min-height: 600px !important;
+  // }
 }
 
 // Form actions spacing
 .form-actions-margin {
-  margin-top: 2rem;
   position: relative;
   z-index: 2;
 }
