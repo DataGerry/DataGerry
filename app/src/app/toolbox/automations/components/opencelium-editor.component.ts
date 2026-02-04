@@ -32,7 +32,7 @@ export class OpenCeliumEditorComponent
   @Input() initConnection: any = null;
   @Output() connectionChange = new EventEmitter<any>();
   @Output() saveConnection = new EventEmitter<any>();
-  @Output() load = new EventEmitter<void>();
+  @Output() editorLoad = new EventEmitter<void>();
 
   private container?: HTMLElement;
   private ConnectionEditor?: any;
@@ -55,7 +55,7 @@ export class OpenCeliumEditorComponent
   async ngAfterViewInit() {
     this.container = this.host.nativeElement.querySelector('div');
     this.integrateStyles();
-    const module = await import('./automation-form/opencelium-editor/connection-editor.js');
+    const module = await import('../../../../assets/connection_editor/connection-editor.js');
     this.ConnectionEditor = (module as any).default ?? module;
     this.render();
   }
@@ -106,7 +106,7 @@ export class OpenCeliumEditorComponent
       saveConnection: async (connection: any) => {
         this.saveConnection.emit(connection);
       },
-      onLoad: () => { }
+      onLoad: () => { this.editorLoad.emit(); }
     };
 
     // Only send connector IDs in create mode

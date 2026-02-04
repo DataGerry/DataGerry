@@ -8,8 +8,9 @@ import {
   OnChanges,
   OnDestroy,
   SimpleChanges,
+  Output,
+  EventEmitter,
 } from '@angular/core';
-// import LogsView from '../../../../assets/logs-view/logs-view';
 @Component({
   selector: 'opencelium-log-viewer',
   standalone: true,
@@ -21,6 +22,7 @@ export class OpenCeliumLogsViewComponent
   @Input() baseUrl = '';
   @Input() token = '';
   @Input() executionId: string | number = '';
+  @Output() logViewLoad = new EventEmitter<void>();
 
   private container?: HTMLElement;
   private LogsView?: any;
@@ -102,6 +104,9 @@ export class OpenCeliumLogsViewComponent
         baseUrl,
         token: this.token,
         executionId,
+        onLoad: () => {
+          this.logViewLoad.emit();
+        }
       }),
       this.container
     );
