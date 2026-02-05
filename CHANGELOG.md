@@ -1,3 +1,175 @@
+# Version 3.0.0
+
+<hr>
+
+
+## <ins>New Features</ins>
+
+
+### Reporting System
+
+-  Introduced a new **Reporting** module accessible via **Toolbox --> Reporting**
+-  Enables creation, management, and execution of custom reports on CMDB object data
+-  Users can define reports per object type (CmdbType) with:
+
+   -  Custom report name and user-defined category
+   -  Field selection for fine-grained control over report content
+   -  Optional filter logic using nested AND/OR conditions
+   -  Multi-value field rendering options: per row or per column
+
+-  Added a separate interface to manage report categories
+-  Reports can be executed directly in the UI and downloaded as **CSV**
+-  Report results are tailored for flexible documentation, audit support, or export use cases
+
+
+### Webhooks
+
+-  Introduced support for **Webhooks** to enable real-time integrations with external systems
+-  Accessible via **Toolbox --> Webhooks**
+-  Webhooks can be configured with:
+
+   -  A custom name and description
+   -  The target URL to which event data should be sent
+   -  Trigger types (create, update, delete) to define when the webhook should fire
+
+-  Supports **POST** requests with JSON payloads for seamless integration with APIs
+-  Webhook execution logs are available for debugging and monitoring delivery status
+-  Designed for automation, event-driven workflows, and external system synchronization
+- Added the ability to configure n:m reference fields, allowing Objects to be linked to
+multiple other Objects and vice versa
+- Enables advanced modeling scenarios such as associating multiple users with multiple systems, or linking services
+across multiple infrastructures
+- Includes support for bidirectional navigation and optional display of related data in both linked Types
+
+
+### Release of the ISMS (Information Security Management System) module
+
+- Introduced a comprehensive module for managing information security risks based on ISO 27001 concepts
+- Provides full configurability of core ISMS elements including:
+
+- Protection goals
+- Risk Classes and matrices
+- Likelihoods, Impacts and Impact Categories
+- Threats and Vulnerabilities
+- Controls and measures
+
+- Added support for modeling and assessing :ref:`Risks <isms-risk-anchor>`
+- Risk Assessments can be assigned to specific Risks, Objects or ObjectGroups and include lifecycle data such as implementation status and treatment options
+- Allows linking of controls to risks and tracking of implementation progress
+- Statement of Applicability (SOA) functionality for managing control applicability and implementation
+- Includes built-in reporting features for overviews like risk matrices, treatment plans, SOA, and detailed assessments
+- Introduced the concept of **Persons** and **Person Groups** for mapping real-world responsibilities within assessments
+
+
+### Backward incompatible changes
+
+-   We are replacing the existing exportD service with OpenCelium, an integration platform that enables seamless
+    communication between applications via APIs. OpenCelium will allow us to deliver data flexibly and in real time via
+    webhooks, improving data flow and integration capabilities across our ecosystem
+-   Another part of this change is the removal of RabbitMQ which will no longer be a dependency when installing
+    DataGerry
+
+    
+## <ins>Changes</ins>
+
+
+### Documentation
+
+- DataGerry is no longer compatible with **RHEL8**. The build package of version 2.2.0 and following will use **RHEL9**
+
+
+### Frontend
+
+-   Tests were added to various frontend components (ongoing process)
+-   Design changes for the detailed view of Objects
+-   Improved and optimized validation workflows when creating and editing Types
+-   Object links between two Objects are now limited to once
+-   Enforced uniqueness of the **Email** field when creating or updating users to prevent duplicate entries
+-   Refactored several components and workflows in Angular frontend to optimize speed and resource usage
+    (onging process)
+-   Added a "Back" button in the "Referenced by"-tab of Object detailed views
+-   The special control **Reference** has now its required fields highlighted
+-   Improved visual feedback for invalid fields and sections when creating/editing a Type
+-   A new basic control type has been added to the Types creation/edit form: the Numeric Field,
+    which strictly accepts numeric input values
+-   Types cannot be deleted if Reports exist which are using it
+-   A spinner has been added while the Frontned is waiting for API responses from the Backend
+-   The "Enter"-Key can now be used on the login page to trigger the "Login" button
+-   Login credentials are now preserved on an incorrect login attempt
+-   Added a toggle button to hide/show the password on the login page
+-   Added a default value field for basic control **Checkbox**
+
+
+### Backend
+
+-   New backend startup routine checks if all required collections are exisiting in the database
+-   Improved error message texts for backend responses to be more informative (ongoing process)
+-   Several APi routes were improved with proper error handling and extended error messages (ongoing process)
+-   Refactored several workflows and classes in Backend to optimize speed and resource usage (ongoing process)
+  
+
+## <ins>Bugfixes</ins>
+-   [**DAT-568**] Fixed a bug where the creation date of Objects overwritten by the edit date
+    when editing an Object
+-   [**DAT-859**] Fixed a bug where duplicate identifiers were saved for Type controls
+-   [**DAT-860**] Fixed a bug where duplicate identifiers were saved for Type sections
+-   [**DAT-883**] Fixed a bug where invalid characters could be entered in the name property when a
+    Type is created
+-   [**DAT-898**] Fixed a bug where incorrect section names were applied when setting multiple section names to "Empty"
+    while creating a Type
+-   [**DAT-967**] Fixed a bug where the list of documents sometiems was not updated when a document was deleted
+    in the File Explorer
+-   [**DAT-968**] Fixed a bug where the Frontend crashed when saving a new
+    Section Template
+-   [**DAT-979**] Fixed an issue where options from a removed reference type selection remained visible in the summary
+    section
+-   [**DAT-983**] Fixed an issue when Rapidly Clicking Delete Button in File Explorer
+    crashed the frontend
+-   [**DAT-984**] Fixed an issue where the file upload count was not correctly displayed in the
+    File Explorer
+-   [**DAT-985**] Fixed an issue where the uploaded files were not displayed in the
+    File Explorer
+-   [**DAT-989**] Fixed a bug where adding a Multi Data Sections to a Type
+    with three existing sections caused one section to be incorrectly converted into a
+    Multi Data Sections
+-   [**DAT-992**] Fixed an intermittent issue where performing a clean action on a Type could
+    cause the application to crash
+-   [**DAT-1007**] Fixed an issue where accessing **Settings -> Database Properties** could result in an error with
+    an unclear error message
+-   [**DAT-1019**] Fixed an issue where fields in the Type creation form lost its index when
+    the identifier was empty
+-   [**DAT-1022**] Fixed an issue where the special control **Reference** could only be dragged once and the got locked
+-   [**DAT-1036**] Fixed a bug where identifiers were incorrectly validated against labels, causing uniqueness errors
+    when both fields had identical values
+-   [**DAT-1040**] Fixed a bug where sometimes deleting **UserGroups** caused an error
+-   [**DAT-1042**] Fixed a bug where newly added Types where not displayed in the sidebar until
+    the page was refreshed manually
+-   [**DAT-1063**] Fixed a bug where an incorrect path was used when clicking the back button in the **View Logs Page**
+-   [**DAT-1077**] Fixed a bug where in section templates, updating the label of an existing section does not reflect
+    the change. This issue also occured while creating a new section label
+-   [**DAT-1139**] Fixed a bug where the "Unclean" action of Types resulted in an error under
+    certain circumstances
+-   [**DAT-1179**] Fixed a bug where under certain circumstances the creation of Locations
+    failed
+-   [**DAT-1188**] Fixed a bug where under certain circumstances a new Type could not be created(
+    "Save" - button stayed disabled) when a Reference special control was dragged into a section
+-   [**DAT-1204**] Fixed a bug which occured during imports from CSV files
+-   [**DAT-1274**] Fixed a bug that, under certain conditions, caused the application to crash when opening the
+    ObjectLogs
+-   [**DAT-1281**] Fixed a bug that caused the application to crash if a Type ,which contains a
+    Locations, was viewed
+-   [**DAT-1407**] Fixed Object exporters mapping public_id to object_id
+-   [**DAT-1545**] Fixed an issue with incorrectly referenced type summary fields when specific input patterns are used
+-   [**DAT-1625**] Fixed an issue where hidden fields of Multi Data Sections were not saved upon
+    editing an Objects
+-   [**DAT-1655**] Fixed an issue where the special control **Reference** label was not saved correctly inside of
+    Section Templates
+-   [**DAT-1831**] Fixed a bug where incorrect data was shown inside of reference sections of
+    Objects    
+
+
+<hr>
+
 <hr>
 
 # Version 2.2.0
