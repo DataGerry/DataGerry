@@ -4,7 +4,7 @@
     <button type="button" class="btn btn-sm btn-connectors ms-2 text-white" [routerLink]="['/automations/connectors']">
       <i class="fa-solid fa-plug"></i> Manage Connectors
     </button>
-  <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']" *ngIf="!isCloudMode">
+  <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']" *ngIf="isCloudMode">
       <i class="fa-solid fa-key"></i> View Licenses
     </button>
     <button type="button" class="btn btn-sm btn-add ms-2 text-white" [routerLink]="['/automations/add']">
