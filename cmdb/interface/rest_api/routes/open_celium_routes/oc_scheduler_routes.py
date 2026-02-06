@@ -303,6 +303,63 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         abort(500, "Failed to retrieve OpenCelium Schedulers!")
 
 
+@oc_schedulers_blueprint.route('/schedulers/running', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving running Schedulers!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
+    """
+    GET/HEAD route to retrieve running schedulers
+    """
+    try:
+        oc_scheduler_manager = OcSchedulerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        running_schedulers: list[dict[str, Any]] = oc_scheduler_manager.get_running_schedulers()
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            scheduler_ids: list[int] = []
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
+            cached_user = cached_user_manager.get_cached_user(request_user.email)
+
+            if cached_user:
+                scheduler_ids = cached_user_manager.get_oc_ids(
+                    cached_user,
+                    request_user.database,
+                    CachedOcIdType.SCHEDULERS
+                )
+            else:
+                scheduler_ids = dg_sp_manager.get_scheduler_ids(
+                    request_user.email,
+                    request_user.database
+                )
+
+            if scheduler_ids:
+                schedulers = [
+                        sched for sched in running_schedulers if sched['schedulerId'] in scheduler_ids
+                    ]
+
+                if schedulers:
+                    # Unmap for UI
+                    for sched in schedulers:
+                        sched["title"] = unmap_oc_name(sched["title"], False)
+                        sched["fromConnector"]["title"] = unmap_oc_name(sched["fromConnector"]["title"], False)
+                        sched["toConnector"]["title"] = unmap_oc_name(sched["toConnector"]["title"], False)
+
+                    running_schedulers = schedulers
+
+        return DefaultResponse(running_schedulers).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcSchedulerGetError as err:
+        LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to retrieve running Schedulers!")
+
+
 @oc_schedulers_blueprint.route('/schedulers/logs', methods=['GET', 'HEAD'])
 @handle_oc_errors("retrieving OpenCelium Schedulers!")
 @insert_request_user

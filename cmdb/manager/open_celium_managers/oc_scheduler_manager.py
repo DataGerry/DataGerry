@@ -40,6 +40,7 @@ SCHEDULERS_BY_IDS_URL: str = f"{SCHEDULER_URL}/list/get"
 ALL_SCHEDULERS_URL: str = f"{SCHEDULER_URL}/all"
 EXECUTE_SCHEDULER_URL: str = f"{SCHEDULER_URL}/execute"
 SCHEDULER_LOGS_URL: str = "/execution/log-files"
+RUNNING_SCHEDULERS_URL: str = f"{SCHEDULER_URL}/running/all"
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OcSchedulerManager - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -131,6 +132,25 @@ class OcSchedulerManager(OcBaseManager):
 
         LOGGER.error("[get_scheduler] OC Error: %s", target_scheduler_response.text)
         raise OcSchedulerGetError(f"Failed to retrieve OpenCelium Scheduler with ID: {scheduler_id}")
+
+
+    def get_running_schedulers(self) -> dict[str, Any]:
+        """
+        Retrieves all running schedulers
+
+        Raises:
+            OcSchedulerGetError: When the OcScheduler could not be retrieved
+
+        Returns:
+            dict[str, Any]: All running schedulers
+        """
+        running_schedulers_resp: Response = self.oc_connector.oc_get(f"{RUNNING_SCHEDULERS_URL}")
+
+        if self.is_valid_response(running_schedulers_resp):
+            return json.loads(running_schedulers_resp.text)
+
+        LOGGER.error("[get_running_schedulers] OC Error: %s", running_schedulers_resp.text)
+        raise OcSchedulerGetError("Failed to retrieve currently running Schedulers!")
 
 
     def get_all_schedulers(self) -> list[dict[str, Any]]:
