@@ -62,7 +62,6 @@ class HTTPServer(BaseApplication):
         ssl_enabled = str(self.options.get('ssl', 'false')).lower() == 'true'
 
         if ssl_enabled:
-            LOGGER.debug("in ssl_enabled")
             certfile = self.options.get('certfile')
             keyfile = self.options.get('keyfile')
 
