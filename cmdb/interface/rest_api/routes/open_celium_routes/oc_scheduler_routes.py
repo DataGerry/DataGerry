@@ -283,6 +283,12 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
                 for sched in schedulers:
                     sched["title"] = unmap_oc_name(sched["title"])
                     sched["connection"]["title"] = unmap_oc_name(sched["connection"]["title"])
+                    sched["connection"]["fromConnector"]["title"] = unmap_oc_name(
+                        sched["connection"]["fromConnector"]["title"]
+                    )
+                    sched["connection"]["toConnector"]["title"] = unmap_oc_name(
+                        sched["connection"]["toConnector"]["title"]
+                    )
 
         # ------------------------------------------------------------
         # LOCAL MODE → Retrieve all schedulers
@@ -469,6 +475,13 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         # Map title per tenant
         if current_app.cloud_mode and not current_app.local_mode:
             params["title"] = map_oc_name(request_user.database, params["title"])
+            params["connection"]["title"] = map_oc_name(request_user.database, params["connection"]["title"])
+            params["connection"]["fromConnector"]["title"] = map_oc_name(
+                request_user.database, params["connection"]["fromConnector"]["title"]
+            )
+            params["connection"]["toConnector"]["title"] = map_oc_name(
+                request_user.database, params["connection"]["toConnector"]["title"]
+            )
 
         # ------------------------------------------------------------
         # UPDATE OPERATION
@@ -478,6 +491,13 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         # Unmap for UI
         if current_app.cloud_mode and not current_app.local_mode:
             updated_oc_scheduler["title"] = unmap_oc_name(updated_oc_scheduler["title"])
+            updated_oc_scheduler["connection"]["title"] = unmap_oc_name(updated_oc_scheduler["connection"]["title"])
+            updated_oc_scheduler["connection"]["fromConnector"]["title"] = unmap_oc_name(
+                updated_oc_scheduler["connection"]["fromConnector"]["title"]
+            )
+            updated_oc_scheduler["connection"]["toConnector"]["title"] = unmap_oc_name(
+                updated_oc_scheduler["connection"]["toConnector"]["title"]
+            )
 
         return DefaultResponse(updated_oc_scheduler).make_response()
     except HTTPException as http_err:

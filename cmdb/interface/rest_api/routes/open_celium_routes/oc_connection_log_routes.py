@@ -25,6 +25,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcConnectionLogManager
 
+from cmdb.open_celium import unmap_oc_name
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
@@ -128,6 +129,10 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
         )
 
         flowcharts: dict[str, Any] = oc_connection_log_manager.get_flowcharts(target_id)
+
+        if current_app.cloud_mode and not current_app.local_mode:
+            for flowchart in flowcharts:
+                flowchart["connectorName"] = unmap_oc_name(flowchart["connectorName"])
 
         return DefaultResponse(flowcharts).make_response()
     except OcConnectionLogGetError as err:
