@@ -1,4 +1,4 @@
-import { Component, HostListener, Input } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { finalize } from 'rxjs';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
@@ -26,6 +26,7 @@ type LogEntry = {
 export class AutomationLogsMenuComponent {
   @Input() schedulerId?: number;
   @Input() status: LogStatus = 's';
+  @Output() logsModalOpenChange = new EventEmitter<boolean>();
 
   public isOpen = false;
   public isLoading = false;
@@ -33,6 +34,7 @@ export class AutomationLogsMenuComponent {
   public selectedExecutionId: number | null = null;
   private isFullscreen = false;
   private modalRef?: NgbModalRef;
+  private readonly menuId = `automation-logs-${Math.random().toString(36).slice(2)}`;
 
   constructor(
     private automationsService: AutomationsService,
@@ -49,6 +51,14 @@ export class AutomationLogsMenuComponent {
     }
   }
 
+  @HostListener('window:automationLogsMenuOpen', ['$event'])
+  onMenuOpenEvent(event: Event): void {
+    const detail = (event as CustomEvent<{ id?: string }>).detail;
+    if (this.isOpen && detail?.id && detail.id !== this.menuId) {
+      this.isOpen = false;
+    }
+  }
+
   toggleMenu(event: Event): void {
     event?.stopPropagation();
     if (!this.schedulerId) {
@@ -57,6 +67,9 @@ export class AutomationLogsMenuComponent {
     this.isOpen = !this.isOpen;
     if (this.isOpen && !this.entries.length && !this.isLoading) {
       this.loadLogs();
+    }
+    if (this.isOpen) {
+      window.dispatchEvent(new CustomEvent('automationLogsMenuOpen', { detail: { id: this.menuId } }));
     }
   }
 
@@ -108,6 +121,7 @@ export class AutomationLogsMenuComponent {
     this.modalRef.componentInstance.onToggleFullscreen = (next) => {
       this.setFullscreen(next);
     };
+    this.logsModalOpenChange.emit(true);
     this.modalRef.result.then(
       () => {
         this.clearModalState();
@@ -165,6 +179,7 @@ export class AutomationLogsMenuComponent {
     this.setFullscreen(false);
     this.selectedExecutionId = null;
     this.modalRef = undefined;
+    this.logsModalOpenChange.emit(false);
   }
 
   formatLogDate(value: string | { $date?: number }): string {
