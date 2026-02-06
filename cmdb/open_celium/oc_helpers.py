@@ -31,7 +31,7 @@ def map_oc_name(map_name: str, input_str: str) -> str:
     return f"{map_name}_{input_str}"
 
 
-def unmap_oc_name(mapped_str: str) -> str:
+def unmap_oc_name(mapped_str: str, strict: bool = True) -> str:
     """
     Unmaps a given string which was mapped with the 'map_oc_name' function
 
@@ -44,8 +44,10 @@ def unmap_oc_name(mapped_str: str) -> str:
     Returns:
         str: the unmapped string
     """
-    if "_" not in mapped_str:
+    if "_" not in mapped_str and strict:
         raise ValueError(f"Invalid mapped string: {mapped_str!r}. It contains no underscore.")
+    elif "_" not in mapped_str and not strict:
+        return mapped_str
 
     parts: list[str] = mapped_str.split("_", 1)
 
