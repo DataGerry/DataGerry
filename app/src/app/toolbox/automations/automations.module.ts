@@ -35,6 +35,7 @@ import { OpenCeliumEditorComponent } from './components/opencelium-editor.compon
 import { OpenCeliumLogsViewComponent } from './components/opencelium-log-viewer.component';
 import { AutomationLogsMenuComponent } from './components/automation-logs-menu/automation-logs-menu.component';
 import { OpenCeliumLogsModalComponent } from './components/opencelium-logs-modal/opencelium-logs-modal.component';
+import { AutomationProgressListComponent } from './components/automation-progress-list/automation-progress-list.component';
 
 @NgModule({
   declarations: [
@@ -46,7 +47,8 @@ import { OpenCeliumLogsModalComponent } from './components/opencelium-logs-modal
     CronExpressionModalComponent,
     OpenCeliumEditorComponent,
     AutomationLogsMenuComponent,
-    OpenCeliumLogsModalComponent
+    OpenCeliumLogsModalComponent,
+    AutomationProgressListComponent
   ],
   imports: [
     CommonModule,

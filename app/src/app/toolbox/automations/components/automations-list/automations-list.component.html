@@ -39,6 +39,12 @@
   (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)">
 </cmdb-table>
 
+<app-automation-progress-list
+  [automations]="automations"
+  [refreshToken]="runningRefreshToken"
+  (runningSchedulerIdsChange)="onRunningSchedulersChange($event)">
+</app-automation-progress-list>
+
 <!-- Direction Template -->
 <ng-template #directionTemplate let-item="item">
   <span class="badge" [ngClass]="{
@@ -117,7 +123,8 @@
 <ng-template #actionsTemplate let-item="item">
   <div class="action-buttons">
     <i class="fas fa-play icon-margin btn-run" 
-    [title]="'Execute Scheduler'"
+    [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
+    [class.is-disabled]="isSchedulerRunning(item.schedulerId)"
     (click)="executeScheduler(item.schedulerId)">
  </i>
     <i class="fas fa-clock icon-margin btn-cron"  (click)="setCron(item)" title="Set Cron Job"></i>

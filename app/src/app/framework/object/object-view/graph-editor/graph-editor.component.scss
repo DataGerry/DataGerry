@@ -372,7 +372,7 @@ $gray-900: #212121;
   position: absolute;
   // @include glass-effect;
   border-radius: 16px;
-  cursor: move;
+  cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   animation: nodeAppear 0.5s ease;
   overflow: visible;
@@ -1856,7 +1856,7 @@ defs {
   flex: 1;
   position: relative;
   overflow: hidden;
-  cursor: grab;
+  cursor: move !important;
   background-image: 
     radial-gradient(circle at 20% 80%, rgba($primary, 0.03) 0%, transparent 50%),
     radial-gradient(circle at 80% 20%, rgba($info, 0.03) 0%, transparent 50%);

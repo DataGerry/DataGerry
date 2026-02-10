@@ -1,0 +1,7 @@
+<div class="automation-progress-list" *ngIf="runningSchedulers.length">
+  <div class="automation-progress-header">Running automations</div>
+  <div class="automation-progress-item" *ngFor="let running of runningSchedulers; trackBy: trackByRunningScheduler">
+    <div class="automation-progress-title">{{ running.title }}</div>
+    <app-progress-bar class="automation-progress-bar" [value]="running.progress"></app-progress-bar>
+  </div>
+</div>

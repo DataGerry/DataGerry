@@ -964,6 +964,10 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.createMenuVisible = result.createMenuVisible;
   }
 
+  onGraphContextMenu(e: MouseEvent): void {
+    e.preventDefault();
+  }
+
   @HostListener('document:click', ['$event'])
   docClick(e: MouseEvent): void {
     const isMenu = (e.target as Element).closest('.context-menu, .create-menu');

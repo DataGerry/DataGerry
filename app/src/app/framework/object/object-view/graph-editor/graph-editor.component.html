@@ -132,7 +132,8 @@
   </div>
 
   <!-- Main Graph Area -->
-  <div class="graph-viewport" #graphContainer [class.panning]="isPanning" (mousedown)="onCanvasMouseDown($event)">
+  <div class="graph-viewport" #graphContainer [class.panning]="isPanning" (mousedown)="onCanvasMouseDown($event)"
+    (contextmenu)="onGraphContextMenu($event)">
     <!-- Focus Mode Overlay -->
     <div class="focus-overlay" [class.active]="focusMode"
       [style.--focus-x]="focusedNodeId ? getNodeById(focusedNodeId).x + 'px' : '50%'"
