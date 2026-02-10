@@ -19,6 +19,7 @@ import { CoreDeleteConfirmationModalComponent } from './components/dialog/delete
 import { CoreWarningModalComponent } from './components/dialog/core-warning-modal/core-warning-modal.component';
 import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
 import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
+import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
 
 @NgModule({
   declarations: [
@@ -43,7 +44,9 @@ import { CoreConfirmationModalComponent } from './components/dialog/confirmation
   imports: [
     CommonModule,
     NgSelectModule,
-    FormsModule  ],
+    FormsModule,
+    HorizontalResizeDirective
+  ],
   exports: [
     LoadingPopupComponent,
     ObjectSelectorComponent,
@@ -61,7 +64,8 @@ import { CoreConfirmationModalComponent } from './components/dialog/confirmation
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
-    CoreConfirmationModalComponent
+    CoreConfirmationModalComponent,
+    HorizontalResizeDirective
   ]
 })
 export class CoreModule { }
