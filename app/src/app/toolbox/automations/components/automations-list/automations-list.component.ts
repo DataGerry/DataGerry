@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { AutomationsService } from '../../services/automations.service';
@@ -28,13 +28,16 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 import { environment } from 'src/environments/environment';
 
+type RefreshOption = { label: string; value: number };
+
 @Component({
   selector: 'app-automations-list',
   templateUrl: './automations-list.component.html',
   styleUrls: ['./automations-list.component.scss'],
   standalone: false
 })
-export class AutomationsListComponent implements OnInit {
+
+export class AutomationsListComponent implements OnInit, OnDestroy {
   // Table column templates
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @ViewChild('directionTemplate', { static: true }) directionTemplate: TemplateRef<any>;
@@ -54,6 +57,17 @@ export class AutomationsListComponent implements OnInit {
   public isExecuting: string | null = null;
   public logToggleLoading: Record<string, boolean> = {};
   public isCloudMode = environment.cloudMode;
+  public refreshOptions: RefreshOption[] = [
+    { label: 'Off', value: 0 },
+    { label: '15s', value: 15000 },
+    { label: '30s', value: 30000 },
+    { label: '1 min', value: 60000 }
+  ];
+  public selectedRefreshMs = 0;
+  public isLogsViewOpen = false;
+  public runningSchedulerIds: number[] = [];
+  public runningRefreshToken = 0;
+  private refreshTimerId?: number;
 
   constructor(
     private svc: ConnectorsService,
@@ -133,6 +147,11 @@ export class AutomationsListComponent implements OnInit {
     ];
 
     this.loadAutomations();
+  }
+
+
+  ngOnDestroy(): void {
+    this.clearAutoRefreshTimer();
   }
 
 
@@ -345,6 +364,9 @@ export class AutomationsListComponent implements OnInit {
 
 
   executeScheduler(schedulerId: any): void {
+    if (this.isSchedulerRunning(schedulerId)) {
+      return;
+    }
     this.isExecuting = schedulerId;
 
     this.automationsService?.executeScheduler(schedulerId)?.subscribe({
@@ -353,6 +375,7 @@ export class AutomationsListComponent implements OnInit {
         this.isExecuting = null;
         // reload automations to update last execution times
         this.loadAutomations();
+        this.runningRefreshToken += 1;
       },
       error: (err) => {
         this.toast.error(err?.error?.message);
@@ -422,9 +445,9 @@ export class AutomationsListComponent implements OnInit {
     const fail = automation?.lastExecution?.fail;
 
     if (success?.duration) {
-      return `${success.duration}ms`;
+      return `${(success.duration / 1000).toFixed(2)}s`;
     } else if (fail?.duration) {
-      return `${fail.duration}ms`;
+      return `${(fail.duration / 1000).toFixed(2)}s`;
     }
     return 'N/A';
   }
@@ -437,4 +460,56 @@ export class AutomationsListComponent implements OnInit {
     return !!automation?.lastExecution?.fail;
   }
 
+
+  getRefreshLabel(): string {
+    const match = this.refreshOptions.find((option) => option.value === this.selectedRefreshMs);
+    return match?.label || 'Off';
+  }
+
+
+  setAutoRefresh(ms: number): void {
+    this.selectedRefreshMs = ms;
+    this.resetAutoRefreshTimer();
+  }
+
+
+  refreshNow(): void {
+    if (this.isLogsViewOpen) {
+      return;
+    }
+    this.loadAutomations();
+  }
+
+  isSchedulerRunning(schedulerId: number): boolean {
+    return this.runningSchedulerIds.includes(schedulerId);
+  }
+
+  onRunningSchedulersChange(ids: number[]): void {
+    this.runningSchedulerIds = ids;
+  }
+
+
+  onLogsModalOpenChange(isOpen: boolean): void {
+    this.isLogsViewOpen = isOpen;
+  }
+
+
+  private resetAutoRefreshTimer(): void {
+    this.clearAutoRefreshTimer();
+    if (this.selectedRefreshMs > 0) {
+      this.refreshTimerId = window.setInterval(() => {
+        if (!this.isLogsViewOpen) {
+          this.loadAutomations();
+        }
+      }, this.selectedRefreshMs);
+    }
+  }
+
+
+  private clearAutoRefreshTimer(): void {
+    if (this.refreshTimerId) {
+      window.clearInterval(this.refreshTimerId);
+      this.refreshTimerId = undefined;
+    }
+  }
 }

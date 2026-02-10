@@ -1,0 +1,10 @@
+<div class="base-progress" [style.height.px]="height" [attr.aria-label]="ariaLabel">
+  <div
+    class="base-progress-bar"
+    role="progressbar"
+    [style.width.%]="clampedValue"
+    [attr.aria-valuenow]="clampedValue | number:'1.0-0'"
+    aria-valuemin="0"
+    aria-valuemax="100">
+  </div>
+</div>

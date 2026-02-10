@@ -75,6 +75,11 @@ export class AutomationsService extends BaseApiService<any> {
     return this.handleGetRequest<void>(`${this.servicePrefix}/schedulers/execute/${automationId}`, new HttpParams());
   }
 
+  // GET RUNNING SCHEDULERS
+  getRunningSchedulers(): Observable<any[]> {
+    return this.handleGetRequest<any[]>(`${this.servicePrefix}/schedulers/running`, new HttpParams());
+  }
+
   // GET SCHEDULER LOGS
   getSchedulerLogs(schedulerId: number, status: 's' | 'f'): Observable<any[]> {
     const params = new HttpParams()

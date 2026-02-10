@@ -1,10 +1,29 @@
 <div class="d-flex justify-content-between align-items-center">
   <h2>Automations</h2>
   <div>
+    <div class="btn-group ms-2" *ngIf="automations?.length">
+      <button type="button" id="autoRefreshButton" class="btn btn-sm btn-refresh dropdown-toggle text-white" data-bs-toggle="dropdown"
+        aria-haspopup="true" aria-expanded="false">
+        <i class="fas fa-sync-alt"></i> Auto Refresh: {{ getRefreshLabel() }}
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="autoRefreshButton">
+        <li>
+          <button class="dropdown-item" type="button" (click)="refreshNow()">
+            <i class="fas fa-sync-alt me-1"></i> Refresh now
+          </button>
+        </li>
+        <li><hr class="dropdown-divider" /></li>
+        <li *ngFor="let option of refreshOptions">
+          <button class="dropdown-item" type="button" (click)="setAutoRefresh(option.value)">
+            <span [class.fw-bold]="option.value === selectedRefreshMs">{{ option.label }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
     <button type="button" class="btn btn-sm btn-connectors ms-2 text-white" [routerLink]="['/automations/connectors']">
       <i class="fa-solid fa-plug"></i> Manage Connectors
     </button>
-  <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']" *ngIf="isCloudMode">
+    <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']" *ngIf="isCloudMode">
       <i class="fa-solid fa-key"></i> View Licenses
     </button>
     <button type="button" class="btn btn-sm btn-add ms-2 text-white" [routerLink]="['/automations/add']">
@@ -19,6 +38,12 @@
   [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false" [infoEnabled]="false"
   (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)">
 </cmdb-table>
+
+<app-automation-progress-list
+  [automations]="automations"
+  [refreshToken]="runningRefreshToken"
+  (runningSchedulerIdsChange)="onRunningSchedulersChange($event)">
+</app-automation-progress-list>
 
 <!-- Direction Template -->
 <ng-template #directionTemplate let-item="item">
@@ -51,7 +76,8 @@
     <app-automation-logs-menu
       *ngIf="item.debugMode && hasLastSuccess(item)"
       [schedulerId]="item.schedulerId"
-      status="s">
+      status="s"
+      (logsModalOpenChange)="onLogsModalOpenChange($event)">
     </app-automation-logs-menu>
   </div>
 </ng-template>
@@ -66,7 +92,8 @@
     <app-automation-logs-menu
       *ngIf="item.debugMode && hasLastFail(item)"
       [schedulerId]="item.schedulerId"
-      status="f">
+      status="f"
+      (logsModalOpenChange)="onLogsModalOpenChange($event)">
     </app-automation-logs-menu>
   </div>
 </ng-template>
@@ -96,7 +123,8 @@
 <ng-template #actionsTemplate let-item="item">
   <div class="action-buttons">
     <i class="fas fa-play icon-margin btn-run" 
-    [title]="'Execute Scheduler'"
+    [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
+    [class.is-disabled]="isSchedulerRunning(item.schedulerId)"
     (click)="executeScheduler(item.schedulerId)">
  </i>
     <i class="fas fa-clock icon-margin btn-cron"  (click)="setCron(item)" title="Set Cron Job"></i>
