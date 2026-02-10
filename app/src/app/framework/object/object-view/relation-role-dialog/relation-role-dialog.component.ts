@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -38,7 +38,6 @@ import {
 } from 'src/app/framework/services/object-relation.service';
 import { UserService } from 'src/app/management/services/user.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 interface FlatOptionItem {
   value: number;
