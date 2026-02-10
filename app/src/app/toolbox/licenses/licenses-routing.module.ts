@@ -21,13 +21,13 @@ import { Routes, RouterModule } from '@angular/router';
 import { LicensesComponent } from './licenses.component';
 import { LicenseOverviewComponent } from './components/license-overview/license-overview.component';
 import { LicenseResolver } from './services/license-resolver.service';
-import { cloudOnlyGuard } from 'src/app/modules/auth/guards/cloud-mode.guard';
+import { cloudModeGuard } from 'src/app/modules/auth/guards/cloud-mode.guard';
 
 const routes: Routes = [
   {
     path: '',
     component: LicensesComponent,
-    canActivate: [cloudOnlyGuard],
+    canActivate: [cloudModeGuard],
     children: [
       {
         path: '',

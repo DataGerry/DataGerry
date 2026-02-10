@@ -1,8 +1,6 @@
 <div class="container-fluid">
   <div class="row">
     <div class="col-md-12">
-
-      <!-- <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor> -->
       <!-- Navbar -->
       <div class="object-view-navbar">
         <div class="row align-items-center">
@@ -20,12 +18,6 @@
             <cmdb-object-docs *permissionLink="['base.docapi.template.view']" [renderResult]="renderResult">
             </cmdb-object-docs>
           </div>
-          <!-- <div class="col-xl-2 col-md-6 col-6 border-start pt-1 last-widget">
-            <div class="d-flex justify-content-center">
-              <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
-              </cmdb-object-type-label>
-            </div>
-          </div> -->
           <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <div class="d-flex justify-content-center">
               <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
@@ -57,13 +49,6 @@
       <hr>
 
       <!-- Graph View -->
-      <!-- <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
-        <div class="card">
-          <div class="card-body p-0">
-            <app-graph-editor [rootNodeId]="currentObjectID" (rootNodeSelected)="onRootNodeSelected($event)"></app-graph-editor>
-          </div>
-        </div>
-      </div> -->
       <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
         <div class="card">
           <div class="card-body p-0">
@@ -116,6 +101,7 @@
               <li class="nav-item d-inline-block"
                 *ngFor="let group of relationGroups; let i = index; trackBy: trackByRelationId">
                 <a style="align-items: center; cursor: pointer;" class="nav-link"
+                  [attr.title]="group.tabLabel + ' (' + group.total + ')'"
                   [class.active]="activeRelationTabIndex === (i + 1)" (click)="setActiveTab(i + 1)">
                   <i [class]="group.tabIcon" class="me-1"></i>
                   {{ group.tabLabel }} ({{ group.total }})
@@ -161,10 +147,6 @@
                 </cmdb-table>
               </div>
             </ng-container>
-
-            <!-- "Add Relation" tab content => index relationGroups.length + 1 -->
-            <!-- <div *ngIf="activeRelationTabIndex === (relationGroups.length + 1)">
-            </div> -->
           </div>
         </div>
 
