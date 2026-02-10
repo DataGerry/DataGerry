@@ -87,6 +87,7 @@
     [selectedIds]="group.assigned_ids"
     (selectionChange)="onObjectsSelected($event)"
     [isViewMode]="isViewMode"
+    [closeOnSelect]="true"
     [style.display]="group.group_type === 'STATIC' ? 'block' : 'none'">
   </app-object-selector>
 

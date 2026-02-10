@@ -24,7 +24,7 @@ import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { InfiniteScrollService } from 'src/app/layout/services/infinite-scroll.service';
-import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
+import { ObjectSearchFilterService } from 'src/app/core/services/object-search-filter.service';
 
 @Component({
     selector: 'app-object-selector',
@@ -67,7 +67,7 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     private loaderService: LoaderService,
     private toast: ToastService,
     private infiniteScrollService: InfiniteScrollService,
-    private filterBuilderService: FilterBuilderService
+    private objectSearchFilterService: ObjectSearchFilterService
   ) {}
 
   ngOnInit(): void {
@@ -105,136 +105,10 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     }
 
     // Build filters based on mode
-    let filters: any[] = [{ $match: { type_id: { $in: this.typeIds } } }];
-    
-    if (this.isSearching && this.searchTerm) {
-      filters = [
-        { $match: { type_id: { $in: this.typeIds } } },
-        {
-          $lookup: {
-            from: "framework.objects",
-            localField: "fields.value",
-            foreignField: "public_id",
-            as: "data"
-          }
-        },
-        {
-          $project: {
-            _id: 1,
-            public_id: 1,
-            type_id: 1,
-            active: 1,
-            author_id: 1,
-            creation_time: 1,
-            last_edit_time: 1,
-            fields: 1,
-            summary_line: 1,
-            type_information: 1,
-            simple: {
-              $reduce: {
-                input: "$data.fields",
-                initialValue: [],
-                in: { $setUnion: ["$$value", "$$this"] }
-              }
-            }
-          }
-        },
-        {
-          $group: {
-            _id: "$_id",
-            public_id: { $first: "$public_id" },
-            type_id: { $first: "$type_id" },
-            active: { $first: "$active" },
-            author_id: { $first: "$author_id" },
-            creation_time: { $first: "$creation_time" },
-            last_edit_time: { $first: "$last_edit_time" },
-            fields: { $first: "$fields" },
-            summary_line: { $first: "$summary_line" },
-            type_information: { $first: "$type_information" },
-            simple: { $first: "$simple" }
-          }
-        },
-        {
-          $project: {
-            _id: "$_id",
-            public_id: 1,
-            type_id: 1,
-            active: 1,
-            author_id: 1,
-            creation_time: 1,
-            last_edit_time: 1,
-            fields: 1,
-            summary_line: 1,
-            type_information: 1,
-            references: { $setUnion: ["$fields", "$simple"] }
-          }
-        },
-        {
-          $addFields: {
-            creationString: {
-              $dateToString: {
-                format: "%Y-%m-%dT%H:%M:%S.%LZ",
-                date: "$creation_time"
-              }
-            }
-          }
-        },
-        {
-          $addFields: {
-            editString: {
-              $dateToString: {
-                format: "%Y-%m-%dT%H:%M:%S.%LZ",
-                date: "$last_edit_time"
-              }
-            }
-          }
-        },
-        {
-          $addFields: {
-            references: {
-              $map: {
-                input: "$references",
-                as: "new_fields",
-                in: {
-                  $cond: [
-                    { $eq: [{ $type: "$$new_fields.value" }, "date"] },
-                    {
-                      name: "$$new_fields.name",
-                      value: {
-                        $dateToString: {
-                          format: "%Y-%m-%dT%H:%M:%S.%LZ",
-                          date: "$$new_fields.value"
-                        }
-                      }
-                    },
-                    {
-                      name: "$$new_fields.name",
-                      value: "$$new_fields.value"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        },
-        {
-          $addFields: {
-            public_id_string: { $toString: "$public_id" }
-          }
-        },
-        {
-          $match: {
-            $or: [
-              { "public_id_string": { $regex: this.searchTerm, $options: "i" } },
-              { "summary_line": { $regex: this.searchTerm, $options: "i" } },
-              { "creationString": { $regex: this.searchTerm, $options: "i" } },
-              { "editString": { $regex: this.searchTerm, $options: "i" } },
-              { "references": { $elemMatch: { "value": { $regex: this.searchTerm, $options: "i" } } } }
-            ]
-          }
-        }
-      ];
-    }
+    const filters = this.objectSearchFilterService.buildSearchPipeline(
+      this.isSearching ? this.searchTerm : '',
+      this.typeIds
+    );
 
     if (this.isViewMode && this.selectedIds?.length) {
       filters.push({ $match: { public_id: { $in: this.selectedIds } } });

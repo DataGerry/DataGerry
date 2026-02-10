@@ -164,7 +164,7 @@
         <ng-container [ngSwitch]="parentForm.get('object_id_ref_type')?.value">
           <!-- OBJECT -->
           <ng-container *ngSwitchCase="'OBJECT'">
-            <app-object-selector *ngIf="typesLoaded" [typeIds]="allTypeIds" [multiple]="false"
+            <app-object-selector *ngIf="typesLoaded" [typeIds]="allTypeIds" [multiple]="false" [closeOnSelect]="true"
               [selectedIds]="parentForm.get('object_id')?.value ? [parentForm.get('object_id')?.value] : []"
               (selectionChange)="onObjectSelected($event)">
             </app-object-selector>
