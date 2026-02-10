@@ -61,9 +61,12 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     { label: 'Off', value: 0 },
     { label: '15s', value: 15000 },
     { label: '30s', value: 30000 },
-    { label: '1 min', value: 60000 }  ];
+    { label: '1 min', value: 60000 }
+  ];
   public selectedRefreshMs = 0;
   public isLogsViewOpen = false;
+  public runningSchedulerIds: number[] = [];
+  public runningRefreshToken = 0;
   private refreshTimerId?: number;
 
   constructor(
@@ -361,6 +364,9 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
 
   executeScheduler(schedulerId: any): void {
+    if (this.isSchedulerRunning(schedulerId)) {
+      return;
+    }
     this.isExecuting = schedulerId;
 
     this.automationsService?.executeScheduler(schedulerId)?.subscribe({
@@ -369,6 +375,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         this.isExecuting = null;
         // reload automations to update last execution times
         this.loadAutomations();
+        this.runningRefreshToken += 1;
       },
       error: (err) => {
         this.toast.error(err?.error?.message);
@@ -471,6 +478,14 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       return;
     }
     this.loadAutomations();
+  }
+
+  isSchedulerRunning(schedulerId: number): boolean {
+    return this.runningSchedulerIds.includes(schedulerId);
+  }
+
+  onRunningSchedulersChange(ids: number[]): void {
+    this.runningSchedulerIds = ids;
   }
 
 

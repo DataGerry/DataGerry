@@ -14,6 +14,7 @@ import { RadioComponent } from './components/base/radio/radio.component';
 import { SelectComponent } from './components/base/select/select.component';
 import { SliderComponent } from './components/base/slider/slider.component';
 import { FormDateComponent } from './components/base/date/form-date.component';
+import { ProgressBarComponent } from './components/base/progress-bar/progress-bar.component';
 import { CoreDeleteConfirmationModalComponent } from './components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 import { CoreWarningModalComponent } from './components/dialog/core-warning-modal/core-warning-modal.component';
 import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
@@ -33,6 +34,7 @@ import { CoreConfirmationModalComponent } from './components/dialog/confirmation
     SelectComponent,
     SliderComponent,
     FormDateComponent,
+    ProgressBarComponent,
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
@@ -55,6 +57,7 @@ import { CoreConfirmationModalComponent } from './components/dialog/confirmation
     SelectComponent,
     SliderComponent,
     FormDateComponent,
+    ProgressBarComponent,
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
