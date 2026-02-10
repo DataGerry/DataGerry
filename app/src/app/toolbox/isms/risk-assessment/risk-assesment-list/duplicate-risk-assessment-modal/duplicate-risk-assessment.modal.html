@@ -26,7 +26,7 @@
       bindLabel="name" bindValue="public_id" [multiple]="true" [formControl]="form.get('targets')">
     </app-form-select>
 
-    <app-object-selector *ngIf="selectorKind === 'OBJECTS'" [typeIds]="allTypeIds" [multiple]="true"
+    <app-object-selector *ngIf="selectorKind === 'OBJECTS'" [typeIds]="allTypeIds" [multiple]="true" [closeOnSelect]="true"
       [selectedIds]="form.get('targets')?.value" (selectionChange)="form.get('targets')?.setValue($event)">
     </app-object-selector>
 

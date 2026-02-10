@@ -1,16 +1,4 @@
 <!-- ­───────── EXPORT BAR ───────── -->
-<!-- <div class="toolbar d-flex flex-wrap gap-2 mb-3">
-  <button type="button" class="btn btn-sm btn-outline-primary" (click)="exportCsv()">
-    <i class="fas fa-file-csv me-1"></i> CSV
-  </button>
-  <button type="button" class="btn btn-sm btn-outline-success" (click)="exportXlsx()">
-    <i class="fas fa-file-excel me-1"></i> Excel
-  </button>
-  <button type="button" class="btn btn-sm btn-outline-danger" (click)="exportPdf()">
-    <i class="fas fa-file-pdf me-1"></i> PDF
-  </button>
-</div> -->
-
 <ng-template #exportTemplate>
   <div class="btn-group" *permissionLink="'base.export.type.*'">
     <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown"
@@ -81,14 +69,6 @@
     {{ item.planned_date_str || '-' }}
   </ng-template>
 
-  <!-- <ng-template #controlsTpl let-item="item">
-    <span *ngIf="item.control_measures?.length; else none">
-      <span *ngFor="let c of item.control_measures; index as i">
-        {{ c }}<ng-container *ngIf="i+1 < item.control_measures.length">, </ng-container>
-      </span>
-    </span>
-    <ng-template #none>-</ng-template>
-  </ng-template> -->
 
   <ng-template #controlsTpl let-item="item">
     <ng-container *ngIf="item.control_measures?.length; else none">
