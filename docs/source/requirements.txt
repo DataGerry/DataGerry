@@ -1,4 +1,5 @@
 sphinx==7.3.7
+setuptools>=65.0.0
 sphinx_rtd_theme==3.0.2
 readthedocs-sphinx-search==0.1.1
 sphinxcontrib.httpdomain==1.8.1
