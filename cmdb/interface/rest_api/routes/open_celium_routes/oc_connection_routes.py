@@ -120,7 +120,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         abort(400, "Failed to create an OpenCelium Connection!")
 
 
-oc_connections_blueprint.route('/connections/test/<int:channel_id>', methods=['POST'])
+@oc_connections_blueprint.route('/connections/test/<int:channel_id>', methods=['POST'])
 @handle_oc_errors("testing an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -154,7 +154,7 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
         abort(400, "Failed to test the OpenCelium Connection!")
 
 
-oc_connections_blueprint.route('/connections/remote_api', methods=['POST'])
+@oc_connections_blueprint.route('/connections/remote_api', methods=['POST'])
 @handle_oc_errors("sending to remote API!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
