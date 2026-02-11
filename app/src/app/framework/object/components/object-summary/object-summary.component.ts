@@ -69,7 +69,7 @@ export class ObjectSummaryComponent {
             await navigator.clipboard.writeText(selBox.value);
             this.toast.info("Summary was copied to clipboard");
         } catch (err) {
-            console.error('Unable to copy to clipboard', err);
+            this.toast.error('Unable to copy to clipboard')
         } finally {
             document.body.removeChild(selBox);
         }
