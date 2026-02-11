@@ -39,6 +39,7 @@ and manage any type of asset or configuration data.
     usage/reports
     usage/document_generator
     usage/isms
+    usage/automations
     usage/webhooks
     usage/imports
     usage/exports
