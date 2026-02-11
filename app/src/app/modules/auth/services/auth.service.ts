@@ -287,7 +287,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
                         this.router.navigate(['/framework/type/']);
                     },
                     error: (error) => {
-                        console.log("createProfiles error occured:", error);
+                        // console.log("createProfiles error occured:", error);
                     }
                 });
             }

@@ -653,6 +653,14 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     return this.mode === CmdbMode.View ? CmdbMode.View : CmdbMode.Edit;
   }
 
+  public get parentHasMoreData(): boolean {
+    return this.parentHasMore;
+  }
+
+  public get childHasMoreData(): boolean {
+    return this.childHasMore;
+  }
+
   private setSectionLoading(section: 'parent' | 'child', isLoading: boolean): void {
     if (section === 'parent') {
       this.parentIsLoading = isLoading;
@@ -698,7 +706,18 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   private refreshOpenSelect(section: 'parent' | 'child'): void {
     const select = section === 'parent' ? this.parentSelect : this.childSelect;
     if (select?.isOpen) {
+      const items = section === 'parent' ? this.flatParentOptions : this.flatChildOptions;
+      if (select.itemsList?.setItems) {
+        select.itemsList.setItems(items);
+        if (select.searchTerm) {
+          select.itemsList.filter(select.searchTerm);
+        }
+        if (select.itemsList.markSelectedOrDefault) {
+          select.itemsList.markSelectedOrDefault(select.markFirst);
+        }
+      }
       select.detectChanges?.();
+      select.dropdownPanel?.adjustPosition?.();
     }
   }
 
