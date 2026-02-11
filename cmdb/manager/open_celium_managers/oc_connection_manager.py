@@ -37,7 +37,7 @@ from cmdb.errors.open_celium.connection import (
 LOGGER: Logger = getLogger(__name__)
 
 CONNECTION_URL: str = "/connection"
-CONNECTION_REMOTE_API_URL: str = f"{CONNECTION_URL}/remoteapi"
+CONNECTION_REMOTE_API_URL: str = "/connections/remote_api"
 CONNECTIONS_BY_IDS_URL: str = f"{CONNECTION_URL}/list/by-ids"
 CON_UNIQUE_CHECK_URL: str = f"{CONNECTION_URL}/check"
 CONNECTION_TEST_URL: str = f"{CONNECTION_URL}/execution/test"

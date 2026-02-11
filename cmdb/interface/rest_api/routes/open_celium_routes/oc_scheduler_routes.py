@@ -51,7 +51,7 @@ oc_schedulers_blueprint = APIBlueprint('oc_schedulers', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers', methods=['POST'])
-@handle_oc_errors("creating an OpenCelium Scheduler!")
+@handle_oc_errors("creating an Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def create_oc_scheduler(request_user: CmdbUser) -> Response:
@@ -94,17 +94,13 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 
         conn_title = conn_data["title"]
 
-        # ------------------------------------------------------------
         # CLOUD MODE → map connection title
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
             conn_title = map_oc_name(request_user.database, conn_title)
             conn_data["title"] = conn_title
 
-        # ------------------------------------------------------------
         # Create connection (scheduler always requires a connection)
         # Reject if connection name already exists
-        # ------------------------------------------------------------
         if oc_connection_manager.check_connection_name_exists(conn_title):
             # Unmap for frontend error message
             if current_app.cloud_mode and not current_app.local_mode:
@@ -115,9 +111,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         # Create connection in OC
         created_connection = oc_connection_manager.create_connection(conn_data)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → save connectionId in DG SP
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
             dg_sp_manager.save_connection_id(
                 created_connection["connectionId"],
@@ -128,10 +122,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
             # Clear cache because it now contains inconsistent IDs
             cached_user_manager.delete_cached_user(request_user.email)
 
-
-        # ------------------------------------------------------------
         # Create scheduler
-        # ------------------------------------------------------------
         sched_data["connectionId"] = created_connection["connectionId"]
 
         if current_app.cloud_mode and not current_app.local_mode:
@@ -139,9 +130,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 
         created_scheduler = oc_scheduler_manager.create_scheduler(sched_data)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → save schedulerId in DG SP
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
             dg_sp_manager.save_scheduler_id(
                 created_scheduler["schedulerId"],
@@ -170,7 +159,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium Scheduler!")
+@handle_oc_errors("retrieving the Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
@@ -189,9 +178,7 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → Validate scheduler access (CACHE FIRST)
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
@@ -212,14 +199,10 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             if not is_valid:
                 abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
-        # ------------------------------------------------------------
         # Fetch scheduler
-        # ------------------------------------------------------------
         scheduler = oc_scheduler_manager.get_scheduler(scheduler_id)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → Unmap title before sending to frontend
-        # ------------------------------------------------------------
         if scheduler and current_app.cloud_mode and not current_app.local_mode:
             scheduler["title"] = unmap_oc_name(scheduler["title"])
             scheduler["connection"]["title"] = unmap_oc_name(scheduler["connection"]["title"])
@@ -229,11 +212,11 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[get_oc_scheduler] OcSchedulerGetError: %s.", err, exc_info=True)
-        abort(500, f"Failed to retrieve OpenCelium Scheduler with ID:{scheduler_id}!")
+        abort(500, f"Failed to retrieve Automation with ID:{scheduler_id}!")
 
 
 @oc_schedulers_blueprint.route('/schedulers', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving OpenCelium Schedulers!")
+@handle_oc_errors("retrieving Automations!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
@@ -255,9 +238,7 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → Retrieve scheduler IDs (CACHE FIRST)
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
@@ -290,21 +271,18 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
                         sched["connection"]["toConnector"]["title"]
                     )
 
-        # ------------------------------------------------------------
         # LOCAL MODE → Retrieve all schedulers
-        # ------------------------------------------------------------
         else:
             schedulers = oc_scheduler_manager.get_all_schedulers()
 
-        # LOGGER.debug(f"schedulers: {schedulers}")
         return DefaultResponse(schedulers).make_response()
     except OcSchedulerGetError as err:
         LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, "Failed to retrieve OpenCelium Schedulers!")
+        abort(500, "Failed to retrieve Automations!")
 
 
 @oc_schedulers_blueprint.route('/schedulers/running', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving running Schedulers!")
+@handle_oc_errors("retrieving running Automations!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
@@ -347,8 +325,8 @@ def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
                     # Unmap for UI
                     for sched in schedulers:
                         sched["title"] = unmap_oc_name(sched["title"], False)
-                        sched["fromConnector"]["title"] = unmap_oc_name(sched["fromConnector"]["title"], False)
-                        sched["toConnector"]["title"] = unmap_oc_name(sched["toConnector"]["title"], False)
+                        sched["fromConnector"] = unmap_oc_name(sched["fromConnector"], False)
+                        sched["toConnector"] = unmap_oc_name(sched["toConnector"], False)
 
                     running_schedulers = schedulers
 
@@ -357,11 +335,11 @@ def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
         raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, "Failed to retrieve running Schedulers!")
+        abort(500, "Failed to retrieve running Automations!")
 
 
 @oc_schedulers_blueprint.route('/schedulers/logs', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving OpenCelium Schedulers!")
+@handle_oc_errors("retrieving Automation logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
@@ -382,7 +360,6 @@ def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
 
         if not status in ["s", "f"]:
             abort(400, "Invalid status provided. Status can be either 's' for success or 'f' for failed logs!")
-
 
         oc_scheduler_manager = OcSchedulerManager(
             current_app.database_manager,
@@ -420,11 +397,11 @@ def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
         raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, "Failed to retrieve OpenCelium Schedulers!")
+        abort(500, "Failed to retrieve Automation logs!")
 
 
 @oc_schedulers_blueprint.route('/schedulers/execute/<int:scheduler_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("executing the OpenCelium Scheduler!")
+@handle_oc_errors("executing the Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
@@ -442,9 +419,7 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → Validate scheduler access (CACHE FIRST)
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
@@ -466,9 +441,7 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             if not is_valid:
                 abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
-        # ------------------------------------------------------------
         # Execute Scheduler
-        # ------------------------------------------------------------
         scheduler_result = oc_scheduler_manager.execute_scheduler(scheduler_id)
 
         return DefaultResponse(scheduler_result).make_response()
@@ -476,12 +449,12 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[execute_oc_scheduler] %s: %s.", type(err).__name__, err, exc_info=True)
-        abort(500, f"Failed to execute OpenCelium Scheduler with ID: {scheduler_id}!")
+        abort(500, f"Failed to execute Automation with ID: {scheduler_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['PUT'])
-@handle_oc_errors("updating an OpenCelium Scheduler!")
+@handle_oc_errors("updating an Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
@@ -489,8 +462,8 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     PUT route to update an OcScheduler.
 
     Cloud mode:
-        - Scheduler ID access validated via cache first, then DG Service Portal.
-        - Title is mapped/unmapped per tenant.
+        - Scheduler ID access validated via cache first, then DG Service Portal
+        - Title is mapped/unmapped per tenant
     """
     try:
         oc_scheduler_manager = OcSchedulerManager(
@@ -500,11 +473,8 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
-        # ------------------------------------------------------------
         # CLOUD MODE → Validate scheduler access (CACHE FIRST)
-        # ------------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
-
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
             if cached_user:
@@ -524,25 +494,13 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             if not is_valid:
                 abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
-        # ------------------------------------------------------------
         # UPDATE PARAMS
-        # ------------------------------------------------------------
         params: dict[str, Any] = request.json
 
-        # Map title per tenant
+        # Map titles
         if current_app.cloud_mode and not current_app.local_mode:
             params["title"] = map_oc_name(request_user.database, params["title"])
-            params["connection"]["title"] = map_oc_name(request_user.database, params["connection"]["title"])
-            params["connection"]["fromConnector"]["title"] = map_oc_name(
-                request_user.database, params["connection"]["fromConnector"]["title"]
-            )
-            params["connection"]["toConnector"]["title"] = map_oc_name(
-                request_user.database, params["connection"]["toConnector"]["title"]
-            )
 
-        # ------------------------------------------------------------
-        # UPDATE OPERATION
-        # ------------------------------------------------------------
         updated_oc_scheduler = oc_scheduler_manager.update_scheduler(params, scheduler_id)
 
         # Unmap for UI
@@ -566,12 +524,12 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['DELETE'])
-@handle_oc_errors("deleting the OpenCelium Scheduler!")
+@handle_oc_errors("deleting the Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
-    DELETE route to delete an OcScheduler.
+    DELETE route to delete an OcScheduler
 
     Cloud mode:
         - Validate schedulerId and its connectionId via cache first,

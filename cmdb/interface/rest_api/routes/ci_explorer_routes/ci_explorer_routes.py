@@ -178,6 +178,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         target_type = request.args.get("target_type", default="BOTH").upper()
         with_root: bool = request.args.get("with_root", default="false").lower() == "true"
         with_locations: bool = request.args.get("with_locations", default="false").lower() == "true"
+        item_limit: int | None = request.args.get("item_limit", default=0)
+        # item_limit = 2
 
         types_filter = parse_int_list_filter("types_filter")
         relations_filter = parse_int_list_filter("relations_filter")
@@ -200,6 +202,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         if not NodeType.is_valid(target_type):
             abort(400, f"Invalid target_type '{target_type}'. Need one of: {', '.join(NodeType.__members__.keys())}")
 
+        ### ROOT-Object handling
         root_object = objects_manager.get_object(target_id) if (with_root or with_locations) else None
         root_type_info = types_manager.get_type(root_object['type_id']) if root_object else None
 
@@ -216,20 +219,67 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                     a_field['value'] = target_location['name']
 
 
-        object_relations = list(object_relations_manager.find(
-            criteria={"$or": [
-                {"relation_parent_id": target_id},
-                {"relation_child_id": target_id}
-            ]}
-        ))
+        ### Handling of object relations
+        if types_filter:
+            # Direction-aware filtering:
+            # If target is parent → filter by child_type
+            # If target is child  → filter by parent_type
+            rel_criteria = {
+                "$or": [
+                    {
+                        "relation_parent_id": target_id,
+                        "relation_child_type_id": {"$in": list(types_filter)}
+                    },
+                    {
+                        "relation_child_id": target_id,
+                        "relation_parent_type_id": {"$in": list(types_filter)}
+                    }
+                ]
+            }
+        else:
+            rel_criteria = {
+                "$or": [
+                    {"relation_parent_id": target_id},
+                    {"relation_child_id": target_id}
+                ]
+            }
 
         if relations_filter:
-            object_relations = [rel for rel in object_relations if rel['relation_id'] in relations_filter]
+            rel_criteria["relation_id"] = {"$in": list(relations_filter)}
+        # rel_criteria = {
+        #     "$and": [
+        #         {
+        #             "$or": [
+        #                 {"relation_parent_id": target_id},
+        #                 {"relation_child_id": target_id}
+        #             ]
+        #         }
+        #     ]
+        # }
 
+        # if relations_filter:
+        #     rel_criteria["$and"].append(
+        #         {"relation_id": {"$in": list(relations_filter)}}
+        #     )
+
+        object_relations = list(object_relations_manager.find(criteria=rel_criteria))
+        # object_relations = list(object_relations_manager.find(
+        #     criteria={"$or": [
+        #         {"relation_parent_id": target_id},
+        #         {"relation_child_id": target_id}
+        #     ]}
+        # ))
+
+        # if relations_filter:
+        #     object_relations = [rel for rel in object_relations if rel['relation_id'] in relations_filter]
+
+        ### Get all relations
         relation_ids = set(rel['relation_id'] for rel in object_relations)
         relations_list = relations_manager.find(criteria={"public_id": {"$in": list(relation_ids)}})
         relations_by_id = {rel['public_id']: rel for rel in relations_list}
 
+
+        ### Handling linked objects
         linked_object_ids = set()
         for rel in object_relations:
             if rel['relation_parent_id'] != target_id:
@@ -237,25 +287,29 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
             if rel['relation_child_id'] != target_id:
                 linked_object_ids.add(rel['relation_child_id'])
 
-        linked_objects_cursor = objects_manager.find(criteria={"public_id": {"$in": list(linked_object_ids)}})
+        linked_objects_cursor = objects_manager.find(
+            criteria={"public_id": {"$in": list(linked_object_ids)}},
+            limit=item_limit if item_limit > 0 else 0
+        )
+
         linked_objects = {obj['public_id']: obj for obj in linked_objects_cursor}
 
         # Apply types_filter to both linked_objects and relations
-        if types_filter:
-            allowed_object_ids = {
-                obj_id for obj_id, obj in linked_objects.items()
-                if obj.get("type_id") in types_filter
-            }
+        # if types_filter:
+        #     allowed_object_ids = {
+        #         obj_id for obj_id, obj in linked_objects.items()
+        #         if obj.get("type_id") in types_filter
+        #     }
 
-            object_relations = [
-                rel for rel in object_relations
-                if rel['relation_parent_id'] in allowed_object_ids or rel['relation_child_id'] in allowed_object_ids
-            ]
+        #     object_relations = [
+        #         rel for rel in object_relations
+        #         if rel['relation_parent_id'] in allowed_object_ids or rel['relation_child_id'] in allowed_object_ids
+        #     ]
 
-            linked_objects = {
-                obj_id: obj for obj_id, obj in linked_objects.items()
-                if obj_id in allowed_object_ids
-            }
+        #     linked_objects = {
+        #         obj_id: obj for obj_id, obj in linked_objects.items()
+        #         if obj_id in allowed_object_ids
+        #     }
 
         type_ids = {obj['type_id'] for obj in linked_objects.values()}
 
@@ -295,6 +349,10 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         child_edges = []
         parent_nodes = {}
         parent_edges = []
+
+
+        summary_cache: dict[int, Any] = {}
+        location_cache: dict[int, Any] = {}
 
         for obj_rel in object_relations:
             relation = relations_by_id.get(obj_rel['relation_id'])
@@ -336,12 +394,30 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                 field_name = a_field['name']
                 field_value = a_field['value']
 
-                if objects_manager.is_ref_field(field_name, linked_object) and field_value and\
-                    isinstance(field_value, int):
-                    a_field['value'] = objects_manager.get_summary_line(field_value)
+                if (
+                    objects_manager.is_ref_field(field_name, linked_object)
+                    and field_value
+                    and isinstance(field_value, int)
+                ):
+                    if field_value not in summary_cache:
+                        summary_cache[field_value] = objects_manager.get_summary_line(field_value)
+                    a_field['value'] = summary_cache[field_value]
+
                 if field_name == "dg_location" and field_value and isinstance(field_value, int):
-                    target_location = locations_manager.get_location(field_value)
-                    a_field['value'] = target_location['name']
+                    if field_value not in location_cache:
+                        location_cache[field_value] = locations_manager.get_location(field_value)
+                    a_field['value'] = location_cache[field_value]['name']
+
+            # for a_field in linked_object['fields']:
+            #     field_name = a_field['name']
+            #     field_value = a_field['value']
+
+            #     if objects_manager.is_ref_field(field_name, linked_object) and field_value and\
+            #         isinstance(field_value, int):
+            #         a_field['value'] = objects_manager.get_summary_line(field_value)
+            #     if field_name == "dg_location" and field_value and isinstance(field_value, int):
+            #         target_location = locations_manager.get_location(field_value)
+            #         a_field['value'] = target_location['name']
 
             node_dict = {
                 "linked_object": linked_object,
@@ -378,6 +454,9 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         if with_locations:
             # Locations are flipped in the Ci-Explorer
             # The child locations will be provided in parents and the parent will be provided in child
+            current_items_count = len(child_nodes) + len(parent_nodes)
+            remaining = remaining_items(item_limit, current_items_count) if item_limit else 0
+
             target_location = locations_manager.get_location_for_object(target_id)
 
             if target_location:
@@ -397,30 +476,36 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                             parent_node = None
                         else: # The object is not filtered out
                             if parent_object:
-                                parent_type = types_manager.get_type(parent_object['type_id'])
-                                parent_title = get_title(parent_object, parent_type)
+                                if item_limit and remaining == 0:
+                                    parent_node = None
+                                else:
+                                    parent_type = types_manager.get_type(parent_object['type_id'])
+                                    parent_title = get_title(parent_object, parent_type)
 
-                                parent_node = {
-                                    "linked_object": parent_object,
-                                    "title": parent_title,
-                                    "type_info": {
-                                        "type_id": parent_type['public_id'],
-                                        "type_color": parent_type.get('ci_explorer_color'),
-                                        "label": parent_type['label'],
-                                        "icon": parent_type['render_meta'].get('icon'),
-                                        "fields": parent_type.get('fields', {}),
-                                    },
-                                    "relation_color": CHILD_LOCATION_REL_COLOR
-                                }
+                                    parent_node = {
+                                        "linked_object": parent_object,
+                                        "title": parent_title,
+                                        "type_info": {
+                                            "type_id": parent_type['public_id'],
+                                            "type_color": parent_type.get('ci_explorer_color'),
+                                            "label": parent_type['label'],
+                                            "icon": parent_type['render_meta'].get('icon'),
+                                            "fields": parent_type.get('fields', {}),
+                                        },
+                                        "relation_color": CHILD_LOCATION_REL_COLOR
+                                    }
 
+                                    parent_edge: dict[str, Any] = {
+                                        "from": target_id,
+                                        "to": parent_object['public_id'],
+                                    }
 
-                                parent_edge: dict[str, Any] = {
-                                    "from": target_id,
-                                    "to": parent_object['public_id'],
-                                }
+                                    child_nodes[parent_object['public_id']] = parent_node
+                                    child_edges.append(parent_edge)
 
-                                child_nodes[parent_object['public_id']] = parent_node
-                                child_edges.append(parent_edge)
+                                    if item_limit:
+                                        # At least one item slot is available at this point
+                                        remaining -= remaining
 
                 if target_type in (NodeType.BOTH, NodeType.PARENT):
                     # Location children are placed in the parents
@@ -431,6 +516,9 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                     target_child_locations = locations_manager.get_locations_by(
                                                                     parent=target_location['public_id']
                                                                 )
+
+                    if item_limit and remaining > 0:
+                        object_ids = object_ids[:remaining]
 
                     # If there are any children, then get the corresponding objects
                     if target_child_locations:
@@ -659,18 +747,7 @@ def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser):
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
 def parse_int_list_filter(arg_name: str) -> set[int]:
-    """
-    Converts a list of intergers from request.args to a python list of integers
-
-    Args:
-        arg_name (str): _description_
-
-    Raises:
-        ValueError: _description_
-
-    Returns:
-        set[int]: _description_
-    """
+    """TODO: document"""
     raw_value = request.args.get(arg_name)
     if not raw_value:
         return set()
@@ -682,3 +759,13 @@ def parse_int_list_filter(arg_name: str) -> set[int]:
         return {int(x) for x in parsed}
     except (SyntaxError, ValueError, TypeError):
         abort(400, f"Invalid format for '{arg_name}'. Must be a list of integers like [1,2,3].")
+
+
+def item_limit_reached(item_limit: int, current_items: int) -> bool:
+    """TODO: document"""
+    return current_items >= item_limit
+
+
+def remaining_items(item_limit: int, current_items: int) -> int:
+    """TODO: document"""
+    return item_limit - current_items
