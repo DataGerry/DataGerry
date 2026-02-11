@@ -44,7 +44,7 @@ extensions = [
     'sphinxcontrib.httpdomain',
     'sphinx_rtd_theme',
     'sphinx_new_tab_link',
-    'sphinxcontrib.redoc',
+    'sphinxcontrib.openapi',
 ]
 
 # Napoleon settings
