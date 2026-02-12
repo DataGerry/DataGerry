@@ -21,8 +21,6 @@ The **Automations** feature in DataGerry allows you to create and manage interfa
 Terminology
 -----------
 
-|
-
 **Automation**
 
 An **Automation** in Datagerry is a combination of a *Connection* and a *Scheduler entry*.  
