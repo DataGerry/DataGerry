@@ -225,7 +225,7 @@ In the **DataGerry Cloud** version, this page is not required because licenses a
 =======================================================================================================================
 
 Documentation and Further Help
-------------------------------
+================
 
 For more detailed information on the **Automations** feature in DataGerry and the `OpenCelium <https://opencelium.io>`_ integration, please refer to the `OpenCelium Documentation <https://docs.opencelium.io>`_.
 
