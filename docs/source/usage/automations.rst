@@ -9,19 +9,19 @@ Automations
 
 =======================================================================================================================
 
-The **Automations** feature in DataGerry allows you to create and manage interfaces directly through the user interface. In the background, **OpenCelium** is used to handle the connections to external systems, making it easy to automate tasks and manage integrations.
-
-.. figure:: img/isms/isms_overview.png
-    :width: 600
-
-    Picture: ISMS overview
-
 | 
-
-=======================================================================================================================
 
 Generell
 ====================
+
+The **Automations** feature in DataGerry allows you to create and manage interfaces directly through the user interface. In the background, **OpenCelium** is used to handle the connections to external systems, making it easy to automate tasks and manage integrations.
+
+| 
+
+.. figure:: img/automation/automation_overview.png
+    :width: 600
+
+    Picture: Automation overview
 
 | 
 
