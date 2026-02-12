@@ -19,25 +19,22 @@ The **Automations** feature in DataGerry allows you to create and manage interfa
 |
 
 Terminology
-===========
+-----------
 
 |
 
-Automation
-----------
+**Automation**
 
 An **Automation** in Datagerry is a combination of a *Connection* and a *Scheduler entry*.  
 It defines a task that runs according to a defined schedule and interacts with a data source via a connection.
 
 |
 
-Automation-IDE
---------------
+**Automation-IDE**
 
 The **Automation-IDE** (in OpenCelium called *Connection Editor*) is the interface where Automations are created, edited, and managed.  
 Templates can be loaded within the Automation-IDE as starting points for new Automations.  
 After loading, templates can be modified and saved.
-
 
 | 
 
