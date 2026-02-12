@@ -112,7 +112,13 @@ class OcApiConnector:
 
 # ----------------------------------------------------- REQUESTS ----------------------------------------------------- #
 
-    def oc_post(self, payload: dict[str, Any], endpoint: str, with_auth: bool = True) -> Response:
+    def oc_post(
+            self,
+            payload: dict[str, Any],
+            endpoint: str,
+            with_auth: bool = True,
+            counter: int = 0
+        ) -> Response:
         """
         Handles POST requests towards OpenCelium API
 
@@ -131,7 +137,8 @@ class OcApiConnector:
         """
         try:
             if not self.token_is_set() and with_auth:
-                self.authenticate()
+                counter += 1
+                self.authenticate(counter)
 
             response: Response = post(
                 self.build_url(endpoint),
@@ -147,16 +154,17 @@ class OcApiConnector:
             # LOGGER.debug(f"[Request] payload: {response.request.body}\n\n")
 
             # If token expired or invalid → try once to recover
-            if response.status_code == 403:
-                LOGGER.warning("[oc_post] 403 received → trying token refresh")
+            if response.status_code == 403 and counter < 6:
+                LOGGER.warning(f"[oc_post] 403 received → trying token refresh: {counter}")
+                # LOGGER.warning(f"[oc_post] response: {response.text}")
 
-                self.authenticate() # writes new token to DB
+                self.authenticate(counter) # writes new token to DB
 
                 response: Response = post(
                     self.build_url(endpoint),
                     headers=self.get_headers(with_auth),
                     json=payload,
-                    timeout=OC_REQUEST_TIMEOUT
+                    timeout=OC_REQUEST_TIMEOUT,
                 )
 
             return response
@@ -167,7 +175,7 @@ class OcApiConnector:
             raise err
 
 
-    def oc_get(self, endpoint: str, password: str = None) -> Response:
+    def oc_get(self, endpoint: str, password: str = None, counter: int = 0) -> Response:
         """
         Handles GET requests towards OpenCelium API
 
@@ -184,7 +192,8 @@ class OcApiConnector:
         """
         try:
             if not self.token_is_set():
-                self.authenticate()
+                counter += 1
+                self.authenticate(counter)
 
             response: Response = get(
                 self.build_url(endpoint),
@@ -198,10 +207,10 @@ class OcApiConnector:
             # LOGGER.debug(f"[Response] body: {response.text}")
 
             # If token expired or invalid → try once to recover
-            if response.status_code == 403:
-                LOGGER.warning("[oc_get] 403 received → trying token refresh")
+            if response.status_code == 403 and counter < 6:
+                LOGGER.warning(f"[oc_get] 403 received → trying token refresh: {counter}")
 
-                self.authenticate() # writes new token to DB
+                self.authenticate(counter) # writes new token to DB
 
                 response: Response = get(
                     self.build_url(endpoint),
@@ -217,7 +226,7 @@ class OcApiConnector:
             raise err
 
 
-    def oc_put(self, payload: dict[str, Any], endpoint: str) -> Response:
+    def oc_put(self, payload: dict[str, Any], endpoint: str, counter: int = 0) -> Response:
         """
         Handles PUT requests towards OpenCelium API
 
@@ -235,7 +244,8 @@ class OcApiConnector:
         """
         try:
             if not self.token_is_set():
-                self.authenticate()
+                counter += 1
+                self.authenticate(counter)
 
             response: Response = put(
                 self.build_url(endpoint),
@@ -245,10 +255,10 @@ class OcApiConnector:
             )
 
             # If token expired or invalid → try once to recover
-            if response.status_code == 403:
-                LOGGER.warning("[oc_get] 403 received → trying token refresh")
+            if response.status_code == 403 and counter < 6:
+                LOGGER.warning(f"[oc_put] 403 received → trying token refresh: {counter}")
 
-                self.authenticate() # writes new token to DB
+                self.authenticate(counter) # writes new token to DB
 
                 response: Response = put(
                     self.build_url(endpoint),
@@ -265,7 +275,7 @@ class OcApiConnector:
             raise err
 
 
-    def oc_delete(self, endpoint: str) -> Response:
+    def oc_delete(self, endpoint: str, counter: int = 0) -> Response:
         """
         Handles DELETE requests towards OpenCelium API
 
@@ -282,7 +292,8 @@ class OcApiConnector:
         """
         try:
             if not self.token_is_set():
-                self.authenticate()
+                counter += 1
+                self.authenticate(counter)
 
             response: Response = delete(
                 self.build_url(endpoint),
@@ -291,10 +302,10 @@ class OcApiConnector:
             )
 
             # If token expired or invalid → try once to recover
-            if response.status_code == 403:
-                LOGGER.warning("[oc_delete] 403 received → trying token refresh")
+            if response.status_code == 403 and counter < 6:
+                LOGGER.warning(f"[oc_delete] 403 received → trying token refresh: {counter}")
 
-                self.authenticate() # writes new token to DB
+                self.authenticate(counter) # writes new token to DB
 
                 response: Response = delete(
                     self.build_url(endpoint),
@@ -310,7 +321,7 @@ class OcApiConnector:
             raise err
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
 
-    def authenticate(self) -> None:
+    def authenticate(self, counter: int = 0) -> None:
         """
         Gets the JWT-Token for the API
 
@@ -318,24 +329,27 @@ class OcApiConnector:
             AuthError: When authentication failed
         """
         # LOGGER.debug("[authenticate] called")
-        with self._lock:
-            payload: dict[str, str] = {
-                "email": self.get_email(),
-                "password": self.get_password(),
+        # with self._lock:
+        payload: dict[str, str] = {
+            "email": self.get_email(),
+            "password": self.get_password(),
+        }
+
+        counter += 1
+        response: Response = self.oc_post(payload, AUTH_URL, False, counter)
+
+        if response.status_code == 200:
+            # LOGGER.debug(f"[authenticate] response.headers: {response.headers}")
+            # LOGGER.debug(f"[authenticate] response.text: {response.text}")
+            oc_token_data = {
+                "_id": "oc_token",
+                "token":  response.headers['Authorization']
             }
 
-            response: Response = self.oc_post(payload, AUTH_URL, False)
-
-            if response.status_code == 200:
-                oc_token_data = {
-                    "_id": "oc_token",
-                    "token":  response.headers['Authorization']
-                }
-
-                self.settings_manager.write(_id='oc_token', data=oc_token_data)
-            else:
-                LOGGER.error("OC Auth error: [%s] %s", response.status_code, response.text)
-                raise AuthError("Authentication in OpenCelium failed!")
+            self.settings_manager.write(_id='oc_token', data=oc_token_data)
+        else:
+            LOGGER.error("OC Auth error: [%s] %s", response.status_code, response.text)
+            raise AuthError("Authentication in OpenCelium failed. Confirm your credentails!")
 
 
     def get_headers(self, with_auth: bool = True, password: str = None) -> dict[str, Any]:
