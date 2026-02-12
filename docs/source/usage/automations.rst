@@ -104,7 +104,7 @@ In the **Automations** section, you can manage and configure **connectors**. You
 Add Automation
 --------------------------
 
-### Steps to create a new automation:
+**Steps to create a new automation:**
 
 1. Click on **Create New Automation**.
 2. A form will open asking for the following details:
