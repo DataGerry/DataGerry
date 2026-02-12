@@ -659,7 +659,7 @@ export class RunReportComponent implements OnInit, OnChanges {
                                 let flattenedData = [];
                                 jsonData.forEach(item => {
                                     const baseData = {
-                                        public_id: String(item.object_id),
+                                        public_id: String(item.public_id),
                                         active: String(item.active),
                                         type_label: item.type_label
                                     };

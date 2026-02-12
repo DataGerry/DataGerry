@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -73,7 +73,7 @@ export class CiExplorerExportService {
       downloadDataUrl(dataUrl, fileName);
       return fileName;
     } catch (err) {
-      this.toastService.error('Your browser doesn’t support this export feature. Please try again with another browser.');
+      this.toastService.error('Your browser doesn’t support this export feature. Please try again with another browser like Google Chrome.');
     } finally {
       toggleExportingClass(viewportEl, false);
     }
@@ -190,7 +190,7 @@ export class CiExplorerExportService {
         downloadDataUrl(dataUrl, fileName);
         return fileName;
       } catch (fallbackErr) {
-        this.toastService.error('Export failed. Try reducing graph size/zoom and retry.');
+        this.toastService.error('Your browser doesn’t support this export feature. Please try again with another browser like Google Chrome.');
       }
     } finally {
       toggleExportingClass(canvasEl, false);
