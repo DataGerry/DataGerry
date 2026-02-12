@@ -113,6 +113,84 @@ Add Automation
 
 =======================================================================================================================
 
+Manage Connectors
+=================
+
+The **Manage Connectors** section allows you to configure and maintain connectors that are used within Automations. Connectors define how DataGerry communicates with internal or external systems.
+
+Built-in Connector
+------------------
+
+The **Built-in Connector** represents the DataGerry system itself. It is used when Automations interact directly with the local DataGerry instance.
+
+To configure the Built-in Connector, the following information must be provided:
+
+- **URL** of the DataGerry instance
+- **Username**
+- **Password**
+
+In the **DataGerry Cloud** version, an additional field is required:
+
+- **x-api-key**
+
+The ``x-api-key`` can be obtained from the `DataGerry Service Portal <https://service.datagerry.com>`_.
+
+Additional Connectors
+---------------------
+
+You can also create connectors for third-party applications.
+
+To create a new connector, click on **Add Connector**.
+
+This opens the **Add Connector** form, which is divided into two sections.
+
+Left Side – Meta Information
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+On the left side, general connector settings are defined:
+
+- **Name** of the connector
+- **Description** (optional)
+- **Invoker**
+- **SSL Verification** (enable/disable)
+- **Timeout**
+
+The **Invoker** represents the API definition of the third-party application.  
+It is a core component of a connector and ensures that:
+
+- The authentication mechanism of the third-party API is understood
+- The available API methods can be accessed within the Automation IDE
+
+Right Side – Authentication Configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+On the right side, the required authentication fields are displayed dynamically, depending on the selected **Invoker**.
+
+Typical authentication fields include:
+
+- **API URL**
+- **Username / Password**
+- **API Token**
+
+The exact fields depend on the authentication mechanism required by the third-party system.
+
+Testing the Connector
+---------------------
+
+Before a connector can be created and saved, a **Test Call** must be performed.
+
+To validate the configuration:
+
+1. Fill in all required fields.
+2. Click the **Test** button.
+3. Ensure the connection test is successful.
+
+Only after a successful test can the connector be saved and used in Automations.
+
+|
+
+=======================================================================================================================
+
 Documentation and Further Help
 ------------------------------
 
