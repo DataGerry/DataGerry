@@ -192,6 +192,38 @@ Only after a successful test can the connector be saved and used in Automations.
 
 =======================================================================================================================
 
+License Overview
+================
+
+In the **Self-Hosted** version of DataGerry, you can manage the OpenCelium license directly from the user interface. This is done via the **License Overview** page, which provides important information about the current license status.
+
+Accessing License Overview
+--------------------------
+
+The **License Overview** page is available from the **Automations** section in the UI (Self-Hosted only). It allows administrators to view and manage licensing details for OpenCelium.
+
+License Information
+-------------------
+
+On this page, the following information is displayed:
+
+- **API Request Usage**: Shows how many API requests have been executed in the current month.
+- **License Validity**: Indicates whether the currently installed license is valid or expired.
+
+This information is useful to:
+
+- Monitor API consumption
+- Ensure that the license is active
+- Plan for license renewal if needed
+
+Cloud Version
+-------------
+
+In the **DataGerry Cloud** version, this page is not required because licenses are automatically assigned to users when they use the platform. Therefore, license management is handled entirely by the service.
+|
+
+=======================================================================================================================
+
 Documentation and Further Help
 ------------------------------
 
