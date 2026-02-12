@@ -178,8 +178,10 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         target_type = request.args.get("target_type", default="BOTH").upper()
         with_root: bool = request.args.get("with_root", default="false").lower() == "true"
         with_locations: bool = request.args.get("with_locations", default="false").lower() == "true"
-        item_limit: int | None = request.args.get("item_limit", default=0)
-        # item_limit = 2
+        item_limit: int | None = request.args.get("item_limit", default=0, type=int)
+
+        if not item_limit or item_limit < 0:
+            item_limit = 0
 
         types_filter = parse_int_list_filter("types_filter")
         relations_filter = parse_int_list_filter("relations_filter")
@@ -517,8 +519,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                                                                     parent=target_location['public_id']
                                                                 )
 
-                    if item_limit and remaining > 0:
-                        object_ids = object_ids[:remaining]
+                    if item_limit and target_child_locations and remaining > 0:
+                        target_child_locations = target_child_locations[:remaining]
 
                     # If there are any children, then get the corresponding objects
                     if target_child_locations:
