@@ -14,7 +14,29 @@ Automations
 Generell
 ====================
 
-The **Automations** feature in DataGerry allows you to create and manage interfaces directly through the user interface. In the background, `OpenCelium <https://opencelium.io>`_ is used to handle the connections to external systems, making it easy to automate tasks and manage integrations.
+The **Automations** feature in DataGerry allows you to create and manage interfaces directly through the user interface. In the background, `OpenCelium <https://opencelium.io>`_ is used to handle the connections to external systems, making it easy to automate tasks and manage integrations. 
+
+|
+
+Terminology
+===========
+
+|
+
+Automation
+----------
+
+An **Automation** in Datagerry is a combination of a *Connection* and a *Scheduler entry*.  
+It defines a task that runs according to a defined schedule and interacts with a data source via a connection.
+
+|
+
+Automation-IDE
+--------------
+
+The **Automation-IDE** (in OpenCelium called *Connection Editor*) is the interface where Automations are created, edited, and managed.  
+Templates can be loaded within the Automation-IDE as starting points for new Automations.  
+After loading, templates can be modified and saved.
 
 
 | 
@@ -48,6 +70,7 @@ Accessing Automations
 
 To access **Automations**, navigate to the **Toolbox** menu in the DataGerry dashboard, and select the **Automations** sub-menu. You will be presented with a table displaying all created automations, which includes the following key information:
 
+- **Name**: The name of the automation.
 - **Direction (Data Flow Direction)**: Defines the direction of the interface—either **Incoming**, **Outgoing**, or **Internal**.
 - **Cron Expression**: The time-based configuration that defines how frequently the automation will run.
 - **Last Success**: The last successful execution time of the automation.
@@ -61,14 +84,14 @@ To access **Automations**, navigate to the **Toolbox** menu in the DataGerry das
 
 =======================================================================================================================
 
-| 
-
 Automation Refresh
 -------------------
 
 You can enable **auto-refresh** for the Automations page, which ensures that you are always seeing the most up-to-date status and data related to your automations.
 
 |
+
+=======================================================================================================================
 
 Managing Connectors
 -------------------
@@ -77,7 +100,9 @@ In the **Automations** section, you can manage and configure **connectors**. You
 
 |
 
-Creating a New Automation
+=======================================================================================================================
+
+Add Automation
 --------------------------
 
 ### Steps to create a new automation:
@@ -87,7 +112,11 @@ Creating a New Automation
    - **Name** of the automation.
    - **Description** (optional).
    - **Direction of Data Flow**: Choose the desired data flow direction (**incoming**, **outgoing**, or **internal**).
-   - **Connector**: Select the connector through which you want to send or receive data.
+   - **Get/Send data from/to Connector:**: Select the connector through which you want to send or receive data.
+   - **Use a predefined interface template:**: The available predifined templates are loaded based on the selection of the connector and the direction of the data flow. A template is a predefined interface blueprint that can be loaded in the Automation-IDE. It serves as a starting point to quickly display an interface. After loading, the template can be modified and customized, and then saved.
+|
+
+=======================================================================================================================
 
 Documentation and Further Help
 ------------------------------
