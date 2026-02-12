@@ -364,7 +364,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
           this.toast.success(enabled ? 'Logs enabled' : 'Logs disabled');
         },
         error: (err) => {
-          this.toast.error(err?.error?.message || 'Failed to update logs');
+          this.toast.error(err?.error?.message);
           const input = event?.target as HTMLInputElement;
           if (input) {
             input.checked = !enabled;
@@ -384,7 +384,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         onConfirm: () => {
           this.automationsService?.deleteAutomation(schedulerId)?.subscribe({
             next: () => { this.toast.success('Automation deleted successfully'); this.loadAutomations(); },
-            error: () => this.toast.error('Delete failed')
+            error: (err) => this.toast.error(err?.error?.message)
           });
         }
       });
@@ -560,13 +560,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     if (!status) {
       return baseMessage;
     }
-    const missing = Object.entries(status)
-      .filter(([key, value]) => key !== 'status' && value === false)
-      .map(([key]) => key);
-    if (!missing.length) {
-      return baseMessage;
-    }
-    return `${baseMessage} Missing: ${missing.join(', ')}.`;
+    return `${baseMessage}`;
   }
 
 
