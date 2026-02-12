@@ -170,7 +170,7 @@ export class SessionTimeoutService implements OnDestroy {
     this.notificationModalRef.componentInstance.remainingTime$ = this.sessionTimeoutRemaining;
     this.notificationModalRef.result.then(
       (result) => {
-        if (result.renewed) {
+        if (result?.renewed) {
           this.toast.success('Session renewed!');
         } else {
           this.displayLogoutWarning();
