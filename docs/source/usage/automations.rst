@@ -136,7 +136,7 @@ In the **DataGerry Cloud** version, an additional field is required:
 
 The ``x-api-key`` can be obtained from the `DataGerry Service Portal <https://service.datagerry.com>`_.
 
-Additional Connectors
+Add Connectors
 ---------------------
 
 You can also create connectors for third-party applications.
