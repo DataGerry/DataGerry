@@ -93,7 +93,14 @@ Managing Connectors
 
 In the **Automations** section, you can manage and configure **connectors**. You can modify existing connections or create new ones to send or receive data from various sources.
 
-|
+| 
+
+.. figure:: img/automation/manage_connectors.png
+    :width: 600
+
+    Picture: Automation overview
+
+| 
 
 =======================================================================================================================
 
