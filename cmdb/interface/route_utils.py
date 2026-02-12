@@ -26,7 +26,7 @@ import time
 import hashlib
 from typing import Any, Callable
 import requests
-from requests.exceptions import ConnectTimeout, Timeout
+from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
@@ -174,6 +174,11 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
             except ConnectTimeout as err:
                 LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
                 abort(500, "Connection to OpenCelium could not be established!")
+            except ConnectionError as err:
+                LOGGER.error("[OC General Error] ConnectionError: %s", err, exc_info=True)
+                abort(500,
+                      "Connection refused. Please check your web server's network settings!"
+                )
             except Timeout as err:
                 LOGGER.error("[OC General Error] Timeout: %s", err, exc_info=True)
                 abort(500, "Connecting to OpenCelium failed due to a timeout!")

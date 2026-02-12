@@ -69,7 +69,7 @@ def get_oc_config_status(request_user: CmdbUser) -> Response:
 
         for field in string_fields:
             value = scr.get_value(field, section)
-            config_state[field] = bool(value and value.strip())
+            config_state[field] = bool(value)
 
         # Port handling (numeric)
         port_value = scr.get_value("port", section)
