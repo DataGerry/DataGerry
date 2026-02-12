@@ -109,6 +109,7 @@ Add Automation
    - **Direction of Data Flow**: Choose the desired data flow direction (**incoming**, **outgoing**, or **internal**).
    - **Get/Send data from/to Connector:**: Select the connector through which you want to send or receive data.
    - **Use a predefined interface template:**: The available predifined templates are loaded based on the selection of the connector and the direction of the data flow. A template is a predefined interface blueprint that can be loaded in the Automation-IDE. It serves as a starting point to quickly display an interface. After loading, the template can be modified and customized, and then saved.
+3. Start creating Automation. Please refer to the `OpenCelium Documentation <https://docs.opencelium.io/en/prod/usage/connections.html#create-connection>`_ to know how to start. The first to pictures looks different to DataGery UI. Please skip them. Its important to know, how to use operators oder api methods.
 |
 
 =======================================================================================================================
