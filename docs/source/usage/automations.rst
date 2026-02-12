@@ -2,7 +2,7 @@
 Automations
 ****
 
-.. _isms-anchor:
+.. _automations-anchor:
 
 .. contents:: Table of Contents
     :local:
@@ -22,7 +22,7 @@ The **Automations** feature in DataGerry allows you to create and manage interfa
 Self-Hosted vs. Cloud
 ----------------------
 
-- **Self-Hosted**: In the Self-Hosted version of DataGerry, you can access the OpenCelium license overview. This allows you to manage and monitor the licenses being used.
+- **Self-Hosted**: In the Self-Hosted version of DataGerry, you can access the `OpenCelium <https://opencelium.io>`_ license overview. This allows you to manage and monitor the licenses being used.
   
 - **Cloud**: In the Cloud version of DataGerry, licenses are automatically assigned to users when they use DataGerry in the cloud. Therefore, the license overview is not relevant in this version.
 
@@ -60,6 +60,7 @@ To access **Automations**, navigate to the **Toolbox** menu in the DataGerry das
 | 
 
 =======================================================================================================================
+
 | 
 
 Automation Refresh
@@ -71,7 +72,6 @@ You can enable **auto-refresh** for the Automations page, which ensures that you
 
 Managing Connectors
 -------------------
-|
 
 In the **Automations** section, you can manage and configure **connectors**. You can modify existing connections or create new ones to send or receive data from various sources.
 
@@ -92,9 +92,6 @@ Creating a New Automation
 Documentation and Further Help
 ------------------------------
 
-For more detailed information on the **Automations** feature in DataGerry and the OpenCelium integration, please refer to the `OpenCelium Documentation <https://docs.opencelium.io>`_ or the `DataGerry User Manual <https://docs.datagerry.org>`_.
+For more detailed information on the **Automations** feature in DataGerry and the `OpenCelium <https://opencelium.io>`_ integration, please refer to the `OpenCelium Documentation <https://docs.opencelium.io>`_.
 
-Notes:
-------
 
-- If you have any questions or need assistance, you can visit the `DataGerry Community <https://forum.datagerry.org>`_ or contact support.
