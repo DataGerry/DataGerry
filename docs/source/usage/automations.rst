@@ -36,12 +36,12 @@ After loading, templates can be modified and saved.
 
 | 
 
-Self-Hosted vs. Cloud
+Cloud vs. On-Premises
 ----------------------
-
-- **Self-Hosted**: In the Self-Hosted version of DataGerry, you can access the `OpenCelium <https://opencelium.io>`_ license overview. This allows you to manage and monitor the licenses being used.
   
 - **Cloud**: In the Cloud version of DataGerry, licenses are automatically assigned to users when they use DataGerry in the cloud. Therefore, the license overview is not relevant in this version.
+
+- **On-Premises**: In the On-Premises version of DataGerry, you can access the `OpenCelium <https://opencelium.io>`_ license overview. This allows you to manage and monitor the licenses being used.
 
 | 
 
@@ -202,12 +202,12 @@ Only after a successful test can the connector be saved and used in Automations.
 License Overview
 ================
 
-In the **Self-Hosted** version of DataGerry, you can manage the OpenCelium license directly from the user interface. This is done via the **License Overview** page, which provides important information about the current license status.
+In the **On-Premises** version of DataGerry, you can manage the OpenCelium license directly from the user interface. This is done via the **License Overview** page, which provides important information about the current license status.
 
 Accessing License Overview
 --------------------------
 
-The **License Overview** page is available from the **Automations** section in the UI (Self-Hosted only). It allows administrators to view and manage licensing details for OpenCelium.
+The **License Overview** page is available from the **Automations** section in the UI (On-Premises only). It allows administrators to view and manage licensing details for OpenCelium.
 
 License Information
 -------------------
