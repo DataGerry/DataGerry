@@ -18,7 +18,7 @@
 import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { AutomationsService } from '../../services/automations.service';
+import { AutomationsService, OpenCeliumConfigStatus } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
@@ -27,6 +27,7 @@ import { finalize } from 'rxjs';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 import { environment } from 'src/environments/environment';
+import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 
 type RefreshOption = { label: string; value: number };
 
@@ -57,6 +58,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
   public isExecuting: string | null = null;
   public logToggleLoading: Record<string, boolean> = {};
   public isCloudMode = environment.cloudMode;
+  public openCeliumConfigOk = environment.cloudMode;
   public refreshOptions: RefreshOption[] = [
     { label: 'Off', value: 0 },
     { label: '15s', value: 15000 },
@@ -78,6 +80,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     private deleteModalService: DeleteModalService,
     private modalService: NgbModal
   ) { }
+
 
   ngOnInit(): void {
     this.columns = [
@@ -159,6 +162,32 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     this.loading = true;
     this.loaderService.show();
 
+    if (!this.isCloudMode) {
+      this.automationsService?.getOpenCeliumConfigStatus()?.subscribe({
+        next: (status) => {
+          if (!status?.status) {
+            this.handleConfigStatusFailure(status);
+            return;
+          }
+          this.openCeliumConfigOk = true;
+          this.fetchAutomations();
+        },
+        error: (error) => {
+          this.openCeliumConfigOk = false;
+          this.handleAutomationListError(error);
+          this.loading = false;
+          this.loaderService.hide();
+        }
+      });
+      return;
+    }
+
+    this.openCeliumConfigOk = true;
+    this.fetchAutomations();
+  }
+
+
+  private fetchAutomations(): void {
     this.automationsService?.getAutomations()?.subscribe({
       next: (automations) => {
         // Map automations to add direction information
@@ -174,7 +203,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         this.loaderService.hide();
       },
       error: (error) => {
-        this.toast.error(error?.error?.message);
+        this.handleAutomationListError(error);
         this.loading = false;
         this.loaderService.hide();
       }
@@ -362,7 +391,6 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     }
 
 
-
   executeScheduler(schedulerId: any): void {
     if (this.isSchedulerRunning(schedulerId)) {
       return;
@@ -511,5 +539,52 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       window.clearInterval(this.refreshTimerId);
       this.refreshTimerId = undefined;
     }
+  }
+
+
+  private handleConfigStatusFailure(status: OpenCeliumConfigStatus | null | undefined): void {
+    this.openCeliumConfigOk = false;
+    this.automations = [];
+    this.totalAutomations = 0;
+    this.clearAutoRefreshTimer();
+    this.selectedRefreshMs = 0;
+    this.loading = false;
+    this.loaderService.hide();
+    this.showWarningModal(this.getMissingConfigMessage(status));
+  }
+
+
+  private getMissingConfigMessage(status?: OpenCeliumConfigStatus | null): string {
+    const baseMessage =
+      'We could not find a configuration for this feature. Please check your configuration. Read more in the documentation.';
+    if (!status) {
+      return baseMessage;
+    }
+    const missing = Object.entries(status)
+      .filter(([key, value]) => key !== 'status' && value === false)
+      .map(([key]) => key);
+    if (!missing.length) {
+      return baseMessage;
+    }
+    return `${baseMessage} Missing: ${missing.join(', ')}.`;
+  }
+
+
+  private handleAutomationListError(error: any): void {
+    const backendMessage = error?.error?.message;
+    const message = this.isCloudMode
+      ? `${backendMessage}\nPlease contact support at support@datagerry.com`
+      : backendMessage;
+    this.showWarningModal(message);
+  }
+
+  private showWarningModal(message: string): void {
+    const modalRef = this.modalService.open(CoreWarningModalComponent, { size: 'lg' });
+    modalRef.componentInstance.title = 'Attention';
+    modalRef.componentInstance.message = message;
+    modalRef.componentInstance.warningTitle = 'Error message:';
+    modalRef.componentInstance.confirmLabel = null;
+    modalRef.componentInstance.backOnClose = true;
+    modalRef.componentInstance.cancelRoute = '/';
   }
 }

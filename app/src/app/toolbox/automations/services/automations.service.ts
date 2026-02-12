@@ -31,6 +31,10 @@ export class AutomationsService extends BaseApiService<any> {
     super(api);
   }
 
+  getOpenCeliumConfigStatus(): Observable<OpenCeliumConfigStatus> {
+    return this.handleGetRequest<OpenCeliumConfigStatus>('config_file/status/opencelium', new HttpParams());
+  }
+
   // LIST
   getAutomations(): Observable<any[]> {
     const params = new HttpParams();
@@ -88,3 +92,14 @@ export class AutomationsService extends BaseApiService<any> {
     return this.handleGetRequest<any[]>(`${this.servicePrefix}/schedulers/logs`, params);
   }
 }
+
+export type OpenCeliumConfigStatus = {
+  status: boolean;
+  section: boolean;
+  host: boolean;
+  port: boolean;
+  protocol: boolean;
+  email: boolean;
+  user: boolean;
+  password: boolean;
+};
