@@ -293,12 +293,13 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         dg_sp_manager = DgServicePortalManager()
         cached_user_manager = CachedUserManager(current_app.database_manager)
 
+        master_password = request.headers.get("X-Master-Password")
+
         use_cache = False
         cached_user = None
+        pw_valid: bool = False
 
-        # -----------------------------
         # 1) CLOUD MODE → Try cache first
-        # -----------------------------
         if current_app.cloud_mode and not current_app.local_mode:
             cached_user = cached_user_manager.get_cached_user(request_user.email)
             use_cache = cached_user is not None
@@ -322,10 +323,46 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
             if not connector_exists:
                 abort(400, f"The target Connector with ID:{connector_id} was not found!")
 
-        # -----------------------------
+        # Check the password if provided
+        if current_app.cloud_mode and not current_app.local_mode and master_password:
+            cached_user = cached_user_manager.get_cached_user(request_user.email)
+
+            if cached_user:
+                use_cache = True
+
+                # Cached password check
+                pw_valid = cached_user_manager.check_cached_master_password(
+                    cached_user,
+                    request_user.database,
+                    master_password
+                )
+            else:
+                # No cache → fallback to DG Service Portal
+                pw_valid = dg_sp_manager.check_master_pw(
+                    master_password,
+                    request_user.email,
+                    request_user.database
+                )
+
+        elif master_password:
+            pw_valid = oc_connector_manager.check_master_pw(master_password)
+
+        if master_password and not pw_valid:
+            abort(403, "Invalid master password!")
+
         # 2) Retrieve the connector
-        # -----------------------------
-        connector = oc_connector_manager.get_connector(connector_id)
+        connector = {}
+
+        if current_app.cloud_mode and not current_app.local_mode and master_password:
+            # Retrieve connector from OC (cloud mode) with master pw
+            connector: dict[str, Any] | None = oc_connector_manager.get_connector(
+                int(connector_id),
+                oc_connector_manager.get_master_pw()
+            )
+        elif master_password:
+            connector = oc_connector_manager.get_connector(connector_id, master_password)
+        else:
+            connector = oc_connector_manager.get_connector(connector_id)
 
         # -----------------------------
         # 3) Cloud mode → unmap title
