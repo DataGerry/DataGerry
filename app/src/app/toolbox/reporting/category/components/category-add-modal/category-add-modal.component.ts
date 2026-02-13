@@ -21,7 +21,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
-import { ReportCategoryService } from 'src/app/reporting/services/report-category.service';
+import { ReportCategoryService } from '../../../services/report-category.service';
 
 @Component({
     selector: 'app-add-category-modal',

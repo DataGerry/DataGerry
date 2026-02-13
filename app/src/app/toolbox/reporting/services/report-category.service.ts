@@ -20,16 +20,11 @@ import { Injectable } from '@angular/core';
 import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
+import { ApiServicePrefix, resp, ApiCallService } from 'src/app/services/api-call.service';
+import { CollectionParameters } from 'src/app/services/models/api-parameter';
+import { APIGetMultiResponse, APIGetSingleResponse, APIInsertSingleResponse, APIUpdateSingleResponse, APIDeleteSingleResponse } from 'src/app/services/models/api-response';
 
-import { ApiCallService, ApiServicePrefix, resp } from '../../services/api-call.service';
-import {
-    APIGetMultiResponse,
-    APIGetSingleResponse,
-    APIInsertSingleResponse,
-    APIUpdateSingleResponse,
-    APIDeleteSingleResponse
-} from '../../services/models/api-response';
-import { CollectionParameters } from '../../services/models/api-parameter';
+
 
 @Injectable({
     providedIn: 'root'

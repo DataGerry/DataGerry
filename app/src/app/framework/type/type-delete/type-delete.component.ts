@@ -27,8 +27,8 @@ import { ToastService } from '../../../layout/toast/toast.service';
 
 import { CmdbType } from '../../models/cmdb-type';
 import { Location } from '@angular/common';
+import { ReportService } from 'src/app/toolbox/reporting/services/report.service';
 
-import { ReportService } from 'src/app/reporting/services/report.service';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 

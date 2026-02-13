@@ -17,14 +17,14 @@
 */
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { ReportCategoryService } from 'src/app/reporting/services/report-category.service';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { Observable, ReplaySubject, forkJoin, throwError } from 'rxjs';
 import { catchError, finalize, takeUntil, tap } from 'rxjs/operators';
-import { ReportService } from 'src/app/reporting/services/report.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ReportCategoryService } from '../../../services/report-category.service';
+import { ReportService } from '../../../services/report.service';
 
 @Component({
     selector: 'app-create-report',

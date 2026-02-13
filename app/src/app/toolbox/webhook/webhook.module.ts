@@ -3,14 +3,15 @@ import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { RouterModule, Routes } from '@angular/router';
 
-import { TableModule } from "../layout/table/table.module";
 import { WebhookFormComponent } from './components/webhook-form/webhook-form.component';
 import { WebhookOverviewComponent } from './components/webhook-overview/webhook-overview.component';
 import { WebhookLogViewerComponent } from './components/webhook-log-viewer/webhook-log-viewer.component';
 import { NgSelectModule } from '@ng-select/ng-select';
-import { UserSettingsResolver } from '../management/user-settings/resolvers/user-settings-resolver.service';
-import { AuthModule } from '../modules/auth/auth.module';
-import { CoreModule } from '../core/core.module';
+import { UserSettingsResolver } from 'src/app/management/user-settings/resolvers/user-settings-resolver.service';
+import { CoreModule } from 'src/app/core/core.module';
+import { TableModule } from 'src/app/layout/table/table.module';
+import { AuthModule } from 'src/app/modules/auth/auth.module';
+
 
 const routes: Routes = [
     {

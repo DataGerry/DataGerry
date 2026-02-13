@@ -17,13 +17,12 @@
 */
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReportingRoutingModule } from './reporting-routing.module';
 
-// Import the feature modules
-import { ReportModule } from './report/report.module';
+import { CoreModule } from 'src/app/core/core.module';
 import { ReportCategoryModule } from './category/report-category.module';
+import { ReportModule } from './report/report.module';
 import { RunReportModule } from './report/run-report.module';
-import { CoreModule } from '../core/core.module';
+import { ReportingRoutingModule } from './reporting-routing.module';
 
 @NgModule({
     declarations: [],
