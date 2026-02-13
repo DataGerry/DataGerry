@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@
 import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { AutomationsService } from '../../services/automations.service';
+import { AutomationsService, OpenCeliumConfigStatus } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
@@ -27,6 +27,7 @@ import { finalize } from 'rxjs';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 import { environment } from 'src/environments/environment';
+import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 
 type RefreshOption = { label: string; value: number };
 
@@ -57,6 +58,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
   public isExecuting: string | null = null;
   public logToggleLoading: Record<string, boolean> = {};
   public isCloudMode = environment.cloudMode;
+  public openCeliumConfigOk = environment.cloudMode;
   public refreshOptions: RefreshOption[] = [
     { label: 'Off', value: 0 },
     { label: '15s', value: 15000 },
@@ -78,6 +80,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     private deleteModalService: DeleteModalService,
     private modalService: NgbModal
   ) { }
+
 
   ngOnInit(): void {
     this.columns = [
@@ -159,6 +162,32 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     this.loading = true;
     this.loaderService.show();
 
+    if (!this.isCloudMode) {
+      this.automationsService?.getOpenCeliumConfigStatus()?.subscribe({
+        next: (status) => {
+          if (!status?.status) {
+            this.handleConfigStatusFailure(status);
+            return;
+          }
+          this.openCeliumConfigOk = true;
+          this.fetchAutomations();
+        },
+        error: (error) => {
+          this.openCeliumConfigOk = false;
+          this.handleAutomationListError(error);
+          this.loading = false;
+          this.loaderService.hide();
+        }
+      });
+      return;
+    }
+
+    this.openCeliumConfigOk = true;
+    this.fetchAutomations();
+  }
+
+
+  private fetchAutomations(): void {
     this.automationsService?.getAutomations()?.subscribe({
       next: (automations) => {
         // Map automations to add direction information
@@ -174,7 +203,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         this.loaderService.hide();
       },
       error: (error) => {
-        this.toast.error(error?.error?.message);
+        this.handleAutomationListError(error);
         this.loading = false;
         this.loaderService.hide();
       }
@@ -335,7 +364,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
           this.toast.success(enabled ? 'Logs enabled' : 'Logs disabled');
         },
         error: (err) => {
-          this.toast.error(err?.error?.message || 'Failed to update logs');
+          this.toast.error(err?.error?.message);
           const input = event?.target as HTMLInputElement;
           if (input) {
             input.checked = !enabled;
@@ -355,12 +384,11 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         onConfirm: () => {
           this.automationsService?.deleteAutomation(schedulerId)?.subscribe({
             next: () => { this.toast.success('Automation deleted successfully'); this.loadAutomations(); },
-            error: () => this.toast.error('Delete failed')
+            error: (err) => this.toast.error(err?.error?.message)
           });
         }
       });
     }
-
 
 
   executeScheduler(schedulerId: any): void {
@@ -511,5 +539,46 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       window.clearInterval(this.refreshTimerId);
       this.refreshTimerId = undefined;
     }
+  }
+
+
+  private handleConfigStatusFailure(status: OpenCeliumConfigStatus | null | undefined): void {
+    this.openCeliumConfigOk = false;
+    this.automations = [];
+    this.totalAutomations = 0;
+    this.clearAutoRefreshTimer();
+    this.selectedRefreshMs = 0;
+    this.loading = false;
+    this.loaderService.hide();
+    this.showWarningModal(this.getMissingConfigMessage(status));
+  }
+
+
+  private getMissingConfigMessage(status?: OpenCeliumConfigStatus | null): string {
+    const baseMessage =
+      'We could not find a configuration for this feature. Please check your configuration. Read more in the documentation.';
+    if (!status) {
+      return baseMessage;
+    }
+    return `${baseMessage}`;
+  }
+
+
+  private handleAutomationListError(error: any): void {
+    const backendMessage = error?.error?.message;
+    const message = this.isCloudMode
+      ? `${backendMessage}\nPlease contact support at support@datagerry.com`
+      : backendMessage;
+    this.showWarningModal(message);
+  }
+
+  private showWarningModal(message: string): void {
+    const modalRef = this.modalService.open(CoreWarningModalComponent, { size: 'lg' });
+    modalRef.componentInstance.title = 'Attention';
+    modalRef.componentInstance.message = message;
+    modalRef.componentInstance.warningTitle = 'Error message:';
+    modalRef.componentInstance.confirmLabel = null;
+    modalRef.componentInstance.backOnClose = true;
+    modalRef.componentInstance.cancelRoute = '/';
   }
 }

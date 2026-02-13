@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,6 +29,10 @@ export class AutomationsService extends BaseApiService<any> {
 
   constructor(protected api: ApiCallService) {
     super(api);
+  }
+
+  getOpenCeliumConfigStatus(): Observable<OpenCeliumConfigStatus> {
+    return this.handleGetRequest<OpenCeliumConfigStatus>('config_file/status/opencelium', new HttpParams());
   }
 
   // LIST
@@ -88,3 +92,14 @@ export class AutomationsService extends BaseApiService<any> {
     return this.handleGetRequest<any[]>(`${this.servicePrefix}/schedulers/logs`, params);
   }
 }
+
+export type OpenCeliumConfigStatus = {
+  status: boolean;
+  section: boolean;
+  host: boolean;
+  port: boolean;
+  protocol: boolean;
+  email: boolean;
+  user: boolean;
+  password: boolean;
+};

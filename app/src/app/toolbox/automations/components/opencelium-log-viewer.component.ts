@@ -11,6 +11,7 @@ import {
   Output,
   EventEmitter,
 } from '@angular/core';
+import { ToastService } from 'src/app/layout/toast/toast.service.js';
 @Component({
   selector: 'opencelium-log-viewer',
   standalone: true,
@@ -27,7 +28,7 @@ export class OpenCeliumLogsViewComponent
   private container?: HTMLElement;
   private LogsView?: any;
 
-  constructor(private host: ElementRef) {}
+  constructor(private host: ElementRef, private toast: ToastService) {}
   async ngAfterViewInit() {
 
     // this.LogsView = LogsView;
@@ -38,7 +39,7 @@ export class OpenCeliumLogsViewComponent
         await this.loadLogsView();
         this.render();
       } catch (error) {
-        console.error('Failed to load OpenCelium logs view', error);
+        this.toast.error('Failed to load OpenCelium logs view');
       }
   }
 

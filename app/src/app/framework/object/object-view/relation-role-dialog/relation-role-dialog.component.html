@@ -42,6 +42,12 @@
                       (scrollToEnd)="onChildScrollToEnd()"
                       (search)="onChildSearch($event.term)"
                       [typeahead]="childSearchSubject">
+                      <ng-template ng-header-tmp>
+                        <small class="text-muted">
+                          Loaded {{ flatChildOptions.length }} items
+                          <span *ngIf="childHasMoreData"> • Scroll to load more</span>
+                        </small>
+                      </ng-template>
                       <ng-template ng-notfound-tmp><div class="no-options">No child objects found</div></ng-template>
                     </ng-select>
                     <div class="selection-error" *ngIf="flatChildOptions.length === 0">
@@ -75,6 +81,12 @@
                       (scrollToEnd)="onParentScrollToEnd()"
                       (search)="onParentSearch($event.term)"
                       [typeahead]="parentSearchSubject">
+                      <ng-template ng-header-tmp>
+                        <small class="text-muted">
+                          Loaded {{ flatParentOptions.length }} items
+                          <span *ngIf="parentHasMoreData"> • Scroll to load more</span>
+                        </small>
+                      </ng-template>
                       <ng-template ng-notfound-tmp><div class="no-options">No parent objects found</div></ng-template>
                     </ng-select>
                     <div class="selection-error" *ngIf="flatParentOptions.length === 0">

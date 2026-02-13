@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, Input } from '@angular/core';
+import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -32,8 +33,14 @@ export class CoreWarningModalComponent {
   @Input() warningTitle: string = 'Warning:';
   @Input() warningIconClass: string = 'fas fa-exclamation-circle';
   @Input() route: string;
+  @Input() backOnClose: boolean = false;
+  @Input() cancelRoute: string;
 
-  constructor(public activeModal: NgbActiveModal, private router: Router) {}
+  constructor(
+    public activeModal: NgbActiveModal,
+    private router: Router,
+    private location: Location
+  ) {}
 
   navigate(): void {
     this.activeModal.close('confirmed');
@@ -44,5 +51,12 @@ export class CoreWarningModalComponent {
 
   cancel(): void {
     this.activeModal.dismiss('cancelled');
+    if (this.cancelRoute) {
+      this.router.navigate([this.cancelRoute]);
+      return;
+    }
+    if (this.backOnClose) {
+      this.location.back();
+    }
   }
 }

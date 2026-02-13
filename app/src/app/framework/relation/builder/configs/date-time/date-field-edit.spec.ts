@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,10 +19,11 @@
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 import { DateFieldEditComponent } from "./date-field-edit.component";
 import { ReactiveFormsModule, UntypedFormControl } from "@angular/forms";
-import { FieldIdentifierValidationService } from "../../../services/field-identifier-validation.service";
-import { ValidationService } from "../../../services/validation.service";
+
 import { NgbDateAdapter, NgbDateParserFormatter } from "@ng-bootstrap/ng-bootstrap";
 import { CustomDateParserFormatter, NgbStringAdapter } from "src/app/settings/date-settings/date-settings-formatter.service";
+import { FieldIdentifierValidationService } from "src/app/framework/type/services/field-identifier-validation.service";
+import { ValidationService } from "src/app/framework/type/services/validation.service";
 
 
 class MockFieldIdentifierValidationService {

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -42,6 +42,8 @@ import { CiExplorerExportService } from './services/ci-explorer-export.service';
 import { GraphInteractionService } from './services/graph-interaction.service';
 import { GraphKeyboardService } from './services/graph-keyboard.service';
 import { GraphNavigationService } from './services/graph-navigation.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
+import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.service';
 
 @Component({
   selector: 'app-graph-editor',
@@ -164,7 +166,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     private exportService: CiExplorerExportService,
     private graphInteractionService: GraphInteractionService,
     private graphKeyboardService: GraphKeyboardService,
-    private graphNavigationService: GraphNavigationService
+    private graphNavigationService: GraphNavigationService,
+    private toastService: ToastService
   ) {
     this.filterForm = this.fb?.group({
       types: [[]],
@@ -324,6 +327,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
     const parentNodes = this.graphData.getNodes(r, 'parent');
     const childNodes = this.graphData.getNodes(r, 'child');
+    this.notifyLimitIfNeeded([parentNodes.length, childNodes.length]);
 
     // Find nodes that appear in both collections
     const parentIds = new Set(parentNodes.map(n => n.linked_object.public_id));
@@ -1624,6 +1628,14 @@ modalRef.componentInstance.connections = [{
 
   private showErrorNotification(message: string): void {
     this.showNotification(message, 'error');
+  }
+
+  private notifyLimitIfNeeded(counts: number[]): void {
+    if (counts.some(count => count >= CI_EXPLORER_ITEM_LIMIT)) {
+      this.toastService.info(
+        `Showing only the first ${CI_EXPLORER_ITEM_LIMIT} nodes for this level. We can't show all results.`
+      );
+    }
   }
 
   // Navigation keyboard shortcuts
