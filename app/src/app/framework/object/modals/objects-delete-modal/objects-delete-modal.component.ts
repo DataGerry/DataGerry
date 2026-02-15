@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-objects-delete-modal',
-  templateUrl: './objects-delete-modal.component.html',
-  styleUrls: ['./objects-delete-modal.component.scss']
+    selector: 'cmdb-objects-delete-modal',
+    templateUrl: './objects-delete-modal.component.html',
+    styleUrls: ['./objects-delete-modal.component.scss'],
+    standalone: false
 })
 export class ObjectsDeleteModalComponent {
 

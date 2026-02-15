@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -41,7 +41,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-type-builder',
     templateUrl: './type-builder.component.html',
-    styleUrls: ['./type-builder.component.scss']
+    styleUrls: ['./type-builder.component.scss'],
+    standalone: false
 })
 export class TypeBuilderComponent implements OnInit, OnDestroy {
 
@@ -213,8 +214,8 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
         if (this.subscription) {
             this.subscription?.unsubscribe();
         }

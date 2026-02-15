@@ -1,4 +1,4 @@
-<span class="d-flex justify-content-between">
+<span class="d-flex justify-content-between align-items-center">
     <h1>DocAPI Document Templates</h1>
 </span>
 
@@ -7,7 +7,7 @@
 <cmdb-info-box [message]="messageBlock" />
 
 <ng-template #addButton>
-    <button type="button" *permissionLink="['base.docapi.template.add']" class="btn btn-success btn-sm mr-1"
+    <button type="button" *permissionLink="['base.docapi.template.add']" class="btn btn-success btn-sm me-1"
         [routerLink]="['/docapi/add']">
         <i class="fas fa-plus"></i> Add
     </button>
@@ -23,14 +23,14 @@
     <div class="d-flex justify-content-center">
         <a
             *permissionLink="['base.docapi.template.edit']"
-            class="ml-1 text-dark mr-1"
+            class="ms-1 text-dark me-1"
             [routerLink]="['/docapi/edit/', item?.public_id]"
         >
             <fa-icon [icon]="['far', 'edit']"></fa-icon>
         </a>
         <a
             *permissionLink="['base.docapi.template.delete']"
-            class="ml-1 text-dark mr-1"
+            class="ms-1 text-dark me-1"
         >
             <fa-icon [icon]="['far', 'trash-alt']" (click)="delDocTemplate(item?.public_id)"></fa-icon>
         </a>

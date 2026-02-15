@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,11 +22,14 @@ import functools
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 import time
+import hashlib
+from typing import Any, Callable
 import requests
+from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
+from werkzeug.exceptions import HTTPException
 
 from pymongo.errors import NetworkTimeout, AutoReconnect
 
@@ -36,6 +39,7 @@ from cmdb.manager import (
     GroupsManager,
     SecurityManager,
     SettingsManager,
+    CachedUserManager,
 )
 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -51,12 +55,14 @@ from cmdb.errors.security import (
     TokenValidationError,
     InvalidCloudUserError,
     NoAccessTokenError,
+    MissingApiKeyError,
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.database import SetDatabaseError, DatabaseNotFoundError
+from cmdb.errors.database import SetDatabaseError, DatabaseNotFoundError, DocumentNetworkError, DocumentLockTimeoutError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.manager.groups_manager import GroupsManagerGetError
+from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -65,7 +71,7 @@ DEFAULT_MIME_TYPE = 'application/json'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def user_has_right(required_right: str, request_user: CmdbUser = None) -> bool:
+def user_has_right(required_right: str, request_user: CmdbUser | None = None) -> bool:
     """
     Determine whether a user has the specified access right
 
@@ -78,7 +84,7 @@ def user_has_right(required_right: str, request_user: CmdbUser = None) -> bool:
 
     Args:
         required_right (str): The permission/right to verify
-        request_user (CmdbUser, optional): The user object (if already available). If not provided,
+        request_user (CmdbUser | None): The user object (if already available). If not provided,
                                            the user will be determined via the Authorization token
 
     Returns:
@@ -125,7 +131,67 @@ def user_has_right(required_right: str, request_user: CmdbUser = None) -> bool:
         return False
 
 
-def insert_request_user(func):
+def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Decorator to catch database-related errors and return proper HTTP responses.
+
+    Catches:
+        - DocumentNetworkError -> 503 Service Unavailable
+        - DocumentLockTimeoutError -> 423 Locked
+    """
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except DocumentNetworkError as err:
+            LOGGER.error("[DB Network Error] %s: %s", type(err), err, exc_info=True)
+            abort(500, "Database connection issue. Please try again!")
+        except DocumentLockTimeoutError as err:
+            LOGGER.error("[DB Lock Timeout] %s: %s", type(err), err, exc_info=True)
+            abort(500, "Database collection currently in use. Please try again!")
+
+    return wrapper
+
+
+def handle_oc_errors(context: str = "") -> Callable[..., Any]:
+    """
+    Decorator to catch OpenCelium-related errors and return proper HTTP responses
+
+    Args:
+        context (str): Extra description for generic exceptions,
+                       appended to the default message prefix
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except HTTPException as http_err:
+                raise http_err
+            except AuthError as err:
+                LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
+                abort(500, str(err))
+            except ConnectTimeout as err:
+                LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
+                abort(500, "Connection to OpenCelium could not be established!")
+            except ConnectionError as err:
+                LOGGER.error("[OC General Error] ConnectionError: %s", err, exc_info=True)
+                abort(500,
+                      "Connection refused. Please check your web server's network settings!"
+                )
+            except Timeout as err:
+                LOGGER.error("[OC General Error] Timeout: %s", err, exc_info=True)
+                abort(500, "Connecting to OpenCelium failed due to a timeout!")
+            except Exception as err:
+                LOGGER.error("[OC General Error] Exception: %s. Type: %s", err, type(err), exc_info=True)
+                message = f"An internal server error occurred while {context}" if context\
+                                else "An internal server error occurred!"
+                abort(500, message)
+        return wrapper
+    return decorator
+
+
+def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that injects the authenticated user into a route handler as `request_user`
 
@@ -147,9 +213,9 @@ def insert_request_user(func):
                                            or the user cannot be resolved.
     """
     @functools.wraps(func)
-    def get_request_user(*args, **kwargs):
+    def get_request_user(*args: Any, **kwargs: Any) -> Any:
         with current_app.app_context():
-            users_manager = UsersManager(current_app.database_manager)
+            users_manager: UsersManager = UsersManager(current_app.database_manager)
         try:
             # If the request comes from API then the request_user will be set in verify_api_access - method
             if current_app.cloud_mode and "x-api-key" in request.headers:
@@ -159,6 +225,8 @@ def insert_request_user(func):
 
             with current_app.app_context():
                 decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
+        except HTTPException as http_err:
+            raise http_err
         except TokenValidationError:
             abort(401, "Invalid Token!")
         except Exception as err:
@@ -181,7 +249,7 @@ def insert_request_user(func):
         except ValueError:
             abort(401)
         except Exception as err:
-            LOGGER.debug("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
             abort(401)
 
         return func(*args, **kwargs)
@@ -189,12 +257,12 @@ def insert_request_user(func):
     return get_request_user
 
 
-def verify_api_access(*, required_api_level: ApiLevel = None):
+def verify_api_access(*, required_api_level: ApiLevel | None = None):
     """
     Decorator to verify API access based on authentication method and required API level
 
     Args:
-        required_api_level (ApiLevel, optional): Minimum API access level required to execute the decorated function
+        required_api_level (ApiLevel | None): Minimum API access level required to execute the decorated function
     
     Behavior:
     - If the user does not meet the required API level, the request is aborted with a 403 status
@@ -205,7 +273,7 @@ def verify_api_access(*, required_api_level: ApiLevel = None):
     """
     def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any):
             if not current_app.cloud_mode:
                 return func(*args, **kwargs)
 
@@ -215,9 +283,12 @@ def verify_api_access(*, required_api_level: ApiLevel = None):
                 x_api_key = __get_x_api_key()
 
                 if auth_method == AuthMethod.BASIC:
-                    user_instance = check_user_in_service_portal(api_user_dict['email'],
-                                                                 api_user_dict['password'],
-                                                                 x_api_key)
+                    user_instance = check_user_in_service_portal(
+                                                                api_user_dict['email'],
+                                                                api_user_dict['password'],
+                                                                x_api_key,
+                                                                api_key_required=True
+                                                           )
 
                     # Set the user as request User
                     if required_api_level != ApiLevel.SUPER_ADMIN:
@@ -231,6 +302,8 @@ def verify_api_access(*, required_api_level: ApiLevel = None):
 
                     if not __check_api_level(user_instance, required_api_level):
                         abort(403, "No permission for this action!")
+            except HTTPException as http_err:
+                raise http_err
             except Exception as err:
                 LOGGER.error("[verify_api_access] Exception: %s. Type: %s", err, type(err), exc_info=True)
                 abort(400, "Failed to verify API access!")
@@ -241,29 +314,30 @@ def verify_api_access(*, required_api_level: ApiLevel = None):
     return decorator
 
 
-def __get_x_api_key() -> Optional[str]:
+def __get_x_api_key() -> str | None:
     """
     Retrieve the 'x-api-key' from the request headers
 
     Returns:
-        Optional[str]: The value of the 'x-api-key' header if present, otherwise None
+        str | None: The value of the 'x-api-key' header if present, otherwise None
     """
-    x_api_key = request.headers.get('x-api-key')
+    x_api_key: str | None = request.headers.get('x-api-key')
 
     return x_api_key
 
 
-def __get_request_api_user() -> Optional[dict[str, str]]:
+def __get_request_api_user() -> dict[str, str] | None:
     """Retrieve the API user credentials from the 'Authorization' request header
 
     Extracts and decodes the 'Authorization' header to obtain Basic Authentication credentials
 
     Returns:
-        Optional[dict[str, str]]: A dictionary containing 'email' and 'password' if authentication is Basic
-        Returns None if the header is missing, improperly formatted, or uses an unsupported authentication type
+        dict[str, str] | None: A dictionary containing 'email' and 'password' if authentication is Basic.
+                               Returns None if the header is missing, improperly formatted, or uses an
+                               unsupported authentication type
     """
     try:
-        value = _wsgi_decoding_dance(request.headers['Authorization'])
+        value: str = _wsgi_decoding_dance(request.headers['Authorization'])
 
         try:
             auth_type, auth_info = value.split(None, 1)
@@ -284,7 +358,7 @@ def __get_request_api_user() -> Optional[dict[str, str]]:
         return None
 
 
-def __get_request_auth_method() -> Optional["AuthMethod"]:
+def __get_request_auth_method() -> AuthMethod | None:
     """
     Determine the authentication method from the request headers
 
@@ -292,7 +366,7 @@ def __get_request_auth_method() -> Optional["AuthMethod"]:
     Basic Authentication or JWT-based authentication
 
     Returns:
-        Optional[AuthMethod]: 
+        AuthMethod | None: 
             - `AuthMethod.BASIC` if the 'Authorization' header starts with 'Basic '
             - `AuthMethod.JWT` if the header starts with 'Bearer '
             - Aborts the request with a 400 error if the auth method is invalid or missing
@@ -309,11 +383,14 @@ def __get_request_auth_method() -> Optional["AuthMethod"]:
 
         abort(400, "Invalid auth method!")
     except Exception as err:
-        LOGGER.debug("[__get_request_auth_method] Exception: %s, Type: %s", err, type(err))
+        LOGGER.error("[__get_request_auth_method] Exception: %s, Type: %s", err, type(err))
         abort(400, "Invalid auth method!")
 
 
-def __check_api_level(user_instance: dict = None, required_api_level: ApiLevel = ApiLevel.NO_API) -> bool:
+def __check_api_level(
+        user_instance: dict[str, Any] | None = None,
+        required_api_level: ApiLevel = ApiLevel.NO_API
+) -> bool:
     """
     Check if the user has the required API access level
 
@@ -321,7 +398,7 @@ def __check_api_level(user_instance: dict = None, required_api_level: ApiLevel =
     The check is only performed in cloud mode
 
     Args:
-        user_instance (dict, optional): A dictionary containing user details, including API level
+        user_instance (dict | None): A dictionary containing user details, including API level
         required_api_level (ApiLevel): The minimum API level required for access
 
     Returns:
@@ -508,7 +585,12 @@ def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> boo
         return False
 
 
-def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None) -> Optional[dict]:
+def check_user_in_service_portal(
+    email: str,
+    password: str,
+    x_api_key: str | None = None,
+    api_key_required: bool = False
+) -> dict[str, Any] | None:
     """Check if a user exists in the service portal
 
     This function verifies user credentials in two modes:
@@ -516,9 +598,9 @@ def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None
     - **Cloud mode**: Validates user credentials via the service portal
 
     Args:
-        mail (str): The user's email address
+        email (str): The user's email address
         password (str): The user's password
-        x_api_key (Optional[str], optional): An optional API key for authentication. Defaults to None
+        x_api_key (dict | None): API key for authentication. Defaults to None
 
     Raises:
         NoAccessTokenError: If the service portal authentication fails due to a missing access token
@@ -528,15 +610,15 @@ def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None
         Exception: For any other unexpected errors
 
     Returns:
-        Optional[Dict]: A dictionary representing the user if authentication is successful, otherwise None
+        dict | None: A dictionary representing the user if authentication is successful, otherwise None
     """
     if current_app.local_mode:
         try:
             with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
                 users_data = json.load(users_file)
 
-                if mail in users_data:
-                    user = users_data[mail]
+                if email in users_data:
+                    user = users_data[email]
 
                     if user["password"] == password:
                         return user
@@ -548,10 +630,82 @@ def check_user_in_service_portal(mail: str, password: str, x_api_key: str = None
 
     # Validation through service portal
     try:
-        user_data = validate_subscrption_user(mail, password, x_api_key)
+        # Early out if no api_key is provided when it is required
+        if api_key_required and not x_api_key:
+            return None
+
+        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+        security_manager = SecurityManager(current_app.database_manager)
+
+        user_exists_in_cache = cached_user_manager.cached_user_exists(email)
+        # 1. Check cache first
+        if user_exists_in_cache:
+            cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
+                                                                    email,
+                                                                    security_manager.generate_hmac(password),
+                                                                    x_api_key,
+                                                                    api_key_required
+                                                                )
+
+            if cached_user:
+                return cached_user
+
+        # 2. Not cached or invalid data → validate against portal
+        user_data: dict[str, Any] = validate_subscrption_user(email, password, x_api_key, api_key_required)
+
+        if user_data:
+            user_data["password"] = security_manager.generate_hmac(user_data["password"])
+
+            if api_key_required and x_api_key:
+                # External API → only one subscription is returned from portal
+
+                if user_exists_in_cache:
+                    cached_user_manager.update_cached_user_api_key(
+                        email,
+                        user_data['subscriptions'][0]['database'],
+                        x_api_key
+                    )
+                else:
+                    # Only create if the database of user exists
+                    if check_db_exists(user_data['subscriptions'][0]['database']):
+                        # Since the user is using external API first retrieve all subscriptions
+                        full_user_data: dict[str, Any] = validate_subscrption_user(email, password)
+
+                        if full_user_data:
+                            # Set the api_key on the matching subscription
+                            target_db = user_data['subscriptions'][0]['database']
+                            for sub in full_user_data["subscriptions"]:
+                                if sub["database"] == target_db:
+                                    sub["api_key"] = x_api_key
+                                    break
+
+                            cached_user_manager.insert_cached_user(full_user_data)
+            else:
+                # Frontend login → cache all subscriptions
+                if user_exists_in_cache:
+                    cached_user = cached_user_manager.get_cached_user(email)
+
+                    if cached_user:
+                        # Build a lookup of cached api_keys by database
+                        cached_api_keys: dict[Any, Any] = {
+                            sub["database"]: sub.get("api_key")
+                            for sub in cached_user.get("subscriptions", [])
+                            if sub.get("api_key")
+                        }
+
+                        # Apply fresh subscription data, but restore api_key if it existed
+                        for sub in user_data["subscriptions"]:
+                            db_name: str = sub["database"]
+
+                            if db_name in cached_api_keys:
+                                sub["api_key"] = cached_api_keys[db_name]
+
+                        cached_user_manager.update_cached_user(email, user_data)
+                else:
+                    cached_user_manager.insert_cached_user(user_data)
 
         return user_data
-    except (NoAccessTokenError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
+    except (NoAccessTokenError, MissingApiKeyError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
         raise err from err
     except Exception as err:
         #TODO: ERROR-FIX (proper exception required)
@@ -587,7 +741,7 @@ def init_db_routine(db_name: str) -> None:
     database_updater.set_update_version(database_updater.get_highest_update_version())
 
 
-def set_admin_user(user_data: dict, subscription: dict):
+def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> None:
     """Creates a new admin user"""
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, subscription['database'])
@@ -603,7 +757,7 @@ def set_admin_user(user_data: dict, subscription: dict):
 
         if not admin_user_from_db:
             admin_user = CmdbUser(
-                public_id = users_manager.get_next_public_id(),
+                public_id = users_manager.get_next_public_id(inc_id=True),
                 user_name = user_data['user_name'],
                 email = user_data['email'],
                 database = subscription['database'],
@@ -630,7 +784,7 @@ def set_admin_user(user_data: dict, subscription: dict):
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict, database: str) -> Optional[dict]:
+def retrive_user(user_data: dict[str, Any], database: str) -> dict[str, Any] | None:
     """
     Retrieve a user from the database by email
 
@@ -641,7 +795,7 @@ def retrive_user(user_data: dict, database: str) -> Optional[dict]:
         database (str): The name of the database to query
 
     Returns:
-        Optional[dict]: A dictionary representing the user if found, or None if an error occurs
+        dict | None: A dictionary representing the user if found, or None if an error occurs
     """
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, database)
@@ -676,22 +830,31 @@ def delete_database(db_name: str) -> None:
         raise DatabaseNotFoundError(db_name) from err
 
 
-def validate_subscrption_user(email: str, password: str, x_api_key: str = None) -> dict:
+def validate_subscrption_user(
+    email: str,
+    password: str,
+    x_api_key: str | None = None,
+    api_key_required: bool = False
+) -> dict[str , Any]:
     """
     Validates the user credentials
     """
-    x_access_token = os.getenv("X-ACCESS-TOKEN")
+    if api_key_required and not x_api_key:
+        raise MissingApiKeyError("No API-KEY provided!")
+
+    x_access_token: str | None = os.getenv("X-ACCESS-TOKEN")
 
     if not x_access_token:
         raise NoAccessTokenError("No x-access-token provided!")
 
-    headers = {
+    headers: dict[str, str] = {
         "x-access-token": x_access_token
     }
 
-    target = os.getenv('SP_AUTH_URL')
+    base_url: str | None = os.getenv("DG_SP_BASE_URL")
+    target: str = f"{base_url}/datagerry/auth"
 
-    payload = {
+    payload: dict[str, str] = {
         "email": email,
         "password": password
     }
@@ -699,7 +862,10 @@ def validate_subscrption_user(email: str, password: str, x_api_key: str = None) 
     if x_api_key:
         payload['x-api-key'] = x_api_key
 
-        target = os.getenv('SP_API_AUTH_URL')
+        target: str = f"{base_url}/datagerry/auth/subscription"
+
+    if not target:
+        raise RequestError("No service portal URL configured")
 
     try:
         response = requests.post(target, headers=headers, json=payload, timeout=3)
@@ -707,11 +873,15 @@ def validate_subscrption_user(email: str, password: str, x_api_key: str = None) 
         if response.status_code == 200:
             return response.json()
 
-        raise InvalidCloudUserError(response.json()['message'])
+        try:
+            err_msg = response.json().get("message", response.text)
+        except ValueError:
+            err_msg: str = response.text
+        raise InvalidCloudUserError(err_msg)
     except requests.exceptions.Timeout as err:
-        raise RequestTimeoutError(err) from err
+        raise RequestTimeoutError(str(err)) from err
     except requests.exceptions.RequestException as err:
-        raise RequestError(err) from err
+        raise RequestError(str(err)) from err
 
 
 def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
@@ -744,17 +914,18 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
     if not x_access_token:
         raise NoAccessTokenError("No x-access-token provided!")
 
-    headers = {
+    headers: dict[str, str] = {
         "x-access-token": x_access_token
     }
 
-    payload = {
+    payload: dict[str, Any] = {
         "email": email,
         "database_name": database,
         "config_item_count": config_item_count
     }
 
-    target = os.getenv('SP_CI_SYNC_URL')
+    base_url: str | None = os.getenv("DG_SP_BASE_URL")
+    target: str = f"{base_url}/datagerry/config-item/update"
 
     try:
         response = requests.post(target, headers=headers, json=payload, timeout=3)
@@ -768,7 +939,7 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
         return False
 
 
-def mongo_retry(retries=3, delay=2):
+def mongo_retry(retries: int = 3, delay:int = 2):
     """
     Decorator to retry MongoDB operations in case of transient errors.
     
@@ -790,3 +961,60 @@ def mongo_retry(retries=3, delay=2):
             raise last_exception
         return wrapper
     return decorator
+
+
+# --------------------------------------------------- USER CACHING --------------------------------------------------- #
+
+# Cache: { cache_key: {"data": dict, "timestamp": float } }
+USER_CACHE: dict[str, dict] = {}
+CACHE_TTL = 3600  # 1 hour
+
+
+def make_cache_key(email: str, password: str, x_api_key: str | None, api_key_required: bool) -> str:
+    """
+    Generate a safe cache key for email+password+x_api_key+api_key_required
+    """
+    raw: str = f"{email}:{password}:{x_api_key or ''}:{api_key_required}"
+
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def get_cached_user(
+    email: str,
+    password: str,
+    x_api_key: str | None,
+    api_key_required: bool
+) -> dict | None:
+    """TODO: document"""
+    now: float = time.time()
+    # LOGGER.debug(f"[get_cached_user] USER_CACHE: {USER_CACHE}")
+    # Remove expired entries first
+    expired_keys: list[str] = [k for k, v in USER_CACHE.items() if now - v["timestamp"] >= CACHE_TTL]
+    for k in expired_keys:
+        USER_CACHE.pop(k, None)
+
+    key: str = make_cache_key(email, password, x_api_key, api_key_required)
+    cached: dict | None = USER_CACHE.get(key)
+
+    if cached:
+        return cached["data"]
+
+    return None
+
+
+def set_cached_user(
+    email: str,
+    password: str,
+    x_api_key: str | None,
+    api_key_required: bool,
+    data: dict
+) -> None:
+    """TODO: document"""
+    key: str = make_cache_key(email, password, x_api_key, api_key_required)
+
+    USER_CACHE[key] = {
+        "data": data,
+        "timestamp": time.time()
+    }
+
+    # LOGGER.debug(f"[set_cached_user] USER_CACHE: {USER_CACHE}")

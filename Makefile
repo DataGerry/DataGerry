@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.0.0
+BUILDVAR_VERSION = 3.1.0
 BIN_PYINSTALLER = pyinstaller
 
 # Sphinx
@@ -38,7 +38,7 @@ DIR_DEB_BUILD = ${DIR_BUILD}/deb
 DIR_TARGZ_BUILD = ${DIR_BUILD}/targz
 DIR_DOCKER_BUILD = ${DIR_BUILD}/docker
 DIR_WEB_SOURCE = app
-DIR_WEB_BUILD = app/dist/datagerry-app
+DIR_WEB_BUILD = app/dist/datagerry-app/browser
 DIR_WEB_TARGET = cmdb/interface/net_app/datagerry-app
 
 # set default goal

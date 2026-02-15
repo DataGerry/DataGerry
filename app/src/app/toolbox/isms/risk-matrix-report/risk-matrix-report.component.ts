@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -46,7 +46,8 @@ import { IsmsValidationService } from '../services/isms-validation.service';
 @Component({
     selector: 'app-risk-matrix-report',
     templateUrl: './risk-matrix-report.component.html',
-    styleUrls: ['./risk-matrix-report.component.scss']
+    styleUrls: ['./risk-matrix-report.component.scss'],
+    standalone: false
 })
 export class RiskMatrixReportComponent implements OnInit {
 

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -48,7 +48,8 @@ import { NumberControl } from 'src/app/framework/type/builder/controls/number/nu
 @Component({
     selector: 'section-template-builder',
     templateUrl: './section-template-builder.component.html',
-    styleUrls: ['./section-template-builder.component.scss']
+    styleUrls: ['./section-template-builder.component.scss'],
+    standalone: false
 })
 export class SectionTemplateBuilderComponent implements OnInit {
 

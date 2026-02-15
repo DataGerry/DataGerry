@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -33,7 +33,8 @@ import { TypeMappingBaseComponent } from '../type-mapping/type-mapping-base.comp
     selector: 'cmdb-csv-mapping',
     templateUrl: './csv-mapping.component.html',
     styleUrls: ['./csv-mapping.component.scss'],
-  providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => CsvMappingComponent) }]
+    providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => CsvMappingComponent) }],
+    standalone: false
 })
 export class CsvMappingComponent extends TypeMappingBaseComponent implements OnInit, AfterViewInit, OnDestroy {
     public previewIndex: number = 0;
@@ -91,6 +92,6 @@ export class CsvMappingComponent extends TypeMappingBaseComponent implements OnI
 
 
     public ngOnDestroy(): void {
-        this.previewSelectionSubscription.unsubscribe();
+        this.previewSelectionSubscription?.unsubscribe();
     }
 }

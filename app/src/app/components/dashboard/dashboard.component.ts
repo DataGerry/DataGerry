@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 */
 import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 
-import { finalize, ReplaySubject, Subscription, takeUntil } from 'rxjs';
+import { finalize, ReplaySubject, Subscription, switchMap, takeUntil } from 'rxjs';
 
 import { ObjectService } from '../../framework/services/object.service';
 import { ToastService } from '../../layout/toast/toast.service';
@@ -28,12 +28,14 @@ import { RenderResult } from '../../framework/models/cmdb-render';
 import { Column } from '../../layout/table/table.types';
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { environment } from 'src/environments/environment';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-dashboard',
     templateUrl: './dashboard.component.html',
-    styleUrls: ['./dashboard.component.scss']
+    styleUrls: ['./dashboard.component.scss'],
+    standalone: false
 })
 export class DashboardComponent implements OnInit, OnDestroy {
 
@@ -47,6 +49,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     @ViewChild('dateTemplate', { static: true }) dateTemplate: TemplateRef<any>;
 
     private unSubscribe: ReplaySubject<void> = new ReplaySubject();
+
+    public isCloudMode: boolean = environment.cloudMode;
 
     public objectCount: number = 0;
     public typeCount: number = 0;
@@ -182,7 +186,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.latestTableColumns = [activeColumn, publicColumn, typeColumn, editorColumn, lastModColumn, actionColumn];
 
         this.countObjects();
-        this.countTotalObjects();
+        if (this.isCloudMode) {
+            this.countTotalObjects();
+        }
         this.loadNewestObjects();
         this.loadLatestObjects();
 
@@ -205,21 +211,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
      * Returns the number of objects
      */
     private countObjects(): void {
-        this.loaderService.show();
-        const apiParameters: CollectionParameters = {
-            limit: 1, sort: 'public_id', order: 1, page: 1,
-            filter: [{ $match: {} }]
-        };
-        this.objectService.getObjects(apiParameters).pipe(takeUntil(this.unSubscribe),
-        finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: (apiResponse: APIGetMultiResponse<RenderResult>) => {
-                    this.objectCount = apiResponse.total;
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
+        this.objectService.countObjects().pipe(
+            switchMap(() => this.objectService.getLastObjectCount()),
+        ).subscribe(count => {
+            this.objectCount = count;
+        });
     }
     
 
@@ -281,7 +277,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                 },
                 error: (error) => {
                     this.latestLoading = false;
-                    this.toastService.error(`Error while loading latest objects: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 },
                 complete: () => {
                     this.latestLoading = false;
@@ -301,7 +297,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     });
                 },
                 error: (error) => {
-                    this.toastService.error(`Error while deleting object ${value.object_information.object_id}: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 }
             });
     }
@@ -323,8 +319,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     });
                 },
                 error: (error) => {
-                    this.toastService.error(`Error while deleting object ${value.object_information.object_id} 
-                                             with locations: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 }
             });
     }
@@ -341,8 +336,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     });
                 },
                 error: (error) => {
-                    this.toastService.error(`Error while deleting object ${value.object_information.object_id}
-                                             with child objects: ${error}`);
+                    this.toastService.error(error?.error?.message);
                 }
             });
     }

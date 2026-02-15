@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -25,8 +25,8 @@ class OperationType(Enum):
     
     This enum acts as an identifier for the type of operation performed in an API response.
     """
-    GET = 'GET'
-    UPDATE = 'UPDATE'
-    PATCH = 'PATCH'
-    INSERT = 'INSERT'
-    DELETE = 'DELETE'
+    GET = "GET"
+    UPDATE = "UPDATE"
+    PATCH = "PATCH"
+    INSERT = "INSERT"
+    DELETE = "DELETE"

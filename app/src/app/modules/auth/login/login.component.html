@@ -69,7 +69,7 @@
                     </div>
                   </div>
                   <button type="button" id="login-button"
-                    class="btn btn-lg btn-primary btn-block btn-login text-uppercase font-weight-bold mb-2"
+                    class="btn btn-lg btn-primary text-white w-100 btn-login text-uppercase font-weight-bold mb-2"
                     [disabled]="!loginForm.valid" (click)="onSubmit()">
                     Login
                   </button>
@@ -90,7 +90,7 @@
                   </div>
 
                   <button type="button"
-                    class="btn btn-lg btn-primary btn-block btn-login text-uppercase font-weight-bold mt-3"
+                    class="btn btn-lg btn-primary w-100 btn-login text-uppercase font-weight-bold mt-3"
                     [disabled]="!loginForm.get('subscription')?.value" (click)="onSelectSubscription()">
                     Proceed
                   </button>
@@ -109,6 +109,16 @@
         </div>
       </div>
     </div>
+    <footer style="text-align: center !important; font-size: 0.8em !important; padding: 10px !important; color: gray !important; position: absolute !important;right: 57px !important;bottom: 0px;">
+      <p style="text-align: center !important; font-size: 0.9em !important; float: left !important; width: 290px !important;">
+        <a href="https://github.com/DATAGerry/DataGerry" target="_blank">
+          <i class="fab fa-github"></i> Source Code auf GitHub
+        </a>
+      </p>
+      
+      <p style="text-align: center !important; font-size: 0.9em !important; color: gray !important; float: left !important; width: 290px !important;">
+        Made with ❤️ by <a target="_blank" href="https://becon.de">becon GmbH</a>
+      </p></footer>
   </div>
 </div>
 

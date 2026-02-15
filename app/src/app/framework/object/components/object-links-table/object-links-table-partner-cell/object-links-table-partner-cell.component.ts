@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,9 +26,10 @@ import { BehaviorSubject, Observable, ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-object-links-table-partner-cell',
-  templateUrl: './object-links-table-partner-cell.component.html',
-  styleUrls: ['./object-links-table-partner-cell.component.scss']
+    selector: 'cmdb-object-links-table-partner-cell',
+    templateUrl: './object-links-table-partner-cell.component.html',
+    styleUrls: ['./object-links-table-partner-cell.component.scss'],
+    standalone: false
 })
 export class ObjectLinksTablePartnerCellComponent implements OnInit, OnDestroy {
 
@@ -70,8 +71,8 @@ export class ObjectLinksTablePartnerCellComponent implements OnInit, OnDestroy {
    * Unsubscribe all on component destroy.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 

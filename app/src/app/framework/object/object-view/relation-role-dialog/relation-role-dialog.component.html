@@ -1,17 +1,15 @@
 <div class="modal-backdrop show" style="display: block;"></div>
-<div class="modal show" tabindex="-1" style="display: block;">
+<div class="modal fade show" tabindex="-1" style="display: block;" aria-modal="true" role="dialog">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h4 class="modal-title">
           {{ mode === CmdbMode.View ? 'View Relation' : mode === CmdbMode.Edit ? 'Edit Relation' : 'Create Relation' }}
         </h4>
-        <button type="button" class="close" (click)="back()">
-          <span aria-hidden="true">×</span>
-        </button>
+        <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="back()"></button>
       </div>
 
-      <div class="modal-body">
+      <div class="modal-body" #modalBody>
         <div *ngIf="loading" class="loading-state">
           <div class="spinner-border text-primary" role="status"></div>
           <span class="loading-text">Loading configuration...</span>
@@ -23,14 +21,33 @@
               <section class="config-section parent-config" *ngIf="chosenRole === 'parent' || chosenRole === 'both'">
                 <h5 class="config-heading"><i class="fas fa-project-diagram"></i>Parent Settings</h5>
                 <div class="config-content">
-                  <div class="form-group">
-                    <label class="input-label">Parent Object</label>
+                  <div class="mb-3">
+                    <label class="form-label">Parent Object</label>
                     <input class="form-control parent-id" type="text" [disabled]="true" [value]="'Object #' + form.get('parent')?.value" />
                   </div>
-                  <div class="form-group">
-                    <label class="input-label">Child Selection</label>
-                    <ng-select class="child-select" [items]="flatChildOptions" [groupBy]="'group'" bindLabel="label" bindValue="value"
-                      formControlName="child" placeholder="Select child object" [searchable]="true" [readonly]="mode === CmdbMode.View">
+                  <div class="mb-3">
+                    <label class="form-label">Child Selection</label>
+                    <ng-select
+                      #childSelect
+                      class="child-select"
+                      [items]="flatChildOptions"
+                      [groupBy]="'group'"
+                      bindLabel="label"
+                      bindValue="value"
+                      formControlName="child"
+                      placeholder="Select child object"
+                      [searchable]="true"
+                      [readonly]="mode === CmdbMode.View"
+                      [loading]="childIsLoading"
+                      (scrollToEnd)="onChildScrollToEnd()"
+                      (search)="onChildSearch($event.term)"
+                      [typeahead]="childSearchSubject">
+                      <ng-template ng-header-tmp>
+                        <small class="text-muted">
+                          Loaded {{ flatChildOptions.length }} items
+                          <span *ngIf="childHasMoreData"> • Scroll to load more</span>
+                        </small>
+                      </ng-template>
                       <ng-template ng-notfound-tmp><div class="no-options">No child objects found</div></ng-template>
                     </ng-select>
                     <div class="selection-error" *ngIf="flatChildOptions.length === 0">
@@ -43,14 +60,33 @@
               <section class="config-section child-config" *ngIf="chosenRole === 'child' || chosenRole === 'both'">
                 <h5 class="config-heading"><i class="fas fa-sitemap"></i>Child Settings</h5>
                 <div class="config-content">
-                  <div class="form-group">
-                    <label class="input-label">Child Object</label>
+                  <div class="mb-3">
+                    <label class="form-label">Child Object</label>
                     <input class="form-control child-id" type="text" [disabled]="true" [value]="'Object #' + form.get('child')?.value" />
                   </div>
-                  <div class="form-group">
-                    <label class="input-label">Parent Selection</label>
-                    <ng-select class="parent-select" [items]="flatParentOptions" [groupBy]="'group'" bindLabel="label" bindValue="value"
-                      formControlName="parent" placeholder="Select parent object" [searchable]="true" [readonly]="mode === CmdbMode.View">
+                  <div class="mb-3">
+                    <label class="form-label">Parent Selection</label>
+                    <ng-select
+                      #parentSelect
+                      class="parent-select"
+                      [items]="flatParentOptions"
+                      [groupBy]="'group'"
+                      bindLabel="label"
+                      bindValue="value"
+                      formControlName="parent"
+                      placeholder="Select parent object"
+                      [searchable]="true"
+                      [readonly]="mode === CmdbMode.View"
+                      [loading]="parentIsLoading"
+                      (scrollToEnd)="onParentScrollToEnd()"
+                      (search)="onParentSearch($event.term)"
+                      [typeahead]="parentSearchSubject">
+                      <ng-template ng-header-tmp>
+                        <small class="text-muted">
+                          Loaded {{ flatParentOptions.length }} items
+                          <span *ngIf="parentHasMoreData"> • Scroll to load more</span>
+                        </small>
+                      </ng-template>
                       <ng-template ng-notfound-tmp><div class="no-options">No parent objects found</div></ng-template>
                     </ng-select>
                     <div class="selection-error" *ngIf="flatParentOptions.length === 0">
@@ -63,6 +99,11 @@
           </aside>
 
           <main class="modal-content-main">
+            <div class="content-resize-handle" dgHorizontalResize [dgHorizontalResize]="modalBody"
+              [dgResizeCssVar]="'--content-width'" [dgResizeMin]="320" [dgResizeMax]="920" [dgResizeMinOpposite]="240"
+              dgResizeAnchor="right" aria-hidden="true" title="Drag to resize">
+              <span class="resize-grip" aria-hidden="true"></span>
+            </div>
             <hr *ngIf="sections.length > 0">
             <form class="renderForm" [formGroup]="relationForm"
               *ngIf="sections.length > 0 || (relationInstance?.field_values && relationInstance.field_values.length > 0); else noAttributes">
@@ -104,7 +145,7 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" (click)="back()">Cancel</button>
         <button class="btn btn-success" (click)="confirm()" [disabled]="isConfirmDisabled()" *ngIf="mode !== CmdbMode.View">
-          {{ mode === CmdbMode.Edit ? 'Update Relationship' : 'Confirm Creation' }}
+          {{ mode === CmdbMode.Edit ? 'Update' : 'Confirm' }}
         </button>
       </div>
     </div>

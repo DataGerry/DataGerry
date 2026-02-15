@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,13 +19,15 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { ConnectComponent } from './connect.component';
+import { cloudModeGuard } from '../auth/guards/cloud-mode.guard';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
     {
         path: '',
         pathMatch: 'full',
-        component: ConnectComponent
+        component: ConnectComponent,
+        canActivate: [cloudModeGuard]
     }
 ];
 

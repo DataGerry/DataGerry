@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for the IsmsRiskMatrix
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RiskMatrixManager
@@ -51,7 +52,7 @@ risk_matrix_blueprint = APIBlueprint('risk_matrices', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_matrix_blueprint.protect(auth=True, right='base.isms.riskMatrix.view')
-def get_isms_risk_matrix(public_id: int, request_user: CmdbUser):
+def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix
 

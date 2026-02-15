@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,9 +26,10 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-link-delete-modal',
-  templateUrl: './object-link-delete-modal.component.html',
-  styleUrls: ['./object-link-delete-modal.component.scss']
+    selector: 'cmdb-object-link-delete-modal',
+    templateUrl: './object-link-delete-modal.component.html',
+    styleUrls: ['./object-link-delete-modal.component.scss'],
+    standalone: false
 })
 export class ObjectLinkDeleteModalComponent implements OnInit, OnDestroy {
 
@@ -50,7 +51,7 @@ export class ObjectLinkDeleteModalComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.deleteSubscription.unsubscribe();
+        this.deleteSubscription?.unsubscribe();
     }
 
 /* -------------------------------------------------- EVENT HANDLER ------------------------------------------------- */

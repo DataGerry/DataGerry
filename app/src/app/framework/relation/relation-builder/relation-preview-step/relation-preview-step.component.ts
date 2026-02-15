@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { UntypedFormGroup } from '@angular/forms';
 import { RelationBuilderStepComponent } from '../relation-builder-step.component';
 
 @Component({
-  selector: 'cmdb-type-preview-step',
-  templateUrl: './relation-preview-step.component.html',
-  styleUrls: ['./relation-preview-step.component.scss']
+    selector: 'cmdb-type-preview-step',
+    templateUrl: './relation-preview-step.component.html',
+    styleUrls: ['./relation-preview-step.component.scss'],
+    standalone: false
 })
 export class RelationPreviewStepComponent extends RelationBuilderStepComponent {
 

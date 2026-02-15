@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 This class represents type render meta
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_external_link import TypeExternalLink
@@ -26,28 +27,33 @@ from cmdb.models.type_model.type_reference_section import TypeReferenceSection
 from cmdb.models.type_model.type_multi_data_section import TypeMultiDataSection
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    TypeRenderMeta                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TypeRenderMeta:
-    """Class of the type models `render_meta` field"""
+    """
+    Class of the type models `render_meta` field
+    """
 
-    def __init__(self,
-                 icon: str = None,
-                 sections: list[TypeSection] = None,
-                 externals: list[TypeExternalLink] = None,
-                 summary: TypeSummary = None):
-        self.icon: str = icon
+    def __init__(
+        self,
+        icon: str | None = None,
+        sections: list[TypeSection] | None = None,
+        externals: list[TypeExternalLink] | None = None,
+        summary: TypeSummary | None = None
+    ) -> None:
+        """TODO: document"""
+        self.icon: str | None = icon
         self.sections: list[TypeSection] = sections or []
         self.externals: list[TypeExternalLink] = externals or []
-        self.summary: TypeSummary = summary or TypeSummary(fields=None)
+        self.summary: TypeSummary = summary or TypeSummary()
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeRenderMeta":
+    def from_data(cls, data: dict[str, Any]) -> "TypeRenderMeta":
         """
         Generates a TypeRenderMeta object from a dict
 
@@ -71,16 +77,16 @@ class TypeRenderMeta:
                 sections.append(TypeFieldSection.from_data(section))
 
         return cls(
-            icon=data.get('icon', None),
+            icon=data.get('icon'),
             sections=sections,
             externals=[TypeExternalLink.from_data(external) for external in
-                       data.get('externals', None) or data.get('external', [])],
+                       data.get('externals') or data.get('external', [])],
             summary=TypeSummary.from_data(data.get('summary', {}))
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeRenderMeta") -> dict:
+    def to_json(cls, instance: "TypeRenderMeta") -> dict[str, Any]:
         """
         Returns a TypeRenderMeta as JSON representation
 

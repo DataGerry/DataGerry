@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,12 +16,13 @@
 """
 Implementation of TemplateManagementBase
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from pymongo import IndexModel
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            TemplateManagementBase - CLASS                                            #
@@ -36,30 +37,33 @@ class TemplateManagementBase:
         DESCENDING (int): Constant representing descending sort order
         COLLECTION (str): Collection pattern for document storage
         SUPER_INDEX_KEYS (list): Default index keys for unique constraints
-        IGNORED_INIT_KEYS (list): List of keys to be ignored during initialization
-        REQUIRED_INIT_KEYS (list): List of keys that are required for initialization
+        REQUIRED_INIT_KEYS (list[str]): List of keys that are required for initialization
         INDEX_KEYS (list): Custom index keys specific to derived classes
     """
 
     ASCENDING = 1
     DESCENDING = -1
-    COLLECTION = 'docapi.*'
+    COLLECTION = "docapi.*"
 
-    SUPER_INDEX_KEYS = [
-        {'keys': [('public_id', ASCENDING)], 'name': 'public_id', 'unique': True}
+    SUPER_INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            "keys": [("public_id", ASCENDING)],
+            "name": "public_id",
+            "unique": True
+        }
     ]
-    IGNORED_INIT_KEYS = []
-    REQUIRED_INIT_KEYS = []
-    INDEX_KEYS = []
 
-    def __init__(self, **kwargs):
+    REQUIRED_INIT_KEYS: list[str] = []
+    INDEX_KEYS: list[Any] = []
+
+    def __init__(self, **kwargs: Any) -> None:
         """
         Initializes the TemplateManagementBase instance with given keyword arguments
         
         Args:
-            **kwargs: Arbitrary keyword arguments representing document fields
+            **kwargs (Any): Arbitrary keyword arguments representing document fields
         """
-        self.public_id: int = None
+        self.public_id: int | None = None
 
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -76,11 +80,11 @@ class TemplateManagementBase:
         return [IndexModel(**index) for index in cls.INDEX_KEYS + cls.SUPER_INDEX_KEYS]
 
 
-    def to_database(self) -> dict:
+    def to_database(self) -> dict[str, Any]:
         """
-        Converts the instance attributes to a dictionary for database storage
+        Converts the TemplateManagementBase attributes to a dictionary for database storage
         
         Returns:
-            dict: A dictionary representation of the instance
+            dict[str, Any]: A dictionary representation of the TemplateManagementBase
         """
         return self.__dict__

@@ -1,7 +1,7 @@
 <div class="header" *permissionLink="'base.isms.riskMatrix.view'">
   <h1>Risk Calculation</h1>
   <div style="display: flex; align-items: center;">
-    <div class="unit-selector mr-3">
+    <div class="unit-selector me-3">
       <label for="matrix-unit">Risk level unit:</label>
       <select id="matrix-unit" [(ngModel)]="selectedMatrixUnit" (ngModelChange)="onMatrixUnitChange($event)" class="unit-dropdown">
         <option value="">None</option>
@@ -83,7 +83,8 @@
         <div class="modal-header">
           <h3>Select Risk Class</h3>
           <!-- <div class="modal-subheader">{{ selectedCell?.calculated_value }}</div> -->
-          <button class="close-btn" (click)="closeModal()">&times;</button>
+          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeModal()">
+          </button>
         </div>
         <div class="risk-class-options">
           <div *ngFor="let rc of riskClasses" class="risk-class-option" [style.backgroundColor]="rc.color"

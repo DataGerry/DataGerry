@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,8 @@ import { Router } from '@angular/router';
 @Component({
     selector: 'td[table-cell]',
     templateUrl: './table-cell.component.html',
-    styleUrls: ['./table-cell.component.scss']
+    styleUrls: ['./table-cell.component.scss'],
+    standalone: false
 })
 export class TableCellComponent<T> {
 

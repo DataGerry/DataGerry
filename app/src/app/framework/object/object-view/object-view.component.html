@@ -1,8 +1,6 @@
 <div class="container-fluid">
   <div class="row">
     <div class="col-md-12">
-
-      <!-- <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor> -->
       <!-- Navbar -->
       <div class="object-view-navbar">
         <div class="row align-items-center">
@@ -10,36 +8,31 @@
             <cmdb-object-actions [acl]="renderResult.type_information.acl" [renderResult]="renderResult">
             </cmdb-object-actions>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-externals [renderResult]="renderResult"></cmdb-object-externals>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-attachments></cmdb-object-attachments>
           </div>
-          <div class="docsWidget col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="docsWidget col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-docs *permissionLink="['base.docapi.template.view']" [renderResult]="renderResult">
             </cmdb-object-docs>
           </div>
-          <!-- <div class="col-xl-2 col-md-6 col-6 border-left pt-1 last-widget">
-            <div class="d-flex justify-content-center">
-              <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
-              </cmdb-object-type-label>
-            </div>
-          </div> -->
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <div class="d-flex justify-content-center">
               <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
               </cmdb-object-type-label>
             </div>
           </div>
-          <div class="col-xl-1 col-md-6 col-6 border-left pt-1 last-widget">
+          <div class="col-xl-1 col-md-6 col-6 border-start pt-1 last-widget">
             <div class="d-flex justify-content-center" style="width: 87px !important;">
               <div class="btn-group" role="group">
                 <button type="button" class="btn btn-sm" [class.btn-primary]="!isGraphView"
                   [class.btn-outline-primary]="isGraphView" (click)="toggleView(false)" title="Table View">
                   <i class="fas fa-table"></i>
                 </button>
-                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']" type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
+                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']"
+                  type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
                   [class.btn-outline-primary]="!isGraphView" (click)="toggleView(true)" title="Graph View">
                   <i class="fas fa-project-diagram"></i>
                 </button>
@@ -50,7 +43,7 @@
       </div>
 
       <!-- Header -->
-      <div style="margin-top: 30px;">
+      <div class="mt-4">
         <cmdb-object-header [renderResult]="renderResult"></cmdb-object-header>
       </div>
       <hr>
@@ -59,7 +52,34 @@
       <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
         <div class="card">
           <div class="card-body p-0">
-            <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor>
+            <!--  graph header selector -->
+            <div class="premium-header-container d-flex align-items-center justify-content-between py-3 px-4">
+              <div class="d-flex align-items-center gap-3 flex-grow-1">
+                <span class="premium-label fw-semibold text-dark" *ngIf="!isHeaderSelectorLoading">Select Object: </span>
+                <div class="flex-grow-1" style="min-width: 200px; margin-left: 5px;">
+                  <app-object-selector 
+                    *ngIf="typesLoaded" 
+                    [typeIds]="allTypeIds" 
+                    [multiple]="false"   
+                    [useInlineLoader]="true"
+                    [closeOnSelect]="true"
+                    [selectedIds]="selectedObjectIdForSelector ? [selectedObjectIdForSelector] : []"
+                    (selectionChange)="onGraphHeaderObjectChange($event)"
+                    (loadingChange)="isHeaderSelectorLoading = $event">
+                  </app-object-selector>
+                </div>
+              </div>
+              
+              <button 
+                class="btn btn-primary d-flex align-items-center gap-2" 
+                (click)="openSelectedObject()" 
+                [disabled]="!pendingSelectedId || isHeaderSelectorLoading"
+                *ngIf="!isHeaderSelectorLoading">
+                <i class="fas fa-external-link-alt"></i>
+                Open
+              </button>
+            </div>
+            <app-graph-editor [rootNodeId]="currentObjectID" (rootNodeSelected)="onRootNodeSelected($event)"></app-graph-editor>
           </div>
         </div>
       </div>
@@ -81,17 +101,18 @@
               <li class="nav-item d-inline-block"
                 *ngFor="let group of relationGroups; let i = index; trackBy: trackByRelationId">
                 <a style="align-items: center; cursor: pointer;" class="nav-link"
+                  [attr.title]="group.tabLabel + ' (' + group.total + ')'"
                   [class.active]="activeRelationTabIndex === (i + 1)" (click)="setActiveTab(i + 1)">
-                  <i [class]="group.tabIcon" class="mr-1"></i>
+                  <i [class]="group.tabIcon" class="me-1"></i>
                   {{ group.tabLabel }} ({{ group.total }})
                 </a>
               </li>
 
               <!-- "Add Relation" tab => index relationGroups.length + 1 -->
               <li class="nav-item d-inline-block" style="margin-left: 5px;">
-                <button type="button" class="btn btn-sm btn-success ml-2"
+                <button type="button" class="btn btn-sm btn-success ml-2" *permissionLink="'base.framework.objectRelation.add'"
                   style="display: inline-flex; align-items: center;" (click)="onClickAddRelationTab()">
-                  <i class="fas fa-plus mr-1"></i> Add Relation
+                  <i class="fas fa-plus me-1"></i> Add Relation
                 </button>
               </li>
 
@@ -126,10 +147,6 @@
                 </cmdb-table>
               </div>
             </ng-container>
-
-            <!-- "Add Relation" tab content => index relationGroups.length + 1 -->
-            <!-- <div *ngIf="activeRelationTabIndex === (relationGroups.length + 1)">
-            </div> -->
           </div>
         </div>
 
@@ -153,14 +170,12 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Select Relationship</h5>
-          <button type="button" class="close" (click)="closeRelationModal()">
-            <span>×</span>
-          </button>
+          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeRelationModal()"></button>
         </div>
         <div class="modal-body">
           <div *ngIf="loadingRelations" class="loading-state text-center">
             <div class="spinner-border text-primary" role="status"></div>
-            <span class="ml-2">Loading relationships...</span>
+            <span class="ms-2">Loading relationships...</span>
           </div>
 
           <div *ngIf="!loadingRelations && extendedRelations?.length" class="table-container"
@@ -208,7 +223,7 @@
           <button class="btn btn-secondary" (click)="closeRelationModal()">
             Cancel
           </button>
-          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary"
+          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary text-white"
             [disabled]="!chosenRelation" (click)="onConfirmRelationSelection()">
             Confirm
           </button>
@@ -218,7 +233,7 @@
   </div>
 </div>
 
-<!-- Relation Role Dialog (unchanged) -->
+<!-- Relation Role Dialog -->
 <relation-role-dialog *ngIf="showRelationRoleDialog" [chosenRole]="chosenRole"
   [currentObjectTypeID]="renderResult.type_information.type_id" [parentTypeIDs]="roleParentTypeIDs"
   [childTypeIDs]="roleChildTypeIDs" [currentObjectID]="currentObjectID" [relation]="chosenRelation" [mode]="dialogMode"

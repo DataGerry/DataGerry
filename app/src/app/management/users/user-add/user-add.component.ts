@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,7 +31,8 @@ import { User } from '../../models/user';
 @Component({
     selector: 'cmdb-user-add',
     templateUrl: './user-add.component.html',
-    styleUrls: ['./user-add.component.scss']
+    styleUrls: ['./user-add.component.scss'],
+    standalone: false
 })
 export class UserAddComponent implements AfterViewInit, OnDestroy {
 

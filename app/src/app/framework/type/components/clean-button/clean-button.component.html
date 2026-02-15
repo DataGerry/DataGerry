@@ -4,11 +4,11 @@
 
 <ng-template #statusButton>
     <button *ngIf="clean" [disabled]="clean" class="btn btn-success btn-sm" type="button">
-        <i class="fas fa-check-circle"></i> Clean
+        <i class="fas fa-check-circle me-1"></i> Clean
     </button>
 
     <button *ngIf="!clean" (click)="openModal()" class="btn btn-danger btn-sm" type="button">
-        <i class="fas fa-exclamation-circle"></i> Unclean
+        <i class="fas fa-exclamation-circle me-1"></i> Unclean
     </button>
 </ng-template>
 

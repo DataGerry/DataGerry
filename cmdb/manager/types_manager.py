@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,8 @@
 Handles interaction between the database and CmdbTypes
 """
 import json
-import logging
-from typing import Union, Optional
+from logging import Logger, getLogger
+from typing import Any
 from bson import json_util
 
 from cmdb.database import MongoDatabaseManager
@@ -34,8 +34,6 @@ from cmdb.framework.results import IterationResult, ListResult
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
-    BaseManagerInsertError,
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
 )
 from cmdb.errors.manager.types_manager import (
@@ -49,11 +47,10 @@ from cmdb.errors.manager.types_manager import (
 )
 from cmdb.errors.models.cmdb_type import (
     CmdbTypeInitFromDataError,
-    CmdbTypeToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 TypesManager - CLASS                                                 #
@@ -64,7 +61,7 @@ class TypesManager(BaseManager):
 
     Extends: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection for the TypesManager
 
@@ -78,16 +75,16 @@ class TypesManager(BaseManager):
         try:
             super().__init__(CmdbType.COLLECTION, dbm, database)
         except Exception as err:
-            raise TypesManagerInitError(err) from err
+            raise TypesManagerInitError(str(err)) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_type(self, new_type: Union[CmdbType, dict]) -> int:
+    def insert_type(self, new_type: CmdbType | dict[str, Any]) -> int:
         """
         Insert a CmdbType into the database
 
         Args:
-            new_type (dict): Raw data of the CmdbType
+            new_type (CmdbType | dict): Raw data of the CmdbType
 
         Raises:
             TypesManagerInsertError: When a CmdbType could not be inserted into the database
@@ -97,16 +94,14 @@ class TypesManager(BaseManager):
         """
         try:
             if isinstance(new_type, CmdbType):
-                type_to_add = CmdbType.to_json(new_type)
+                type_to_add: dict[str, Any] = CmdbType.to_json(new_type)
             else:
                 type_to_add = json.loads(json.dumps(new_type, default=json_util.default), object_hook=object_hook)
 
             return self.insert(type_to_add)
-        except (BaseManagerInsertError, CmdbTypeToJsonError) as err:
-            raise TypesManagerInsertError(err) from err
         except Exception as err:
             LOGGER.error("[insert_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerInsertError(err) from err
+            raise TypesManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -121,12 +116,12 @@ class TypesManager(BaseManager):
             int: The next public_id for CmdbType
         """
         try:
-            return self.get_next_public_id()
+            return self.get_next_public_id(inc_id=True)
         except BaseManagerGetError as err:
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 
-    def get_type(self, public_id: int) -> Optional[dict]:
+    def get_type(self, public_id: int) -> dict[str, Any] | None:
         """
         Get a single CmdbType by its public_id
 
@@ -137,12 +132,12 @@ class TypesManager(BaseManager):
             TypesManagerGetError: If CmdbType could not be retrieved
 
         Returns:
-            Optional[dict]: Instance of CmdbType with data
+            dict | None: Instance of CmdbType with data
         """
         try:
             return self.get_one(public_id)
         except BaseManagerGetError as err:
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 
     def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbType]:
@@ -167,7 +162,7 @@ class TypesManager(BaseManager):
 
             return iteration_result
         except Exception as err:
-            raise TypesManagerIterationError(err) from err
+            raise TypesManagerIterationError(str(err)) from err
 
 
     def find_types(self, criteria: dict) -> ListResult[CmdbType]:
@@ -187,10 +182,10 @@ class TypesManager(BaseManager):
 
             return ListResult(types)
         except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
         except Exception as err:
             LOGGER.error("[find_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 
     def count_types(self) -> int:
@@ -206,7 +201,7 @@ class TypesManager(BaseManager):
         try:
             return self.count_documents(self.collection)
         except BaseManagerGetError as err:
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 
     def get_all_types(self) -> list[CmdbType]:
@@ -227,13 +222,13 @@ class TypesManager(BaseManager):
 
             return [CmdbType.from_data(type) for type in raw_types]
         except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
         except Exception as err:
             LOGGER.error("[get_all_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 
-    def get_types_by(self, sort='public_id', **requirements) -> list[CmdbType]:
+    def get_types_by(self, sort: str = 'public_id', **requirements: Any) -> list[CmdbType]:
         """
         Retrieves CmdbTypes from the collection based on specified requirements
 
@@ -254,11 +249,9 @@ class TypesManager(BaseManager):
             raw_data = self.get_many(sort=sort, **requirements)
 
             return [CmdbType.from_data(data) for data in raw_data]
-        except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise TypesManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_types_by] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 
     def get_objects_for_type(self, target_type_id: int) -> list:
@@ -285,21 +278,21 @@ class TypesManager(BaseManager):
 
             return found_objects
         except BaseManagerGetError as err:
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
         except Exception as err:
             LOGGER.error("[get_objects_for_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+            raise TypesManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_type(self, public_id: int, update_type: Union[CmdbType, dict]) -> None:
+    def update_type(self, public_id: int, update_type: CmdbType | dict) -> None:
         """
         Update an existing CmdbType in the database
 
 
         Args:
             public_id (int): The public_id of the CmdbType which should be updated
-            update_type (CmdbType or dict): The new type data
+            update_type (CmdbType | dict): The new type data
 
         Raises:
             TypesManagerUpdateError: If there is an error during the update process
@@ -313,11 +306,9 @@ class TypesManager(BaseManager):
                                                          object_hook=object_hook)
 
             self.update(criteria={'public_id': public_id}, data=new_version_type)
-        except (CmdbTypeToJsonError, BaseManagerUpdateError) as err:
-            raise TypesManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerUpdateError(err) from err
+            raise TypesManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -376,10 +367,10 @@ class TypesManager(BaseManager):
 
             return all_type_objects
         except TypesManagerGetError as err:
-            raise TypesManagerUpdateError(err) from err
+            raise TypesManagerUpdateError(str(err)) from err
         except Exception as err:
             LOGGER.error("[update_multi_data_fields] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerUpdateError(err) from err
+            raise TypesManagerUpdateError(str(err)) from err
 
 
     def fields_diff(self, initial_fields: list, new_fields: list,  check_added: bool = False) -> list:
@@ -406,7 +397,7 @@ class TypesManager(BaseManager):
         return [field_name for field_name in initial_fields if field_name not in new_fields]
 
 
-    def create_mds_field_entries(self, fields_to_add: list, data_set) -> list:
+    def create_mds_field_entries(self, fields_to_add: list[str], data_set) -> list:
         """
         Adds new fields to the provided data set
 
@@ -422,7 +413,7 @@ class TypesManager(BaseManager):
             dict: The updated data set with the new field entries added to the "data" list
         """
         for field_name in fields_to_add:
-            new_field = {
+            new_field: dict[str, Any] = {
                 "name": field_name,
                 "value": None
             }
@@ -509,7 +500,7 @@ class TypesManager(BaseManager):
 
             return self.update_multi_data_fields(target_type, added_fields, deleted_fields)
         except TypesManagerUpdateError as err:
-            raise TypesManagerUpdateMDSError(err) from err
+            raise TypesManagerUpdateMDSError(str(err)) from err
         except Exception as err:
             LOGGER.error("[handle_mutli_data_sections] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            raise TypesManagerUpdateMDSError(err) from err
+            raise TypesManagerUpdateMDSError(str(err)) from err

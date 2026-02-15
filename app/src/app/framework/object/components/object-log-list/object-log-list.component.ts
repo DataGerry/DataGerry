@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,9 +24,10 @@ import { CollectionParameters } from '../../../../services/models/api-parameter'
 import { LogService } from 'src/app/framework/services/log.service';
 
 @Component({
-  selector: 'cmdb-object-log-list',
-  templateUrl: './object-log-list.component.html',
-  styleUrls: ['./object-log-list.component.scss']
+    selector: 'cmdb-object-log-list',
+    templateUrl: './object-log-list.component.html',
+    styleUrls: ['./object-log-list.component.scss'],
+    standalone: false
 })
 export class ObjectLogListComponent implements OnInit {
 

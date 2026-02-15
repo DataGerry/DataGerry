@@ -17,31 +17,39 @@
 This class represents a type field section
 Extends: TypeSection
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 import json
 
 from cmdb.models.type_model.type_section import TypeSection
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                   TypeFieldSection                                                   #
+#                                               TypeFieldSection - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TypeFieldSection(TypeSection):
     """
     This class represents a type field section
+
     Extends: TypeSection
     """
 
-    def __init__(self, type: str, name: str, label: str = None, fields: list = None):
+    def __init__(
+        self,
+        type: str,
+        name: str,
+        label: str | None = None,
+        fields: list = None
+    ) -> None:
         self.fields = fields or []
         super().__init__(type=type, name=name, label=label)
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeFieldSection":
+    def from_data(cls, data: dict[str, Any]) -> "TypeFieldSection":
         """
         Generates a TypeFieldSection object from a dict
 
@@ -53,14 +61,14 @@ class TypeFieldSection(TypeSection):
         """
         return cls(
             type = data.get('type'),
-            name = data.get('name'),
-            label = data.get('label', None),
-            fields = data.get('fields', None)
+            name = data['name'],
+            label = data.get('label'),
+            fields = data.get('fields'),
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeFieldSection") -> dict:
+    def to_json(cls, instance: "TypeFieldSection") -> dict[str, Any]:
         """
         Returns a TypeFieldSection as JSON representation
 
@@ -89,5 +97,5 @@ class TypeFieldSection(TypeSection):
         return self.fields
 
 
-    def __str__(self):
+    def __str__(self) -> str:
         return json.dumps(TypeFieldSection.to_json(self))

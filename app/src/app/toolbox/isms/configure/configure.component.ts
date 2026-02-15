@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { IsmsConfigValidation } from '../models/isms-config-validation.model';
 import { RiskCalculationComponent } from './steps/risk-calculation/risk-calculation.component';
 
 @Component({
-  selector: 'app-isms-configure',
-  templateUrl: './configure.component.html',
-  styleUrls: ['./configure.component.scss']
+    selector: 'app-isms-configure',
+    templateUrl: './configure.component.html',
+    styleUrls: ['./configure.component.scss'],
+    standalone: false
 })
 export class ConfigureComponent implements OnInit, AfterViewInit {
   @ViewChild('wizard') wizard: WizardComponent;
@@ -211,8 +212,6 @@ export class ConfigureComponent implements OnInit, AfterViewInit {
   public onSaveConfigurations(): void {
     if (this.riskCalculationComponent) {
       this.riskCalculationComponent.saveMatrix();
-    } else {
-      console.error('RiskCalculationComponent not found.');
     }
   }
 

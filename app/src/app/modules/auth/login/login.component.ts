@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -35,7 +35,8 @@ import { strictEmailValidator } from './strictEmailValidator';
 @Component({
     selector: 'cmdb-login',
     templateUrl: './login.component.html',
-    styleUrls: ['./login.component.scss']
+    styleUrls: ['./login.component.scss'],
+    standalone: false
 })
 export class LoginComponent implements OnInit, OnDestroy {
     public static defaultLogoUrl: string = '/assets/img/datagerry_logo.svg';
@@ -156,7 +157,10 @@ export class LoginComponent implements OnInit, OnDestroy {
                 },
                 error: (err) => {
                     const isNullPath = err.url?.includes('/null/rest');
-                    if (!environment.cloudMode && err?.status === 404 || err?.status === 0) {
+                    if (
+                        !environment.cloudMode &&
+                        (err?.status === 404 || err?.status === 0)
+                    ) {
                         this.router?.navigate(['/connect']);
                         this.isLoading = false;
                     } else if (environment.cloudMode && isNullPath) {

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,12 +23,13 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { Router } from '@angular/router';
 import { environment } from 'src/environments/environment';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { catchError, debounceTime, interval, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
+import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 
 @Component({
-  selector: 'cmdb-object-table-head',
-  templateUrl: './object-table-head.component.html',
-  styleUrls: ['./object-table-head.component.scss']
+    selector: 'cmdb-object-table-head',
+    templateUrl: './object-table-head.component.html',
+    styleUrls: ['./object-table-head.component.scss'],
+    standalone: false
 })
 export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
@@ -56,20 +57,22 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
   ngOnInit(): void {
 
-    this.subscription = this.objectService.getConfigItemsLimit().subscribe({
-      next: (limit) => {
-        this.totalObjects = limit;
-      }
-    });
-
-    this.fetchTrigger$.pipe(
-      debounceTime(300),
-      takeUntil(this.destroy$)
-    ).subscribe(() => {
+    if(this.isCloudModeEnabled){
+      this.subscription = this.objectService.getConfigItemsLimit().subscribe({
+        next: (limit) => {
+          this.totalObjects = limit;
+        }
+      });
+  
+      this.fetchTrigger$.pipe(
+        debounceTime(300),
+        takeUntil(this.destroy$)
+      ).subscribe(() => {
+        this.fetchUsedObjects();
+      });
+  
       this.fetchUsedObjects();
-    });
-
-    this.fetchUsedObjects();
+    }
   }
 
 
@@ -85,9 +88,9 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
 
   ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-    this.fetchTrigger$.complete();
+    this.destroy$?.next();
+    this.destroy$?.complete();
+    this.fetchTrigger$?.complete();
 
     if (this.subscription) {
       this.subscription.unsubscribe();
@@ -101,7 +104,6 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
   private fetchUsedObjects(): void {
     this.usedObjects$ = this.objectService.countObjects().pipe(
       catchError(error => {
-        console.error('Error fetching used objects count:', error?.error?.message);
         return of(0);
       })
     );
@@ -123,7 +125,7 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
     const percentage = this.calculatePercentage();
 
-    if (percentage === 100) {
+    if (percentage === 100 || percentage > 100) {
       return 'btn btn-secondary disabled-look';
     }
   }
@@ -133,14 +135,16 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
    * Gets the tooltip text for the button based on usage percentage.
    */
   getButtonTooltip(): string {
-    const percentage = this.calculatePercentage();
-
-    if (percentage === 100) {
-      return 'Maximum number of objects has been reached';
+    if (!this.isCloudModeEnabled) {
+      return 'Add a new object';
     }
-
-    return 'Add a new object'; // Default tooltip
+  
+    const percentage = this.calculatePercentage();
+    return percentage === 100 || percentage > 100
+      ? 'Maximum number of objects has been reached'
+      : 'Add a new object';
   }
+  
 
   /**
   * Gets the tooltip text for the Bulk change button.

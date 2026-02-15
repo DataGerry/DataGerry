@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,9 +19,10 @@
 import { Component, OnInit } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-render-error',
-  templateUrl: './render-error.component.html',
-  styleUrls: ['./render-error.component.scss']
+    selector: 'cmdb-render-error',
+    templateUrl: './render-error.component.html',
+    styleUrls: ['./render-error.component.scss'],
+    standalone: false
 })
 export class RenderErrorComponent implements OnInit {
 

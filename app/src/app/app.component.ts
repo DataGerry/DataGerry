@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,9 +24,10 @@ import { ReplaySubject } from 'rxjs';
 declare type AppView = 'full' | 'embedded';
 
 @Component({
-  selector: 'cmdb-root',
-  templateUrl: './app.component.html',
-  styleUrls: ['./app.component.scss']
+    selector: 'cmdb-root',
+    templateUrl: './app.component.html',
+    styleUrls: ['./app.component.scss'],
+    standalone: false
 })
 export class AppComponent implements OnInit, OnDestroy {
 
@@ -58,7 +59,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.applicationSubscriber.next();
-        this.applicationSubscriber.complete();
+        this.applicationSubscriber?.next();
+        this.applicationSubscriber?.complete();
     }
 }

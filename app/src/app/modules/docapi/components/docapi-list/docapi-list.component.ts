@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,12 +30,14 @@ import { Column, Sort, SortDirection } from '../../../../layout/table/table.type
 import { CollectionParameters } from '../../../../services/models/api-parameter';
 import { GeneralModalComponent } from '../../../../layout/helpers/modals/general-modal/general-modal.component';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-docapi-template-list',
     templateUrl: './docapi-list.component.html',
-    styleUrls: ['./docapi-list.component.scss']
+    styleUrls: ['./docapi-list.component.scss'],
+    standalone: false
 })
 export class DocapiListComponent implements OnInit, OnDestroy {
 
@@ -88,7 +90,8 @@ export class DocapiListComponent implements OnInit, OnDestroy {
     constructor(
         private docapiService: DocapiService, 
         private modalService: NgbModal,
-        private loaderService: LoaderService) {
+        private loaderService: LoaderService,
+        private toast: ToastService) {
 
     }
 
@@ -209,8 +212,8 @@ export class DocapiListComponent implements OnInit, OnDestroy {
             if (result) {
                 this.loaderService?.show();
                 this.docapiService?.deleteDocTemplate(publicId)?.pipe(finalize(() => this.loaderService?.hide())).subscribe({
-                    next: resp => console.log(resp),
-                    error: error => console.log(error),
+                    next: resp => {},
+                    error: error => this.toast.error('An error occurred while deleting the Document Template'),
                     complete: () => this.loadTemplatesFromAPI()
                 });
             }

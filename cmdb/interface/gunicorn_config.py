@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,19 +16,17 @@
 """
 Implementation of Gunicorn post fork method
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-
-def post_fork(server, worker):
+def post_fork(server, worker) -> None:
     """
     Ensures MongoDB connections are properly reinitialized after forking
     """
-
     if hasattr(worker, 'app') and\
        hasattr(worker.app, 'application') and\
        hasattr(worker.app.application, 'database_manager'):

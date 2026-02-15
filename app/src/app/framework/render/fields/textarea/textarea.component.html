@@ -1,4 +1,4 @@
-<div class="form-group mb-2 row" [formGroup]="parentFormGroup">
+<div class="mb-3 mb-2 row" [formGroup]="parentFormGroup">
   <label class="col-sm-3 col-form-label">
     {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
   </label>
@@ -9,11 +9,9 @@
           <textarea [formControlName]="data.name" class="form-control scrollable-textarea" name="{{data.name}}"
           placeholder="{{data?.placeholder}}"
           rows="{{data?.rows ? data?.rows : 3}}"></textarea>
-          <div class="input-group-append">
             <span class="input-group-text" (click)="copyToClipboard()">
               <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
             </span>
-          </div>
         </ng-container>
         <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
           <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
@@ -29,10 +27,9 @@
         </div>
       </ng-container>
       <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-        <div class="float-right" *ngIf="controller.errors.required">
+        <div class="text-end" *ngIf="controller.errors.required">
           {{data.label}} is a required field.
         </div>
-        <div class="clearfix"></div>
       </div>
     </div>
     <small class="description form-text text-muted">{{data?.description}}</small>

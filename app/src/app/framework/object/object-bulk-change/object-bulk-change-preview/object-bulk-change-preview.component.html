@@ -13,14 +13,14 @@
         <div class="row pb-1" *ngIf="activeState !== undefined">
           <div class="col-sm-5 text-nowrap">
             <strong>Active</strong>:
-            <span [ngClass]="item?.object_information?.active ? 'badge badge-success':'badge badge-danger' ">
+            <span [ngClass]="item?.object_information?.active ? 'badge bg-success':'badge bg-danger' ">
              {{item?.object_information?.active ? 'A' : 'D'}}
             </span>
           </div>
           <div class="col-sm-1"><i class="far fa-arrow-alt-circle-right"></i></div>
           <div class="col-sm-5">
             <strong>Active</strong>:
-            <span [ngClass]="activeState ? 'badge badge-success':'badge badge-danger' ">
+            <span [ngClass]="activeState ? 'badge bg-success':'badge bg-danger' ">
              {{activeState ? 'A' : 'D'}}
             </span>
           </div>

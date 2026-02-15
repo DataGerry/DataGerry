@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -351,21 +351,25 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
     public getTypeListByCategory(categoryID: number, aclRequirements?: AccessControlPermission | AccessControlPermission[]):
         Observable<Array<T>> {
 
+            // Previous problematic pipeline (commented out for reference):
             // const pipeline = [
             //     {
             //         $lookup: {
             //             from: 'framework.categories',
-            //             let: { type_id: { $toInt: '$public_id' } },
             //             pipeline: [
             //                 { $match: { public_id: categoryID } },
-            //                 { $match: { $expr: { $in: ['$$type_id', '$types'] } } }
+            //                 { 
+            //                     $addFields: { type_id: { $toInt: '$$ROOT.public_id' } } 
+            //                 },
+            //                 { $match: { $expr: { $in: ['$type_id', '$types'] } } }
             //             ],
             //             as: 'category'
             //         }
             //     },
             //     {
             //         $match: {
-            //             $and: [{ category: { $gt: { $size: 0 } } },
+            //             $and: [
+            //                 { 'category.0': { $exists: true } },
             //                 this.getAclFilter(aclRequirements)
             //             ]
             //         }
@@ -374,17 +378,20 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
             //         $project: { category: 0 }
             //     }
             // ];
+            //
+            // Issue: The pipeline incorrectly used $$ROOT.public_id which referred to the category's public_id
+            // instead of the type's public_id. This caused the lookup to fail when matching types against
+            // the category's types array.
 
+            // Corrected pipeline (active):
             const pipeline = [
                 {
                     $lookup: {
                         from: 'framework.categories',
+                        let: { type_public_id: '$public_id' },
                         pipeline: [
                             { $match: { public_id: categoryID } },
-                            { 
-                                $addFields: { type_id: { $toInt: '$$ROOT.public_id' } } 
-                            },
-                            { $match: { $expr: { $in: ['$type_id', '$types'] } } }
+                            { $match: { $expr: { $in: ['$$type_public_id', '$types'] } } }
                         ],
                         as: 'category'
                     }

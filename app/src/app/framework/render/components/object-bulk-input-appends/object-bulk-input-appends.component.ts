@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { takeUntil } from 'rxjs/operators';
 import { AbstractControl, UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 @Component({
-  selector: 'cmdb-object-bulk-input-appends',
-  templateUrl: './object-bulk-input-appends.component.html',
-  styleUrls: ['./object-bulk-input-appends.component.scss']
+    selector: 'cmdb-object-bulk-input-appends',
+    templateUrl: './object-bulk-input-appends.component.html',
+    styleUrls: ['./object-bulk-input-appends.component.scss'],
+    standalone: false
 })
 export class ObjectBulkInputAppendsComponent implements OnInit, OnDestroy {
 
@@ -65,7 +66,7 @@ export class ObjectBulkInputAppendsComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

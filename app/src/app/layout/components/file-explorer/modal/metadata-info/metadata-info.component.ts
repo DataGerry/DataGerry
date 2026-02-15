@@ -7,9 +7,10 @@ import { TypeService } from '../../../../../framework/services/type.service';
 import { UserService } from '../../../../../management/services/user.service';
 
 @Component({
-  selector: 'cmdb-metadata-info',
-  templateUrl: './metadata-info.component.html',
-  styleUrls: ['./metadata-info.component.scss']
+    selector: 'cmdb-metadata-info',
+    templateUrl: './metadata-info.component.html',
+    styleUrls: ['./metadata-info.component.scss'],
+    standalone: false
 })
 export class MetadataInfoComponent implements OnInit {
 

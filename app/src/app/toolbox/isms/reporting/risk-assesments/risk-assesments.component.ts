@@ -23,9 +23,10 @@ const slug = (s: string) =>
 /* ---------------------------------------------------------------- */
 
 @Component({
-  selector: 'app-assesments',
-  templateUrl: './risk-assesments.component.html',
-  styleUrls: ['./risk-assesments.component.scss'],
+    selector: 'app-assesments',
+    templateUrl: './risk-assesments.component.html',
+    styleUrls: ['./risk-assesments.component.scss'],
+    standalone: false
 })
 export class RiskAssesmentsComponent implements OnInit {
 
@@ -110,67 +111,6 @@ export class RiskAssesmentsComponent implements OnInit {
 
   }
 
-  /* =====================================================================
-   *  STATIC COLUMNS  (always visible)
-   * ===================================================================*/
-  // private buildStaticColumns(): void {
-  //   this.columns = [
-  //     {
-  //       display: 'Risk Title', name: 'risk_title', data: 'risk_title',
-  //       searchable: true, sortable: true
-  //     },
-  //     { display: 'Protection Goals', name: 'prot_goals', data: 'prot_goals' },
-
-  //     {
-  //       display: 'Category', name: 'risk_category', data: 'risk_category',
-  //       searchable: true, sortable: true
-  //     },
-
-  //     {
-  //       display: 'Object', name: 'assigned_object', data: 'assigned_object',
-  //       searchable: true
-  //     },
-
-  //     {
-  //       display: 'Object Type', name: 'assigned_object_type', data: 'assigned_object_type',
-  //       searchable: true
-  //     },
-
-  //     { display: 'LH Before', name: 'likelihood_value_before', data: 'likelihood_value_before' },
-  //     {
-  //       display: 'Risk Before', name: 'risk_before', data: 'risk_before',
-  //       template: this.riskBeforeTpl
-  //     },
-  //     { display: 'Risk Owner', name: 'risk_owner', data: 'risk_owner' },
-
-
-  //     { display: 'Assessment Date', name: 'ass_date', data: 'ass_date', sortable: true },
-  //     { display: 'Planned Impl. Date', name: 'plan_date', data: 'plan_date' },
-  //     { display: 'Finished Impl. Date', name: 'fin_date', data: 'fin_date' },
-  //     { display: 'Audit Date', name: 'audit_date', data: 'audit_date' },
-
-  //     {
-  //       display: 'Risk After', name: 'risk_after', data: 'risk_after',
-  //       template: this.riskAfterTpl
-  //     },
-
-  //     { display: 'LH After', name: 'likelihood_value_after', data: 'likelihood_value_after' },
-
-  //     { display: 'Treatment Option', name: 'risk_treatment_option', data: 'risk_treatment_option' },
-  //     { display: 'Impl. Status', name: 'implementation_status', data: 'implementation_status' },
-  //     { display: 'Priority', name: 'priority', data: 'priority' },
-
-  //     { display: 'Responsible', name: 'responsible_person', data: 'responsible_person' },
-  //     { display: 'Auditor', name: 'auditor', data: 'auditor' },
-
-  //     { display: 'Additional Info', name: 'additional_info', data: 'additional_info' },
-  //     { display: 'Treatment Desc.', name: 'risk_treatment_description', data: 'risk_treatment_description' },
-  //     { display: 'Resources', name: 'required_resources', data: 'required_resources' },
-  //     { display: 'Cost', name: 'costs_for_implementation', data: 'costs_for_implementation' },
-  //     { display: 'Currency', name: 'costs_for_implementation_currency', data: 'costs_for_implementation_currency' },
-  //   ];
-  //   this.initialVisibleColumns = this.columns.map(c => c.name);
-  // }
 
   /* =====================================================================
  *  STATIC COLUMNS  (always visible, ordered as in spec)
@@ -224,36 +164,7 @@ export class RiskAssesmentsComponent implements OnInit {
   }
 
 
-  /* =====================================================================
-   *  DYNAMIC IMPACT-CATEGORY COLUMNS
-   * ===================================================================*/
 
-  // private addImpactColumns(categories: string[]): void {
-  //   const already = new Set(this.columns.map(c => c.name));
-
-  //   // First add all (Before) columns
-  //   categories.forEach(cat => {
-  //     const keyB = `before_${slug(cat)}`;
-  //     if (!already.has(keyB)) {
-  //       this.columns.push({ display: `${cat} (Before)`, name: keyB, data: keyB });
-  //       this.initialVisibleColumns.push(keyB);
-  //     }
-  //   });
-
-  //   // Then add all (After) columns
-  //   categories.forEach(cat => {
-  //     const keyA = `after_${slug(cat)}`;
-  //     if (!already.has(keyA)) {
-  //       this.columns.push({ display: `${cat} (After)`, name: keyA, data: keyA });
-  //       this.initialVisibleColumns.push(keyA);
-  //     }
-  //   });
-
-  //   /* update export columns */
-  //   this.exportCols = this.columns.map(c => c.display);
-  //   this.headerMap = this.exportCols.reduce(
-  //     (m, c) => { m[c] = c; return m; }, {} as Record<string, string>);
-  // }
 
   /* =====================================================================
  *  DYNAMIC IMPACT-CATEGORY COLUMNS  (clean two-step version)
@@ -374,15 +285,10 @@ export class RiskAssesmentsComponent implements OnInit {
               prot_goals: (r.protection_goals ?? []).join(', '),
               prot_goals_arr: r.protection_goals ?? [],
               interviewed: (r.interviewed_persons ?? []).join(', '),
-              // risk_class_before: r.risk_before?.risk_class?.label ?? '',
-              // risk_class_after: r.risk_after?.risk_class?.label ?? '',
               risk_class_before: this.rcName(beforeId),
               risk_class_after: this.rcName(afterId),
-
               risk_class_before_id: beforeId,
-              risk_class_after_id: afterId,
-
-
+              risk_class_after_id: afterId
             };
 
             /* initialise empty cells … */
@@ -403,37 +309,10 @@ export class RiskAssesmentsComponent implements OnInit {
           this.applyAllFilters();
         },
 
-        error: err => this.toast.error(err?.error?.message ?? 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 
-  // private applyAllFilters(): void {
-
-  //   let rows = [...this.rawRows];
-
-  //   /* ── apply chip-filters ───────────── */
-  //   this.activeFilters.forEach((set, prop) => {
-  //     rows = rows.filter(r => {
-  //       const val = r[prop];
-  //       if (Array.isArray(val)) return val.some(v => set.has(String(v)));
-  //       return set.has(String(val));
-  //     });
-  //   });
-
-  //   /* ── apply search ───────────── */
-  //   if (this.textSearch) {
-  //     const search = this.textSearch.toLowerCase();
-  //     rows = rows.filter(r =>
-  //       (r.risk_title ?? '').toLowerCase().includes(search) ||
-  //       (r.risk_category ?? '').toLowerCase().includes(search) ||
-  //       (r.prot_goals ?? '').toLowerCase().includes(search)
-  //     );
-  //   }
-
-  //   /* ── final ───────────── */
-  //   this.viewRows = rows;
-  //   this.totalItems = rows.length;
-  // }
 
   private applyAllFilters(): void {
 
@@ -483,24 +362,6 @@ export class RiskAssesmentsComponent implements OnInit {
   /* =====================================================================
    *  CHIP-FILTER UI 
    * ===================================================================*/
-  // getValues(prop: string) {
-  //   const s = new Set<string>();
-
-  //   // Always take from rawRows (not viewRows), to see full possible values
-  //   this.rawRows.forEach(r => {
-  //     const v = r[prop];
-  //     if (Array.isArray(v)) v.forEach(x => s.add(String(x)));
-  //     else if (v != null && v !== '') s.add(String(v));
-  //   });
-
-  //   // Remove already selected values for this property (if any)
-  //   const selectedSet = this.activeFilters.get(prop);
-  //   if (selectedSet) {
-  //     selectedSet.forEach(val => s.delete(val));
-  //   }
-
-  //   return [...s].sort();
-  // }
 
   getValues(prop: string) {
     if (prop === 'risk_class_before_id' || prop === 'risk_class_after_id') {
@@ -523,14 +384,7 @@ export class RiskAssesmentsComponent implements OnInit {
 
 
   get hasActiveFilters() { return this.activeFilters.size > 0; }
-  // get activeFilterChips() {
-  //   const out: string[] = [];
-  //   this.activeFilters.forEach((set, k) => {
-  //     const lbl = this.filterDefs.find(f => f.key === k)?.label;
-  //     out.push(...Array.from(set).map(v => `${lbl}: ${v}`));
-  //   });
-  //   return out;
-  // }
+
 
   get activeFilterChips() {
     const out: string[] = [];
@@ -546,17 +400,6 @@ export class RiskAssesmentsComponent implements OnInit {
     return out;
   }
 
-
-
-  // applyFilter() {
-  //   const { selectedProperty: p, selectedValues: vals } = this.ui;
-  //   if (!p || !vals.length) return;
-  //   const set = this.activeFilters.get(p) ?? new Set<string>();
-  //   vals.forEach(v => set.add(v));
-  //   this.activeFilters.set(p, set);
-  //   this.ui.selectedProperty = ''; this.ui.selectedValues = [];
-  //   this.page = 1; this.loadPage();
-  // }
 
   applyFilter() {
     const { selectedProperty: p, selectedValues: vals } = this.ui;
@@ -578,13 +421,7 @@ export class RiskAssesmentsComponent implements OnInit {
     this.page = 1; this.loadPage();
   }
 
-  // removeFilter(i: number) {
-  //   const [lbl, val] = this.activeFilterChips[i].split(':').map(s => s.trim());
-  //   const k = this.filterDefs.find(f => f.label === lbl)?.key; if (!k) return;
-  //   const set = this.activeFilters.get(k); if (!set) return;
-  //   set.delete(val); if (!set.size) this.activeFilters.delete(k);
-  //   this.page = 1; this.loadPage();
-  // }
+
   removeFilter(i: number) {
     const [lbl, val] = this.activeFilterChips[i].split(':').map(s => s.trim());
     const k = this.filterDefs.find(f => f.label === lbl)?.key; if (!k) return;
@@ -718,7 +555,4 @@ export class RiskAssesmentsComponent implements OnInit {
   public getTextColor(color: string): string {
     return getTextColorBasedOnBackground(color);
   }
-
-
-
 }

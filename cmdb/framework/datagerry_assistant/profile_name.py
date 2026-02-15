@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -13,14 +13,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""This module contains all available profile names for the DATAGERRY assistant"""
+"""
+This module contains all available profile names for the DataGerry assistant
+"""
 
 from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ProfileName(str, Enum):
     """
-    Enumeration of all valid profile names which can be created through the DATAGERRY assistant
+    Enumeration of all valid profile names which can be created through the DataGerry assistant
     """
     USER_MANAGEMENT = 'user-management-profile'
     LOCATION = 'location-profile'

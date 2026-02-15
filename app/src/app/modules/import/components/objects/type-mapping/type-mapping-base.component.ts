@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,8 @@ import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 
 @Component({
     selector: 'cmdb-type-mapping-base',
-    template: ''
+    template: '',
+    standalone: false
 })
 export class TypeMappingBaseComponent {
     @Input() public parsedData: any = undefined;

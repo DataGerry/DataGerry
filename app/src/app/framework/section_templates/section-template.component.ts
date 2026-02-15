@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -43,7 +43,8 @@ export interface GlobalTemplateCounts {
 @Component({
     selector: 'cmdb-section-template',
     templateUrl: './section-template.component.html',
-    styleUrls: ['./section-template.component.scss']
+    styleUrls: ['./section-template.component.scss'],
+    standalone: false
 })
 export class SectionTemplateComponent implements OnInit, OnDestroy {
     public sectionTemplates: any = [];
@@ -200,8 +201,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                         this.getAllSectionTemplates();
                     },
                     error: error => {
-                        console.log("error in clone section template response");
-                        this.toastService.error(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }

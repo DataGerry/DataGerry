@@ -92,7 +92,7 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             if not user:
                 raise AuthenticationError("User not found!")
         except BaseManagerGetError as err:
-            raise AuthenticationError(err) from err
+            raise AuthenticationError(str(err)) from err
 
         login_pass = self.security_manager.generate_hmac(password)
 

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -19,7 +19,7 @@ Implementation of the DocApiRenderer in DataGerry
 import logging
 from io import BytesIO
 
-from cmdb.manager import ObjectsManager
+from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
@@ -40,7 +40,13 @@ class DocApiRenderer:
      A renderer for generating documents from CmdbObjects using predefined templates
     """
 
-    def __init__(self, objects_manager: ObjectsManager, target_template: DocapiTemplate, target_object: CmdbObject):
+    def __init__(
+            self,
+            objects_manager: ObjectsManager,
+            target_template: DocapiTemplate,
+            target_object: CmdbObject,
+            types_manager: TypesManager = None
+        ) -> None:
         """
         Initializes the DocApiRenderer
 
@@ -51,6 +57,7 @@ class DocApiRenderer:
         self.target_template = target_template
         self.target_object = target_object
         self.objects_manager = objects_manager
+        self.types_manager = types_manager
 
 
     def render_object_template(self, request_user: CmdbUser = None) -> BytesIO:
@@ -81,6 +88,8 @@ class DocApiRenderer:
         generator = ObjectDocumentGenerator(self.target_template,
                                             cmdb_render_object.result(),
                                             PdfDocumentType(),
-                                            self.objects_manager)
+                                            self.objects_manager,
+                                            self.types_manager,
+                                            request_user)
 
         return generator.generate_doc()

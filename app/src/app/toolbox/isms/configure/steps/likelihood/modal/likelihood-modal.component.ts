@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,9 +29,10 @@ import { LikelihoodService } from 'src/app/toolbox/isms/services/likelihood.serv
 import { nonZeroValidator, numericOrDecimalValidator, uniqueCalculationBasisValidator } from 'src/app/toolbox/isms/utils/isms-utils';
 
 @Component({
-  selector: 'app-likelihood-modal',
-  templateUrl: './likelihood-modal.component.html',
-  styleUrls: ['./likelihood-modal.component.scss']
+    selector: 'app-likelihood-modal',
+    templateUrl: './likelihood-modal.component.html',
+    styleUrls: ['./likelihood-modal.component.scss'],
+    standalone: false
 })
 export class LikelihoodModalComponent implements OnInit {
   @Input() likelihood?: Likelihood; // Provided => Edit mode

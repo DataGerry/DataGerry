@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { FileElement } from '../../model/file-element';
 import { FileService } from '../../service/file.service';
 
 @Component({
-  selector: 'cmdb-folder-path-viewer',
-  templateUrl: './folder-path-viewer.component.html',
-  styleUrls: ['./folder-path-viewer.component.scss']
+    selector: 'cmdb-folder-path-viewer',
+    templateUrl: './folder-path-viewer.component.html',
+    styleUrls: ['./folder-path-viewer.component.scss'],
+    standalone: false
 })
 export class FolderPathViewerComponent implements OnInit {
 

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,9 +30,10 @@ import { FileService } from '../../../components/file-explorer/service/file.serv
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-add-attachments-modal',
-  templateUrl: './add-attachments-modal.component.html',
-  styleUrls: ['./add-attachments-modal.component.scss']
+    selector: 'cmdb-add-attachments-modal',
+    templateUrl: './add-attachments-modal.component.html',
+    styleUrls: ['./add-attachments-modal.component.scss'],
+    standalone: false
 })
 export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
 
@@ -177,8 +178,8 @@ export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.unSubscribe.next();
-    this.unSubscribe.complete();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
   }
 
 }

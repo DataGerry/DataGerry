@@ -19,6 +19,6 @@ Provides all CmdbObject relevant classes
 from .cmdb_object import CmdbObject
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CmdbObject',
 ]

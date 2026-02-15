@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,8 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 @Component({
     selector: 'cmdb-import-objects',
     templateUrl: './import-objects.component.html',
-    styleUrls: ['./import-objects.component.scss']
+    styleUrls: ['./import-objects.component.scss'],
+    standalone: false
 })
 export class ImportObjectsComponent implements OnInit, OnDestroy {
 
@@ -78,8 +79,8 @@ export class ImportObjectsComponent implements OnInit, OnDestroy {
             this.fileReader.abort();
         }
 
-        this.importerSubscription.unsubscribe();
-        this.parseDataSubscription.unsubscribe();
+        this.importerSubscription?.unsubscribe();
+        this.parseDataSubscription?.unsubscribe();
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

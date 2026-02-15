@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,11 +17,13 @@
 Implementation of all CmdbReport API routes
 """
 import re
-import logging
+from logging import Logger, getLogger
 import json
+from typing import Any
 from datetime import datetime
 from ast import literal_eval
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDBQueryBuilder
@@ -52,7 +54,7 @@ from cmdb.errors.manager.reports_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 reports_blueprint = APIBlueprint('reports', __name__)
 
@@ -64,7 +66,7 @@ DATETIME_PATTERN = r"datetime\.datetime\((.*?)\)"
 @reports_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def create_cmdb_report(params: dict, request_user: CmdbUser):
+def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates a CmdbReport in the database
 
@@ -104,7 +106,7 @@ def create_cmdb_report(params: dict, request_user: CmdbUser):
 @reports_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_cmdb_report(public_id: int, request_user: CmdbUser):
+def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the CmdbReport with the given public_id
     
@@ -135,7 +137,7 @@ def get_cmdb_report(public_id: int, request_user: CmdbUser):
 @reports_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Returns all CmdbReports based on the params
 
@@ -215,10 +217,13 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
         DefaultResponse: Dict of the query result
     """
     try:
+        preview_mode: bool = request.args.get("preview", default="false").lower() == "true"
+
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         requested_report: dict = reports_manager.get_item(public_id, as_dict=True)
+        LOGGER.debug(f"requested_report: {requested_report}")
 
         if not requested_report:
             abort(404, f"The Report with ID:{public_id} was not found!")
@@ -241,6 +246,11 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
 
             result = objects_manager.iterate(builder_params).results
 
+            # Only show maximum 2 elements if preview_mode
+            if preview_mode:
+                result = result[:2]
+
+        LOGGER.debug(f"report result: {result}")
         return DefaultResponse(result).make_response()
     except HTTPException as http_err:
         raise http_err

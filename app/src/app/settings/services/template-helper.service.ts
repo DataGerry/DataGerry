@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,7 +19,7 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { TypeService } from '../../framework/services/type.service';
 import { TemplateHelpdataElement } from '../models/template-helpdata-element';
-import { ReplaySubject } from 'rxjs';
+import { firstValueFrom, ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { CmdbType } from '../../framework/models/cmdb-type';
 
@@ -35,14 +35,25 @@ export class TemplateHelperService implements OnDestroy {
   }
 
   private async getSectionReferenceType(typeID: number) {
-    return this.typeService.getType(typeID).pipe(takeUntil(this.subscriber)).toPromise();
+    return firstValueFrom(this.typeService.getType(typeID).pipe(takeUntil(this.subscriber)));
   }
 
-  public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3) {
+  public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3, templateType: string = 'OBJECT') {
     const templateHelperData = [];
+    // Generate Public ID placeholder based on template type
+    let publicIdTemplate: string;
+    if (templateType === 'DEFAULT') {
+      if (prefix) {
+        publicIdTemplate = '{{root.fields' + prefix + '[\'id\']}}';
+      } else {
+        publicIdTemplate = '{{root.public_id}}';
+      }
+    } else {
+      publicIdTemplate = (prefix ? '{{fields' + prefix + '[\'id\']}}' : '{{id}}');
+    }
     templateHelperData.push(({
       label: 'Public ID',
-      templatedata: (prefix ? '{{fields' + prefix + '[\'id\']}}' : '{{id}}')
+      templatedata: publicIdTemplate
     }) as TemplateHelpdataElement);
     await this.typeService.getType(typeId).subscribe({
       next: async (cmdbTypeObj) => {
@@ -66,17 +77,17 @@ export class TemplateHelperService implements OnDestroy {
           let subdata;
 
           if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
-            await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1).then(data => {
+            await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1, templateType).then(data => {
               subdata = data;
             });
           } else if (field.ref_types.length === 1) {
-            await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1).then(data => {
+            await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1, templateType).then(data => {
               subdata = data;
             });
           } else {
             subdata = [];
             await field.ref_types.forEach((type) => {
-              this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1).then(data => {
+              this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1, templateType).then(data => {
                 subdata.push(({
                   label: 'ref_type ' + type,
                   subdata: data
@@ -109,9 +120,15 @@ export class TemplateHelperService implements OnDestroy {
             for (const refFieldName of referenceFieldNames) {
               const refField = referenceType.fields.find(f => f.name === refFieldName);
               if (refField) {
+                let refFieldTemplate: string;
+                if (templateType === 'DEFAULT') {
+                  refFieldTemplate = (changedPrefix ? '{{root.fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{root.fields[\'' + refField.name + '\']}}');
+                } else {
+                  refFieldTemplate = (changedPrefix ? '{{fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{fields[\'' + refField.name + '\']}}');
+                }
                 referenceFields.push(({
                   label: refField.label,
-                  templatedata: (changedPrefix ? '{{fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{fields[\'' + refField.name + '\']}}')
+                  templatedata: refFieldTemplate
                 }) as TemplateHelpdataElement);
               }
             }
@@ -121,9 +138,16 @@ export class TemplateHelperService implements OnDestroy {
             }) as TemplateHelpdataElement);
           });
         } else {
+          // Generate field placeholder based on template type
+          let fieldTemplate: string;
+          if (templateType === 'DEFAULT') {
+            fieldTemplate = (prefix ? '{{root.fields' + prefix + '[\'fields\'][\'' + field.name + '\']}}' : '{{root.fields[\'' + field.name + '\']}}');
+          } else {
+            fieldTemplate = (prefix ? '{{fields' + prefix + '[\'fields\'][\'' + field.name + '\']}}' : '{{fields[\'' + field.name + '\']}}');
+          }
           templateHelperData.push(({
             label: field.label,
-            templatedata: (prefix ? '{{fields' + prefix + '[\'fields\'][\'' + field.name + '\']}}' : '{{fields[\'' + field.name + '\']}}')
+            templatedata: fieldTemplate
           }) as TemplateHelpdataElement);
         }
       }
@@ -136,7 +160,7 @@ export class TemplateHelperService implements OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

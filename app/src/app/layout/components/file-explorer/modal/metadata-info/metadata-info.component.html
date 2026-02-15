@@ -1,14 +1,12 @@
 <div class="modal-content">
-  <div class="modal-header">
+  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
     <h4 class="modal-title">
       <i class="fas fa-info-circle"></i> Metadata Info
     </h4>
-    <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss(true)">
-      <span aria-hidden="true">&times;</span>
-    </button>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss(true)"></button>
   </div>
   <div class="modal-body">
-    <div class="row no-gutters">
+    <div class="row g-0">
       <div class="col-md-3 text-center">
         <i class="display-4" [ngClass]="fileElement.filename | fileExtension"></i>
       </div>
@@ -16,28 +14,28 @@
         <form>
           <fieldset>
             <legend>Basic</legend>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label for="colForFilename" class="col-sm-3 col-form-label col-form-label-sm">Filename</label>
               <div class="col-sm-9">
                 <input type="text" [value]="fileElement.filename" [disabled]="true"
                        class="form-control form-control-sm" id="colForFilename" placeholder="">
               </div>
             </div>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label for="colForType" class="col-sm-3 col-form-label col-form-label-sm">Type</label>
               <div class="col-sm-9">
                 <input type="text" [value]="fileElement?.metadata.mime_type" [disabled]="true"
                        class="form-control form-control-sm" id="colForType" placeholder="">
               </div>
             </div>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label for="colForSize" class="col-sm-3 col-form-label col-form-label-sm">Size</label>
               <div class="col-sm-9">
                 <input type="text" [value]="fileElement?.size | fileSize" [disabled]="true"
                        class="form-control form-control-sm" id="colForSize" placeholder="">
               </div>
             </div>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label for="colForFilename" class="col-sm-3 col-form-label col-form-label-sm">Path</label>
               <div class="col-sm-9">
                 <cmdb-folder-path-viewer
@@ -48,7 +46,7 @@
           </fieldset>
           <fieldset>
             <legend>Metadata</legend>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label class="col-sm-3 col-form-label col-form-label-sm">Reference</label>
               <div class="col-sm-9 pre-scrollable">
                 <ng-container *ngFor="let objRefId of refId" >
@@ -60,14 +58,14 @@
                 </ng-container>
               </div>
             </div>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label for="colForModifier" class="col-sm-3 col-form-label col-form-label-sm">Modifier</label>
               <div class="col-sm-9">
                 <input type="text" class="form-control form-control-sm" id="colForModifier" placeholder=""
                        [value]="username" [disabled]="true">
               </div>
             </div>
-            <div class="form-group row">
+            <div class="mb-3 row">
               <label for="colForDate" class="col-sm-3 col-form-label col-form-label-sm">Modify</label>
               <div class="col-sm-9">
                 <input type="text" class="form-control form-control-sm" id="colForDate" placeholder=""
@@ -81,6 +79,6 @@
     </div>
   </div>
   <div class="modal-footer">
-    <button type="button" class="btn btn-outline-primary" (click)="activeModal.close(true)">Close</button>
+    <button type="button" class="btn btn-warning" (click)="activeModal.close(true)">Close</button>
   </div>
 </div>

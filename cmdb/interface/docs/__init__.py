@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,7 @@ def create_docs_server():
     """
     app = BaseCmdbApp(__name__)
 
-    if cmdb.__MODE__ == 'DEBUG':
+    if cmdb.__MODE__ == "DEBUG":
         config = app_config['development']
     else:
         config = app_config['production']

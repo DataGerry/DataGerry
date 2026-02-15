@@ -1,3 +1,4 @@
+@use "sass:color";
 @import 'src/scss/variables';
 /**
  * Navbar
@@ -11,7 +12,7 @@ $navbar-brand-width: 210px;
 $navbar-bg-color: $white;
 $navbar-border-width: 2px;
 $navbar-border-style: solid;
-$navbar-icon-link: darken(white, 40%);
+$navbar-icon-link: color.scale(white, $lightness: -40%);
 $navbar-dropdown-font-size: 0.875rem !default;
 $navbar-dropdown-borders: (
   all: (size: 1px, style: solid, color: $border-color)
@@ -20,7 +21,7 @@ $navbar-dropdown-top: 6px;
 $navbar-dropdown-menu-padding: 0;
 $navbar-dropdown-padding: 0.3rem 0.8rem;
 $navbar-dropdown-header-color: $white;
-$navbar-dropdown-header-background: theme-color('primary');
+$navbar-dropdown-header-background: $primary;
 
 #navbar-search-bar {
   padding-right: 1rem;
@@ -29,7 +30,7 @@ $navbar-dropdown-header-background: theme-color('primary');
 #navbar-cmdb {
   height: $navbar-height;
   background: $navbar-bg-color;
-  border-bottom: $navbar-border-width $navbar-border-style theme-color('primary');
+  border-bottom: $navbar-border-width $navbar-border-style $primary;
 
   .container-content {
     margin: 0.5rem 0;
@@ -43,6 +44,9 @@ $navbar-dropdown-header-background: theme-color('primary');
     }
   }
 
+  .navbar-header {
+    max-width: 200px !important; 
+  }
   .navbar-brand {
     width: $navbar-brand-width;
     font-weight: $navbar-brand-font-width;
@@ -54,7 +58,7 @@ $navbar-dropdown-header-background: theme-color('primary');
 
     small {
       font-weight: $navbar-brand-small-font-width;
-      color: theme-color('primary');
+      color: $primary;
       position: relative;
       top: $navbar-brand-small-font-top;
       margin-right: $navbar-brand-small-font-right;
@@ -62,6 +66,11 @@ $navbar-dropdown-header-background: theme-color('primary');
 
     .brand-logo {
       vertical-align: sub;
+      height: 50px;
+      max-height: 50px;
+      width: 185px; 
+      max-width: 185px;
+      object-fit: contain;
     }
   }
 
@@ -98,6 +107,11 @@ $navbar-dropdown-header-background: theme-color('primary');
         }
       }
     }
+  }
+
+  .automation-icon {
+    width: 35px;
+    max-height: 30px;
   }
 
   .nav-1,
@@ -221,7 +235,7 @@ $navbar-dropdown-header-background: theme-color('primary');
 @media(max-width: 991px) {
   #navbar-cmdb {
     .container-content {
-      border-bottom: 1px solid darken(white, 40%);
+      border-bottom: 1px solid color.scale(white, $lightness: -40%);
     }
 
     .dropdown-lg {

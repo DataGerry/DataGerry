@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,8 @@ import { CmdbType } from '../../../models/cmdb-type';
 @Component({
     selector: 'cmdb-type-acl-step',
     templateUrl: './type-acl-step.component.html',
-    styleUrls: ['./type-acl-step.component.scss']
+    styleUrls: ['./type-acl-step.component.scss'],
+    standalone: false
 })
 export class TypeAclStepComponent extends TypeBuilderStepComponent implements OnInit, OnDestroy {
 
@@ -100,8 +101,8 @@ export class TypeAclStepComponent extends TypeBuilderStepComponent implements On
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

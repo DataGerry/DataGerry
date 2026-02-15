@@ -8,8 +8,7 @@
                 If you see this message, the frontend cannot find a connection to DATAGERRY.
                 Probably there is a problem with your backend instance. You can try to connect manually.
                 Otherwise notify your administrator.
-                <button type="button" class="close" data-dismiss="alert">
-                    <span>X</span>
+                <button type="button" class="btn-close" data-bs-dismiss="alert">
                 </button>
             </div>
         </div>
@@ -22,7 +21,7 @@
                 </div>
                 <div class="card-body">
                     <form [formGroup]="connectionForm" (ngSubmit)="checkConnection()" class="needs-validation" novalidate>
-                        <div class="form-group">
+                        <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
                                     <div class="input-group-text">
@@ -43,7 +42,7 @@
                                 Backend server address
                             </span>
                         </div>
-                        <div class="form-group">
+                        <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
                                     <div class="input-group-text">
@@ -62,7 +61,7 @@
                                 Port of the backend server
                             </span>
                         </div>
-                        <div class="form-group">
+                        <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
                                     <div class="input-group-text">
@@ -81,11 +80,11 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="form-group">
+                        <div class="mb-3">
                             <button
                                 name="connect"
                                 type="submit"
-                                class="btn btn-primary btn-block"
+                                class="btn btn-primary w-100"
                             >
                                 Try to connect
                             </button>
@@ -106,7 +105,7 @@
                         </div>
                         <div class="col-8">
                             <div *ngIf="connectionTest; else disconnected">
-                                <span class="badge badge-success">
+                                <span class="badge bg-success">
                                     CONNECTED
                                 </span>
                                 <dl class="row mt-2">
@@ -119,7 +118,7 @@
                                 </dl>
                             </div>
                             <ng-template #disconnected>
-                                <span class="badge badge-danger">DISCONNECTED</span>
+                                <span class="badge bg-danger">DISCONNECTED</span>
                             </ng-template>
                         </div>
                     </div>
@@ -127,7 +126,7 @@
                 <div class="card-footer">
                     <button
                         type="button"
-                        class="btn btn-sm btn-block btn-success"
+                        class="btn btn-sm w-100 btn-success"
                         [disabled]="!connectionTest"
                         (click)="useConnection()"
                     >

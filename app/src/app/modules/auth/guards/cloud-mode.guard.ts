@@ -28,3 +28,27 @@ export const cloudModeChildGuard: CanActivateChildFn = () => {
 
     return true;
 };
+
+// Cloud-only guard for routes that should be available only in cloud mode.
+export const cloudOnlyGuard: CanActivateFn = () => {
+    const router = inject(Router);
+
+    if (!environment.cloudMode) {
+        router.navigate(['/error/404']);
+        return false;
+    }
+
+    return true;
+};
+
+// Cloud-only child guard for routes that should be available only in cloud mode.
+export const cloudOnlyChildGuard: CanActivateChildFn = () => {
+    const router = inject(Router);
+
+    if (!environment.cloudMode) {
+        router.navigate(['/error/404']);
+        return false;
+    }
+
+    return true;
+};

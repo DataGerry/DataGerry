@@ -1,5 +1,5 @@
 
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -31,7 +31,7 @@ def test_start_routine():
     """
     Tests if the CMDB application title is correctly set
     """
-    assert __title__ == 'DATAGERRY'
+    assert __title__ == 'DataGerry'
 
 
 class TestRestAPI:

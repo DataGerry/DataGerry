@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -36,6 +36,7 @@ import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
     selector: 'cmdb-sidebar',
     templateUrl: './sidebar.component.html',
     styleUrls: ['./sidebar.component.scss'],
+    standalone: false
 })
 export class SidebarComponent implements OnInit, OnDestroy {
 
@@ -64,7 +65,9 @@ export class SidebarComponent implements OnInit, OnDestroy {
     // String representation of currently selected tab menu in sidebar (Default is Categories)
     selectedMenu: string;
 
-    isExpanded: boolean = false
+    // Sidebar expansion state
+    isExpanded: boolean = false;
+
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -110,10 +113,11 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.categoryTreeSubscription.unsubscribe();
-        this.unCategorizedTypesSubscription.unsubscribe();
-        this.filterTermSubscription.unsubscribe();
-        this.renderer.removeClass(document.body, 'sidebar-fixed');
+        this.subscriber?.complete();
+        this.categoryTreeSubscription?.unsubscribe();
+        this.unCategorizedTypesSubscription?.unsubscribe();
+        this.filterTermSubscription?.unsubscribe();
+        this.renderer?.removeClass(document?.body, 'sidebar-fixed');
     }
 
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */
@@ -134,16 +138,16 @@ export class SidebarComponent implements OnInit, OnDestroy {
      * Toggle the expansion state of the sidebar and dynamically update its width and related styles.
      * This function is called when the user clicks on the expand/collapse button.
      */
-    onExpandClicked() {
-
+    public onExpandClicked() {
         // Toggle the expansion state
         this.isExpanded = !this.isExpanded;
-
+        
+        // Trigger change detection to update the view
+        this.cdRed.markForCheck();
+        
         // Dynamically set the width of the sidebar
         const newWidth = this.isExpanded ? '500px' : '230px';
         this.setSidebarWidth(newWidth);
-
-        // Update dynamic styles based on the new width
         this.updateDynamicStyles(newWidth);
     }
 

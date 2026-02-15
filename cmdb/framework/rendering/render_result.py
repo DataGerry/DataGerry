@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,11 +16,12 @@
 """
 Implementation of RenderResult
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RenderResult - CLASS                                                 #
@@ -30,9 +31,9 @@ class RenderResult:
     Represents the result of rendering a CmdbObject
 
     Attributes:
-        current_render_time (datetime): Timestamp of when the render operation occurred
-        object_information (dict): Information related to the rendered object
-        type_information (dict): Metadata about the object's type
+        current_render_time (datetime): Timestamp when the render operation occurred
+        object_information (dict[str, Any]): Information related to the rendered CmdbObject
+        type_information (dict[str, Any]): Metadata about the object's type
         fields (list): List of fields associated with the rendered object
         sections (list): List of sections present in the rendered result
         summaries (list): Summary details of the rendered object
@@ -41,10 +42,10 @@ class RenderResult:
         multi_data_sections (list): Sections containing multiple data entries
     """
 
-    def __init__(self):
-        self.current_render_time = datetime.now(timezone.utc)
-        self.object_information: dict = {}
-        self.type_information: dict = {}
+    def __init__(self) -> None:
+        self.current_render_time: datetime = datetime.now(timezone.utc)
+        self.object_information: dict[str, Any] = {}
+        self.type_information: dict[str, Any] = {}
         self.fields: list = []
         self.sections: list = []
         self.summaries: list = []

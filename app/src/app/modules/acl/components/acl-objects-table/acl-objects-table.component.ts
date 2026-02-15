@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -33,7 +33,8 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 @Component({
     selector: 'cmdb-acl-objects-table',
     templateUrl: './acl-objects-table.component.html',
-    styleUrls: ['./acl-objects-table.component.scss']
+    styleUrls: ['./acl-objects-table.component.scss'],
+    standalone: false
 })
 export class AclObjectsTableComponent implements OnInit, OnDestroy {
 
@@ -157,8 +158,8 @@ export class AclObjectsTableComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

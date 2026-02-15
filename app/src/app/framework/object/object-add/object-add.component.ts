@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -41,7 +41,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-object-add',
     templateUrl: './object-add.component.html',
-    styleUrls: ['./object-add.component.scss']
+    styleUrls: ['./object-add.component.scss'],
+    standalone: false
 })
 export class ObjectAddComponent implements OnInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -111,7 +112,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
                     this.typeList = typeList;
                 },
                 error: (error) => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -122,9 +123,9 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.typeIDSubject.unsubscribe();
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.typeIDSubject?.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
@@ -227,7 +228,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
                         this.locationService.locationTreeName = "";
                     },
                     error: error => {
-                        this.toastService.error(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
         }

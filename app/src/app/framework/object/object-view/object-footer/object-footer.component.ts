@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,14 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
+import { Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { RenderResult } from '../../../models/cmdb-render';
 
 @Component({
-  selector: 'cmdb-object-footer',
-  templateUrl: './object-footer.component.html',
-  styleUrls: ['./object-footer.component.scss']
+    selector: 'cmdb-object-footer',
+    templateUrl: './object-footer.component.html',
+    styleUrls: ['./object-footer.component.scss'],
+    standalone: false
 })
 export class ObjectFooterComponent implements OnChanges {
 
@@ -41,8 +42,11 @@ export class ObjectFooterComponent implements OnChanges {
     return this.rr;
   }
 
+  constructor(private changesRef: ChangeDetectorRef) {}
+
   public ngOnChanges(changes: SimpleChanges): void {
     this.objectID = this.renderResult.object_information.object_id;
+    this.changesRef.markForCheck();
   }
 
 

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,7 @@ import sys
 import importlib
 import inspect
 import logging
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def get_module_classes(module_name):
     return class_list
 
 
-def str_to_bool(s) -> bool:
+def str_to_bool(s: Any) -> bool:
     """
     Converts a string or boolean value to a corresponding boolean
 

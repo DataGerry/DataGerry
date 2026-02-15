@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,7 @@
 Implementation of Importer API routes helper methods
 """
 import json
-import logging
-from typing import Union
+from logging import getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
@@ -35,7 +34,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -60,7 +59,7 @@ def get_file_in_request(file_name: str, request_files) -> FileStorage:
     return request.files.get(file_name)
 
 
-def get_element_from_data_request(element, _request: Request) -> Union[dict, None]:
+def get_element_from_data_request(element, _request: Request) -> dict | None:
     """
     Extract and parse a specific form field from the request as a JSON object
 
@@ -69,7 +68,7 @@ def get_element_from_data_request(element, _request: Request) -> Union[dict, Non
         _request (Request): The Flask request object containing the form data
 
     Returns:
-        dict or None: The parsed JSON object if successful, otherwise None
+        dict | None: The parsed JSON object if successful, otherwise None
     """
     try:
         return json.loads(_request.form.to_dict()[element])

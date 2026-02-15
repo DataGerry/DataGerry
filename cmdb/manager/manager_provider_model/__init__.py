@@ -20,7 +20,7 @@ from .manager_provider import ManagerProvider
 from .manager_type_enum import ManagerType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ManagerProvider',
     'ManagerType',
 ]

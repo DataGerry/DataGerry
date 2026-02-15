@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,7 +31,8 @@ import { DocTemplate } from '../../models/cmdb-doctemplate';
 @Component({
     selector: 'cmdb-docapi-builder',
     templateUrl: './docapi-builder.component.html',
-    styleUrls: ['./docapi-builder.component.scss']
+    styleUrls: ['./docapi-builder.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderComponent {
 
@@ -118,7 +119,7 @@ export class DocapiBuilderComponent {
                 this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: publicIdResp } });
             },
             error: (error: any) => {
-                console.error(error);
+                // console.error(error);
             }
         });
     }
@@ -135,7 +136,7 @@ export class DocapiBuilderComponent {
                 this.router.navigate(['/docapi/'], { queryParams: { docEditSuccess: updateResp.public_id } });
             },
             error: (error: any) => {
-                console.error(error);
+                // console.error(error);
             }
         });
     }

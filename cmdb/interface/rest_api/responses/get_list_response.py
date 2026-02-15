@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 Implementation of GetListResponse
 """
 import logging
+from typing import Any
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -35,7 +36,7 @@ class GetListResponse(BaseAPIResponse):
     """
     API Response for a simple list without iteration
     """
-    def __init__(self, results: list[dict], body: bool = None, params: APIParameters = None):
+    def __init__(self, results: list[dict], body: bool = None, params: APIParameters = None) -> None:
         self.params = params
 
         if self.params and self.params.projection:
@@ -47,7 +48,7 @@ class GetListResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.GET, body=body)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response.
 
@@ -68,7 +69,7 @@ class GetListResponse(BaseAPIResponse):
         return response
 
 
-    def export(self) -> dict:
+    def export(self) -> dict[str, Any]:
         """
         Get the list response
         """

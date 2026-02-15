@@ -17,21 +17,20 @@
 */
 
 /* import bootstrap */
-@import "scss/bootstrap_variables";
+@import "scss/variables";
 @import "bootstrap/scss/bootstrap";
 
 /* import font-awesome */
-@import "~@fortawesome/fontawesome-free/css/all.css";
-@import "~@fortawesome/fontawesome-free/css/v4-shims.css";
-@import "~@fortawesome/fontawesome-free/css/regular.css";
-@import "~@fortawesome/fontawesome-free/css/brands.css";
-@import "~@fortawesome/fontawesome-free/css/solid.css";
+@import "@fortawesome/fontawesome-free/css/all.css";
+@import "@fortawesome/fontawesome-free/css/v4-shims.css";
+@import "@fortawesome/fontawesome-free/css/regular.css";
+@import "@fortawesome/fontawesome-free/css/brands.css";
+@import "@fortawesome/fontawesome-free/css/solid.css";
 
 /* import archwizard */
 @import "node_modules/@rg-software/angular-archwizard/styles/archwizard.scss";
 
 /* custom global modules */
-@import "scss/variables";
 @import "scss/mixins";
 @import "scss/utils";
 @import "scss/layout";

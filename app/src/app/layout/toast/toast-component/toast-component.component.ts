@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@ import {Component, Input} from '@angular/core';
 import {ToastService} from '../toast.service';
 
 @Component({
-  selector: 'cmdb-toast-component',
-  templateUrl: './toast-component.component.html',
-  styleUrls: ['./toast-component.component.scss'],
+    selector: 'cmdb-toast-component',
+    templateUrl: './toast-component.component.html',
+    styleUrls: ['./toast-component.component.scss'],
+    standalone: false
 })
 export class ToastComponentComponent {
 
@@ -73,4 +74,8 @@ export class ToastComponentComponent {
     })();
   }
 
+  closeToast(toast: any) {
+    this.toastService.remove(toast);
+  }
+  
 }

@@ -22,8 +22,9 @@ type ApiRow = any;             // raw row from the API
 type ViewRow = Record<string, any>; // flattened for table / export
 
 @Component({
-  selector: 'app-risk-treatment-plan',
-  templateUrl: './risk-treatment-plan.component.html',
+    selector: 'app-risk-treatment-plan',
+    templateUrl: './risk-treatment-plan.component.html',
+    standalone: false
 })
 export class RiskTreatmentPlanComponent implements OnInit {
 
@@ -138,7 +139,7 @@ export class RiskTreatmentPlanComponent implements OnInit {
           this.rawRows = this.process(list);
           this.applyView();         // no filter → copy + sort + page
         },
-        error: err => this.toast.error(err?.error?.message ?? 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
 
@@ -189,28 +190,6 @@ export class RiskTreatmentPlanComponent implements OnInit {
 
   exportCsv() { this.fileExp.exportCsv(`risk-treatment-plan_${getCurrentDate()}`, this.exportRows(), this.exportCols); }
   exportXlsx() { this.fileExp.exportXlsx(`risk-treatment-plan_${getCurrentDate()}`, this.exportRows(), this.exportCols); }
-
-  // exportPdf(): void {
-  //   const pdf = new jsPDF({ orientation: 'l', unit: 'pt', format: 'a4' });
-  //   const rows = this.exportRows();
-  //   autoTable(pdf, {
-  //     head: [this.exportCols],
-  //     body: rows.map(r => this.exportCols.map(k => r[k])),
-  //     startY: 30,
-  //     margin: { top: 30, bottom: 20, left: 20, right: 20 },
-  //     styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
-  //     headStyles: { fontSize: 8, fillColor: [47, 102, 153], textColor: 255 },
-  //     didDrawPage: ({ pageNumber }) => {
-  //       pdf.setFontSize(9);
-  //       pdf.text(
-  //         `Page ${pageNumber} / ${pdf.getNumberOfPages()}`,
-  //         pdf.internal.pageSize.getWidth() - 60,
-  //         pdf.internal.pageSize.getHeight() - 10
-  //       );
-  //     }
-  //   });
-  //   pdf.save('risk-treatment-plan.pdf');
-  // }
 
   exportPdf(): void {
     const pdf = new jsPDF({ orientation: 'l', unit: 'pt', format: 'a4' });

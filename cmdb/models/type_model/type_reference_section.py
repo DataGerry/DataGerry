@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,13 +17,14 @@
 This class represents a type reference section
 Extends: TypeSection
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_reference_section_entry import TypeReferenceSectionEntry
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 TypeReferenceSection                                                 #
@@ -34,19 +35,22 @@ class TypeReferenceSection(TypeSection):
     Extends: TypeSection
     """
 
-    def __init__(self,
-                 type: str,
-                 name: str,
-                 label: str = None,
-                 reference: TypeReferenceSectionEntry = None,
-                 fields: list = None):
+    def __init__(
+        self,
+        type: str,
+        name: str,
+        label: str | None = None,
+        reference: TypeReferenceSectionEntry | None = None,
+        fields: list | None = None
+    ) -> None:
+        """TODO: document"""
         self.reference = reference or {}
         self.fields = fields or []
         super().__init__(type=type, name=name, label=label)
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
     @classmethod
-    def from_data(cls, data: dict) -> "TypeReferenceSection":
+    def from_data(cls, data: dict[str, Any]) -> "TypeReferenceSection":
         """
         Generates a TypeReferenceSection object from a dict
 
@@ -56,21 +60,21 @@ class TypeReferenceSection(TypeSection):
         Returns:
             TypeReferenceSection: TypeReferenceSection class with given data
         """
-        reference = data.get('reference', None)
+        reference = data.get('reference')
         if reference:
-            reference = TypeReferenceSectionEntry.from_data(reference)
+            reference: TypeReferenceSectionEntry = TypeReferenceSectionEntry.from_data(reference)
 
         return cls(
             type = data.get('type'),
             name = data.get('name'),
-            label = data.get('label', None),
+            label = data.get('label'),
             reference = reference,
-            fields = data.get('fields', None)
+            fields = data.get('fields')
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeReferenceSection") -> dict:
+    def to_json(cls, instance: "TypeReferenceSection") -> dict[str, Any]:
         """
         Returns a TypeReferenceSection as JSON representation
 
@@ -89,7 +93,8 @@ class TypeReferenceSection(TypeSection):
         }
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        #TODO: document
         return (f"{self.__class__.__name__}(\n"
                 f"type={repr(self.type)},\n "
                 f"name={repr(self.name)},\n "

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -25,9 +25,10 @@ import { GroupUsersModalComponent } from '../../modals/group-users-modal/group-u
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-group-table-user-cell',
-  templateUrl: './group-table-user-cell.component.html',
-  styleUrls: ['./group-table-user-cell.component.scss']
+    selector: 'cmdb-group-table-user-cell',
+    templateUrl: './group-table-user-cell.component.html',
+    styleUrls: ['./group-table-user-cell.component.scss'],
+    standalone: false
 })
 export class GroupTableUserCellComponent implements OnDestroy {
 
@@ -62,8 +63,8 @@ export class GroupTableUserCellComponent implements OnDestroy {
     if (this.modalRef) {
       this.modalRef.close();
     }
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

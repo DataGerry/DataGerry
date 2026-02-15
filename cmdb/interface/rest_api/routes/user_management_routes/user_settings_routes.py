@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for CmdbUserSettings
 """
 import logging
+from typing import Any
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import UserSettingsManager
@@ -55,7 +57,7 @@ user_settings_blueprint = APIBlueprint('user_settings', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @user_settings_blueprint.validate(CmdbUserSetting.SCHEMA)
-def insert_cmdb_user_setting(user_id: int, data: dict, request_user: CmdbUser):
+def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUserSetting into the database
 
@@ -99,7 +101,7 @@ def insert_cmdb_user_setting(user_id: int, data: dict, request_user: CmdbUser):
 @user_settings_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_cmdb_user_settings(user_id: int, request_user: CmdbUser):
+def get_cmdb_user_settings(user_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting all CmdbUserSettings for the CmdbUser
 
@@ -130,7 +132,7 @@ def get_cmdb_user_settings(user_id: int, request_user: CmdbUser):
 @user_settings_blueprint.route('/<string:resource>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser):
+def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbUserSetting
 
@@ -168,7 +170,7 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @user_settings_blueprint.validate(CmdbUserSetting.SCHEMA)
-def update_cmdb_user_setting(user_id: int, resource: str, data: dict, request_user: CmdbUser):
+def update_cmdb_user_setting(user_id: int, resource: str, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUserSetting or create it if it does not exist
 
@@ -212,7 +214,7 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict, request_us
 @user_settings_blueprint.route('/<string:resource>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def delete_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser):
+def delete_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbUserSetting
 
@@ -235,7 +237,7 @@ def delete_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser
 
         user_settings_manager.delete_user_setting(user_id=user_id, resource=resource)
 
-        return DeleteSingleResponse(raw=to_delete_user_setting).make_response()
+        return DeleteSingleResponse(to_delete_user_setting).make_response()
     except HTTPException as http_err:
         raise http_err
     except UserSettingsManagerGetError as err:

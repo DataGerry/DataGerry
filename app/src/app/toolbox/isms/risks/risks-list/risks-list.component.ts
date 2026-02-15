@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,9 +39,10 @@ import { OptionType } from '../../models/option-type.enum';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 
 @Component({
-  selector: 'app-risks-list',
-  templateUrl: './risks-list.component.html',
-  styleUrls: ['./risks-list.component.scss']
+    selector: 'app-risks-list',
+    templateUrl: './risks-list.component.html',
+    styleUrls: ['./risks-list.component.scss'],
+    standalone: false
 })
 export class RisksListComponent implements OnInit {
   // Template references for the cmdb-table

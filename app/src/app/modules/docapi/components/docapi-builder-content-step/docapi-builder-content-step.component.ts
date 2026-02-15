@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,10 +17,11 @@
 */
 import { Component, Input } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { TemplateHelperService } from '../../../../settings/services/template-helper.service';
-
 import { CmdbMode } from '../../../../framework/modes.enum';
+import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -28,7 +29,8 @@ declare var tinymce;
 @Component({
     selector: 'cmdb-docapi-builder-content-step',
     templateUrl: './docapi-builder-content-step.component.html',
-    styleUrls: ['./docapi-builder-content-step.component.scss']
+    styleUrls: ['./docapi-builder-content-step.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderContentStepComponent {
 
@@ -42,8 +44,11 @@ export class DocapiBuilderContentStepComponent {
     @Input()
     set typeParam(data: any) {
         if (data) {
-            if (data.type) {
-                this.templateHelperService?.getObjectTemplateHelperData(data?.type).then(helperData => {
+            // Store the template type
+            this.templateType = data.templateType;
+            if (data.parameters?.type) {
+                // Pass the template type to the helper service
+                this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 3, this.templateType).then(helperData => {
                     this.templateHelperData = helperData;
                 });
             }
@@ -54,6 +59,8 @@ export class DocapiBuilderContentStepComponent {
     public modes = CmdbMode;
     public contentForm: UntypedFormGroup;
     public templateHelperData: any;
+    public templateType: string = 'OBJECT';
+
 
     public editorConfig = {
         base_url: '/tinymce',
@@ -116,7 +123,10 @@ export class DocapiBuilderContentStepComponent {
         return this.contentForm?.get('template_data');
     }
 
-    constructor(private templateHelperService: TemplateHelperService) {
+    constructor(
+        private templateHelperService: TemplateHelperService,
+        private modalService: NgbModal
+    ) {
         this.contentForm = new UntypedFormGroup({
             template_data: new UntypedFormControl('', [Validators.required, Validators.max(15 * 1024 * 1024)])
         });
@@ -134,6 +144,11 @@ export class DocapiBuilderContentStepComponent {
                 return this.getObjectDataMenuItems(editor);
             }
         });
+        
+        if (this.templateType === 'DEFAULT') {
+            items.push(this.getExternalObjectsMenuItem(editor));
+        }
+        
         return items;
     }
 
@@ -239,5 +254,28 @@ export class DocapiBuilderContentStepComponent {
             }
         };
         return item;
+    }
+
+    public getExternalObjectsMenuItem(editor) {
+        const item = {
+            type: 'menuitem',
+            text: 'External objects',
+            icon: 'link',
+            onAction: () => {
+                this.openExternalObjectsModal(editor);
+            }
+        };
+        return item;
+    }
+
+    private openExternalObjectsModal(editor: any): void {
+        const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
+            size: 'lg',
+            backdrop: 'static'
+        });
+        
+        modalRef.componentInstance.insertTemplate.subscribe((template: string) => {
+            editor.insertContent(template);
+        });
     }
 }

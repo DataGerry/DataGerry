@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,7 @@ import {
     ViewEncapsulation
 } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
-import { UntypedFormGroup } from '@angular/forms';
+import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { Observable, ReplaySubject, Subscription, merge, takeUntil } from 'rxjs';
 
@@ -48,6 +48,7 @@ import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
     styleUrls: ['./table.component.scss'],
     encapsulation: ViewEncapsulation.None,
     changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class TableComponent<T> implements OnInit, OnDestroy {
     // `ViewChild` for accessing the complete table container
@@ -229,7 +230,8 @@ export class TableComponent<T> implements OnInit, OnDestroy {
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private tableService: TableService, private router: Router, private toastService: ToastService) {
+    public constructor(private tableService: TableService, 
+        private router: Router, private toastService: ToastService,) {
         this.resetSelectedItems()
     }
 
@@ -278,13 +280,17 @@ export class TableComponent<T> implements OnInit, OnDestroy {
                 console.log(`[TableEvent] Sort changed to: ${sort}`);
             });
         }
+
+        this.columnSearchForm = new UntypedFormGroup(
+            Object.fromEntries(this.columns.map(c => [c.name, new UntypedFormControl('')]))
+          );
     }
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
-        this.routerSubscription.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.routerSubscription?.unsubscribe();
     }
 
 

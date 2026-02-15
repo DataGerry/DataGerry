@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,8 @@ import { DocTemplate } from '../../../../modules/docapi/models/cmdb-doctemplate'
 @Component({
     selector: 'cmdb-object-docs',
     templateUrl: './object-docs.component.html',
-    styleUrls: ['./object-docs.component.scss']
+    styleUrls: ['./object-docs.component.scss'],
+    standalone: false
 })
 export class ObjectDocsComponent implements OnChanges {
 

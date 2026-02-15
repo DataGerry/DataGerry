@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,10 +24,11 @@ import {
   OnDestroy,
   computed,
   ChangeDetectionStrategy,
-  ChangeDetectorRef
+  ChangeDetectorRef,
+  ViewChild
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
-import { finalize, Subject, takeUntil } from 'rxjs';
+import { debounceTime, distinctUntilChanged, finalize, Subject, takeUntil } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -38,7 +39,9 @@ import {
 } from 'src/app/framework/services/object-relation.service';
 import { UserService } from 'src/app/management/services/user.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { CollectionParameters } from 'src/app/services/models/api-parameter';
+import { APIGetMultiResponse } from 'src/app/services/models/api-response';
+import { ObjectSearchFilterService } from 'src/app/core/services/object-search-filter.service';
 
 interface FlatOptionItem {
   value: number;
@@ -51,10 +54,11 @@ interface FlatOptionItem {
  * Supports creating, editing, and viewing relationships based on user selection.
  */
 @Component({
-  selector: 'relation-role-dialog',
-  templateUrl: './relation-role-dialog.component.html',
-  styleUrls: ['./relation-role-dialog.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'relation-role-dialog',
+    templateUrl: './relation-role-dialog.component.html',
+    styleUrls: ['./relation-role-dialog.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   @Input() chosenRole!: 'parent' | 'child' | 'both';
@@ -82,9 +86,29 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   public loading = false;
   public showParentSection = false;
   public showChildSection = false;
+  public parentIsLoading = false;
+  public childIsLoading = false;
+  public parentSearchSubject = new Subject<string>();
+  public childSearchSubject = new Subject<string>();
+
+  @ViewChild('parentSelect', { static: false }) public parentSelect: any;
+  @ViewChild('childSelect', { static: false }) public childSelect: any;
 
   private destroy$ = new Subject<void>();
   private author_id: number;
+  private initialLoadCount = 0;
+
+  private parentPage = 1;
+  private childPage = 1;
+  private pageSize = 10;
+  private parentHasMore = true;
+  private childHasMore = true;
+  private parentIsSearching = false;
+  private childIsSearching = false;
+  private parentSearchTerm = '';
+  private childSearchTerm = '';
+  private parentResults: any[] = [];
+  private childResults: any[] = [];
 
   public isLoading$ = this.loaderService.isLoading$;
 
@@ -104,7 +128,8 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     private objectRelationService: ObjectRelationService,
     private userService: UserService,
     private cdr: ChangeDetectorRef,
-    private loaderService: LoaderService) {
+    private loaderService: LoaderService,
+    private objectSearchFilterService: ObjectSearchFilterService) {
     this.form = this.fb.group({
       parent: [null],
       child: [null]
@@ -116,13 +141,14 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.initializeForms();
     this.setupVisibility();
+    this.setupSearch();
     this.loadOptions();
     this.cdr.detectChanges();
   }
 
   ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
+    this.destroy$?.next();
+    this.destroy$?.complete();
   }
 
   /**
@@ -151,7 +177,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
           if (this.relationForm.contains(fv.name)) {
             fieldValues[fv.name] = fv.value;
           } else {
-            console.warn(`[DEBUG] Field '${fv.name}' from instance not found in relation fields`);
+            // console.warn(`[DEBUG] Field '${fv.name}' from instance not found in relation fields`);
           }
         });
 
@@ -208,62 +234,151 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
    * Loads available parent and child options based on visibility settings.
    */
   private loadOptions(): void {
-    if (this.showParentSection) this.loadParentOptions();
-    if (this.showChildSection) this.loadChildOptions();
+    if (this.showParentSection) this.loadParentOptions(true, true);
+    if (this.showChildSection) this.loadChildOptions(true, true);
   }
 
-  private loadParentOptions(): void {
+  private loadParentOptions(resetPagination: boolean = true, showGlobalLoading: boolean = false): void {
     const validTypeIDs = this.validateTypeIDs(this.parentTypeIDs);
     if (!validTypeIDs.length) {
       this.toastService.warning('No valid parent type configuration');
+      if (showGlobalLoading) {
+        this.finishInitialLoad();
+        this.cdr.detectChanges();
+      }
       return;
     }
 
-   this.loaderService.show();
-    this.loading = true;
+    if (resetPagination) {
+      this.parentPage = 1;
+      this.parentHasMore = true;
+      this.parentResults = [];
+    }
+
+    if (showGlobalLoading) {
+      this.startInitialLoad();
+    }
+
+    this.setSectionLoading('parent', true);
     this.cdr.detectChanges();
-    this.objectService.getObjectsByType(validTypeIDs)
-      .pipe(takeUntil(this.destroy$),  finalize(() => this.loaderService.hide()))
+
+    const params: CollectionParameters = {
+      filter: this.objectSearchFilterService.buildSearchPipeline(
+        this.parentIsSearching ? this.parentSearchTerm : '',
+        validTypeIDs
+      ),
+      projection: {
+        'object_information.object_id': 1,
+        'object_information.public_id': 1,
+        'summary_line': 1,
+        'type_information': 1,
+        'type_id': 1
+      },
+      limit: this.parentIsSearching ? 0 : this.pageSize,
+      sort: 'public_id',
+      order: 1,
+      page: this.parentIsSearching ? 1 : this.parentPage
+    };
+
+    this.objectService.getObjects(params)
+      .pipe(takeUntil(this.destroy$), finalize(() => {
+        this.setSectionLoading('parent', false);
+        if (showGlobalLoading) {
+          this.finishInitialLoad();
+        }
+        this.cdr.detectChanges();
+      }))
       .subscribe({
-        next: (results: any[]) => {
-          const filtered = results.filter(
-            obj => this.getObjectID(obj) !== this.currentObjectID
-          );
-          this.flatParentOptions = this.buildFlatOptions(filtered);
-          this.loading = false;
+        next: (response: APIGetMultiResponse<any>) => {
+          const results = response?.results || [];
+          const filtered = results.filter(obj => this.getObjectID(obj) !== this.currentObjectID);
+
+          this.parentResults = this.mergeUniqueById(this.parentResults, filtered, resetPagination);
+          this.flatParentOptions = this.buildFlatOptions(this.parentResults);
+
+          if (!this.parentIsSearching) {
+            this.parentHasMore = results.length === this.pageSize;
+            this.parentPage = resetPagination ? 2 : this.parentPage + 1;
+          }
+
+          this.refreshOpenSelect('parent');
           this.cdr.detectChanges();
         },
         error: err => {
-          this.toastService.error(err?.error?.message)
-          this.loading = false;
+          this.toastService.error(err?.error?.message);
           this.cdr.detectChanges();
         }
       });
   }
 
-  private loadChildOptions(): void {
+  private loadChildOptions(resetPagination: boolean = true, showGlobalLoading: boolean = false): void {
     const validTypeIDs = this.validateTypeIDs(this.childTypeIDs);
     if (!validTypeIDs.length) {
       this.toastService.warning('No valid child type configuration');
+      if (showGlobalLoading) {
+        this.finishInitialLoad();
+        this.cdr.detectChanges();
+      }
       return;
     }
-    this.loaderService.show();
-    this.loading = true;
+
+    if (resetPagination) {
+      this.childPage = 1;
+      this.childHasMore = true;
+      this.childResults = [];
+    }
+
+    if (showGlobalLoading) {
+      this.startInitialLoad();
+    }
+
+    this.setSectionLoading('child', true);
     this.cdr.detectChanges();
-    this.objectService.getObjectsByType(validTypeIDs)
-      .pipe(takeUntil(this.destroy$),  finalize(() => this.loaderService.hide()))
+
+    const params: CollectionParameters = {
+      filter: this.objectSearchFilterService.buildSearchPipeline(
+        this.childIsSearching ? this.childSearchTerm : '',
+        validTypeIDs
+      ),
+      projection: {
+        'object_information.object_id': 1,
+        'object_information.public_id': 1,
+        'summary_line': 1,
+        'type_information': 1,
+        'type_id': 1
+      },
+      limit: this.childIsSearching ? 0 : this.pageSize,
+      sort: 'public_id',
+      order: 1,
+      page: this.childIsSearching ? 1 : this.childPage
+    };
+
+    this.objectService.getObjects(params)
+      .pipe(takeUntil(this.destroy$), finalize(() => {
+        this.setSectionLoading('child', false);
+        if (showGlobalLoading) {
+          this.finishInitialLoad();
+        }
+        this.cdr.detectChanges();
+      }))
       .subscribe({
-        next: (results: any[]) => {
-          const filtered = results.filter(
-            obj => this.getObjectID(obj) !== this.currentObjectID
-          );
-          this.flatChildOptions = this.buildFlatOptions(filtered);
-          this.loading = false;
+        next: (response: APIGetMultiResponse<any>) => {
+          const results = response?.results || [];
+          const filtered = results.filter(obj => this.getObjectID(obj) !== this.currentObjectID);
+
+          this.childResults = this.mergeUniqueById(this.childResults, filtered, resetPagination);
+          this.flatChildOptions = this.buildFlatOptions(this.childResults);
+
+          if (!this.childIsSearching) {
+            this.childHasMore = results.length === this.pageSize;
+            this.childPage = resetPagination ? 2 : this.childPage + 1;
+          }
+
+          this.refreshOpenSelect('child');
           this.cdr.detectChanges();
         },
         error: err => {
-          this.toastService.error(err?.error?.message)
-          this.loading = false;
+          this.toastService.error(err?.error?.message);
           this.cdr.detectChanges();
         }
       });
@@ -383,6 +498,54 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     this.onCancel.emit();
   }
 
+  /* ------------------------------------------------ SEARCH & PAGINATION ------------------------------------------------ */
+
+  private setupSearch(): void {
+    this.parentSearchSubject.pipe(
+      debounceTime(800),
+      distinctUntilChanged(),
+      takeUntil(this.destroy$)
+    ).subscribe(term => this.handleParentSearch(term));
+
+    this.childSearchSubject.pipe(
+      debounceTime(800),
+      distinctUntilChanged(),
+      takeUntil(this.destroy$)
+    ).subscribe(term => this.handleChildSearch(term));
+  }
+
+  public onParentScrollToEnd(): void {
+    if (!this.parentIsSearching && this.parentHasMore && !this.parentIsLoading) {
+      this.loadParentOptions(false);
+    }
+  }
+
+  public onChildScrollToEnd(): void {
+    if (!this.childIsSearching && this.childHasMore && !this.childIsLoading) {
+      this.loadChildOptions(false);
+    }
+  }
+
+  public onParentSearch(searchTerm: string): void {
+    this.parentSearchSubject.next(searchTerm);
+  }
+
+  public onChildSearch(searchTerm: string): void {
+    this.childSearchSubject.next(searchTerm);
+  }
+
+  private handleParentSearch(searchTerm: string): void {
+    this.parentSearchTerm = searchTerm || '';
+    this.parentIsSearching = !!this.parentSearchTerm;
+    this.loadParentOptions(true);
+  }
+
+  private handleChildSearch(searchTerm: string): void {
+    this.childSearchTerm = searchTerm || '';
+    this.childIsSearching = !!this.childSearchTerm;
+    this.loadChildOptions(true);
+  }
+
 
   /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
 
@@ -490,4 +653,72 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     return this.mode === CmdbMode.View ? CmdbMode.View : CmdbMode.Edit;
   }
 
-}
+  public get parentHasMoreData(): boolean {
+    return this.parentHasMore;
+  }
+
+  public get childHasMoreData(): boolean {
+    return this.childHasMore;
+  }
+
+  private setSectionLoading(section: 'parent' | 'child', isLoading: boolean): void {
+    if (section === 'parent') {
+      this.parentIsLoading = isLoading;
+    } else {
+      this.childIsLoading = isLoading;
+    }
+  }
+
+  private startInitialLoad(): void {
+    this.initialLoadCount++;
+    this.loading = true;
+    this.cdr.detectChanges();
+  }
+
+  private finishInitialLoad(): void {
+    this.initialLoadCount = Math.max(0, this.initialLoadCount - 1);
+    if (this.initialLoadCount === 0) {
+      this.loading = false;
+    }
+    this.cdr.detectChanges();
+  }
+
+  private mergeUniqueById(existing: any[], incoming: any[], reset: boolean): any[] {
+    if (reset) {
+      return this.uniqueById(incoming);
+    }
+    return this.uniqueById([...existing, ...incoming]);
+  }
+
+  private uniqueById(items: any[]): any[] {
+    const seen = new Set<number>();
+    const result: any[] = [];
+    for (const item of items) {
+      const id = this.getObjectID(item);
+      if (!seen.has(id)) {
+        seen.add(id);
+        result.push(item);
+      }
+    }
+    return result;
+  }
+
+  private refreshOpenSelect(section: 'parent' | 'child'): void {
+    const select = section === 'parent' ? this.parentSelect : this.childSelect;
+    if (select?.isOpen) {
+      const items = section === 'parent' ? this.flatParentOptions : this.flatChildOptions;
+      if (select.itemsList?.setItems) {
+        select.itemsList.setItems(items);
+        if (select.searchTerm) {
+          select.itemsList.filter(select.searchTerm);
+        }
+        if (select.itemsList.markSelectedOrDefault) {
+          select.itemsList.markSelectedOrDefault(select.markFirst);
+        }
+      }
+      select.detectChanges?.();
+      select.dropdownPanel?.adjustPosition?.();
+    }
+  }
+
+} 

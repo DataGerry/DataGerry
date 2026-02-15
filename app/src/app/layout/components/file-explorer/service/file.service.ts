@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,7 +19,7 @@
 import { Injectable } from '@angular/core';
 import { Observable, timer } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
-import {HttpHeaders, HttpParams, HttpResponse} from '@angular/common/http';
+import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { FileMetadata } from '../model/metadata';
 import { UntypedFormControl } from '@angular/forms';
 import { FileElement } from '../model/file-element';

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# DataGerry (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -80,10 +80,10 @@ class Update20200512(BaseDatabaseUpdate):
         Converts a category from old < 20200512 structure to new format
         """
         old_raw_category['meta'] = {
-            'icon': old_raw_category.get('icon', None),
+            'icon': old_raw_category.get('icon'),
             'order': index
         }
-        parent = old_raw_category.get('parent_id', None)
+        parent = old_raw_category.get('parent_id')
 
         if parent == 0:
             parent = None

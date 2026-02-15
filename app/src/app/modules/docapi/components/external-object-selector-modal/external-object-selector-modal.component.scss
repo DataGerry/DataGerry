@@ -1,0 +1,12 @@
+/* External Object Selector Modal Styles */
+:host {
+  display: block;
+}
+
+.modal-body {
+  min-height: 300px;
+}
+
+.alert {
+  margin-top: 1rem;
+}

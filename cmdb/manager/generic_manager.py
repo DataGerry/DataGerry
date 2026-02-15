@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,8 +16,8 @@
 """
 This module contains the implementation of the GenericManager
 """
-import logging
-from typing import Optional, Union, Type
+from logging import Logger, getLogger
+from typing import Type, Any
 
 from cmdb.database import MongoDatabaseManager
 
@@ -29,7 +29,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.framework.results import IterationResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                GenericManager - CLASS                                                #
@@ -40,11 +40,12 @@ class GenericManager(BaseManager):
     """
 
     def __init__(
-            self,
-            dbm: MongoDatabaseManager,
-            model: Type[CmdbDAO],
-            exceptions: dict[str, Type[Exception]],
-            database: str = None):
+        self,
+        dbm: MongoDatabaseManager,
+        model: Type[CmdbDAO],
+        exceptions: dict[str, Type[Exception]],
+        database: str | None = None
+    ) -> None:
         """
         Initializes the GenericManager
 
@@ -52,23 +53,23 @@ class GenericManager(BaseManager):
             dbm (MongoDatabaseManager): Database interaction manager
             model (Type[CmdbDAO]): The model class this manager handles
             exceptions (Dict[str, Type[Exception]]): A mapping of operations to their specific exceptions
-            database (str): The database name (optional, for cloud mode)
+            database (str | None): The database name (optional, for cloud mode)
         """
         try:
             self.model = model
-            self.exceptions = exceptions
+            self.exceptions: dict[str, type[Exception]] = exceptions
             super().__init__(model.COLLECTION, dbm, database)
         except Exception as err:
             raise exceptions.get("init", Exception)(f"Initialization error: {err}") from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_item(self, document: Union[dict, CmdbDAO]) -> int:
+    def insert_item(self, document: dict[str, Any] | CmdbDAO) -> int:
         """
         Inserts an document into the database
 
         Args:
-            document (Union[dict, CmdbDAO]): The data to be inserted.
+            document (dict | CmdbDAO): The data to be inserted.
 
         Returns:
             int: The public_id of the created document
@@ -87,7 +88,7 @@ class GenericManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_item(self, public_id: int, as_dict: bool = False) -> Optional[Union[CmdbDAO, dict]]:
+    def get_item(self, public_id: int, as_dict: bool = False) -> dict[str, Any] | CmdbDAO | None:
         """
         Retrieves an item from the database by its public_id
 
@@ -98,7 +99,7 @@ class GenericManager(BaseManager):
             Custom get exception based on the specific manager
 
         Returns:
-            Optional[Union[CmdbDAO, dict]]: An instance of the model if found, else None
+            dict | CmdbDAO | None: An instance of the model if found, else None
         """
         try:
             data = self.get_one(public_id)
@@ -132,7 +133,7 @@ class GenericManager(BaseManager):
             raise self.exceptions.get("iterate", Exception)(f"Iteration error: {err}") from err
 
 
-    def count_items(self, criteria: dict = None) -> int:
+    def count_items(self, criteria: dict | None = None) -> int:
         """
         Counts the total number of items in the collection
 
@@ -152,13 +153,13 @@ class GenericManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_item(self, public_id: int, data: Union[CmdbDAO, dict]) -> None:
+    def update_item(self, public_id: int, data: CmdbDAO | dict[str, Any]) -> None:
         """
         Updates an item in the database
 
         Args:
             public_id (int): The public_id of the item to update
-            data (Union[CmdbDAO, dict]): The updated data
+            data (CmdbDAO | dict): The updated data
 
         Raises:
             Custom update exception based on the specific manager

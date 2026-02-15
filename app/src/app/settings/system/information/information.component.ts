@@ -2,9 +2,10 @@ import { Component, OnInit } from '@angular/core';
 import { SystemService } from '../system.service';
 
 @Component({
-  selector: 'cmdb-information',
-  templateUrl: './information.component.html',
-  styleUrls: ['./information.component.scss']
+    selector: 'cmdb-information',
+    templateUrl: './information.component.html',
+    styleUrls: ['./information.component.scss'],
+    standalone: false
 })
 export class InformationComponent implements OnInit {
 

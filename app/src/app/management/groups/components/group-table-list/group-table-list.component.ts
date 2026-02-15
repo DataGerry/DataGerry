@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,9 +26,10 @@ import { GroupService } from '../../../services/group.service';
 import { Group } from 'src/app/management/models/group';
 
 @Component({
-  selector: 'cmdb-group-table-list',
-  templateUrl: './group-table-list.component.html',
-  styleUrls: ['./group-table-list.component.scss']
+    selector: 'cmdb-group-table-list',
+    templateUrl: './group-table-list.component.html',
+    styleUrls: ['./group-table-list.component.scss'],
+    standalone: false
 })
 export class GroupTableListComponent implements OnInit, OnDestroy {
 
@@ -159,8 +160,8 @@ export class GroupTableListComponent implements OnInit, OnDestroy {
    * auto unsubscribe the api subscriptions.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { AbstractControl, UntypedFormArray, UntypedFormControl, UntypedFormGroup
 import { DndDropEvent } from 'ngx-drag-drop';
 
 @Component({
-  selector: 'cmdb-ldap-provider-form-group-mapping',
-  templateUrl: './ldap-provider-form-group-mapping.component.html',
-  styleUrls: ['./ldap-provider-form-group-mapping.component.scss']
+    selector: 'cmdb-ldap-provider-form-group-mapping',
+    templateUrl: './ldap-provider-form-group-mapping.component.html',
+    styleUrls: ['./ldap-provider-form-group-mapping.component.scss'],
+    standalone: false
 })
 export class LdapProviderFormGroupMappingComponent implements OnInit {
 

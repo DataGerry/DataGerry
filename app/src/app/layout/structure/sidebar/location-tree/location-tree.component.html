@@ -1,44 +1,108 @@
-<div>
-      <div class="input-wrapper-search">
-        <input id="category-filter" class="form-control form-control-sm" type="text" placeholder="Filter.." [(ngModel)]="searchString">
-        <i class="fas fa-times input-icon-clear" (click)="handleSearchReset()"></i>
+<div class="location-tree-container">
+    <!-- Search Header -->
+    <div class="search-section">
+        <div class="search-box">
+            <i class="fas fa-search search-icon"></i>
+            <input 
+                id="location-search" 
+                class="search-input" 
+                type="text" 
+                placeholder="Search locations..." 
+                [(ngModel)]="searchString"
+                autocomplete="off">
+            <button 
+                class="clear-button" 
+                *ngIf="searchString" 
+                (click)="handleSearchReset()"
+                type="button"
+                aria-label="Clear search">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
     </div>
 
-    <mat-tree [dataSource]="dataSource" [treeControl]="treeControl" id="location-tree" #locationTree class="location-tree">
-       <!-- node -->
-       <mat-tree-node *matTreeNodeDef="let node" matTreeNodeToggle 
-       [style.display]="filterLeafNode(node) ? 'none' : 'block'" 
-       class="location_element child_locations"  
-       [class.location-selected]="node.object_id == selectedLocationID"
-       [class.no-children]="treeControl.getChildren(node) == null">
-        <!-- level 2+ -->
+    <!-- Tree -->
+    <div class="tree-scroll-area" [class.expanded-mode]="isExpanded">
+        <button 
+        class="sidebar-expand-button"
+        (click)="onSidebarExpandClicked()"
+        [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
+        title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
+        <i class="fas fa-expand" *ngIf="!isExpanded"></i>
+        <i class="fas fa-compress" *ngIf="isExpanded"></i>
+    </button>
+        
+        <!-- Empty state: No locations configured -->
+        <div *ngIf="!hasLocations" class="empty-state-message">
+            <i class="fas fa-map-marker-alt"></i>
+            <span>No location was configured</span>
+        </div>
 
-        <!-- leaf -->
-            <div>
-                <i class="location_icon" [class]="node.icon"></i>
-                <span class="location_name" [id]="node.object_id" (click)="onLocationElementClicked($event.target.id)">{{node.name}}</span>
-            </div>
-        </mat-tree-node>
-        <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
-            <div class="mat-tree-node location_element root_locations" 
-                [style.display]="filterParentNode(node) ? 'none' : 'flex'" 
-                [class.location-selected]="node.object_id == selectedLocationID"
-                [class.no-children]="treeControl.getChildren(node) == null">
-                <button mat-icon-button matTreeNodeToggle 
-                        [attr.aria-label]="'Toggle ' + node.name" 
-                        style="--mat-mdc-button-persistent-ripple-color: none;--mat-mdc-button-ripple-color: none;"
-                        (click)="onExpandClicked()" >
-                    <mat-icon class="mat-icon-rtl-mirror">
-                        {{treeControl.isExpanded(node) ? 'remove' : 'add'}}
-                    </mat-icon>
-                </button>
-                <i class="location_icon" [class]="node.icon"></i>
-                <span class="location_name" [id]="node.object_id" (click)="onLocationElementClicked($event.target.id)">{{node.name}}</span>
-            </div>
-            <div class="child_locations" [class.location-tree-invisible]="!treeControl.isExpanded(node)" role="group">
-                <ng-container matTreeNodeOutlet></ng-container>
-            </div>
-        </mat-nested-tree-node>
-    </mat-tree>
+        <!-- Empty state: No search results -->
+        <div *ngIf="hasLocations && searchString && !hasSearchResults" class="empty-state-message">
+            <i class="fas fa-search"></i>
+            <span>No location found.</span>
+        </div>
+
+        <!-- Tree (only show when there are locations and either no search or search has results) -->
+        <mat-tree 
+            *ngIf="hasLocations && (!searchString || hasSearchResults)"
+            [dataSource]="dataSource" 
+            [treeControl]="treeControl" 
+            class="location-tree">
+
+            <!-- Leaf Node -->
+            <mat-tree-node 
+                *matTreeNodeDef="let node" 
+                matTreeNodeToggle 
+                [style.display]="filterLeafNode(node) ? 'none' : 'block'" 
+                class="tree-node leaf-node"  
+                [class.is-selected]="node.object_id == selectedLocationID">
+                <div class="node-wrapper">
+                    <div class="node-indent"></div>
+                    <div class="node-content" [id]="node.object_id" (click)="onLocationElementClicked($event.currentTarget.id)">
+                        <div class="icon-wrapper">
+                            <i class="node-icon" [class]="node.icon"></i>
+                        </div>
+                        <span class="node-text">{{node.name}}</span>
+                    </div>
+                </div>
+            </mat-tree-node>
+            
+            <!-- Parent Node -->
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
+                <div 
+                    class="tree-node parent-node" 
+                    [style.display]="filterParentNode(node) ? 'none' : 'block'" 
+                    [class.is-selected]="node.object_id == selectedLocationID"
+                    [class.is-expanded]="treeControl.isExpanded(node)">
+                    <div class="node-wrapper">
+                        <button 
+                            mat-icon-button 
+                            matTreeNodeToggle 
+                            class="expand-toggle"
+                            [attr.aria-label]="'Toggle ' + node.name" 
+                            [attr.aria-expanded]="treeControl.isExpanded(node)"
+                            (click)="onTreeExpandClicked()">
+                            <svg class="chevron-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="node-content" [id]="node.object_id" (click)="onLocationElementClicked($event.currentTarget.id)">
+                            <div class="icon-wrapper">
+                                <i class="node-icon" [class]="node.icon"></i>
+                            </div>
+                            <span class="node-text">{{node.name}}</span>
+                        </div>
+                    </div>
+                </div>
+                <div 
+                    class="children-wrapper" 
+                    [class.is-collapsed]="!treeControl.isExpanded(node)" 
+                    role="group">
+                    <ng-container matTreeNodeOutlet></ng-container>
+                </div>
+            </mat-nested-tree-node>
+        </mat-tree>
+    </div>
 </div>
-

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 Implementation of DatabaseUpdater
 """
 import logging
+from typing import Any
 
 from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
@@ -36,15 +37,16 @@ class DatabaseUpdater:
     """
     The DatabaseUpdater applies required changes to the database
     """
-    __UPDATE_VERSIONS__ = [
+    __UPDATE_VERSIONS__: list[int] = [
         20200512,
         20200513,
         20240603,
         20250619,
+        20251203,
     ]
 
 
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str = None) -> None:
         """
         Initialises the DatabaseUpdater
         """
@@ -88,7 +90,7 @@ class DatabaseUpdater:
         Args:
             version (int): The new value for the update version of the database
         """
-        new_version = {
+        new_version: dict[str, Any] = {
             '_id': 'updater',
             'version': version
         }
@@ -104,7 +106,7 @@ class DatabaseUpdater:
             int: The current update version stored in the database
         """
             # First check if there is any Updater-Version
-        default_version = {
+        default_version: dict[str, Any] = {
                             '_id': 'updater',
                             'version': MIN_CLOUD_UPDATER_VERSION
                         }

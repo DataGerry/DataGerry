@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-templ
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-section-template-clone-modal',
-  templateUrl: './section-template-clone-modal.component.html',
-  styleUrls: ['./section-template-clone-modal.component.scss']
+    selector: 'cmdb-section-template-clone-modal',
+    templateUrl: './section-template-clone-modal.component.html',
+    styleUrls: ['./section-template-clone-modal.component.scss'],
+    standalone: false
 })
 export class SectionTemplateCloneModalComponent {
 

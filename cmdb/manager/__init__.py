@@ -45,6 +45,7 @@ from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
 
 # System Managers
 from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.manager.system_manager.cached_user_manager import CachedUserManager
 
 # ISMS Managers
 from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
@@ -59,9 +60,21 @@ from cmdb.manager.isms_manager.risk_manager import RiskManager
 from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureManager
 from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentManager
 from cmdb.manager.isms_manager.control_measure_assignment_manager import ControlMeasureAssignmentManager
+
+# OpenCelium Managers
+from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
+from cmdb.manager.open_celium_managers.oc_connector_manager import OcConnectorManager
+from cmdb.manager.open_celium_managers.oc_invoker_manager import OcInvokerManager
+from cmdb.manager.open_celium_managers.oc_template_manager import OcTemplateManager
+from cmdb.manager.open_celium_managers.oc_connection_manager import OcConnectionManager
+from cmdb.manager.open_celium_managers.oc_scheduler_manager import OcSchedulerManager
+from cmdb.manager.open_celium_managers.oc_license_manager import OcLicenseManager
+from cmdb.manager.open_celium_managers.oc_connection_log_manager import OcConnectionLogManager
+
+from cmdb.manager.system_manager.dg_service_portal_manager import DgServicePortalManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CategoriesManager',
     'CiExplorerProfileManager',
     'DocapiTemplatesManager',
@@ -101,4 +114,14 @@ __all__ = [
     'PersonGroupsManager',
     'RiskAssessmentManager',
     'ControlMeasureAssignmentManager',
+    'CachedUserManager',
+    'OcBaseManager',
+    'OcConnectorManager',
+    'OcInvokerManager',
+    'OcTemplateManager',
+    'OcConnectionManager',
+    'OcSchedulerManager',
+    'OcLicenseManager',
+    'DgServicePortalManager',
+    'OcConnectionLogManager',
 ]

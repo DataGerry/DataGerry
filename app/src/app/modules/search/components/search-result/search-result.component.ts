@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,7 +26,8 @@ import { SearchResult } from '../../models/search-result';
 @Component({
     selector: 'cmdb-search-result',
     templateUrl: './search-result.component.html',
-    styleUrls: ['./search-result.component.scss']
+    styleUrls: ['./search-result.component.scss'],
+    standalone: false
 })
 export class SearchResultComponent implements OnDestroy {
 

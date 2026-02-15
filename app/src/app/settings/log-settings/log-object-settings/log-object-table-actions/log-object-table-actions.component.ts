@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-log-object-table-actions',
-  templateUrl: './log-object-table-actions.component.html',
-  styleUrls: ['./log-object-table-actions.component.scss']
+    selector: 'cmdb-log-object-table-actions',
+    templateUrl: './log-object-table-actions.component.html',
+    styleUrls: ['./log-object-table-actions.component.scss'],
+    standalone: false
 })
 export class LogObjectTableActionsComponent {
 

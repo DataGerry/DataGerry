@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,7 +26,7 @@ import {
   TemplateRef,
   ViewChild
 } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { BehaviorSubject, Subject, takeUntil, forkJoin, switchMap, map, finalize } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { ObjectService } from 'src/app/framework/services/object.service';
@@ -45,10 +45,11 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 
 
 @Component({
-  selector: 'cmdb-object-view',
-  templateUrl: './object-view.component.html',
-  styleUrls: ['./object-view.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'cmdb-object-view',
+    templateUrl: './object-view.component.html',
+    styleUrls: ['./object-view.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
@@ -91,6 +92,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   // Action properties
   public dialogMode: CmdbMode = CmdbMode.Create;
   public selectedRelationInstance: ExtendedObjectRelationInstance | null = null;
+  public isHeaderSelectorLoading = false;
 
   // Tracks whether a relation is already used as parent/child by this object
   private usedRolesMap = new Map<number, { parentUsed: boolean; childUsed: boolean }>();
@@ -107,6 +109,12 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   public isLoading$ = this.loaderService.isLoading$;
 
+  // Selector for Graph header
+  public allTypeIds: number[] = [];
+  public typesLoaded: boolean = false;
+  public selectedObjectIdForSelector: number | null = null;
+  private pendingSelectedId: number | null = null;
+
   /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
   constructor(
@@ -118,7 +126,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
     private toastService: ToastService,
     private changesRef: ChangeDetectorRef,
     private modalService: NgbModal,
-    private loaderService: LoaderService
+    private loaderService: LoaderService,
+    private router: Router
   ) {
     this.activateRoute.data.subscribe({
       next: (data: any) => this.objectViewSubject.next(data.object as RenderResult),
@@ -127,6 +136,15 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnInit(): void {
+
+    // Auto-switch to graph view when query param view=graph
+    this.activateRoute.queryParamMap
+      .pipe(takeUntil(this.unsubscribe))
+      .subscribe(params => {
+        const view = params.get('view');
+        if (view === 'graph') this.isGraphView = true;
+      });
+
     this.objectViewSubject.pipe(takeUntil(this.unsubscribe)).subscribe({
       next: (result) => {
         this.renderResult = result;
@@ -140,6 +158,20 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
       },
       error: (e) => this.toastService.error(e?.error?.message)
     });
+
+    // Load all type IDs for object selector
+    const params = { filter: '', limit: 0, sort: 'public_id', order: 1, page: 1 } as any;
+    this.typeService.getTypes(params)
+      .pipe(takeUntil(this.unsubscribe), finalize(() => this.changesRef.markForCheck()))
+      .subscribe({
+        next: (resp: any) => {
+          this.allTypeIds = (resp?.results || []).map((t: any) => t.public_id);
+          this.typesLoaded = true;
+        },
+        error: () => {
+          this.typesLoaded = true;
+        }
+      });
   }
 
   ngAfterViewInit(): void {
@@ -147,8 +179,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy(): void {
-    this.unsubscribe.next();
-    this.unsubscribe.complete();
+    this.unsubscribe?.next();
+    this.unsubscribe?.complete();
   }
 
   @HostListener('window:scroll')
@@ -511,7 +543,6 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
                 const instancesForRelation = groupedInstances[relationId];
                 const definition = relationMap.get(relationId);
                 if (!definition) {
-                  console.warn(`[DEBUG] Definition missing for relation ID ${relationId}`);
                   continue;
                 }
 
@@ -789,7 +820,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
           this.changesRef.markForCheck();
         },
         error: (err) => {
-          this.toastService.error(err?.error?.message || 'Failed to load objects');
+          this.toastService.error(err?.error?.message);
           this.changesRef.markForCheck();
         }
       });
@@ -811,9 +842,9 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
         name: 'type_label',
         data: 'type_label',
         template: this.counterpartTypeTemplate,
-        style: { width: 'auto', 'text-align': 'center' }
+        style: { width: 'auto', 'text-align': 'left' }
       },
-      { display: 'Relation Object', name: 'counterpart_id', data: 'counterpart_id', sortable: true, template: this.counterpartIdTemplate, style: { width: 'auto', 'text-align': 'center' } },
+      { display: 'Relation Object', name: 'counterpart_id', data: 'counterpart_id', sortable: true, template: this.counterpartIdTemplate, style: { width: 'auto', 'text-align': 'left' } },
       // { display: group.isParent ? 'Type Parent' : 'Type Child', name: 'type', data: 'type', sortable: false },
       { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '150px', 'text-align': 'center' } }
     ];
@@ -850,5 +881,26 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   toggleView(showGraph: boolean): void {
     this.isGraphView = showGraph;
+  }
+
+  /** Graph header selector change */
+  public onGraphHeaderObjectChange(ids: number[]): void {
+    this.pendingSelectedId = ids && ids.length ? ids[0] : null;
+  }
+
+  public openSelectedObject(): void {
+    const targetId = this.pendingSelectedId ?? this.currentObjectID;
+    if (!targetId || targetId === this.currentObjectID) return;
+    this.router.navigate([`/framework/object/view/${targetId}`], { queryParams: { view: 'graph' } });
+  }
+
+  /**
+   * Handles root node selection from the graph editor
+   * Navigates to the new object's view page while preserving graph mode
+   * @param objectId The ID of the selected root node
+   */
+  public onRootNodeSelected(objectId: number): void {
+    if (!objectId || objectId === this.currentObjectID) return;
+    this.router.navigate([`/framework/object/view/${objectId}`], { queryParams: { view: 'graph' } });
   }
 }

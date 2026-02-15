@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 """
 This module provides the implementation of IterationResult
 """
-from typing import TypeVar, Generic, Union, Type
+from typing import TypeVar, Generic, Type, Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,7 +33,7 @@ class IterationResult(Generic[C]):
     It also provides functionality to convert the raw results into specific CmdbDAO subtypes if necessary.
     """
 
-    def __init__(self, results: list[Union[C, dict]], total: int, c: Type[C] = None):
+    def __init__(self, results: list[C | dict[str, Any]], total: int, c: Type[C] | None = None) -> None:
         """
         Initialises the IterationResult
 
@@ -43,9 +43,9 @@ class IterationResult(Generic[C]):
             c: The class type (CmdbDAO subtype) to which the results should be converted. 
                If provided, the results will be converted to instances of this type.
         """
-        self.results = results
-        self.count = len(self.results)
-        self.total = total
+        self.results: list[C | dict[str, Any]] = results
+        self.count: int = len(self.results)
+        self.total: int = total
 
         if c is not None:
             self.convert_to(c)

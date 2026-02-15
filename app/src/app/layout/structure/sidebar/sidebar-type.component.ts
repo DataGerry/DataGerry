@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { ObjectService } from '../../../framework/services/object.service';
 import { SidebarService } from '../../services/sidebar.service';
 
 @Component({
-  selector: 'cmdb-sidebar-type',
-  templateUrl: './sidebar-type.component.html',
-  styleUrls: ['./sidebar-type.component.scss']
+    selector: 'cmdb-sidebar-type',
+    templateUrl: './sidebar-type.component.html',
+    styleUrls: ['./sidebar-type.component.scss'],
+    standalone: false
 })
 export class SidebarTypeComponent implements OnInit, OnDestroy {
 
@@ -41,7 +42,7 @@ export class SidebarTypeComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy() {
-    this.sidebarService.deleteCounter(this);
+    this.sidebarService?.deleteCounter(this);
   }
 
 }

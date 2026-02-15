@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,7 @@ import { Routes, RouterModule } from '@angular/router';
 import { AuthGuard } from '../auth/guards/auth.guard';
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
+import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -86,6 +87,49 @@ const routes: Routes = [
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../../toolbox/isms/isms.module').then(m => m.ISMSModule)
+    },
+    {
+        path: 'automations',
+        component: AutomationsWrapperComponent,
+        data: {
+            breadcrumb: 'Automations'
+        },
+        canActivate: [AuthGuard],
+        canActivateChild: [AuthGuard],
+        children: [
+            {
+                path: '',
+                loadChildren: () => import('../../toolbox/automations/automations.module').then(m => m.AutomationsModule)
+            },
+            {
+                path: 'connectors',
+                data: {
+                    breadcrumb: 'Connectors'
+                },
+                canActivate: [AuthGuard],
+                canActivateChild: [AuthGuard],
+                loadChildren: () => import('../../toolbox/connectors/connectors.module').then(m => m.ConnectorsModule)
+            },
+            {
+                path: 'licenses',
+                data: {
+                    breadcrumb: 'Licenses'
+                },
+                canActivate: [AuthGuard],
+                canActivateChild: [AuthGuard],
+                loadChildren: () => import('../../toolbox/licenses/licenses.module').then(m => m.LicensesModule)
+            }
+        ]
+    },
+    {
+        path: 'ci-explorer',
+        canActivate: [AuthGuard],
+        canActivateChild: [AuthGuard],
+        data: {
+            breadcrumb: 'CI Explorer',
+            right: 'base.framework.ciExplorer.view'
+        },
+        loadChildren: () => import('../../toolbox/ci-explorer-launcher/ci-explorer-launch.module').then(m => m.CiExplorerLaunchModule)
     },
     {
         path: 'management',

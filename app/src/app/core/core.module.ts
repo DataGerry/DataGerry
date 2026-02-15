@@ -14,8 +14,12 @@ import { RadioComponent } from './components/base/radio/radio.component';
 import { SelectComponent } from './components/base/select/select.component';
 import { SliderComponent } from './components/base/slider/slider.component';
 import { FormDateComponent } from './components/base/date/form-date.component';
+import { ProgressBarComponent } from './components/base/progress-bar/progress-bar.component';
 import { CoreDeleteConfirmationModalComponent } from './components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 import { CoreWarningModalComponent } from './components/dialog/core-warning-modal/core-warning-modal.component';
+import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
+import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
+import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
 
 @NgModule({
   declarations: [
@@ -31,13 +35,18 @@ import { CoreWarningModalComponent } from './components/dialog/core-warning-moda
     SelectComponent,
     SliderComponent,
     FormDateComponent,
+    ProgressBarComponent,
     CoreDeleteConfirmationModalComponent,
-    CoreWarningModalComponent
+    CoreWarningModalComponent,
+    AppUsageBarComponent,
+    CoreConfirmationModalComponent
   ],
   imports: [
     CommonModule,
     NgSelectModule,
-    FormsModule  ],
+    FormsModule,
+    HorizontalResizeDirective
+  ],
   exports: [
     LoadingPopupComponent,
     ObjectSelectorComponent,
@@ -51,8 +60,12 @@ import { CoreWarningModalComponent } from './components/dialog/core-warning-moda
     SelectComponent,
     SliderComponent,
     FormDateComponent,
+    ProgressBarComponent,
     CoreDeleteConfirmationModalComponent,
-    CoreWarningModalComponent
+    CoreWarningModalComponent,
+    AppUsageBarComponent,
+    CoreConfirmationModalComponent,
+    HorizontalResizeDirective
   ]
 })
 export class CoreModule { }

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -166,7 +166,7 @@ class XmlExportFormat(BaseExporterFormat):
         cmdb_object_fields = ET.SubElement(cmdb_object, 'fields')
 
         for field in columns:
-            field_attribs = {
+            field_attribs: dict[str, str] = {
                 'name': str(field),
                 'value': str(obj_fields_dict.get(field, ''))
             }

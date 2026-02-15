@@ -1,3 +1,4 @@
+@use "sass:color";
 
 // Enhanced Variables
 $primary: #e94d18;
@@ -289,7 +290,7 @@ $gray-900: #212121;
       box-shadow: 0 4px 12px rgba($primary, 0.3);
 
       &:hover {
-        background: darken($primary, 5%);
+        background: color.scale($primary, $lightness: -5%);
         transform: translateY(-2px) scale(1.05);
       }
     }
@@ -371,7 +372,7 @@ $gray-900: #212121;
   position: absolute;
   // @include glass-effect;
   border-radius: 16px;
-  cursor: move;
+  cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   animation: nodeAppear 0.5s ease;
   overflow: visible;
@@ -1238,7 +1239,7 @@ defs {
     &:hover {
       .connection-label-bg {
         fill: $primary;
-        stroke: darken($primary, 10%);
+        stroke: color.scale($primary, $lightness: -10%);
       }
 
       .connection-label {
@@ -1855,7 +1856,7 @@ defs {
   flex: 1;
   position: relative;
   overflow: hidden;
-  cursor: grab;
+  cursor: move !important;
   background-image: 
     radial-gradient(circle at 20% 80%, rgba($primary, 0.03) 0%, transparent 50%),
     radial-gradient(circle at 80% 20%, rgba($info, 0.03) 0%, transparent 50%);
@@ -2428,3 +2429,9 @@ defs {
 
 .connection-hit   { stroke: #F44336 !important; fill: none; }
 .arrow-hitbox     { cursor: pointer !important; }
+.graph-canvas.ci-exporting, .ci-exporting * {
+  animation: none !important;
+  transition: none !important;
+}
+.graph-canvas.ci-exporting svg .connection-labels { display: none !important; }
+.graph-canvas.ci-exporting svg path[stroke="transparent"] { display: none !important; }

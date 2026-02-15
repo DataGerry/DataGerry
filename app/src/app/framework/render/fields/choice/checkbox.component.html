@@ -1,5 +1,5 @@
 <ng-container *ngIf="mode != MODES.Simple">
-  <div class="form-group mb-2 row" [formGroup]="parentFormGroup">
+  <div class="mb-3 mb-2 row" [formGroup]="parentFormGroup">
   <label class="col-sm-3 col-check-label">
     {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
   </label>
@@ -7,10 +7,10 @@
     <div class="input-group input-group-sm">
       <ng-container [ngSwitch]="true">
         <ng-container *ngSwitchCase="mode == MODES.View">
-          <div class="custom-control custom-checkbox">
-            <input type="checkbox" name="{{namePrefix + data.name}}" class="custom-control-input"
+          <div class="form-check">
+            <input type="checkbox" name="{{namePrefix + data.name}}" class="form-check-input"
                    [formControlName]="data.name" id="{{namePrefix + data.name}}"/>
-            <label class="custom-control-label" for="{{namePrefix + data.name}}"></label>
+            <label class="form-check-label" for="{{namePrefix + data.name}}"></label>
           </div>
         </ng-container>
         <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
@@ -20,12 +20,12 @@
                                               [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
             </div>
             <div>
-              <div class="custom-control custom-checkbox">
-                <input type="checkbox" name="{{namePrefix + data.name}}" class="custom-control-input"
+              <div class="form-check">
+                <input type="checkbox" name="{{namePrefix + data.name}}" class="form-check-input"
                        [formControlName]="data.name" [attr.id]="namePrefix + data.name"
                        [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                      'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"/>
-                <label class="custom-control-label" for="{{namePrefix + data.name}}"></label>
+                <label class="form-check-label" for="{{namePrefix + data.name}}"></label>
               </div>
             </div>
             <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup"></cmdb-input-appends>
@@ -36,7 +36,7 @@
         </div>
       </ng-container>
       <div *ngIf="controller?.invalid && (controller?.dirty || controller?.touched)" class="invalid-feedback">
-        <div class="float-right" *ngIf="controller?.errors.required">
+        <div class="text-end" *ngIf="controller?.errors.required">
           {{data.label}} is a required field.
         </div>
         <div class="clearfix"></div>

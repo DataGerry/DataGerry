@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -25,11 +25,13 @@ import { ValidationService } from '../../../services/validation.service';
 import { ConfigEditBaseComponent } from '../config.edit';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
 import { CmdbMode } from 'src/app/framework/modes.enum';
+import { CopyService } from '../../../../../core/services/copy.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-section-field-edit',
-    templateUrl: './section-field-edit.component.html'
+    templateUrl: './section-field-edit.component.html',
+    standalone: false
 })
 export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -49,7 +51,11 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private validationService: ValidationService, private sectionIdentifier: SectionIdentifierService) {
+    public constructor(
+        private validationService: ValidationService, 
+        private sectionIdentifier: SectionIdentifierService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -89,8 +95,8 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
 
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();
         }
@@ -180,5 +186,12 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
                 name: newData.name
             });
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'section field identifier');
     }
 }

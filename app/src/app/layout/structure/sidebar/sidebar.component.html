@@ -1,17 +1,11 @@
 <div id="sidebar">
   <nav class="sidebar-nav">
     <ul class="nav">
-      <li class="nav-title" *ngIf="!isExpanded">General</li>
-      <li class="nav-item" *ngIf="!isExpanded">
-        <a class="nav-link" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
-          <fa-icon icon="tachometer-alt"></fa-icon>
-          Dashboard</a>
-      </li>
       <li class="nav-item" *ngIf="!isExpanded">
         <a *permissionLink="['base.framework.object.add']"
            class="nav-link" routerLink="/framework/object/add" routerLinkActive="active">
           <fa-icon icon="plus"></fa-icon>
-          Add Object</a>
+          Add new Object</a>
       </li>
       <li id="sidebar-categories" class="category-tree" *ngIf="categoryTree">
         <div *ngIf="!isExpanded">
@@ -27,7 +21,7 @@
                     #selectedLocations>Locations</label>
         </div>
         <div class="sidebar-menu-categories" *ngIf="this.selectedMenu == 'categories'">
-              <div class="input-wrapper-search">
+              <div class="input-wrapper-search mt-2">
                 <input id="category-filter" class="form-control form-control-sm" type="text" placeholder="Filter.." [formControl]="filterTerm">
                 <i class="fas fa-times input-icon-clear"  (click)="this.filterTerm.reset('')"></i>
               </div>
@@ -50,8 +44,7 @@
               </ng-container>
         </div>
         <div class="sidebar-menu-categories" *ngIf="this.selectedMenu == 'locations'">
-          <button id="expand-button" (click)="onExpandClicked()"> {{!isExpanded ? 'Expand View' : 'Default View'}}</button>
-          <location-tree></location-tree>
+          <location-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()"></location-tree>
         </div>
       </li>
     </ul>

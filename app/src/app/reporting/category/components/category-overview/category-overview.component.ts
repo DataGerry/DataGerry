@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'app-category-overview',
     templateUrl: './category-overview.component.html',
-    styleUrls: ['./category-overview.component.scss']
+    styleUrls: ['./category-overview.component.scss'],
+    standalone: false
 })
 export class CategoryOverviewComponent implements OnInit, OnDestroy {
     private unsubscribe$ = new ReplaySubject<void>(1);
@@ -70,8 +71,8 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
 
 
     ngOnDestroy(): void {
-        this.unsubscribe$.next();
-        this.unsubscribe$.complete();
+        this.unsubscribe$?.next();
+        this.unsubscribe$?.complete();
     }
 
     /* --------------------------------------------------- REPORT CATEGORY API -------------------------------------------------- */

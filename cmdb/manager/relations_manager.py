@@ -17,7 +17,6 @@
 This module contains the implementation of the RelationsManager
 """
 import logging
-from typing import Optional, Union
 
 from cmdb.database import MongoDatabaseManager
 
@@ -31,7 +30,6 @@ from cmdb.framework.results import IterationResult
 from cmdb.errors.manager import (
     BaseManagerInsertError,
     BaseManagerGetError,
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
     BaseManagerIterationError,
 )
@@ -77,12 +75,12 @@ class RelationsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_relation(self, relation: Union[CmdbRelation, dict]) -> int:
+    def insert_relation(self, relation: CmdbRelation | dict) -> int:
         """
         Insert a CmdbRelation into the database
 
         Args:
-            relation (Union[CmdbRelation, dict]): Raw data of the CmdbRelation
+            relation (CmdbRelation | dict): Raw data of the CmdbRelation
 
         Raises:
             RelationsManagerInsertError: When a CmdbRelation could not be inserted into the database
@@ -103,7 +101,7 @@ class RelationsManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_relation(self, public_id: int) -> Optional[dict]:
+    def get_relation(self, public_id: int) -> dict | None:
         """
         Retrieves a CmdbRelation from the database
 
@@ -114,7 +112,7 @@ class RelationsManager(BaseManager):
             RelationsManagerGetError: When a CmdbRelation could not be retrieved
 
         Returns:
-            Optional[dict]: A dictionary representation of the CmdbRelation if successful, otherwise None
+            dict | None: A dictionary representation of the CmdbRelation if successful, otherwise None
         """
         try:
             return self.get_one(public_id)
@@ -149,13 +147,13 @@ class RelationsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_relation(self, public_id:int, data: Union[CmdbRelation, dict]) -> None:
+    def update_relation(self, public_id:int, data: CmdbRelation | dict) -> None:
         """
         Updates a CmdbRelation in the database
 
         Args:
             public_id (int): public_id of the CmdbRelation which should be updated
-            data: Union[CmdbRelation, dict]: The new data for the CmdbRelation
+            data: CmdbRelation | dict: The new data for the CmdbRelation
 
         Raises:
             RelationsManagerUpdateError: When the update operation fails
@@ -165,8 +163,6 @@ class RelationsManager(BaseManager):
                 data = CmdbRelation.to_json(data)
 
             self.update({'public_id':public_id}, data)
-        except (BaseManagerUpdateError, CmdbRelationToJsonError) as err:
-            raise RelationsManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_relation] Exception: %s. Type: %s", err, type(err))
             raise RelationsManagerUpdateError(err) from err

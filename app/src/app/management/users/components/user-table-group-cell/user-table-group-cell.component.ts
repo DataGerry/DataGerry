@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-user-table-group-cell',
-  templateUrl: './user-table-group-cell.component.html',
-  styleUrls: ['./user-table-group-cell.component.scss']
+    selector: 'cmdb-user-table-group-cell',
+    templateUrl: './user-table-group-cell.component.html',
+    styleUrls: ['./user-table-group-cell.component.scss'],
+    standalone: false
 })
 export class UserTableGroupCellComponent implements OnDestroy {
 
@@ -73,8 +74,8 @@ export class UserTableGroupCellComponent implements OnDestroy {
 
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

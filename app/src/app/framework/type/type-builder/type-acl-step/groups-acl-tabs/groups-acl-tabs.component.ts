@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,7 +27,8 @@ import { Group } from '../../../../../management/models/group';
 @Component({
     selector: 'cmdb-groups-acl-tabs',
     templateUrl: './groups-acl-tabs.component.html',
-    styleUrls: ['./groups-acl-tabs.component.scss']
+    styleUrls: ['./groups-acl-tabs.component.scss'],
+    standalone: false
 })
 export class GroupsAclTabsComponent implements OnDestroy {
 
@@ -65,8 +66,8 @@ export class GroupsAclTabsComponent implements OnDestroy {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,9 @@
 """
 This module provides all errors for the ControlMeasureManager
 """
-from .control_measure_errors import (
+from typing import Any
+
+from .control_measure_manager_errors import (
     ControlMeasureManagerError,
     ControlMeasureManagerInitError,
     ControlMeasureManagerInsertError,
@@ -27,7 +29,7 @@ from .control_measure_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ControlMeasureManagerError',
     'ControlMeasureManagerInitError',
     'ControlMeasureManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-CONTROL_MEASURE_MANAGER_ERRORS = {
+CONTROL_MEASURE_MANAGER_ERRORS: dict[str, Any] = {
     "init": ControlMeasureManagerInitError,
     "insert": ControlMeasureManagerInsertError,
     "get": ControlMeasureManagerGetError,

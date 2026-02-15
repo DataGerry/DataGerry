@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -36,7 +36,7 @@ class ObjectTemplateData:
     """
     Prepares and retrieves template data for a given RenderResult
     """
-    def __init__(self, cmdb_render_object: RenderResult, objects_manager: ObjectsManager):
+    def __init__(self, cmdb_render_object: RenderResult, objects_manager: ObjectsManager) -> None:
         """
         Initializes the ObjectTemplateData
 
@@ -44,7 +44,7 @@ class ObjectTemplateData:
             cmdb_render_object (RenderResult): The RenderResult to extract data from
             objects_manager (ObjectsManager): The manager handling CmdbObject
         """
-        self.objects_manager = objects_manager
+        self.objects_manager: ObjectsManager = objects_manager
         self.template_data = self.extract_object_data(cmdb_render_object, 3)
 
 
@@ -69,8 +69,10 @@ class ObjectTemplateData:
         Returns:
             dict: The extracted object data
         """
+        # LOGGER.debug(f"cmdb_render_object.object_information: {cmdb_render_object.object_information}")
         data = {
             "id": cmdb_render_object.object_information.get("object_id"),
+            "public_id": cmdb_render_object.object_information.get("object_id"),
             "fields": {}
         }
 

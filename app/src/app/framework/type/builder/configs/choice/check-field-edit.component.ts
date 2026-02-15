@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,7 @@ import { UntypedFormControl, Validators } from '@angular/forms';
 import { ReplaySubject } from 'rxjs';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
@@ -28,7 +29,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
 @Component({
     selector: 'cmdb-check-field-edit',
     templateUrl: './check-field-edit.component.html',
-    styleUrls: ['./check-field-edit.component.scss']
+    styleUrls: ['./check-field-edit.component.scss'],
+    standalone: false
 })
 export class CheckFieldEditComponent extends ConfigEditBaseComponent implements OnInit {
 
@@ -53,7 +55,11 @@ export class CheckFieldEditComponent extends ConfigEditBaseComponent implements 
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -100,8 +106,8 @@ export class CheckFieldEditComponent extends ConfigEditBaseComponent implements 
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
@@ -224,5 +230,12 @@ export class CheckFieldEditComponent extends ConfigEditBaseComponent implements 
             this.helperTextControl.enable();
             this.hideFieldControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'checkbox field identifier');
     }
 }

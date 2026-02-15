@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,6 +27,7 @@ import { DateFormatterPipe } from "src/app/layout/pipes/date-formatter.pipe";
     selector: "cmdb-object-summary",
     templateUrl: "./object-summary.component.html",
     styleUrls: ["./object-summary.component.scss"],
+    standalone: false
 })
 export class ObjectSummaryComponent {
     @Input() summaries: any = [];
@@ -68,7 +69,7 @@ export class ObjectSummaryComponent {
             await navigator.clipboard.writeText(selBox.value);
             this.toast.info("Summary was copied to clipboard");
         } catch (err) {
-            console.error('Unable to copy to clipboard', err);
+            this.toast.error('Unable to copy to clipboard')
         } finally {
             document.body.removeChild(selBox);
         }

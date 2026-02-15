@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 Implementation of MediaFile
 """
 import logging
+from typing import Any
 from datetime import date
 
 from cmdb.framework.media_library.base_media_file import BaseMediaFile
@@ -35,9 +36,9 @@ class MediaFile(BaseMediaFile):
     """Media Libary File"""
 
     COLLECTION = 'media.libary'
-    REQUIRED_INIT_KEYS = ['name']
+    REQUIRED_INIT_KEYS: list[str] = ['name']
 
-    INDEX_KEYS = [
+    INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [('name', CmdbDAO.DAO_ASCENDING)],
             'name': 'name',
@@ -45,7 +46,7 @@ class MediaFile(BaseMediaFile):
         }
     ]
 
-    def __init__(self, filename, chunkSize, uploadDate, metadata, length, **kwargs):
+    def __init__(self, filename: str, chunkSize, uploadDate, metadata, length, **kwargs) -> None:
         """
         Args:
             filename: name of this file
@@ -55,7 +56,7 @@ class MediaFile(BaseMediaFile):
             variables: has a name and gets its value out of fields of the objects
             **kwargs: optional params
         """
-        self.filename = filename
+        self.filename: str = filename
         self.chunk_size = chunkSize
         self.upload_date = uploadDate
         self.metadata = metadata
@@ -143,8 +144,10 @@ class MediaFile(BaseMediaFile):
 
 
     @classmethod
-    def to_json(cls, instance) -> dict:
-        """Convert a type instance to json conform data"""
+    def to_json(cls, instance: "MediaFile") -> dict[str, Any]:
+        """
+        Convert a type instance to json conform data
+        """
         return {
             'public_id': instance.get_public_id(),
             'filename': instance.get_filename(),

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -41,11 +41,15 @@ class BaseDatabaseUpdate:
     """
     Base class for database updates
     """
-    def __init__(self, dbm:MongoDatabaseManager, db_name: str):
+    def __init__(self, dbm:MongoDatabaseManager, db_name: str) -> None:
         scr = SystemConfigReader()
         mode = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
-        self.dbm = dbm if dbm else MongoDatabaseManager(**scr.get_all_values_from_section('Database'), mode=mode)
-        self.db_name = db_name if db_name else self.dbm.db_name
+        self.dbm: MongoDatabaseManager = dbm if dbm else MongoDatabaseManager(
+                                                            **scr.get_all_values_from_section('Database'),
+                                                            mode=mode
+                                                         )
+        self.db_name: str = db_name if db_name else self.dbm.db_name
+
         self.categories_manager = CategoriesManager(self.dbm, self.db_name)
         self.objects_manager = ObjectsManager(self.dbm, self.db_name)
         self.types_manager = TypesManager(self.dbm, self.db_name)

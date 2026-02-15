@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,10 @@
 Implementation of all API routes for IsmsRiskClasses
 """
 import logging
+from typing import Any
+
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.responses.default_response import DefaultResponse
@@ -62,7 +65,7 @@ risk_class_blueprint = APIBlueprint('risk_classes', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.add')
 @risk_class_blueprint.validate(IsmsRiskClass.SCHEMA)
-def insert_isms_risk_class(data: dict, request_user: CmdbUser):
+def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskClass into the database
 
@@ -77,7 +80,7 @@ def insert_isms_risk_class(data: dict, request_user: CmdbUser):
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
         # There is a Limit of 10 Risk classes
-        risk_class_count = risk_class_manager.count_items()
+        risk_class_count: int = risk_class_manager.count_items()
 
         if risk_class_count >= 10:
             abort(403, "Only a maximum of 10 RiskClasses can be created!")
@@ -110,7 +113,7 @@ def insert_isms_risk_class(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.view')
 @risk_class_blueprint.parse_collection_parameters()
-def get_isms_risk_classes(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_risk_classes(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRiskClasses
 
@@ -150,7 +153,7 @@ def get_isms_risk_classes(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.view')
-def get_isms_risk_class(public_id: int, request_user: CmdbUser):
+def get_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRiskClass
 
@@ -186,13 +189,13 @@ def get_isms_risk_class(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.edit')
 @risk_class_blueprint.validate(IsmsRiskClass.SCHEMA)
-def update_isms_risk_class(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskClass
 
     Args:
         public_id (int): public_id of the IsmsRiskClass which should be updated
-        data (IsmsRiskClass.SCHEMA): New IsmsRiskClass data
+        data (dict[str, Any]): New IsmsRiskClass data
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -226,7 +229,7 @@ def update_isms_risk_class(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.edit')
-def update_multiple_isms_risk_classes(request_user: CmdbUser):
+def update_multiple_isms_risk_classes(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update multiple IsmsRiskClasses
 
@@ -296,7 +299,7 @@ def update_multiple_isms_risk_classes(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.delete')
-def delete_isms_risk_class(public_id: int, request_user: CmdbUser):
+def delete_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRiskClass
 
@@ -310,7 +313,7 @@ def delete_isms_risk_class(public_id: int, request_user: CmdbUser):
     try:
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        to_delete_risk_class = risk_class_manager.get_item(public_id, as_dict=True)
+        to_delete_risk_class: dict[str, Any] = risk_class_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_risk_class:
             abort(404, f"The RiskClass with ID:{public_id} was not found!")

@@ -42,6 +42,9 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
     return httpParams;
   }
 
+  protected extractBody<T>(res: { body?: T } | null | undefined): T {
+    return (res && res.body !== undefined ? res.body : (null as unknown as T));
+  }
 
   /**
    * Handle GET request
@@ -51,7 +54,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
   protected handleGetRequest<T>(url: string, params?: HttpParams): Observable<T> {
     const options = { ...this.httpOptions, params };
     return this.api.callGet<T>(url, options).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }
@@ -65,7 +68,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
    */
   protected handlePostRequest<T>(url: string, body: any): Observable<T> {
     return this.api.callPost<T>(url, body, this.httpOptions).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }
@@ -79,7 +82,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
    */
   protected handlePutRequest<T>(url: string, body: any): Observable<T> {
     return this.api.callPut<T>(url, body, this.httpOptions).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }
@@ -92,7 +95,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
    */
   protected handleDeleteRequest<T>(url: string): Observable<T> {
     return this.api.callDelete<T>(url, this.httpOptions).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }

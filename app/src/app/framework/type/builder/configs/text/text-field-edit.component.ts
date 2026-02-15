@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,12 +26,14 @@ import { ValidRegexValidator } from '../../../../../layout/validators/valid-rege
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-text-field-edit',
     templateUrl: './text-field-edit.component.html',
-    styleUrls: ['./text-field-edit.component.scss']
+    styleUrls: ['./text-field-edit.component.scss'],
+    standalone: false
 })
 export class TextFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -59,7 +61,11 @@ export class TextFieldEditComponent extends ConfigEditBaseComponent implements O
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -105,8 +111,8 @@ export class TextFieldEditComponent extends ConfigEditBaseComponent implements O
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
@@ -210,5 +216,12 @@ export class TextFieldEditComponent extends ConfigEditBaseComponent implements O
             this.hideFieldControl.enable();
             this.requiredControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'text field identifier');
     }
 }

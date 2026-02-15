@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,9 +31,10 @@ import { UserSettingsDBService } from '../user-settings/services/user-settings-d
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 @Component({
-  selector: 'cmdb-groups',
-  templateUrl: './groups.component.html',
-  styleUrls: ['./groups.component.scss']
+    selector: 'cmdb-groups',
+    templateUrl: './groups.component.html',
+    styleUrls: ['./groups.component.scss'],
+    standalone: false
 })
 export class GroupsComponent implements OnInit, OnDestroy {
 
@@ -334,8 +335,8 @@ export class GroupsComponent implements OnInit, OnDestroy {
    * auto unsubscribe the api subscriptions.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

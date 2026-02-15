@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -50,7 +50,8 @@ export const configComponents: { [type: string]: any } = {
 @Component({
     selector: 'cmdb-file-config',
     templateUrl: './file-config.component.html',
-    styleUrls: ['./file-config.component.scss']
+    styleUrls: ['./file-config.component.scss'],
+    standalone: false
 })
 export class FileConfigComponent extends FileConfig implements OnInit, OnChanges, OnDestroy {
     @ViewChild('fileConfig', { read: ViewContainerRef, static: true }) fileConfig;
@@ -108,7 +109,7 @@ export class FileConfigComponent extends FileConfig implements OnInit, OnChanges
 
 
     public ngOnDestroy(): void {
-        this.configChangeSubscription.unsubscribe();
+        this.configChangeSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

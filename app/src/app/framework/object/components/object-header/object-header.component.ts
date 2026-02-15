@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { ToastService } from '../../../../layout/toast/toast.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 @Component({
-  selector: 'cmdb-object-header',
-  templateUrl: './object-header.component.html',
-  styleUrls: ['./object-header.component.scss']
+    selector: 'cmdb-object-header',
+    templateUrl: './object-header.component.html',
+    styleUrls: ['./object-header.component.scss'],
+    standalone: false
 })
 export class ObjectHeaderComponent {
 

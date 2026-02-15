@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -43,7 +43,8 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 @Component({
     selector: 'cmdb-type',
     templateUrl: './type.component.html',
-    styleUrls: ['./type.component.scss']
+    styleUrls: ['./type.component.scss'],
+    standalone: false
 })
 export class TypeComponent implements OnInit, OnDestroy {
 
@@ -240,8 +241,8 @@ export class TypeComponent implements OnInit, OnDestroy {
      * Destroy subscriptions after closed.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

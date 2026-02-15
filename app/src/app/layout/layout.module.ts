@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,7 @@ import { fab } from '@fortawesome/free-brands-svg-icons';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { IconPickerModule } from 'ngx-icon-picker';
 import { NgbActiveModal, NgbModule } from '@ng-bootstrap/ng-bootstrap';
-import { QRCodeModule } from 'angularx-qrcode';
+import { QRCodeComponent } from 'angularx-qrcode';
 import { NgxPaginationModule } from 'ngx-pagination';
 
 import { SearchBarModule } from '../modules/search-bar/search-bar.module';
@@ -89,9 +89,7 @@ import { AttachmentsListModalComponent } from './helpers/modals/attachments-list
 import { QrCodeComponent } from './helpers/qrcode/qr-code.component';
 import { BlockComponent } from './components/block/block.component';
 import { TypeSelectComponent } from './components/type-select/type-select.component';
-import { LoadingPopupComponent } from '../core/components/loading-popup/loading-popup.component';
 import { CoreModule } from '../core/core.module';
-import { AiPromptModalModule } from '../ai-assistant/ai-assistant.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -183,14 +181,12 @@ import { AiPromptModalModule } from '../ai-assistant/ai-assistant.module';
         AuthModule,
         RenderModule,
         FileexplorerModule,
-        QRCodeModule,
+        QRCodeComponent,
         NgxPaginationModule,
         MatTreeModule,
         MatButtonModule,
         MatIconModule,
         CoreModule,
-        AiPromptModalModule
-
         ],
     providers: [
         BreadcrumbService,

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,8 +18,10 @@ Implementation of APIBlueprint
 """
 from functools import wraps
 import logging
-from cerberus import Validator
+from typing import Any
+from cerberus import Validator #type: ignore
 from flask import Blueprint, abort, request, current_app
+from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import UsersManager
 
@@ -28,7 +30,6 @@ from cmdb.interface.route_utils import user_has_right, parse_authorization_heade
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.token.validator import TokenValidator
 
-from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -40,7 +41,7 @@ LOGGER = logging.getLogger(__name__)
 class APIBlueprint(Blueprint):
     """Wrapper class for Blueprints with nested elements"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -106,7 +107,9 @@ class APIBlueprint(Blueprint):
 
                                         if user_dict[exe_key] == route_parameter:
                                             return f(*args, **kwargs)
-                                except (UsersManagerGetError, Exception):
+                                except HTTPException as http_err:
+                                    raise http_err
+                                except Exception:
                                     abort(403, "Could not retrieve user!")
 
                         abort(403, f'User has not the required right {right}')
@@ -119,7 +122,7 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def validate(cls, schema=None):
+    def validate(cls, schema: dict[str, Any]):
         """
         Decorator to validate incoming JSON request data against a provided schema
 

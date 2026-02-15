@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,14 +24,17 @@ from .security_errors import (
     MinLevelRightError,
     MaxLevelRightError,
     NoAccessTokenError,
+    MissingApiKeyError,
     InvalidCloudUserError,
     RequestTimeoutError,
     RequestError,
     DisallowedActionError,
+    WrongPasswordError,
+    NoValidSubscriptionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'SecurityError',
     'TokenValidationError',
     'AccessDeniedError',
@@ -39,8 +42,11 @@ __all__ = [
     'MinLevelRightError',
     'MaxLevelRightError',
     'NoAccessTokenError',
+    'MissingApiKeyError',
     'InvalidCloudUserError',
     'RequestTimeoutError',
     'RequestError',
     'DisallowedActionError',
+    'WrongPasswordError',
+    'NoValidSubscriptionError',
 ]

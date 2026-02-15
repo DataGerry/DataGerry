@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
@@ -50,6 +50,7 @@ interface LocationNode {
     selector: 'location-tree',
     templateUrl: './location-tree.component.html',
     styleUrls: ['./location-tree.component.scss'],
+    standalone: false
 })
 export class LocationTreeComponent implements OnInit, OnDestroy {
 
@@ -62,22 +63,36 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     treeControl = new NestedTreeControl<LocationNode>(node => node.children);
     dataSource = new MatTreeNestedDataSource<LocationNode>();
 
+    /**
+     * Input for sidebar expansion state
+     */
+    @Input() isExpanded: boolean;
+
+    /**
+     * Output event for expand button click
+     */
+    @Output() expandClicked = new EventEmitter<void>();
 
     /**
      * used for highlighting the selected location
      */
     public selectedLocationID: number;
-    public searchString: string = '';
+    private _searchString: string = '';
+    public hasLocations: boolean = false;
+    public hasSearchResults: boolean = true;
 
     /* -------------------------------------------------------------------------- */
     /*                                LIFE - CYCLE                                */
     /* -------------------------------------------------------------------------- */
 
 
-    constructor(private locationService: LocationService,
+    constructor(
+        private locationService: LocationService,
         private treeManagerService: TreeManagerService,
         private objectService: ObjectService,
-        private route: Router) {
+        private route: Router,
+        private cdRef: ChangeDetectorRef
+    ) {
 
     }
 
@@ -95,7 +110,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     }
 
     public ngOnDestroy(): void {
-        this.objectServiceSubscription.unsubscribe();
+        this.objectServiceSubscription?.unsubscribe();
     }
 
 
@@ -104,6 +119,21 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     */
     handleSearchReset() {
         this.searchString = "";
+    }
+
+    /**
+     * Getter for search string
+     */
+    get searchString(): string {
+        return this._searchString;
+    }
+
+    /**
+     * Setter for search string that updates search results
+     */
+    set searchString(value: string) {
+        this._searchString = value;
+        this.updateSearchResults();
     }
 
 
@@ -168,9 +198,29 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
 
         this.locationService.getLocationsTree(params).pipe(takeUntil(this.unsubscribe))
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.dataSource.data = this.forceCast<LocationNode[]>(apiResponse.results);
+                const locations = this.forceCast<LocationNode[]>(apiResponse.results);
+                this.hasLocations = locations.length > 0;
+                this.dataSource.data = locations;
                 this.treeManagerService.expandNodes(this.dataSource.data, this.treeControl);
+                this.updateSearchResults();
             });
+    }
+
+    /**
+     * Update the search results flag based on current search string and data
+     */
+    private updateSearchResults(): void {
+        if (!this.searchString || !this.dataSource.data.length) {
+            this.hasSearchResults = true; // Show tree when no search or no data
+            return;
+        }
+        
+        // Check if any nodes match the search
+        const hasMatches = this.dataSource.data.some(node => 
+            !this.filterParentNode(node) || 
+            (node.children && node.children.some(child => !this.filterLeafNode(child)))
+        );
+        this.hasSearchResults = hasMatches;
     }
 
 
@@ -206,8 +256,15 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     /**
      * Updates status of all expanded locations and saves them
      */
-    public onExpandClicked() {
+    public onTreeExpandClicked() {
         this.treeManagerService.extractExpandedIds(this.treeControl.expansionModel.selected);
+    }
+
+    /**
+     * Emits expand event to parent component
+     */
+    public onSidebarExpandClicked() {
+        this.expandClicked.emit();
     }
 
     /**

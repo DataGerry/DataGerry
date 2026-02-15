@@ -77,3 +77,8 @@ target/
 ._*
 .DS_Store
 node_modules/
+
+
+# Ignore Samba temporary delete marker files created in VM shared folders
+.smbdelete*
+**/.smbdelete*

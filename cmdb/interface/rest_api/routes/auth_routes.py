@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,9 +17,10 @@
 Implementation of all authentication related API routes
 """
 import logging
-from typing import Tuple
+from typing import Any, Tuple
 from datetime import datetime, timezone
 from flask import request, current_app, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
@@ -66,7 +67,7 @@ auth_blueprint = APIBlueprint('auth', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 #TODO: REFACTOR-FIX (Reduce complexity)
 @auth_blueprint.route('/login', methods=['POST'])
-def post_login():
+def post_login() -> Response:
     """
     Handles user login authentication
 
@@ -79,7 +80,7 @@ def post_login():
         Response: A response containing authentication tokens or subscription options
     """
     try:
-        login_data = request.json
+        login_data: Any | None = request.json
 
         if not login_data:
             abort(400, 'No valid JSON data was provided')
@@ -125,18 +126,20 @@ def post_login():
                 # There are either no subscriptions or something went wrong => failed path
                 else:
                     LOGGER.error("[post_login] Error: Invalid data. No subscriptions!")
-                    abort(401, "Invalid data. Could not login!")
+                    abort(401, "The user has no assigned subscription!")
 
-                user = retrive_user(user_data, user_database)
+                user: dict[str, Any] | None = retrive_user(user_data, user_database)
 
                 # User does not exist
                 if not user:
                     LOGGER.error("[post_login] Could not retrieve User from database!")
                     abort(401, "Invalid user or password. Could not login!")
 
-                token, token_issued_at, token_expire = generate_token_with_params(user,
-                                                                                current_app.database_manager,
-                                                                                True)
+                token, token_issued_at, token_expire = generate_token_with_params(
+                                                                            user,
+                                                                            current_app.database_manager,
+                                                                            True
+                                                                        )
 
                 return LoginResponse(user, token, token_issued_at, token_expire).make_response()
         except HTTPException as http_err:
@@ -177,7 +180,7 @@ def post_login():
             users_manager=users_manager
         )
 
-        user_instance = None
+        user_instance: CmdbUser | None = None
 
         try:
             user_instance = auth_module.login(request_user_name, request_password)
@@ -198,6 +201,8 @@ def post_login():
         except Exception as err: #pylint: disable=broad-exception-caught
             LOGGER.error("[post_login] Exception: %s, Type: %s", err, type(err))
             abort(500, "Could not login")
+    except HTTPException as http_err:
+        raise http_err
     except Exception as err:
         LOGGER.error("[post_login] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while validating the login data!")
@@ -231,6 +236,7 @@ def get_auth_settings(request_user: CmdbUser):
     except Exception as err:
         LOGGER.error("[get_auth_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving auth settings!")
+
 
 @auth_blueprint.route('/providers', methods=['GET'])
 @insert_request_user
@@ -378,7 +384,7 @@ def generate_token_with_params(
     """
     tg = TokenGenerator(database_manager)
 
-    user_data = {'public_id': login_user.get_public_id()}
+    user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
 
     if cloud_mode:
         user_data['database'] = login_user.get_database()

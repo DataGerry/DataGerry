@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -25,7 +25,7 @@ class BaseParserResponse(ABC):
 
     Extends: ABC
     """
-    def __init__(self, count: int):
+    def __init__(self, count: int) -> None:
         """
         Initializes the BaseParserResponse with the given count of parsed elements
 

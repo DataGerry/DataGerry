@@ -2,7 +2,7 @@
     <legend>{{section?.label}}</legend>
 
     @if(showAddButton()) {
-        <button type="button" class="btn btn-success btn-sm mr-1 add-row-button" (click)="onAddRowClicked()">
+        <button type="button" class="btn btn-success btn-sm me-1 add-row-button" (click)="onAddRowClicked()">
             <i class="fas fa-plus"></i> Add
         </button>
     }
@@ -28,6 +28,18 @@
         (editRowEmitter)="onRowEdit($event)"
         (deleteRowEmitter)="onRowDelete($event)"
     />
+</ng-template>
+
+<ng-template #passwordTemplate let-item="item" let-column="column">
+    <div class="d-flex justify-content-between align-items-center">
+        <span class="mr-2 ml-2">
+            {{ getPasswordDisplayValue(item, column.name) }}
+        </span>
+        <button type="button" class="btn btn-sm" (click)="togglePasswordVisibility(item, column.name)">
+            <i class="far fa-eye"></i>
+        </button>
+    </div>
+    
 </ng-template>
 
 <hr/>

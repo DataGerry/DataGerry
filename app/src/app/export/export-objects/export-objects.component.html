@@ -3,8 +3,8 @@
 <form [formGroup]="formExport" (ngSubmit)="exportObjectByTypeID()">
     <div class="card">
         <div class="card-body">
-            <div class="form-group">
-                <label for="typeChooser">
+            <div class="mb-3">
+                <label for="typeChooser" class="mb-2">
                     Select Object Type <span class="required">*</span>
                 </label>
 
@@ -34,8 +34,8 @@
                 </div>
             </div>
 
-            <div class="form-group">
-                <label for="formatChooser">
+            <div class="mb-3">
+                <label for="formatChooser" class="mb-2">
                     Output format <span class="required">*</span>
                 </label>
 
@@ -67,7 +67,7 @@
 
             <button
                 type="button"
-                class="btn btn-primary float-right"
+                class="btn btn-success text-end"
                 [disabled]="!formExport.valid"
                 (click)="this.exportObjectByTypeID()"
             >

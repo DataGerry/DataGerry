@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,9 +31,10 @@ import { PersonService } from '../../services/person.service';
 import { CmdbPerson } from '../../models/person.model';
 
 @Component({
-  selector: 'app-person-list',
-  templateUrl: './person-list.component.html',
-  styleUrls: ['./person-list.component.scss']
+    selector: 'app-person-list',
+    templateUrl: './person-list.component.html',
+    styleUrls: ['./person-list.component.scss'],
+    standalone: false
 })
 export class PersonListComponent implements OnInit {
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
@@ -184,7 +185,7 @@ export class PersonListComponent implements OnInit {
    * @returns void
    */
   public onView(item: CmdbPerson): void {
-    this.router.navigate(['/framework/persons/edit'], {
+    this.router.navigate(['/framework/persons/view'], {
       state: { person: item, mode: 'view' }
     });
   }

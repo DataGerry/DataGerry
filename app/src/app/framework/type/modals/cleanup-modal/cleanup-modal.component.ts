@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,8 @@ import { CmdbType } from '../../../models/cmdb-type';
 @Component({
     selector: 'cmdb-cleanup-modal',
     templateUrl: './cleanup-modal.component.html',
-    styleUrls: ['./cleanup-modal.component.scss']
+    styleUrls: ['./cleanup-modal.component.scss'],
+    standalone: false
 })
 export class CleanupModalComponent implements AfterViewInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -64,8 +65,8 @@ export class CleanupModalComponent implements AfterViewInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
       }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

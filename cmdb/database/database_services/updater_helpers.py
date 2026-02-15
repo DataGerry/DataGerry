@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -53,7 +53,8 @@ def get_db_names_from_service_portal(local_mode: bool = False) -> list[str]:
         "x-access-token": x_access_token
     }
 
-    target = os.getenv("SP_ALL_DB_NAMES_URL")
+    base_url: str | None = os.getenv("DG_SP_BASE_URL")
+    target: str = f"{base_url}/datagerry/database/all/names"
 
     try:
         response = requests.get(target, headers=headers, timeout=3)

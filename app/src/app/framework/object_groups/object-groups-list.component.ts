@@ -14,9 +14,10 @@ import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
 
 @Component({
-  selector: 'app-object-groups-list',
-  templateUrl: './object-groups-list.component.html',
-  styleUrls: ['./object-groups-list.component.scss']
+    selector: 'app-object-groups-list',
+    templateUrl: './object-groups-list.component.html',
+    styleUrls: ['./object-groups-list.component.scss'],
+    standalone: false
 })
 export class ObjectGroupsListComponent implements OnInit {
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;

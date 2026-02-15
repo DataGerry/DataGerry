@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,9 +26,10 @@ import { RightGroupsModalComponent } from '../../modals/right-groups-modal/right
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-right-table-groups-cell',
-  templateUrl: './right-table-groups-cell.component.html',
-  styleUrls: ['./right-table-groups-cell.component.scss']
+    selector: 'cmdb-right-table-groups-cell',
+    templateUrl: './right-table-groups-cell.component.html',
+    styleUrls: ['./right-table-groups-cell.component.scss'],
+    standalone: false
 })
 export class RightTableGroupsCellComponent implements OnDestroy {
 
@@ -71,8 +72,8 @@ export class RightTableGroupsCellComponent implements OnDestroy {
     if (this.modalRef) {
       this.modalRef.close();
     }
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

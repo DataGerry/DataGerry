@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,16 +27,15 @@ import {ToastService} from '../toast.service';
     styleUrls: ['./toast-container.component.scss'],
     animations: [
         // the fade-in/fade-out animation.
-        trigger('simpleFadeAnimation',
-            [
-                state('in', style({opacity: 1})),
-                transition(':enter', [
-                    style({opacity: 0}),
-                    animate(500)
-                ])
-            ]
-        )
-    ]
+        trigger('simpleFadeAnimation', [
+            state('in', style({ opacity: 1 })),
+            transition(':enter', [
+                style({ opacity: 0 }),
+                animate(500)
+            ])
+        ])
+    ],
+    standalone: false
 })
 export class ToastContainerComponent {
 

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,9 +21,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { Group } from '../../../models/group';
 
 @Component({
-  selector: 'cmdb-group-users-modal',
-  templateUrl: './group-users-modal.component.html',
-  styleUrls: ['./group-users-modal.component.scss']
+    selector: 'cmdb-group-users-modal',
+    templateUrl: './group-users-modal.component.html',
+    styleUrls: ['./group-users-modal.component.scss'],
+    standalone: false
 })
 export class GroupUsersModalComponent {
 

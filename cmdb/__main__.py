@@ -1,6 +1,5 @@
-#!/usr/bin/env python
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -15,9 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-DATAGERRY is a flexible asset management tool and open-source configurable management database
+DataGerry is a flexible asset management tool and open-source configurable management database
 """
-import logging.config
+from logging import Logger, getLogger, config
+
 import signal
 import traceback
 from argparse import ArgumentParser, Namespace
@@ -33,15 +33,15 @@ from cmdb.process_management.process_manager import ProcessManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Setup logging
-logging.config.dictConfig(get_logging_conf())
+config.dictConfig(get_logging_conf())
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 app_manager = ProcessManager()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def main(args: Namespace):
+def main(args: Namespace) -> None:
     """
     Default application start function
     Args:
@@ -69,7 +69,7 @@ def build_arg_parser() -> Namespace:
 
     Returns: instance of OptionParser
     """
-    _parser = ArgumentParser(prog='DATAGERRY', usage=f"usage: {__title__} [options]")
+    _parser = ArgumentParser(prog='DataGerry', usage=f"usage: {__title__} [options]")
 
     _parser.add_argument(
         '--keys',
@@ -177,11 +177,11 @@ def _start_app() -> None:
     signal.signal(signal.SIGTERM, _stop_app)
 
     # start app
-    app_status = app_manager.start_app()
+    app_status: bool = app_manager.start_app()
     LOGGER.info('Process manager started: %s', app_status)
 
 
-def _stop_app():
+def _stop_app() -> None:
     """
     Stop application services
     """
@@ -207,13 +207,13 @@ if __name__ == "__main__":
     """
 
     WELCOME_STRING = """
-        Welcome to DATAGERRY
+        Welcome to DataGerry
         Starting system with following parameters:
         {}\n
     """
 
     LICENSE_STRING = """
-        Copyright (C) 2025 becon GmbH
+        Copyright (C) 2026 becon GmbH
         licensed under the terms of the GNU Affero General Public License version 3\n
     """
 
@@ -228,5 +228,5 @@ if __name__ == "__main__":
             traceback.print_exc()
 
         LOGGER.critical("%s: %s",type(err).__name__, err, exc_info=True)
-        LOGGER.info("DATAGERRY stopped!")
+        LOGGER.info("DataGerry stopped!")
         sys.exit(1)

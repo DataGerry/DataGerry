@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,7 @@ import { UntypedFormControl, Validators } from '@angular/forms';
 import { ReplaySubject } from 'rxjs';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
@@ -28,7 +29,8 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
 @Component({
     selector: 'cmdb-textarea-edit',
     templateUrl: './textarea-edit.component.html',
-    styleUrls: ['./textarea-edit.component.scss']
+    styleUrls: ['./textarea-edit.component.scss'],
+    standalone: false
 })
 export class TextareaEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -55,7 +57,11 @@ export class TextareaEditComponent extends ConfigEditBaseComponent implements On
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
-    public constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    public constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -99,8 +105,8 @@ export class TextareaEditComponent extends ConfigEditBaseComponent implements On
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
@@ -228,5 +234,12 @@ export class TextareaEditComponent extends ConfigEditBaseComponent implements On
             this.requiredControl.enable();
             this.rowsControl.enable();
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'textarea field identifier');
     }
 }

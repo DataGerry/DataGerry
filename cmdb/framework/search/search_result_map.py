@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -31,8 +31,8 @@ class SearchResultMap(Generic[R]):
     """
     Result mapper for Result/Match binding
     """
-    def __init__(self, result: R, matches: list[str] = None):
-        self.result = result
+    def __init__(self, result: R, matches: list[str] = None) -> None:
+        self.result: R = result
         self.matches: list[str] = matches
 
 

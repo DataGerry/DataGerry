@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,6 +39,7 @@ import { DocapiBuilderSettingsStepComponent } from './components/docapi-builder-
 import { DocapiEditComponent } from './components/docapi-edit/docapi-edit.component';
 import { DocapiBuilderTypeStepBaseComponent } from './components/docapi-builder-type-step-base/docapi-builder-type-step-base.component';
 import { DocapiBuilderStyleStepComponent } from './components/docapi-builder-style-step/docapi-builder-style-step.component';
+import { ExternalObjectSelectorModalComponent } from './components/external-object-selector-modal/external-object-selector-modal.component';
 import { CoreModule } from 'src/app/core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
@@ -52,7 +53,8 @@ import { CoreModule } from 'src/app/core/core.module';
         DocapiBuilderTypeStepComponent,
         DocapiBuilderTypeStepObjectComponent,
         DocapiBuilderTypeStepBaseComponent,
-        DocapiBuilderStyleStepComponent
+        DocapiBuilderStyleStepComponent,
+        ExternalObjectSelectorModalComponent
     ],
     imports: [
         CommonModule,

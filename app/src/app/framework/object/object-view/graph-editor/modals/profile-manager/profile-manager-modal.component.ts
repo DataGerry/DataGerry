@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -28,9 +28,10 @@ import { GraphProfileService } from '../../services/graph-profile.service';
 import { ProfileDeleteModalComponent } from '../profile-delete/profile-delete-modal.component';
 
 @Component({
-  selector: 'app-profile-manager-modal',
-  templateUrl: './profile-manager-modal.component.html',
-  styleUrls: ['./profile-manager-modal.component.scss']
+    selector: 'app-profile-manager-modal',
+    templateUrl: './profile-manager-modal.component.html',
+    styleUrls: ['./profile-manager-modal.component.scss'],
+    standalone: false
 })
 export class ProfileManagerModalComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
@@ -63,8 +64,8 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
+    this.destroy$?.next();
+    this.destroy$?.complete();
   }
 
 
@@ -93,7 +94,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
         next: profiles => {
           this.profiles = profiles; // Now profiles is FilterProfile[]
         },
-        error: () => this.toast.error('Failed to load profiles')
+        error: (error) => this.toast.error(error?.error?.message)
       });
   }
 
@@ -157,7 +158,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
           this.loadProfiles();
           this.cancelEdit();
         },
-        error: () => this.toast.error('Failed to save profile')
+        error: (error) => this.toast.error(error?.error?.message)
       });
   }
 
@@ -196,7 +197,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
 
             this.loadProfiles();
           },
-          error: () => this.toast.error('Failed to delete profile')
+          error: (error) => this.toast.error(error?.error?.message)
         });
     }).catch(() => { });
   }

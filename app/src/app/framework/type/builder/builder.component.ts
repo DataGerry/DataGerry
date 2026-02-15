@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -66,7 +66,8 @@ declare var $: any;
     selector: 'cmdb-builder',
     templateUrl: './builder.component.html',
     styleUrls: ['./builder.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -421,6 +422,11 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
      * @param data new data for field
      */
     private handleFieldChanges(data: any) {
+        
+        if (data.inputName === 'selectable_as_parent') {
+            this.typeInstance.selectable_as_parent = !!data.newValue;
+            return;
+        }
 
         if (data.elementType == 'section') {
             this.validationService.updateSectionKey(data?.previousName, data?.fieldName)

@@ -9,7 +9,7 @@ User=datagerry
 Group=datagerry
 Type=simple
 ExecStart=/usr/bin/datagerry -c /etc/datagerry/cmdb.conf -s
-KillMode=process
+KillMode=control-group
 Restart=on-failure
 
 [Install]

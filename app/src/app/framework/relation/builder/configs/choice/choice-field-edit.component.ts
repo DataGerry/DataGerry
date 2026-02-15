@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,8 @@ import { FieldIdentifierValidationService } from 'src/app/framework/type/service
 @Component({
     selector: 'cmdb-choice-field-edit',
     templateUrl: './choice-field-edit.component.html',
-    styleUrls: ['./choice-field-edit.component.scss']
+    styleUrls: ['./choice-field-edit.component.scss'],
+    standalone: false
 })
 export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements OnInit {
 
@@ -110,8 +111,8 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

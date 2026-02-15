@@ -37,9 +37,8 @@ class CmdbObjectLink(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = "framework.links"
-    MODEL = 'ObjectLink'
 
-    def __init__(self, public_id: int, primary: int, secondary: int, creation_time: datetime = None):
+    def __init__(self, public_id: int, primary: int, secondary: int, creation_time: datetime = None) -> None:
         """
         Initializes a CmdbObjectLink
 
@@ -54,7 +53,7 @@ class CmdbObjectLink(CmdbDAO):
         """
         try:
             if primary == secondary:
-                raise ValueError(f"Primary ({primary}) and secondary ({secondary}) link IDs cannot be the same!")
+                raise ValueError(f"Primary ({primary}) and secondary ({secondary}) link IDs must not be the same!")
 
             self.primary = primary
             self.secondary = secondary

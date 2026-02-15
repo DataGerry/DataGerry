@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,7 @@ Implementation of all API routes for Object Imports
 import json
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
@@ -258,7 +259,7 @@ def parse_objects():
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
 @right_required('base.import.object.*')
-def import_objects(request_user: CmdbUser):
+def import_objects(request_user: CmdbUser) -> Response:
     """
     Handle the full import of objects into the CMDB system using an uploaded file.
 

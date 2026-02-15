@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,9 +39,12 @@ import { ReportService } from 'src/app/reporting/services/report.service';
     template: `
     <div class="modal-header">
         <h4 class="modal-title" id="modal-title">Type deletion</h4>
-        <button type="button" class="close" aria-describedby="modal-title" (click)="modal.dismiss('Cross click')">
-            <span aria-hidden="true">&times;</span>
-        </button>
+        <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            (click)="modal.dismiss('Cross click')">
+            </button>
     </div>
     <div class="modal-body">
         <strong>Are you sure you want to delete <span class="text-primary">{{typeLabel}}</span> type?</strong>
@@ -54,7 +57,7 @@ import { ReportService } from 'src/app/reporting/services/report.service';
         </div>
     
         <form id="deleteTypeModalForm" [formGroup]="deleteTypeModalForm" class="needs-validation" novalidate autocomplete="off">
-            <div class="form-group">
+            <div class="mb-3">
                 <label for="typeNameInput">Type the name: {{typeName}} <span class="required">*</span></label>
                 <input
                     type="text"
@@ -71,10 +74,10 @@ import { ReportService } from 'src/app/reporting/services/report.service';
                     Type in the name of the type to confirm the deletion.
                 </small>
                 <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="float-right" *ngIf="name.errors?.required">
+                    <div class="text-end" *ngIf="name.errors?.required">
                         Name is required
                     </div>
-                    <div class="float-right" *ngIf="name.errors?.notequal">
+                    <div class="text-end" *ngIf="name.errors?.notequal">
                         Your answer is not equal!
                     </div>
                 </div>
@@ -91,7 +94,8 @@ import { ReportService } from 'src/app/reporting/services/report.service';
             (click)="modal.close('delete')"
         >Delete</button>
     </div>
-    `
+    `,
+    standalone: false
 })
 export class TypeDeleteConfirmModalComponent {
     @Input() typeID: number = 0;
@@ -126,7 +130,8 @@ export class TypeDeleteConfirmModalComponent {
 @Component({
     selector: 'cmdb-type-delete',
     templateUrl: './type-delete.component.html',
-    styleUrls: ['./type-delete.component.scss']
+    styleUrls: ['./type-delete.component.scss'],
+    standalone: false
 })
 export class TypeDeleteComponent implements OnInit {
     public typeID: number;

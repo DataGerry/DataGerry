@@ -19,9 +19,10 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 
 @Component({
-  selector: 'relation-log-list',
-  templateUrl: './relation-log-list.component.html',
-  styleUrls: ['./relation-log-list.component.scss']
+    selector: 'relation-log-list',
+    templateUrl: './relation-log-list.component.html',
+    styleUrls: ['./relation-log-list.component.scss'],
+    standalone: false
 })
 export class RelationLogListComponent implements OnInit, OnChanges {
   @Input() publicID: number;

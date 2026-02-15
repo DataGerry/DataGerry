@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@ This module contains the implementation of the ObjectsManager
 """
 import logging
 import json
-from typing import Union, Optional
+from typing import Any
 from bson import Regex, json_util
 from pymongo.command_cursor import CommandCursor
 
@@ -39,7 +39,6 @@ from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
-    BaseManagerInsertError,
     BaseManagerIterationError,
     BaseManagerUpdateError,
     BaseManagerDeleteError,
@@ -57,9 +56,7 @@ from cmdb.errors.manager.objects_manager import (
 )
 from cmdb.errors.models.cmdb_object import (
     CmdbObjectInitFromDataError,
-    CmdbObjectToJsonError,
 )
-from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -75,13 +72,13 @@ class ObjectsManager(BaseManager):
 
     Extends: BaseMaanger
     """
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection for the ObjectsManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
 
         Raises:
             ObjectsManagerInitError: If the ObjectsManager could not be initialised
@@ -89,21 +86,23 @@ class ObjectsManager(BaseManager):
         try:
             super().__init__(CmdbObject.COLLECTION, dbm, database)
         except Exception as err:
-            raise ObjectsManagerInitError(err) from err
+            raise ObjectsManagerInitError(str(err)) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_object(self,
-                      data: dict,
-                      user: CmdbUser = None,
-                      permission: AccessControlPermission = None) -> int:
+    def insert_object(
+        self,
+        data: dict[str, Any],
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> int:
         """
         Insert a CmdbObject into the database
 
         Args:
             data (dict): New CmdbObject data as a dict
-            user (CmdbUser, optional): CmdbUser requesting the action
-            permission (AccessControlPermission): Extended CmdbUser ACL rights
+            user (CmdbUser | None): CmdbUser requesting the action
+            permission (AccessControlPermission | None): Extended CmdbUser ACL rights
 
         Raises:
             ObjectsManagerInsertError: If an error occured during insertion
@@ -113,9 +112,12 @@ class ObjectsManager(BaseManager):
             int: The public_id of the created CmdbObject
         """
         try:
-            new_object = CmdbObject.from_data(data)
+            new_object: CmdbObject = CmdbObject.from_data(data)
 
             object_type = self.get_object_type(new_object.type_id)
+
+            if not object_type:
+                raise ObjectsManagerInsertError("CmdbType of CmdbObject not found in database!")
 
             if not object_type.active:
                 raise AccessDeniedError(
@@ -127,31 +129,32 @@ class ObjectsManager(BaseManager):
             return self.insert(CmdbObject.to_json(new_object))
         except AccessDeniedError as err:
             raise err
-        except (BaseManagerInsertError, ObjectsManagerGetError) as err:
-            raise ObjectsManagerInsertError(err) from err
         except Exception as err:
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerInsertError(err) from err
+            raise ObjectsManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_object(self, public_id: int,
-            user: CmdbUser = None,
-            permission: AccessControlPermission = None) -> Optional[dict]:
+    def get_object(
+        self,
+        public_id: int,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> dict[str, Any] | None:
         """
         Retrieves a CmdbObject from the database
 
         Args:
             public_id (int): public_id of the CmdbObject
-            user (CmdbUser, optional): CmdbUser requesting the action
-            permission (AccessControlPermission): Extended CmdbUser ACL rights
+            user (CmdbUser | None): CmdbUser requesting the action
+            permission (AccessControlPermission | None): Extended CmdbUser ACL rights
             
         Raises:
             ObjectsManagerGetError: When a CmdbObject could not be retrieved
             AccessDeniedError: If the CmdbUser does not have the permission for this action
 
         Returns:
-            Optional[dict]: A dictionary representation of the CmdbObject or the CmdbObject instace
+            dict | None: A dictionary representation of the CmdbObject or the CmdbObject instace
                                                if found in database, otherwise None
         """
         try:
@@ -167,24 +170,24 @@ class ObjectsManager(BaseManager):
             return None
         except AccessDeniedError as err:
             raise err
-        except (BaseManagerGetError, TypesManagerGetError, CmdbObjectInitFromDataError) as err:
-            raise ObjectsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[insert_relation] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetError(str(err)) from err
 
 
-    def iterate(self,
-                builder_params: BuilderParameters,
-                user: CmdbUser = None,
-                permission: AccessControlPermission = None) -> IterationResult[CmdbObject]:
+    def iterate(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> IterationResult[CmdbObject]:
         """
         Retrieves multiple CmdbObjects
 
         Args:
             builder_params (BuilderParameters): Filter for which CmdbObjects should be retrieved
-            user (CmdbUser, optional): CmdbUser requesting the action
-            permission (AccessControlPermission): Extended CmdbUser ACL rights
+            user (CmdbUser | None): CmdbUser requesting the action
+            permission (AccessControlPermission | None): Extended CmdbUser ACL rights
 
         Raises:
             ObjectsManagerIterationError: When the iteration failed
@@ -199,19 +202,19 @@ class ObjectsManager(BaseManager):
                                                                             total,
                                                                             CmdbObject)
             return iteration_result
-        except BaseManagerIterationError as err:
-            raise ObjectsManagerIterationError(err) from err
         except Exception as err:
             LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerIterationError(err) from err
+            raise ObjectsManagerIterationError(str(err)) from err
 
 
-    def get_objects_by(self,
-                       sort: str = 'public_id',
-                       direction: int = -1,
-                       user: CmdbUser = None,
-                       permission: AccessControlPermission = None,
-                       **requirements) -> list[CmdbObject]:
+    def get_objects_by(
+        self,
+        sort: str = "public_id",
+        direction: int = -1,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None,
+        **requirements,
+    ) -> list[CmdbObject]:
         """
         Retrieves a list of CmdbObjects based on the provided filters
 
@@ -222,8 +225,8 @@ class ObjectsManager(BaseManager):
         Args:
             sort (str): The field by which to sort the results. Defaults to 'public_id'
             direction (int): The direction of sorting; -1 for descending, 1 for ascending. Defaults to -1
-            user (CmdbUser): The user for access control verification. Defaults to None
-            permission (AccessControlPermission): The required permission
+            user (CmdbUser | None): The user for access control verification. Defaults to None
+            permission (AccessControlPermission | None): The required permission
             **requirements: Additional filter criteria passed as keyword arguments
 
         Raises:
@@ -250,18 +253,20 @@ class ObjectsManager(BaseManager):
                     continue
 
             return valid_objects
-        except (ObjectsManagerGetError, AccessDeniedError) as err:
+        except AccessDeniedError as err:
             raise err
         except Exception as err:
             LOGGER.error("[get_objects_by] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(err) from err
 
 
-    def group_objects_by_value(self,
-                               value: str,
-                               match=None,
-                               user: CmdbUser = None,
-                               permission: AccessControlPermission = None) -> list[dict]:
+    def group_objects_by_value(
+        self,
+        value: str,
+        match: dict | None = None,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> list[dict]:
         """
         Groups objects based on a specific field value and filters them by the provided criteria,
         ensuring the user has the necessary access permissions for each object.
@@ -272,9 +277,9 @@ class ObjectsManager(BaseManager):
 
         Args:
             value (str): The field by which to group the objects (e.g., 'type_id')
-            match (dict, optional): Filtering criteria to apply to the documents before grouping
-            user (CmdbUser, optional): The user making the request
-            permission (AccessControlPermission, optional): The required permissions for the user
+            match (dict | None): Filtering criteria to apply to the documents before grouping
+            user (CmdbUser | None): The user making the request
+            permission (AccessControlPermission | None): The required permissions for the user
 
         Raises:
             ObjectsManagerIterationError: If the iteration fails
@@ -314,17 +319,13 @@ class ObjectsManager(BaseManager):
                     continue
 
             return grouped_objects
-        except ObjectsManagerIterationError as err:
-            raise err
-        except (ObjectsManagerGetError, CmdbObjectInitFromDataError) as err:
-            raise ObjectsManagerIterationError(err) from err
         except Exception as err:
             LOGGER.error("[group_objects_by_value] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerIterationError(err) from err
+            raise ObjectsManagerIterationError(str(err)) from err
 
 
     #TODO: ERROR-FIX (Create a ObjectsManagerGetTypeError)
-    def get_object_type(self, type_id: int) -> Optional[CmdbType]:
+    def get_object_type(self, type_id: int) -> CmdbType | None:
         """
         Retrieves the CmdbType for the given public_id of the CmdbType
 
@@ -335,7 +336,7 @@ class ObjectsManager(BaseManager):
             ObjectsManagerGetError: If the operation fails
 
         Returns:
-            Optional[CmdbType]: CmdbType with the given type_id if found in database
+            CmdbType | None: CmdbType with the given type_id if found in database
         """
         try:
             requested_type = self.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
@@ -349,7 +350,7 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(err) from err
 
 
-    def count_objects(self, criteria: dict = None):
+    def count_objects(self, criteria: dict[str, Any] | None = None) -> int:
         """
         Returns the number of objects with the given criteria
 
@@ -382,9 +383,9 @@ class ObjectsManager(BaseManager):
             int: The next public_id for a CmdbObject
         """
         try:
-            return self.get_next_public_id()
+            return self.get_next_public_id(inc_id=True)
         except BaseManagerGetError as err:
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetError(str(err)) from err
 
 
     def aggregate_objects(self, pipeline: list[dict], **kwargs) -> CommandCursor:
@@ -413,7 +414,7 @@ class ObjectsManager(BaseManager):
     #TODO: REFACTOR-FIX
     def get_mds_references_for_object(self,
                                       referenced_object: CmdbObject,
-                                      query_filter: Union[dict, list]) -> list[dict]:
+                                      query_filter: dict | list) -> list[dict]:
         """
         Retrieves all CmdbObjects whose multi-data sections (MDS) reference a given object
 
@@ -422,7 +423,7 @@ class ObjectsManager(BaseManager):
 
         Args:
             referenced_object (CmdbObject): The CmdbObject being referenced
-            query_filter (Union[dict, list]): Additional query filters to apply in the pipeline. 
+            query_filter (dict | list): Additional query filters to apply in the pipeline. 
                                               Can be a dictionary (single filter) or a list of filters
 
         Raises:
@@ -494,7 +495,7 @@ class ObjectsManager(BaseManager):
                             data_set: dict
                             for data_set in value.get("data", []):
                                 if (
-                                    self.__is_ref_field(data_set["name"], result)
+                                    self.is_ref_field(data_set["name"], result)
                                     and "value" in data_set
                                     and data_set["value"] == referenced_object.public_id
                                 ):
@@ -507,8 +508,6 @@ class ObjectsManager(BaseManager):
                     raise BaseManagerIterationError(err) from err
 
             return matching_results
-        except BaseManagerIterationError as err:
-            raise ObjectsManagerIterationError(err) from err
         except Exception as err:
             LOGGER.error("[get_mds_references_for_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
@@ -540,8 +539,8 @@ class ObjectsManager(BaseManager):
             skip (int): The number of results to skip (for pagination)
             sort (str): The field by which to sort the results
             order (int): The sorting order (1 for ascending, -1 for descending)
-            user (Optional[CmdbUser]): The requesting user (for access control)
-            permission (Optional[AccessControlPermission]): The required permission level
+            user (CmdbUser | None): The requesting user (for access control)
+            permission (AccessControlPermission | None): The required permission level
 
         Raises:
             ObjectsManagerIterationError: If iteration fails
@@ -600,7 +599,7 @@ class ObjectsManager(BaseManager):
 
     def update_object(self,
                       public_id: int,
-                      data: Union[CmdbObject, dict],
+                      data: CmdbObject | dict,
                       user: CmdbUser = None,
                       permission: AccessControlPermission = None) -> None:
         """
@@ -608,9 +607,9 @@ class ObjectsManager(BaseManager):
 
         Args:
             public_id (int): public_id of the CmdbObject which should be updated
-            data: Union[CmdbRelation, dict]: The new data for the CmdbObject
-            user: Request user
-            permission: ACL permission
+            data: (CmdbObject | dict): The new data for the CmdbObject
+            user (CmdbUser): Request user
+            permission (AccessControlPermission): ACL permission
 
         Raises:
             ObjectsManagerUpdateError: If the update operation fails
@@ -633,8 +632,6 @@ class ObjectsManager(BaseManager):
             self.update({'public_id': public_id}, instance)
         except AccessDeniedError as err:
             raise err
-        except (CmdbObjectToJsonError, ObjectsManagerGetError, BaseManagerUpdateError) as err:
-            raise ObjectsManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
@@ -647,7 +644,7 @@ class ObjectsManager(BaseManager):
         Args:
             query (dict): The filter criteria to select the CmdbObjects to update
             update (dict): The changes to apply to the matching CmdbObjects
-            add_to_set (bool, optional): If True, uses `$addToSet` to append unique values 
+            add_to_set (bool): If True, uses `$addToSet` to append unique values 
                                          to an array field instead of overwriting. Defaults to False
 
         Raises:
@@ -669,8 +666,8 @@ class ObjectsManager(BaseManager):
 
         Args:
             public_id (int): public_id of the CmdbObject which should be deleted
-            user (CmdbUser, optional): The CmdbUser requesting deletion
-            permission (AccessControlPermission, optional): The required permission for deletion
+            user (CmdbUser | None): The CmdbUser requesting deletion
+            permission (AccessControlPermission | None): The required permission for deletion
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -716,8 +713,8 @@ class ObjectsManager(BaseManager):
 
         Args:
             public_id (int): public_id of the CmdbObject which should be deleted
-            user (CmdbUser, optional): The CmdbUser requesting deletion
-            permission (AccessControlPermission, optional): The required permission for deletion
+            user (CmdbUser | None): The CmdbUser requesting deletion
+            permission (AccessControlPermission | None): The required permission for deletion
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -884,7 +881,7 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerMdsReferencesError(err) from err
 
 
-    def __is_ref_field(self, field_name: str, ref_object: dict) -> bool:
+    def is_ref_field(self, field_name: str, ref_object: dict) -> bool:
         """
         Checks if the given field in the referenced object is of type 'ref'
 
@@ -909,7 +906,7 @@ class ObjectsManager(BaseManager):
         except ObjectsManagerGetError as err:
             raise ObjectsManagerCheckError(err) from err
         except Exception as err:
-            LOGGER.error("[__is_ref_field] Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[is_ref_field] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerCheckError(err) from err
 
 
@@ -925,7 +922,7 @@ class ObjectsManager(BaseManager):
             str: The summary line of the CmdbObject
         """
         try:
-            default_line = ""
+            default_line: str = ""
 
             if not public_id:
                 return default_line

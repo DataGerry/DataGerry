@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,26 +16,27 @@
 """
 This class represents a type section
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                      TypeSection                                                     #
+#                                                  TypeSection - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TypeSection:
     """Type section class"""
 
-    def __init__(self, type: str, name: str, label: str = None):
-        self.type = type
-        self.name = name
-        self.label = label or self.name.title()
+    def __init__(self, type: str, name: str, label: str | None = None) -> None:
+        self.type: str = type
+        self.name: str = name
+        self.label: str = label or self.name.title()
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeSection":
+    def from_data(cls, data: dict[str, Any]) -> "TypeSection":
         """
         Generates a TypeSection object from a dict
 
@@ -46,14 +47,14 @@ class TypeSection:
             TypeSection: TypeSection class with given data
         """
         return cls(
-            type = data.get('type'),
-            name = data.get('name'),
-            label = data.get('label', None),
+            type = data['type'],
+            name = data['name'],
+            label = data.get('label'),
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeSection") -> dict:
+    def to_json(cls, instance: "TypeSection") -> dict[str, Any]:
         """
         Returns a TypeSection as JSON representation
 

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for the IsmsProtectionGoals
 """
 import logging
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ProtectionGoalManager
@@ -61,7 +62,7 @@ protection_goal_blueprint = APIBlueprint('protection_goal', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @protection_goal_blueprint.protect(auth=True, right='base.isms.protectionGoal.add')
 @protection_goal_blueprint.validate(IsmsProtectionGoal.SCHEMA)
-def insert_isms_protection_goal(data: dict, request_user: CmdbUser):
+def insert_isms_protection_goal(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsProtectionGoal into the database
 
@@ -114,7 +115,7 @@ def insert_isms_protection_goal(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @protection_goal_blueprint.protect(auth=True, right='base.isms.protectionGoal.view')
 @protection_goal_blueprint.parse_collection_parameters()
-def get_isms_protection_goals(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_protection_goals(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsProtectionGoals
 
@@ -253,7 +254,7 @@ def update_isms_protection_goal(public_id: int, data: dict, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @protection_goal_blueprint.protect(auth=True, right='base.isms.protectionGoal.delete')
-def delete_isms_protection_goal(public_id: int, request_user: CmdbUser):
+def delete_isms_protection_goal(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsProtectionGoal
 

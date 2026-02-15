@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -51,7 +51,8 @@ const GREY = '#f5f5f5';
 @Component({
     selector: 'app-risk-assessment-list',
     templateUrl: './risk-assessment-list.component.html',
-    styleUrls: ['./risk-assessment-list.component.scss']
+    styleUrls: ['./risk-assessment-list.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentListComponent implements OnInit, OnChanges {
 
@@ -325,7 +326,6 @@ private loadRows(): void {
           searchFilter = raw;                    // already an object
         }
       } catch (e) {
-        console.warn('Could not parse search filter', raw, e);
         searchFilter = {};
       }
     }
@@ -369,7 +369,7 @@ private loadRows(): void {
           this.rows  = res.results;
           this.total = res.total;
         },
-        error: err => this.toast.error(err?.error?.message || 'Load failed')
+        error: err => this.toast.error(err?.error?.message)
       });
   }
   
@@ -561,7 +561,7 @@ private loadRows(): void {
                 .pipe(finalize(() => this.loader.hide()))
                 .subscribe({
                     next: () => { this.toast.success('Deleted'); this.loadRows(); },
-                    error: err => this.toast.error(err?.error?.message || 'Delete failed')
+                    error: err => this.toast.error(err?.error?.message)
                 });
         }).catch(() => { /* dismissed */ });
     }

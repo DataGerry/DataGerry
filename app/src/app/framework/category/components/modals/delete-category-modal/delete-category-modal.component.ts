@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,13 +22,11 @@ import { CmdbCategory } from '../../../../models/cmdb-category';
 import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Validators } from '@angular/forms';
 
 @Component({
-  selector: 'cmdb-category-delete',
-  template: `
+    selector: 'cmdb-category-delete',
+    template: `
     <div class="modal-header">
       <h4 class="modal-title" id="modal-title">Category deletion</h4>
-      <button type="button" class="close" (click)="modal.dismiss('')">
-        <span aria-hidden="true">&times;</span>
-      </button>
+      <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss('')"></button>
     </div>
     <div class="modal-body">
       <strong>Are you sure you want to delete <span class="text-primary">{{category.name}}</span> category?</strong>
@@ -48,10 +46,10 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
             deletion.</small>
           <div *ngIf="name.invalid && (name.dirty || name.touched)"
                class="invalid-feedback">
-            <div class="float-right" *ngIf="name.errors.required">
+            <div class="text-end" *ngIf="name.errors.required">
               Name is required
             </div>
-            <div class="float-right" *ngIf="name.errors.notequal">
+            <div class="text-end" *ngIf="name.errors.notequal">
               Your answer is not equal!
             </div>
           </div>
@@ -65,7 +63,8 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
               (click)="modal.close('delete')">Delete
       </button>
     </div>
-  `
+  `,
+    standalone: false
 })
 export class DeleteCategoryModalComponent implements OnDestroy {
 

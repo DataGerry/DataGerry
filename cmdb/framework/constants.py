@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,8 @@ Except for the managers, this module can be used completely modular.
 The respective DAO is used to apply the attributes and to convert
 the elements for the database.
 """
+from typing import Any
+
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.reports_model.cmdb_report import CmdbReport
@@ -59,7 +61,7 @@ from cmdb.models.isms_model import (
 CmdbLog.register_log_type(CmdbObjectLog.__name__, CmdbObjectLog)
 
 # List of init collections
-__COLLECTIONS__ = [
+__COLLECTIONS__: list[Any] = [
     CmdbObject,
     CmdbType,
     CmdbCategory,

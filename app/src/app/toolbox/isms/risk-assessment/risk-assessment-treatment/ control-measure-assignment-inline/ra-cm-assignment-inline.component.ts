@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,10 +39,11 @@ interface RespItem {
 }
 
 @Component({
-  selector: 'ra-cm-assignment-inline',
-  templateUrl: './ra-cm-assignment-inline.component.html',
-  styleUrls: ['./ra-cm-assignment-inline.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'ra-cm-assignment-inline',
+    templateUrl: './ra-cm-assignment-inline.component.html',
+    styleUrls: ['./ra-cm-assignment-inline.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
 

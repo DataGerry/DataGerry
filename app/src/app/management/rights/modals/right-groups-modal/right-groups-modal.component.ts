@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,9 +21,10 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { Right } from '../../../models/right';
 
 @Component({
-  selector: 'cmdb-right-groups-modal',
-  templateUrl: './right-groups-modal.component.html',
-  styleUrls: ['./right-groups-modal.component.scss']
+    selector: 'cmdb-right-groups-modal',
+    templateUrl: './right-groups-modal.component.html',
+    styleUrls: ['./right-groups-modal.component.scss'],
+    standalone: false
 })
 export class RightGroupsModalComponent {
 

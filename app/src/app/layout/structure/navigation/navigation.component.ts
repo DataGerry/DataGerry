@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -28,9 +28,8 @@ import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { Subscription, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { ToastService } from '../../toast/toast.service';
-import { AiPromptModalComponent } from 'src/app/ai-assistant/components/ai-prompt-modal/ai-prompt-modal.component';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+
+import { Router } from '@angular/router';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -42,7 +41,8 @@ window.ATL_JQ_PAGE_PROPS = window.ATL_JQ_PAGE_PROPS || {};
 @Component({
     selector: 'cmdb-navigation',
     templateUrl: './navigation.component.html',
-    styleUrls: ['./navigation.component.scss']
+    styleUrls: ['./navigation.component.scss'],
+    standalone: false
 })
 export class NavigationComponent implements OnInit {
 
@@ -64,7 +64,7 @@ export class NavigationComponent implements OnInit {
         private userService: UserService,
         private groupService: GroupService,
         private objectService: ObjectService,
-        private modalService: NgbModal
+        private router: Router,
     ) {
         this.user = this.userService.getCurrentUser();
     }
@@ -191,15 +191,8 @@ export class NavigationComponent implements OnInit {
         return this.percentage > 85 ? '#fff' : '#000'; // Use white text on high usage (red background)
     }
 
-    public openAiPromptModal(): void {
-        const modalRef = this.modalService.open(AiPromptModalComponent, { size: 'lg', backdrop: 'static' });
-        modalRef.result.then(
-          (result) => {
-            console.log('AI Assistant modal result:', result);
-          },
-          (reason) => {
-            console.warn('AI Assistant modal dismissed:', reason);
-          }
-        );
+
+    public goToAiPromptPage(): void {
+        this.router.navigate(['/ai-assistant']);
       }
 }

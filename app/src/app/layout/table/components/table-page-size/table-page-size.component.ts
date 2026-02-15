@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -38,10 +38,11 @@ export interface PageLengthEntry {
 }
 
 @Component({
-  selector: 'table-page-size',
-  templateUrl: './table-page-size.component.html',
-  styleUrls: ['./table-page-size.component.scss'],
-  changeDetection: ChangeDetectionStrategy.Default,
+    selector: 'table-page-size',
+    templateUrl: './table-page-size.component.html',
+    styleUrls: ['./table-page-size.component.scss'],
+    changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class TablePageSizeComponent implements OnInit, OnDestroy {
 
@@ -141,8 +142,8 @@ export class TablePageSizeComponent implements OnInit, OnDestroy {
    * Sends complete call to the component subscriber.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

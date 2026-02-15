@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,9 +39,10 @@ import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 const FALLBACK_GREY = '#f5f5f5';
 
 @Component({
-  selector: 'app-risk-assessment-before',
-  templateUrl: './risk-assessment-before.component.html',
-  styleUrls: ['./risk-assessment-before.component.scss'],
+    selector: 'app-risk-assessment-before',
+    templateUrl: './risk-assessment-before.component.html',
+    styleUrls: ['./risk-assessment-before.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentBeforeComponent implements OnInit, OnChanges {
   @Input({ required: true }) parentForm!: FormGroup;

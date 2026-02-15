@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -36,9 +36,10 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { ThreatService } from '../services/threat.service';
 
 @Component({
-  selector: 'app-threats-list',
-  templateUrl: './threats-list.component.html',
-  styleUrls: ['./threats-list.component.scss']
+    selector: 'app-threats-list',
+    templateUrl: './threats-list.component.html',
+    styleUrls: ['./threats-list.component.scss'],
+    standalone: false
 })
 export class ThreatsListComponent implements OnInit {
 

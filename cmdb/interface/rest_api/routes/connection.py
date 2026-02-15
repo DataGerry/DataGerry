@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of connection check routes
 """
 import logging
+from typing import Any
 from flask import current_app, abort
+from werkzeug import Response
 
 from cmdb.database import MongoDatabaseManager
 
@@ -36,7 +38,7 @@ with current_app.app_context():
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @connection_routes.route('/', methods=['GET', 'HEAD'])
-def connection_test_frontend():
+def connection_test_frontend() -> Response:
     """
     Connection check for frontend ({{url}}/rest/)
 
@@ -44,7 +46,7 @@ def connection_test_frontend():
         DefaultResponse: Dict with infos about Datagerry(title, version and connection status of db)
     """
     try:
-        infos = {
+        infos: dict[str, Any] = {
             'title': __title__,
             'version': __version__,
             'connected': dbm.status()

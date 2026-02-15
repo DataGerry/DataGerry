@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -25,8 +25,9 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'cmdb-branch-info-modal',
     templateUrl: './branch-info-modal.component.html',
-    styleUrls: ['./branch-info-modal.component.scss']
-  })
+    styleUrls: ['./branch-info-modal.component.scss'],
+    standalone: false
+})
   export class BranchInfoModalComponent {
     
     constructor(public activeModal: NgbActiveModal){}

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,7 +24,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 @Component({
     selector: 'cmdb-docapi-builder-style-step',
     templateUrl: './docapi-builder-style-step.component.html',
-    styleUrls: ['./docapi-builder-style-step.component.scss']
+    styleUrls: ['./docapi-builder-style-step.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderStyleStepComponent {
     @Input()

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,7 +27,8 @@ import { ImportService } from 'src/app/modules/import/services/import.service';
 @Component({
     selector: 'cmdb-import-types',
     templateUrl: './import-types.component.html',
-    styleUrls: ['./import-types.component.scss']
+    styleUrls: ['./import-types.component.scss'],
+    standalone: false
 })
 export class ImportTypesComponent implements OnInit {
     public fileForm: UntypedFormGroup;

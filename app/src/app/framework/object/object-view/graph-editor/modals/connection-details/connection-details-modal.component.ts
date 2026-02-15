@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,7 +31,7 @@ export interface ConnectionDetailsData {
     relation_label: string;
     relation_color: string;
     relation_icon?: string;
-  };
+  } | null;
 }
 
 export interface NodeDetailsData {
@@ -43,9 +43,10 @@ export interface NodeDetailsData {
 }
 
 @Component({
-  selector: 'app-connection-details-modal',
-  templateUrl: './connection-details-modal.component.html',
-  styleUrls: ['./connection-details-modal.component.scss']
+    selector: 'app-connection-details-modal',
+    templateUrl: './connection-details-modal.component.html',
+    styleUrls: ['./connection-details-modal.component.scss'],
+    standalone: false
 })
 export class ConnectionDetailsModalComponent implements OnInit {
   sourceNode!: NodeDetailsData;

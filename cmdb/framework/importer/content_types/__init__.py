@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,7 @@ from cmdb.framework.importer.content_types.json_content import JSONContent
 from cmdb.framework.importer.content_types.xlsx_content import XLSXContent
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CSVContent',
     'JSONContent',
     'XLSXContent',

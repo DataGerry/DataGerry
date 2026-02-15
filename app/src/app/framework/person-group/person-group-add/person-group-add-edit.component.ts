@@ -16,9 +16,10 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-person-group-add-edit',
-  templateUrl: './person-group-add-edit.component.html',
-  styleUrls: ['./person-group-add-edit.component.scss']
+    selector: 'app-person-group-add-edit',
+    templateUrl: './person-group-add-edit.component.html',
+    styleUrls: ['./person-group-add-edit.component.scss'],
+    standalone: false
 })
 export class PersonGroupAddEditComponent implements OnInit {
   public isEditMode = false;

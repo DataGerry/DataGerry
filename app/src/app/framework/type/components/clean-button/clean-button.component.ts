@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,8 @@ import { CleanupModalComponent } from '../../modals/cleanup-modal/cleanup-modal.
 @Component({
     selector: 'cmdb-clean-button',
     templateUrl: './clean-button.component.html',
-    styleUrls: ['./clean-button.component.scss']
+    styleUrls: ['./clean-button.component.scss'],
+    standalone: false
 })
 export class CleanButtonComponent implements OnChanges, OnDestroy {
     // Component un-subscriber
@@ -64,8 +65,8 @@ export class CleanButtonComponent implements OnChanges, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.modalRef) {
             this.modalRef.close();

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,9 +31,10 @@ import { RelationService } from '../../services/relaion.service';
 import { ValidationService } from '../../type/services/validation.service';
 
 @Component({
-  selector: 'cmdb-relation-builder',
-  templateUrl: './relation-builder.component.html',
-  styleUrls: ['./relation-builder.component.scss']
+    selector: 'cmdb-relation-builder',
+    templateUrl: './relation-builder.component.html',
+    styleUrls: ['./relation-builder.component.scss'],
+    standalone: false
 })
 export class RelationBuilderComponent implements OnInit, OnDestroy {
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -42,6 +43,7 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
   @Input() public relationInstance: CmdbRelation;
   @Input() public mode: CmdbMode = CmdbMode.Create;
   @Input() public stepIndex: number = 0;
+  @Input() public availableTypes: any[] = [];
   public modes = CmdbMode;
 
   public relations: CmdbRelation[] = [];
@@ -78,6 +80,7 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // Load types for preview display
 
     // Setup validation state subscriptions
     this.validationService.isSectionHighlighted$.subscribe((highlighted) => {
@@ -107,9 +110,9 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
-    this.subscriptions.unsubscribe();
+    this.subscriber?.next();
+    this.subscriber?.complete();
+    this.subscriptions?.unsubscribe();
   }
 
 
@@ -123,6 +126,59 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
     }));
   }
 
+
+
+  /**
+   * Get type name by ID from available types
+   */
+  private getTypeNameById(typeId: number): string {
+    // First try to look up the type in the passed availableTypes array
+    if (this.availableTypes && this.availableTypes.length > 0) {
+      const foundType = this.availableTypes.find(type => type.public_id === typeId);
+      return foundType ? foundType.label : `Type ${typeId}`;
+    }
+    
+    // Fallback to local types array if availableTypes is not passed
+    if (this.types && this.types.length > 0) {
+      const foundType = this.types.find(type => type.public_id === typeId);
+      return foundType ? foundType.label : `Type ${typeId}`;
+    }
+    
+    return `Type ${typeId}`;
+  }
+
+  /**
+   * Get display text for types with ellipsis when space is limited
+   */
+  public getTypeDisplayText(typeIds: number[]): string {
+    if (!typeIds || typeIds.length === 0) {
+      return 'No types selected';
+    }
+
+    // Look up actual type names
+    const typeNames = typeIds.map(id => this.getTypeNameById(id));
+    
+    if (typeNames.length === 1) {
+      return typeNames[0];
+    } else if (typeNames.length === 2) {
+      return typeNames.join(', ');
+    } else {
+      return `${typeNames.slice(0, 2).join(', ')}...`;
+    }
+  }
+
+  /**
+   * Get tooltip text with all type names
+   */
+  public getTypeTooltipText(typeIds: number[]): string {
+    if (!typeIds || typeIds.length === 0) {
+      return 'No types selected';
+    }
+
+    // Look up actual type names
+    const typeNames = typeIds.map(id => this.getTypeNameById(id));
+    return typeNames.join(', ');
+  }
 
   saveRelation(): void {
     if (!this.basicValid || !this.contentValid || this.isSectionHighlighted || this.isFieldHighlighted || this.disableFields || !this.isSectionWithoutFields) {

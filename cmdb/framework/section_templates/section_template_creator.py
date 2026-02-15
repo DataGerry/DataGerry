@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,10 +16,11 @@
 """
 This module handles all predefined section templates
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            SectionTemplateCreator - CLASS                                            #
@@ -41,13 +42,13 @@ class SectionTemplateCreator:
 
 # -------------------------------------------------- HELPER SECTION -------------------------------------------------- #
 
-    def __get_template_section(self, name: str, label) -> dict:
+    def __get_template_section(self, name: str, label: str) -> dict[str, Any]:
         """
         Retrieves the base section template model
 
         Args:
             name (str): name for section template
-            label (_type_): label for section template
+            label (str): label for section template
 
         Returns:
             dict: Base section template construct
@@ -62,13 +63,15 @@ class SectionTemplateCreator:
         }
 
 
-    def __get_template_section_field(self,
-                                     field_type: str,
-                                     name: str,
-                                     label: str,
-                                     options: list[dict] = None,
-                                     regex: str = None,
-                                     helper_text: str = None) -> dict:
+    def __get_template_section_field(
+        self,
+        field_type: str,
+        name: str,
+        label: str,
+        options: list[dict] | None = None,
+        regex: str | None = None,
+        helper_text: str | None = None
+    ) -> dict:
         """
         Retrieves a field model for a section template
 
@@ -82,7 +85,7 @@ class SectionTemplateCreator:
         Returns:
             dict: The configured field for the section
         """
-        field_values = {
+        field_values: dict[str, str] = {
             'type': field_type,
             'name': name,
             'label': label

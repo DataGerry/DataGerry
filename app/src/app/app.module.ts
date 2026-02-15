@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@
 import { BrowserModule } from '@angular/platform-browser';
 import { NgModule } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
-import { HTTP_INTERCEPTORS, HttpClientModule } from '@angular/common/http';
+import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
@@ -50,16 +50,18 @@ import { DashboardComponent } from './components/dashboard/dashboard.component';
 import { CoreModule } from './core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-@NgModule({
-    declarations: [
+@NgModule({ declarations: [
         AppComponent,
         DashboardComponent
     ],
-    imports: [
-        CommonModule,
+    exports: [
+        BrowserModule
+    ],
+    bootstrap: [
+        AppComponent
+    ], imports: [CommonModule,
         BrowserModule,
         BrowserAnimationsModule,
-        HttpClientModule,
         MainModule,
         AuthModule,
         FontAwesomeModule,
@@ -70,12 +72,7 @@ import { CoreModule } from './core/core.module';
         LayoutModule,
         ToastModule,
         AppRoutingModule,
-        CoreModule
-    ],
-    exports: [
-        BrowserModule
-    ],
-    providers: [
+        CoreModule], providers: [
         PreviousRouteService,
         DatePipe,
         DateFormatterPipe,
@@ -85,10 +82,7 @@ import { CoreModule } from './core/core.module';
         ObjectService,
         { provide: HTTP_INTERCEPTORS, useClass: BasicAuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: HttpErrorInterceptor, multi: true },
-        { provide: HTTP_INTERCEPTORS, useClass: APICachingInterceptor, multi: true }
-    ],
-    bootstrap: [
-        AppComponent
-    ]
-})
+        { provide: HTTP_INTERCEPTORS, useClass: APICachingInterceptor, multi: true },
+        provideHttpClient(withInterceptorsFromDi())
+    ] })
 export class AppModule {}

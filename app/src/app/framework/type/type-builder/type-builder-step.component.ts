@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,8 +29,8 @@ import { CmdbCategory } from '../../models/cmdb-category';
  * Helper component to show a builder step validation status.
  */
 @Component({
-  selector: 'cmdb-type-builder-step-status',
-  styles: [`span i {
+    selector: 'cmdb-type-builder-step-status',
+    styles: [`span i {
     float: right;
     padding-top: 3px;
   }`, `.step-valid i {
@@ -38,7 +38,7 @@ import { CmdbCategory } from '../../models/cmdb-category';
   }`, `.step-invalid i {
     color: #dc3545;
   }`],
-  template: `{{step}}:
+    template: `{{step}}:
   <span *ngIf="status" class="step-valid">
     <i class="far fa-check-circle"></i>
   </span>
@@ -46,7 +46,8 @@ import { CmdbCategory } from '../../models/cmdb-category';
     <i class="fas fa-exclamation-circle"></i>
   </span>
   <div class="clearfix"></div>
-  `
+  `,
+    standalone: false
 })
 export class TypeBuilderStepValidStatusComponent {
   /**
@@ -65,8 +66,9 @@ export class TypeBuilderStepValidStatusComponent {
  * Abstract class for every builder step
  */
 @Component({
-  selector: 'cmdb-type-builder-step',
-  template: ''
+    selector: 'cmdb-type-builder-step',
+    template: '',
+    standalone: false
 })
 export class TypeBuilderStepComponent {
 

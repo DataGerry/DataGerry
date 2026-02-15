@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,10 +26,11 @@ import { SidebarService } from '../../services/sidebar.service';
 export const COOCKIENAME = 'onlyActiveObjCookie';
 
 @Component({
-  selector: 'cmdb-breadcrumb',
-  templateUrl: './breadcrumb.component.html',
-  styleUrls: ['./breadcrumb.component.scss'],
-  encapsulation: ViewEncapsulation.None
+    selector: 'cmdb-breadcrumb',
+    templateUrl: './breadcrumb.component.html',
+    styleUrls: ['./breadcrumb.component.scss'],
+    encapsulation: ViewEncapsulation.None,
+    standalone: false
 })
 export class BreadcrumbComponent implements OnInit {
 

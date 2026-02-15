@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -48,7 +48,7 @@ class JsonObjectImporterConfig(ObjectImporterConfig, JSONContent):
 
     def __init__(self,
                  type_id: int,
-                 mapping: Mapping = None,
+                 mapping: Mapping | None = None,
                  start_element: int = 0,
                  max_elements: int = 0,
                  overwrite_public: bool = True,

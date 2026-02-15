@@ -33,7 +33,7 @@
         <div class="row">
             <div class="col-2">
                 <form [formGroup]="resultSizeForm" class="form-inline">
-                    <label class="mr-1">Show:</label>
+                    <label class="me-1">Show:</label>
                         <select formControlName="size" class="custom-select custom-select-sm" title="table-page-size-changer">
                             <option [ngValue]="size.value" *ngFor="let size of defaultResultSizeList">{{size.label}}</option>
                         </select>
