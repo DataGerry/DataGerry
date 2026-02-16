@@ -16,13 +16,13 @@
 """
 This module provides a test suite and custom Flask test client for REST API testing
 """
-import logging
+from logging import Logger, getLogger
 from flask.testing import FlaskClient
 
 from cmdb.security.token.generator import TokenGenerator
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 class RestAPITestSuite:

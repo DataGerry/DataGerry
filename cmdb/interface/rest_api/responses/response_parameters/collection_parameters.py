@@ -16,14 +16,14 @@
 """
 Implementation of CollectionParameters
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from json import loads
 
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             CollectionParameters - CLASS                                             #

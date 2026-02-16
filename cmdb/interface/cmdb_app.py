@@ -16,7 +16,7 @@
 """
 Implementation of BaseCmdbApp
 """
-import logging
+from logging import Logger, getLogger
 
 from flask import Flask
 
@@ -24,7 +24,7 @@ from cmdb import __CLOUD_MODE__, __LOCAL_MODE__
 from cmdb.database import MongoDatabaseManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  BaseCmdbApp - CLASS                                                 #

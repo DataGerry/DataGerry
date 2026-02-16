@@ -24,7 +24,8 @@ Notes:
     the description field of the respective class is used.
     This field is used normally again after the message has been saved.
 """
-import logging
+from logging import Logger, getLogger
+
 from flask import request, jsonify
 from werkzeug.exceptions import (
     HTTPException,
@@ -40,7 +41,7 @@ from werkzeug.exceptions import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ErrorResponse - CLASS                                                #

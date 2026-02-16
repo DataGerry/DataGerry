@@ -16,7 +16,7 @@
 """
 Implementation of the DocApiRenderer in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 from io import BytesIO
 
 from cmdb.manager import ObjectsManager
@@ -30,7 +30,7 @@ from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                DocApiRenderer - CLASS                                                #

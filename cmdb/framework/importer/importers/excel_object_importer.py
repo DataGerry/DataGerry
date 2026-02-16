@@ -16,7 +16,7 @@
 """
 Implementation of ExcelObjectImporter
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 
 from cmdb.manager import ObjectsManager
@@ -34,7 +34,7 @@ from cmdb.framework.importer.responses.importer_object_response import ImporterO
 from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ExcelObjectImporter - CLASS                                             #

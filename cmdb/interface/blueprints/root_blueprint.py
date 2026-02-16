@@ -17,11 +17,11 @@
 Implementation of RootBlueprint
 """
 from functools import wraps
-import logging
+from logging import Logger, getLogger
 from flask import Blueprint, abort, request
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RootBlueprint - CLASS                                                #

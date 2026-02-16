@@ -16,10 +16,10 @@
 """
 Implementation of SearchParam
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  SearchParam - CLASS                                                 #

@@ -17,7 +17,7 @@
 Server module for web-based services
 """
 import os
-import logging
+from logging import Logger, getLogger
 import multiprocessing
 from gunicorn.app.base import BaseApplication
 
@@ -26,7 +26,7 @@ from cmdb.utils.logger import get_logging_conf
 from cmdb.interface.gunicorn_config import post_fork
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  HTTPServer - CLASS                                                  #

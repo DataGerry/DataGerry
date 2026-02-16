@@ -17,7 +17,8 @@
 Implementation of ObjectImporter
 """
 from datetime import datetime, timezone
-import logging
+from logging import Logger, getLogger
+
 from flask import current_app
 
 from cmdb.manager import ObjectsManager
@@ -39,7 +40,7 @@ from cmdb.errors.manager.objects_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ObjectImporter - CLASS                                                #

@@ -16,8 +16,9 @@
 """
 Implementation of all API routes for CmdbWebhookEvents
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from flask import abort, request
 from werkzeug import Response
 
@@ -41,7 +42,7 @@ from cmdb.errors.manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 webhook_event_blueprint = APIBlueprint('webhook_events', __name__)
 

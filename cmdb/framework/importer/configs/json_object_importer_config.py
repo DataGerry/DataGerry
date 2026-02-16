@@ -16,14 +16,14 @@
 """
 Implementation of JsonObjectImporterConfig
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.content_types import JSONContent
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.mapper.mapping import Mapping
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           JsonObjectImporterConfig - CLASS                                           #

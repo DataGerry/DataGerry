@@ -16,7 +16,7 @@
 """
 Implementation of BaseExportWriter
 """
-import logging
+from logging import Logger, getLogger
 import datetime
 from flask import Response
 
@@ -33,7 +33,7 @@ from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseExportWriter - CLASS                                               #

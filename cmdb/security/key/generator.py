@@ -16,16 +16,16 @@
 """
 Implementation of KeyGenerator
 """
-import logging
+from logging import Logger, getLogger
+
 from Crypto import Random
 from Crypto.PublicKey import RSA
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager import SettingsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 KeyGenerator - CLASS                                                 #

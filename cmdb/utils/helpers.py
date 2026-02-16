@@ -20,11 +20,11 @@ import re
 import sys
 import importlib
 import inspect
-import logging
+from logging import Logger, getLogger
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

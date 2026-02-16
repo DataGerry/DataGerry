@@ -39,6 +39,7 @@ and manage any type of asset or configuration data.
     usage/reports
     usage/document_generator
     usage/isms
+    usage/automations
     usage/webhooks
     usage/imports
     usage/exports
@@ -69,7 +70,7 @@ and manage any type of asset or configuration data.
     :caption: Sources
     :maxdepth: 2
 
-    Download Packages <https://buildkite.com/organizations/becon-gmbh/packages>
+    sources/packages
     Download Docker <https://hub.docker.com/r/becongmbh/datagerry>
     Repository <https://github.com/DATAGerry/DATAGerry>
     sources/changelog

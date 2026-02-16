@@ -16,11 +16,12 @@
 """
 Implementation of the TemplateEngine
 """
-import logging
+from logging import Logger, getLogger
+
 from jinja2 import Environment, ChainableUndefined
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                TemplateEngine - CLASS                                                #

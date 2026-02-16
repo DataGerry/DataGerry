@@ -16,7 +16,7 @@
 """
 Implementation of CsvObjectImporter
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 
 from cmdb.manager import ObjectsManager
@@ -36,7 +36,7 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               CsvObjectImporter - CLASS                                              #

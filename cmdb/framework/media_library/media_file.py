@@ -16,7 +16,7 @@
 """
 Implementation of MediaFile
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import date
 
@@ -27,7 +27,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.errors.cmdb_object import NoPublicIDError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   MediaFile - CLASS                                                  #

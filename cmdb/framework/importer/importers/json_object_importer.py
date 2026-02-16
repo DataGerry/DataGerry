@@ -16,7 +16,7 @@
 """
 Implementation of JsonObjectImporter
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 
 from cmdb.manager import ObjectsManager
@@ -31,7 +31,7 @@ from cmdb.framework.importer.responses.importer_object_response import ImporterO
 from cmdb.framework.importer.configs.json_object_importer_config import JsonObjectImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              JsonObjectImporter - CLASS                                              #

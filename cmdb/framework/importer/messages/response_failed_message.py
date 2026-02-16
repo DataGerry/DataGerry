@@ -16,11 +16,11 @@
 """
 Implementation of ResponseFailedMessage
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             ResponseFailedMessage - CLASS                                            #

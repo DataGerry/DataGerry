@@ -16,14 +16,14 @@
 """
 Implementation of SearchResult
 """
-import logging
+from logging import Logger, getLogger
 from typing import TypeVar, Generic, Any
 from bson import Regex
 
 from cmdb.framework.search.search_result_map import SearchResultMap
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 R = TypeVar('R')
 

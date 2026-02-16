@@ -18,14 +18,15 @@ Implementation of KeyHolder
 """
 import os
 import base64
-import logging
+from logging import Logger, getLogger
+
 from flask import current_app
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   KeyHolder - CLASS                                                  #

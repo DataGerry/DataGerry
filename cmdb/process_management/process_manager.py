@@ -16,7 +16,7 @@
 """
 Implementation of ProcessManager to handle CmdbProcesses
 """
-import logging
+from logging import Logger, getLogger
 import multiprocessing
 import threading
 from time import sleep
@@ -26,7 +26,7 @@ from cmdb.process_management.cmdb_process import CmdbProcess
 from cmdb.process_management.process_controller import ProcessController
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ProcessManager - CLASS                                                #

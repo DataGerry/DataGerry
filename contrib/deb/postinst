@@ -2,6 +2,7 @@
 
 set -e
 
-#Enable and start dagagerry.service 
-systemctl enable datagerry.service
-systemctl start datagerry.service
+#Enable and start dagagerry.service
+systemctl daemon-reload || true
+systemctl enable datagerry.service || true
+systemctl start datagerry.service || true

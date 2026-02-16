@@ -16,7 +16,7 @@
 """
 Different wrapper functions for interface module
 """
-import logging
+from logging import Logger, getLogger
 import warnings
 import inspect
 from functools import wraps
@@ -26,7 +26,7 @@ import cmdb
 
 string_types = (type(b''), type(''))
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 def deprecated(message):

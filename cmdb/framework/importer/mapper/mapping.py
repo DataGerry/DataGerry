@@ -17,14 +17,14 @@
 This module handles the mapping of data connections to respective memory areas, such as fields.
 It provides functionality to manage mappings, retrieve mapped entries, and manipulate mappings dynamically
 """
-import logging
+from logging import Logger, getLogger
 from typing import Iterator
 from collections.abc import Iterable
 
 from cmdb.framework.importer.mapper.map_entry import MapEntry
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    Mapping - CLASS                                                   #

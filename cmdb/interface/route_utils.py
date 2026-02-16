@@ -20,7 +20,7 @@ import os
 import base64
 import functools
 import json
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 import time
 import hashlib
@@ -65,7 +65,7 @@ from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 DEFAULT_MIME_TYPE = 'application/json'
 

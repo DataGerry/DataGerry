@@ -16,15 +16,16 @@
 """
 Implementation of UpdateSingleResponse
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             UpdateSingleResponse - CLASS                                             #
