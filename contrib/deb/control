@@ -1,7 +1,0 @@
-Package: DataGerry
-Version: 3.0.0
-Architecture: all
-Essential: no
-Priority: optional
-Maintainer: becon GmbH
-Description: Open Source CMDB und Asset Management Tool

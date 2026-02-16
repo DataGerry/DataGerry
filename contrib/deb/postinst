@@ -1,7 +1,0 @@
-#!/bin/sh
-
-set -e
-
-#Enable and start dagagerry.service 
-systemctl enable datagerry.service
-systemctl start datagerry.service

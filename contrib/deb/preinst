@@ -1,8 +1,0 @@
-#!/bin/sh
-
-set -e
-
-#Configure User and Group 
-
-/usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry
-/usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry
