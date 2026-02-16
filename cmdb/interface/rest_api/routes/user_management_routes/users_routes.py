@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,9 +17,10 @@
 Implementation of all API routes for CmdbUsers
 """
 import json
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
+
 from flask import abort, request, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -54,7 +55,7 @@ from cmdb.errors.manager.users_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 users_blueprint = APIBlueprint('users', __name__)
 

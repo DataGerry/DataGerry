@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 This module contains the implementation of the SectionTemplatesManager
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from deepdiff import DeepDiff
 
 from cmdb.database import MongoDatabaseManager
@@ -27,10 +28,7 @@ from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.base_manager import BaseManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import (
-    CmdbType,
-    TypeFieldSection,
-)
+from cmdb.models.type_model import CmdbType, TypeFieldSection
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.results import IterationResult, ListResult
@@ -39,7 +37,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError, BaseManagerInsertError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            SectionTemplatesManager - CLASS                                           #

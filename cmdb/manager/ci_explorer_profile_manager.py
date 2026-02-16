@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,9 @@
 """
 This module contains the implementation of the CiExplorerProfileManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
@@ -27,7 +26,7 @@ from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 from cmdb.errors.manager.ci_explorer_profile_manager import CI_EXPLORER_PROFILE_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            CiExplorerProfileManager - CLASS                                          #

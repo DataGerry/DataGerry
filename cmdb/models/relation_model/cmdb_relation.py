@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Represents a CmdbRelation in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.class_schema.cmdb_relation_schema import get_cmdb_relation_schema
 
@@ -30,7 +30,7 @@ from cmdb.errors.models.cmdb_relation import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbRelation - CLASS                                                 #

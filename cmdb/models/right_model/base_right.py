@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,14 @@
 """
 Implementation of BaseRight
 """
-import logging
+from logging import Logger, getLogger
 from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER, LEVEL_TO_NAME
 
 from cmdb.errors.security import InvalidLevelRightError, MinLevelRightError, MaxLevelRightError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   BaseRight - CLASS                                                  #

@@ -16,7 +16,7 @@
 """
 Implementation of JsonExportFormat
 """
-import logging
+from logging import Logger, getLogger
 import json
 
 from cmdb.database.database_utils import default
@@ -25,7 +25,7 @@ from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterCon
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               JsonExportFormat - CLASS                                               #

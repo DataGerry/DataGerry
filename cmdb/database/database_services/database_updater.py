@@ -16,7 +16,7 @@
 """
 Implementation of DatabaseUpdater
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
@@ -29,7 +29,7 @@ from cmdb.utils.helpers import process_bar, load_class
 from cmdb.errors.system_config import SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

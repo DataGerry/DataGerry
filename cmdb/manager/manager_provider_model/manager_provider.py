@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 This class provides the different managers for the API routes
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from flask import current_app
 
 from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
@@ -68,7 +69,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager import BaseManagerInitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ManagerProvider - CLASS                                               #

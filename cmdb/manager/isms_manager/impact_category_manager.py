@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,12 @@
 """
 This module contains the implementation of the ImpactCategoryManager
 """
-import logging
+from logging import Logger, getLogger
 
 from pymongo import UpdateOne
 from pymongo.cursor import Cursor
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsImpactCategory, IsmsRiskAssessment
@@ -30,7 +29,7 @@ from cmdb.models.isms_model import IsmsImpactCategory, IsmsRiskAssessment
 from cmdb.errors.manager.impact_category_manager import IMPACT_CATEGORY_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             ImpactCategoryManager - CLASS                                            #

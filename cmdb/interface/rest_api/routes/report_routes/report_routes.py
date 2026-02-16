@@ -366,7 +366,7 @@ def replace_datetime(match: re.Match) -> str:
 
     Args:
         match (re.Match): A regular expression match object containing 
-                          a string of datetime arguments (e.g., "2025, 11, 26, 0, 0").
+                          a string of datetime arguments (e.g., "2024, 11, 26, 0, 0").
 
     Returns:
         str: A string representation (repr) of the evaluated datetime object.

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of all API routes for the MediaFiles
 """
 import json
-import logging
+from logging import Logger, getLogger
 from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
@@ -57,7 +57,7 @@ from cmdb.errors.manager.media_files_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix='/media_file')
 
