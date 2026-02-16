@@ -16,7 +16,7 @@
 """
 Represents an ObjectDocumentGenerator in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 from io import BytesIO
 
 from cmdb.manager import ObjectsManager
@@ -30,7 +30,7 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.user_model.cmdb_user import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ObjectDocumentGenerator - CLASS                                           #

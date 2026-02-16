@@ -16,8 +16,9 @@
 """
 Implementation of connection check routes
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from flask import current_app, abort
 from werkzeug import Response
 
@@ -28,7 +29,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.blueprints import RootBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 connection_routes = RootBlueprint('connection_routes', __name__)
 

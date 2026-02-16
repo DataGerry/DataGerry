@@ -17,13 +17,14 @@
 This module defines pytest fixtures for MongoDB connection and database management.
 These fixtures provide necessary parameters and connections for testing purposes.
 """
-import logging
+from logging import Logger, getLogger
+
 import pytest
 
 from cmdb.database import MongoConnector, MongoDatabaseManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

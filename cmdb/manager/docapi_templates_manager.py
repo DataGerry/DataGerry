@@ -16,7 +16,7 @@
 """
 This module contains the implementation of the CategoriesManager
 """
-import logging
+from logging import Logger, getLogger
 from typing import Optional, Any
 
 from cmdb.database import MongoDatabaseManager
@@ -36,7 +36,7 @@ from cmdb.errors.manager.docapi_templates_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 DocapiManager - CLASS                                                #

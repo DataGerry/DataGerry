@@ -28,8 +28,21 @@ DATAGERRY can be extended easily - also by experienced users.
 
 
 %pre
-/usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry
-/usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry
+if [ $1 == 1 ];then
+   echo "-----------------------"
+   echo "New installation"
+   echo "-----------------------"
+   /usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry || true
+   /usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry || true
+
+elif [ $1 == 2 ];then
+   echo "-----------------------"
+   echo "Update installation"
+   echo "-----------------------"
+   pkill datagerr+ || true
+   systemctl stop rabbitmq-server || true
+   systemctl disable rabbitmq-server || true
+fi
 
 
 %install
@@ -48,3 +61,12 @@ install -D %{_sourcedir}/cmdb.conf %{buildroot}%{_sysconfdir}/datagerry/cmdb.con
 %{_unitdir}/datagerry.service
 %{_tmpfilesdir}/datagerry.conf
 %{_sysconfdir}/datagerry/cmdb.conf
+
+%post
+systemctl daemon-reload || true
+systemctl enable datagerry.service || true
+systemctl start datagerry.service || true
+
+%changelog
+* @@DG_BUILDVAR_DATE@@ becon GmbH
+- created

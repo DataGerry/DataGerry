@@ -16,13 +16,13 @@
 """
 Implementation of SupportedExporterExtension
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.utils.helpers import load_class
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          SupportedExporterExtension - CLASS                                          #

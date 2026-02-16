@@ -16,12 +16,12 @@
 """
 Implementation of ExcelObjectParserResponse
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           ExcelObjectParserResponse - CLASS                                          #

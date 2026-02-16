@@ -16,7 +16,7 @@
 """
 This module contains the implementation of the ProtectionGoalManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
 
@@ -31,7 +31,7 @@ from cmdb.errors.manager.protection_goal_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             ProtectionGoalManager - CLASS                                            #

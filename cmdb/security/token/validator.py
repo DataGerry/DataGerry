@@ -16,8 +16,9 @@
 """
 Implementation of TokenValidator
 """
-import logging
+from logging import Logger, getLogger
 import time
+
 from authlib.jose import jwt, JsonWebToken
 from authlib.jose.errors import BadSignatureError, InvalidClaimError
 
@@ -28,7 +29,7 @@ from cmdb.security.key.holder import KeyHolder
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                TokenValidator - CLASS                                                #

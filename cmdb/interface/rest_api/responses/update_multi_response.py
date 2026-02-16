@@ -16,7 +16,8 @@
 """
 Implementation of UpdateMultiResponse
 """
-import logging
+from logging import Logger, getLogger
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -24,7 +25,7 @@ from cmdb.interface.rest_api.responses.helpers.operation_type_enum import Operat
 from cmdb.framework.importer.messages.response_failed_message import ResponseFailedMessage
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              UpdateMultiResponse - CLASS                                             #

@@ -16,13 +16,13 @@
 """
 Module of basic importers
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.configs.base_importer_config import BaseImporterConfig
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 BaseImporter - CLASS                                                 #

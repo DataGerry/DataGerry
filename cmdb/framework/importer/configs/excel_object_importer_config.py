@@ -16,13 +16,13 @@
 """
 Implementation of ExcelObjectImporterConfig
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.content_types import XLSXContent
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           ExcelObjectImporterConfig - CLASS                                          #

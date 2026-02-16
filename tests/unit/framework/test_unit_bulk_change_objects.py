@@ -16,10 +16,11 @@
 """
 Bulk change objects - Tests
 """
-import logging
+from logging import Logger, getLogger
 import copy
 from datetime import datetime, timezone
 from http import HTTPStatus
+
 from pymongo.mongo_client import MongoClient
 from pymongo.collection import Collection
 from pytest import fixture
@@ -36,7 +37,7 @@ from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.group_acl import GroupACL
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

@@ -16,8 +16,9 @@
 """
 Implementation of GetSingleResponse
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -26,7 +27,7 @@ from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjecti
 from cmdb.interface.rest_api.responses.helpers.api_projector import APIProjector
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               GetSingleResponse - CLASS                                              #

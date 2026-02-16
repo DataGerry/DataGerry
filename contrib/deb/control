@@ -1,5 +1,5 @@
 Package: DataGerry
-Version: 3.0.0
+Version: @@DG_BUILDVAR_VERSION@@
 Architecture: all
 Essential: no
 Priority: optional

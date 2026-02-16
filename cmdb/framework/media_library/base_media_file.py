@@ -16,12 +16,13 @@
 """
 Implementation of BaseMediaFile
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from pymongo import IndexModel
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 BaseMediaFile - CLASS                                                #

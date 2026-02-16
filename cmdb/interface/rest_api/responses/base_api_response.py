@@ -16,7 +16,7 @@
 """
 Implementation of BaseAPIResponse
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from json import dumps
 from datetime import datetime, timezone
@@ -28,7 +28,7 @@ from cmdb.database.database_utils import default
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 DEFAULT_MIME_TYPE = 'application/json'
 API_VERSION = '1.0'

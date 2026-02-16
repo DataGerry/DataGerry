@@ -16,12 +16,12 @@
 """
 Implementation of BaseParser
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.responses.base_parser_response import BaseParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  BaseParser - CLASS                                                  #

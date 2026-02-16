@@ -16,7 +16,7 @@
 """
 Implementation of ExcelObjectParser
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from openpyxl import load_workbook
 
@@ -27,7 +27,7 @@ from cmdb.framework.importer.responses.excel_object_parser_response import Excel
 from cmdb.errors.importer import ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ExcelObjectParser - CLASS                                              #

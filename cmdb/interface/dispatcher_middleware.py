@@ -16,12 +16,12 @@
 """
 Server module for web-based services
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             DispatcherMiddleware - CLASS                                             #

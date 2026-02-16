@@ -16,13 +16,13 @@
 """
 Implementation of BaseObjectParser
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 from cmdb.framework.importer.parser.base_parser import BaseParser
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseObjectParser - CLASS                                               #

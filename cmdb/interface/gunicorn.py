@@ -16,7 +16,7 @@
 """
 Server module for web-based services
 """
-import logging
+from logging import Logger, getLogger
 import multiprocessing
 
 import cmdb
@@ -32,7 +32,7 @@ from cmdb.interface.rest_api.init_rest_api import create_rest_api
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                WebCmdbService - CLASS                                                #

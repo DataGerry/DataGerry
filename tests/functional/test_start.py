@@ -17,14 +17,14 @@
 """
 This module defines tests for the CMDB application and REST API initialization.
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb import __title__
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.init_rest_api import create_rest_api
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_start_routine():

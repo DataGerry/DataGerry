@@ -70,10 +70,26 @@ This approach is especially useful when running DataGerry in Docker environments
 
 | 
 
+=======================================================================================================================
+
+| 
+
 Setup via Docker Image
 ======================
 
-The quickest way to get started with DataGerry is using Docker. We provide a docker-compose file that sets up the
+The quickest way to get started with DataGerry is using Docker.
+
+Docker is a container-based software framework for automating deployment of 
+applications. Compose is a tool for defining and running multi-container Docker 
+applications.
+
+The DataGerry-docker repo is meant to be the starting point for somebody, who likes to use 
+dockerized multi-container DataGerry in production. The DataGerry Docker image uses 
+the stable branch of DataGerry's Git repo.
+
+The Docker images are hosted on `Dockerhub <https://hub.docker.com/u/becongmbh>`_.
+
+We provide a docker-compose file that sets up the
 following containers:
 
     - **DataGerry**
@@ -82,63 +98,39 @@ following containers:
 
 All data is persisted using Docker volumes on the host machine.
 
-Start by copying the following ``docker-compose.yml`` into a new directory:
+**Install Docker Environment:**
 
-.. include:: ../../../contrib/docker/compose/ssl/docker-compose.yml
-    :literal:
+1. Install Docker:
 
-Create a subdirectory named ``cert`` containing your SSL certificate and key:
+Use default Docker installation guide.
 
-.. code-block:: console
+   * `Docker Engine <https://docs.docker.com/engine/installation/>`_
+   * `Docker Compose <https://docs.docker.com/compose/install/>`_ (opt. Docker Engine installation already includes Docker Compose Plugin)
 
-    ./docker-compose.yml
-    ./cert/cert.pem
-    ./cert/key.pem
+2. Getting started with DataGerry-docker:
 
-If SSL is not required, you can use the following simplified docker-compose file for a quick start:
+.. code-block:: sh
+	:linenos:
 
-.. include:: ../../../contrib/docker/compose/nossl/docker-compose.yml
-    :literal:
+	git clone https://github.com/DataGerry/DataGerry-docker.git  
+	cd DataGerry-docker
 
-To start the stack, run:
+.. note::
+	We recommend always to use the latest tag version.
 
-.. code-block:: console
+3. Start DataGerry using DockerHub images:
 
-    $ docker-compose up -d
+.. code-block:: sh
+	:linenos:
 
-You can now access the DataGerry frontend:
+	docker compose up -d
 
-.. code-block:: console
-
-    http://<host> or https://<host>
-    user: admin
-    password: admin
-
-| 
-
-Docker Images and Tags
------------------------
-
-DataGerry Docker images are available on `Docker Hub <https://hub.docker.com/r/becongmbh/datagerry>`_.
-
-You can use the following tags:
-
-- ``latest``  
-  Points to the most recent stable release. Good for testing or quick setup, but it will upgrade to new major  
-  versions automatically.
-
-- ``<release>`` (e.g. ``2.2.0``)  
-  Use a specific version tag for predictable behavior in production environments.
-
-To specify a tag in your ``docker-compose.yml``:
-
-.. code-block:: yaml
-
-    # Replace this line
-    image: becongmbh/datagerry:latest
-
-    # With a specific release version
-    image: becongmbh/datagerry:2.2.0
+.. note::
+	| Now you can access the DataGerry frontend:	
+	| 'http://localhost'
+	
+	| Default User: admin
+	| Default Password: admin
 
 | 
 
@@ -156,8 +148,7 @@ Setup via RPM
 For **Red Hat Enterprise Linux (RHEL)** and compatible systems like **CentOS** or **Oracle Linux**, DataGerry can
 be installed using an RPM package.
 
-Download the RPM from:  
-`BuildKite RPM Package <https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-rpm>`_
+Download the RPM :ref:`here <package-rpm-anchor>`.
 
 Supported Platforms:
 
@@ -210,10 +201,10 @@ You can now access the frontend:
 
 | 
 
-Setup via tar.gz / zip Archive
+Setup via zip Archive
 ==============================
 
-For Linux distributions that are not RPM-based, we provide a ``tar.gz`` and ``zip`` archive containing a setup script
+For Linux distributions that are not RPM-based, we provide a ``zip`` archive containing a setup script
 for simplified installation. This method requires **systemd** and has been tested on the following distributions:
 
     - Ubuntu 20.04
@@ -238,25 +229,11 @@ To install MongoDB, follow the official MongoDB guide for your platform:
 DataGerry Installation
 ----------------------
 
-Download the archive from the following source:
-
-- `BuildKite ZIP Package <https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-zip>`_
-
-Choose either the ``zip`` or ``tar.gz`` archive depending on your preference.
-
-**Installation using zip:**
+Download the ZIP :ref:`here <package-zip-anchor>`.
 
 .. code-block:: console
 
     $ unzip datagerry-<version>.zip
-    $ cd datagerry
-    $ sudo ./setup.sh
-
-**Installation using tar.gz:**
-
-.. code-block:: console
-
-    $ tar -xzvf datagerry-<version>.tar.gz
     $ cd datagerry
     $ sudo ./setup.sh
 
@@ -333,9 +310,7 @@ Follow the official MongoDB guide to install MongoDB 6.0 on Debian:
 DataGerry Installation
 ----------------------
 
-Download the DEB package from:
-
-- `BuildKite DEB Package <https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-deb>`_
+Download the DEB :ref:`here <package-deb-anchor>`.
 
 Navigate to the directory containing the package and run:
 

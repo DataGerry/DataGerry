@@ -16,7 +16,7 @@
 """
 Implementation of helper functions for the docs server
 """
-import logging
+from logging import Logger, getLogger
 
 import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
@@ -24,7 +24,7 @@ from cmdb.interface.config import app_config
 from cmdb.interface.docs.doc_routes import doc_pages
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 
 def create_docs_server():
