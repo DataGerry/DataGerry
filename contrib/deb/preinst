@@ -2,7 +2,19 @@
 
 set -e
 
-#Configure User and Group 
+#Check if new installation or update
+if [ -z "$2" ]
+	then
+    echo New installation
+    #Configure User and Group 
+    /usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry || true
+    /usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry || true
 
-/usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry
-/usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry
+	else
+    echo Update installation
+    #Stop services
+    pkill datagerr+ || true
+    systemctl stop rabbitmq-server || true
+    systemctl disable rabbitmq-server || true
+
+fi
