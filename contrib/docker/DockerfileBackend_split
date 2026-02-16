@@ -1,0 +1,18 @@
+FROM quay.io/centos/centos:stream9
+LABEL maintainer="adnan.smajic@becon.de"
+
+RUN yum install -y freetype fontconfig
+
+# set locale
+ARG build_locale=en_US
+
+# install DATAGERRY
+COPY files/backend/datagerry /usr/bin/
+RUN yum -y install glibc-locale-source glibc-langpack-en \
+    && localedef -c -i ${build_locale} -f UTF-8 ${build_locale}.utf-8
+
+# set locale
+ENV LANG=${build_locale}.utf8
+
+# start DATAGERRY
+CMD ["/usr/bin/datagerry", "-c", "/etc/datagerry/cmdb.conf", "-s"]

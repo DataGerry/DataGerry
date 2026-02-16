@@ -1,0 +1,7 @@
+Package: DataGerry
+Version: @@DG_BUILDVAR_VERSION@@
+Architecture: all
+Essential: no
+Priority: optional
+Maintainer: becon GmbH
+Description: Open Source CMDB und Asset Management Tool
