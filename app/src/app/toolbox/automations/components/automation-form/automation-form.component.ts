@@ -21,12 +21,12 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { BehaviorSubject, combineLatest, Subscription } from 'rxjs';
 import { finalize, map } from 'rxjs/operators';
 import { AutomationsService } from '../../services/automations.service';
-import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { Connector } from '../../../connectors/models/connector.model';
 import { AuthService } from 'src/app/modules/auth/services/auth.service';
-import { InternalConnectorHelperService } from '../../../connectors/services/internal-connector-helper.service';
+import { Connector } from '../../connectors/models/connector.model';
+import { ConnectorsService } from '../../connectors/services/connectors.service';
+import { InternalConnectorHelperService } from '../../connectors/services/internal-connector-helper.service';
 
 @Component({
   selector: 'app-automation-form',

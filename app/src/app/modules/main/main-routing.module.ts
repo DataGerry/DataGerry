@@ -108,7 +108,7 @@ const routes: Routes = [
                 },
                 canActivate: [AuthGuard],
                 canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/connectors/connectors.module').then(m => m.ConnectorsModule)
+                loadChildren: () => import('../../toolbox/automations/connectors/connectors.module').then(m => m.ConnectorsModule)
             },
             {
                 path: 'licenses',
@@ -117,7 +117,7 @@ const routes: Routes = [
                 },
                 canActivate: [AuthGuard],
                 canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/licenses/licenses.module').then(m => m.LicensesModule)
+                loadChildren: () => import('../../toolbox/automations/licenses/licenses.module').then(m => m.LicensesModule)
             }
         ]
     },
