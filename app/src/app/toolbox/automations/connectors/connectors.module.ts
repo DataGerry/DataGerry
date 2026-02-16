@@ -24,9 +24,10 @@ import { ConnectorsComponent } from './connectors.component';
 import { ConnectorsListComponent } from './components/connectors-list/connectors-list.component';
 import { ConnectorFormComponent } from './components/connector-form/connector-form.component';
 
-import { CoreModule } from '../../core/core.module';
-import { TableModule } from '../../layout/table/table.module';
+
 import { AuthModule } from 'src/app/modules/auth/auth.module';
+import { CoreModule } from 'src/app/core/core.module';
+import { TableModule } from 'src/app/layout/table/table.module';
 
 @NgModule({
   declarations: [

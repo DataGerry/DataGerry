@@ -19,7 +19,6 @@ import { Component, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/c
 
 import { ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
-import { ReportCategoryService } from 'src/app/reporting/services/report-category.service';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { AddCategoryModalComponent } from '../category-add-modal/category-add-modal.component';
@@ -28,6 +27,7 @@ import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { Location } from '@angular/common';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ReportCategoryService } from '../../../services/report-category.service';
 
 @Component({
     selector: 'app-category-overview',

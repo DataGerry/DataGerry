@@ -22,7 +22,7 @@ import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
 import { AuthGuard } from 'src/app/modules/auth/guards/auth.guard';
-import { ConnectorFormComponent } from '../connectors/components/connector-form/connector-form.component';
+import { ConnectorFormComponent } from './connectors/components/connector-form/connector-form.component';
 
 const routes: Routes = [
   {

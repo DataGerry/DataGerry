@@ -108,7 +108,7 @@ const routes: Routes = [
                 },
                 canActivate: [AuthGuard],
                 canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/connectors/connectors.module').then(m => m.ConnectorsModule)
+                loadChildren: () => import('../../toolbox/automations/connectors/connectors.module').then(m => m.ConnectorsModule)
             },
             {
                 path: 'licenses',
@@ -117,7 +117,7 @@ const routes: Routes = [
                 },
                 canActivate: [AuthGuard],
                 canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/licenses/licenses.module').then(m => m.LicensesModule)
+                loadChildren: () => import('../../toolbox/automations/licenses/licenses.module').then(m => m.LicensesModule)
             }
         ]
     },
@@ -183,7 +183,7 @@ const routes: Routes = [
         },
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
-        loadChildren: () => import('../../reporting/reporting.module').then(m => m.ReportingModule)
+        loadChildren: () => import('../../toolbox/reporting/reporting.module').then(m => m.ReportingModule)
     },
     {
         path: 'webhooks',
@@ -193,7 +193,7 @@ const routes: Routes = [
             right: 'base.framework.webhook.view'
         },
         loadChildren: () =>
-            import('../../webhook/webhook.module').then((m) => m.WebhookModule)
+            import('../../toolbox/webhook/webhook.module').then((m) => m.WebhookModule)
     }
 ];
 

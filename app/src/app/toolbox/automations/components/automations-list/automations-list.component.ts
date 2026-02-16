@@ -22,12 +22,12 @@ import { AutomationsService, OpenCeliumConfigStatus } from '../../services/autom
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
-import { ConnectorsService } from 'src/app/toolbox/connectors/services/connectors.service';
 import { finalize } from 'rxjs';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 import { environment } from 'src/environments/environment';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
+import { ConnectorsService } from '../../connectors/services/connectors.service';
 
 type RefreshOption = { label: string; value: number };
 

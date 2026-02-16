@@ -18,10 +18,10 @@
 import { Component, EventEmitter, Output, OnDestroy, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize, Subject, takeUntil } from 'rxjs';
-import { ReportService } from 'src/app/reporting/services/report.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
+import { ReportService } from 'src/app/toolbox/reporting/services/report.service';
 
 @Component({
   selector: 'cmdb-report-template-selector-modal',

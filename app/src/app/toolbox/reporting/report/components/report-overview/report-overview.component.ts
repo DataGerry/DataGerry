@@ -18,7 +18,6 @@
 import { Component, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
 import { ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
-import { ReportService } from 'src/app/reporting/services/report.service';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -28,6 +27,7 @@ import { DeleteConfirmationModalComponent } from '../../report-modal/delete-conf
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Router } from '@angular/router';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ReportService } from '../../../services/report.service';
 
 @Component({
     selector: 'app-report-overview',

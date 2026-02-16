@@ -43,7 +43,7 @@ import { ExternalObjectSelectorModalComponent } from './components/external-obje
 import { RelationTemplateSelectorModalComponent } from './components/relation-template-selector-modal/relation-template-selector-modal.component';
 import { ReportTemplateSelectorModalComponent } from './components/report-template-selector-modal/report-template-selector-modal.component';
 import { CoreModule } from 'src/app/core/core.module';
-import { RunReportModule } from 'src/app/reporting/report/run-report.module';
+import { RunReportModule } from 'src/app/toolbox/reporting/report/run-report.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [

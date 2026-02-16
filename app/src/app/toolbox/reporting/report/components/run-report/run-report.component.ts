@@ -17,7 +17,6 @@
 */
 import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { ReportService } from 'src/app/reporting/services/report.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { catchError, Observable, tap, throwError, forkJoin, switchMap, of, finalize } from 'rxjs';
 import { TypeService } from 'src/app/framework/services/type.service';
@@ -28,6 +27,7 @@ import { Location } from '@angular/common';
 import { unparse } from 'papaparse';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ReportService } from '../../../services/report.service';
 
 @Component({
     selector: 'app-run-report',
