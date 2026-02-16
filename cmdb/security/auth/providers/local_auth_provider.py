@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Implementation of LocalAuthenticationProvider
 """
-import logging
+from logging import Logger, getLogger
+
 from flask import current_app
 
 from cmdb.manager import (
@@ -32,7 +33,7 @@ from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          LocalAuthenticationProvider - CLASS                                         #

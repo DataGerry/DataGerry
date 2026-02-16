@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -13,15 +13,17 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""Implementation of CmdbObjectLog"""
-import logging
+"""
+Implementation of CmdbObjectLog
+"""
+from logging import Logger, getLogger
 from datetime import datetime
 
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbObjectLog - CLASS                                                #

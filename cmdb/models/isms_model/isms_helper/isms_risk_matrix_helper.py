@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Helper Methods for calculating the IsmsRiskMatrix
 """
-import logging
+from logging import Logger, getLogger
 from typing import Tuple
 
 from cmdb.models.user_model import CmdbUser
@@ -26,7 +26,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 def calculate_risk_matrix(request_user: CmdbUser) -> None:

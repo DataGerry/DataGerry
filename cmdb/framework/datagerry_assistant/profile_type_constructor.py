@@ -16,7 +16,7 @@
 """
 This module contains the implementation of ProfileTypeConstructor
 """
-import logging
+from logging import Logger, getLogger
 import random
 from datetime import datetime, timezone
 
@@ -27,7 +27,7 @@ from cmdb.models.section_template_model.cmdb_section_template import CmdbSection
 from cmdb.framework.results import IterationResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ProfileTypeConstructor - CLASS                                            #

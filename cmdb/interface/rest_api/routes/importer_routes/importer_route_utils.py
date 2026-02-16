@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of Importer API routes helper methods
 """
 import json
-from logging import getLogger
+from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
@@ -34,7 +34,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

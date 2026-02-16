@@ -16,7 +16,7 @@
 """
 This module manages the 'User Management'-Profile for the DataGerry assistant
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
@@ -24,7 +24,7 @@ from cmdb.manager.section_templates_manager import SectionTemplatesManager
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             UserManagementProfile - CLASS                                            #

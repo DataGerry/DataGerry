@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 This module contains the implementation of the PersonGroupsManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
 
@@ -29,7 +29,7 @@ from cmdb.models.person_group_model.person_reference_type_enum import PersonRefe
 from cmdb.errors.manager.person_groups_manager import PERSON_GROUPS_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              PersonGroupsManager - CLASS                                             #

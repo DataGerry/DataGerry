@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for CI Explorer
 """
-import logging
+from logging import Logger, getLogger
 import ast
 from typing import Any
 from flask import abort, request
@@ -60,7 +60,7 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 PARENT_LOCATION_REL_COLOR: str = "#A855F7"
 CHILD_LOCATION_REL_COLOR: str = "#C084FC"
@@ -248,32 +248,8 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 
         if relations_filter:
             rel_criteria["relation_id"] = {"$in": list(relations_filter)}
-        # rel_criteria = {
-        #     "$and": [
-        #         {
-        #             "$or": [
-        #                 {"relation_parent_id": target_id},
-        #                 {"relation_child_id": target_id}
-        #             ]
-        #         }
-        #     ]
-        # }
-
-        # if relations_filter:
-        #     rel_criteria["$and"].append(
-        #         {"relation_id": {"$in": list(relations_filter)}}
-        #     )
 
         object_relations = list(object_relations_manager.find(criteria=rel_criteria))
-        # object_relations = list(object_relations_manager.find(
-        #     criteria={"$or": [
-        #         {"relation_parent_id": target_id},
-        #         {"relation_child_id": target_id}
-        #     ]}
-        # ))
-
-        # if relations_filter:
-        #     object_relations = [rel for rel in object_relations if rel['relation_id'] in relations_filter]
 
         ### Get all relations
         relation_ids = set(rel['relation_id'] for rel in object_relations)
@@ -295,23 +271,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         )
 
         linked_objects = {obj['public_id']: obj for obj in linked_objects_cursor}
-
-        # Apply types_filter to both linked_objects and relations
-        # if types_filter:
-        #     allowed_object_ids = {
-        #         obj_id for obj_id, obj in linked_objects.items()
-        #         if obj.get("type_id") in types_filter
-        #     }
-
-        #     object_relations = [
-        #         rel for rel in object_relations
-        #         if rel['relation_parent_id'] in allowed_object_ids or rel['relation_child_id'] in allowed_object_ids
-        #     ]
-
-        #     linked_objects = {
-        #         obj_id: obj for obj_id, obj in linked_objects.items()
-        #         if obj_id in allowed_object_ids
-        #     }
 
         type_ids = {obj['type_id'] for obj in linked_objects.values()}
 
@@ -351,7 +310,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         child_edges = []
         parent_nodes = {}
         parent_edges = []
-
 
         summary_cache: dict[int, Any] = {}
         location_cache: dict[int, Any] = {}
@@ -409,17 +367,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                     if field_value not in location_cache:
                         location_cache[field_value] = locations_manager.get_location(field_value)
                     a_field['value'] = location_cache[field_value]['name']
-
-            # for a_field in linked_object['fields']:
-            #     field_name = a_field['name']
-            #     field_value = a_field['value']
-
-            #     if objects_manager.is_ref_field(field_name, linked_object) and field_value and\
-            #         isinstance(field_value, int):
-            #         a_field['value'] = objects_manager.get_summary_line(field_value)
-            #     if field_name == "dg_location" and field_value and isinstance(field_value, int):
-            #         target_location = locations_manager.get_location(field_value)
-            #         a_field['value'] = target_location['name']
 
             node_dict = {
                 "linked_object": linked_object,

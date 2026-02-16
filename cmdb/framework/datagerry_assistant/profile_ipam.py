@@ -16,14 +16,14 @@
 """
 This module manages the IPAM - Profile for the DataGerry assistant
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  IPAMProfile - CLASS                                                 #

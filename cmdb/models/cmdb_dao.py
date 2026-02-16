@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,10 @@
 """
 Implementation of CmdbDAO
 """
-import logging
+from logging import Logger, getLogger
 from typing import Type, TypeVar, Any
 import pprint
+
 from pymongo import IndexModel
 
 from cmdb.models.cmdb_versioning import Versioning
@@ -26,7 +27,7 @@ from cmdb.models.cmdb_versioning import Versioning
 from cmdb.errors.cmdb_object import NoPublicIDError, NoVersionError, RequiredInitKeyNotFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 T = TypeVar("T", bound="CmdbDAO")
 

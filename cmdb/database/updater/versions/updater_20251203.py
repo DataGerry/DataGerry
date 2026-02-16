@@ -16,7 +16,7 @@
 """
 Implementation of Update20251203
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
@@ -25,7 +25,7 @@ from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                Update20251203 - CLASS                                                #

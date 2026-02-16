@@ -16,7 +16,7 @@
 """
 Implementation of Update20200512
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.type_model import CmdbType
@@ -26,7 +26,7 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerInsertError
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                Update20200512 - CLASS                                                #

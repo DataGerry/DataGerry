@@ -16,7 +16,7 @@
 """
 Implementation of BaseUpdate
 """
-import logging
+from logging import Logger, getLogger
 from abc import abstractmethod
 
 import cmdb
@@ -32,7 +32,7 @@ from cmdb.manager import (
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              BaseDatabaseUpdate - CLASS                                              #

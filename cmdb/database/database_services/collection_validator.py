@@ -16,7 +16,7 @@
 """
 Implementation of CollectionValidator
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 
 from pymongo.results import UpdateResult
@@ -69,7 +69,7 @@ from cmdb.errors.database import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
