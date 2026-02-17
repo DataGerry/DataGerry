@@ -111,8 +111,8 @@ Use default Docker installation guide.
 
 .. code-block:: sh
     :linenos:
-
-	git clone https://github.com/DataGerry/DataGerry-docker.git  
+    
+    git clone https://github.com/DataGerry/DataGerry-docker.git  
     cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
     cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
@@ -150,8 +150,8 @@ Use default Docker installation guide.
     Change the certificates within the config (cmdb.conf), with your own:	
 			
 	.. code-block:: sh
-		:linenos:	
-	
+		:linenos:
+
         certfile = /etc/ssl/certs/cmdb.pem
         keyfile = /etc/ssl/private/cmdb.key
 
@@ -159,7 +159,7 @@ Use default Docker installation guide.
 	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
 
 	.. code-block:: sh
-		:linenos:	
+		:linenos:
 
         dg-frontend:
 		# comment for ssl
@@ -175,7 +175,7 @@ Use default Docker installation guide.
 		- ./conf/ssl/private/:/etc/ssl/private/
 
 
-1. Start DataGerry using DockerHub images:
+3. Start DataGerry using DockerHub images:
 
 .. code-block:: sh
 	:linenos:
