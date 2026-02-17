@@ -4,7 +4,10 @@ On-Premises Installation
 
 This page provides a detailed overview of how to install DataGerry on various operating systems and platforms.
 
-| 
+.. note::	
+
+    | The installation commands must be executed by a user with sudo rights. 
+    | Ensure you have administrative privileges to properly perform the installation.
 
 =======================================================================================================================
 
@@ -18,7 +21,7 @@ The following installation methods are supported:
 
 - **Docker Image** (simplified deployment via containers)
 - **RPM Package** (for RHEL/CentOS-based systems)
-- **tar.gz Archive with Setup Script** (for Debian/Ubuntu and other distributions)
+- **zip Package with Setup Script** (for all distributions)
 - **Deb Package** (for Debian-based systems)
 
 For the fastest setup, we recommend using Docker along with the provided docker-compose configuration.
@@ -109,28 +112,90 @@ Use default Docker installation guide.
 
 2. Getting started with DataGerry-docker:
 
-.. code-block:: sh
-	:linenos:
-
-	git clone https://github.com/DataGerry/DataGerry-docker.git  
-	cd DataGerry-docker
+.. code-block:: console
+    
+    git clone https://github.com/DataGerry/DataGerry-docker.git  
+    cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
+    cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
 .. note::
 	We recommend always to use the latest tag version.
 
+	If you like to use SSL, do the following steps:
+	
+	Create config folders for SSL: 
+	
+	.. code-block:: console
+	
+		mkdir /opt/DataGerry-docker/conf/ssl
+		mkdir /opt/DataGerry-docker/conf/ssl/certs
+		mkdir /opt/DataGerry-docker/conf/ssl/private
+
+	Copy your own certificates to these folders!
+		
+	Copy the Nginx SSL-configuration file for DataGerry:
+
+	.. code-block:: console
+	
+		cp /opt/DataGerry-docker/conf/nginx-ssl_default.conf /opt/DataGerry-docker/conf/nginx-ssl.conf
+
+	Change the certificates within the config (nginx-ssl.conf), with your own:	
+			
+	.. code-block:: console
+	
+		ssl_certificate /opt/DataGerry-docker/conf/ssl/certs/cmdb.pem;
+		ssl_certificate_key /opt/DataGerry-docker/conf/ssl/private/cmdb.key;
+
+	Set ssl to true and change the certificates within the config (cmdb.conf), with your own:	
+			
+	.. code-block:: console
+		
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
+
+
+	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
+
+	.. code-block:: console
+	
+		dg-frontend:
+		# comment for ssl
+		# - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf
+		# uncomment for ssl
+		- ./conf/nginx-ssl.conf:/etc/nginx/conf.d/default.conf
+		- ./conf/ssl/certs/:/etc/ssl/certs/
+		- ./conf/ssl/private/:/etc/ssl/private/
+	
+		dg-backend:
+		# uncomment for ssl
+		- ./conf/ssl/certs/:/etc/ssl/certs/
+		- ./conf/ssl/private/:/etc/ssl/private/
+
+
 3. Start DataGerry using DockerHub images:
 
-.. code-block:: sh
-	:linenos:
+.. code-block:: 
 
+	cd DataGerry-docker
 	docker compose up -d
 
 .. note::
-	| Now you can access the DataGerry frontend:	
-	| 'http://localhost'
+	| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+
+	| The default login credentials are:
+	|
+	| **Username: admin**
+	| **Password: admin**
+	|
+
+	| If you want to have a look into DataGerry logs please use:
 	
-	| Default User: admin
-	| Default Password: admin
+	.. code-block:: console
+		
+		docker logs dg-backend
+		docker logs dg-frontend
+		docker logs dg-mongodb
 
 | 
 
@@ -177,7 +242,7 @@ Once MongoDB is installed, install the RPM package:
 
 .. code-block:: console
 
-    $ sudo rpm -ivh DATAGERRY-<version>.x86_64.rpm
+    rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
 
 You can now access the frontend:
@@ -201,14 +266,14 @@ You can now access the frontend:
 
 | 
 
-Setup via zip Archive
+Setup via zip Package
 ==============================
 
-For Linux distributions that are not RPM-based, we provide a ``zip`` archive containing a setup script
+For Linux distributions that are not RPM-based or DEB-based, we provide a ``zip`` archive containing a setup script
 for simplified installation. This method requires **systemd** and has been tested on the following distributions:
 
-    - Ubuntu 20.04
     - Ubuntu 22.04
+    - Ubuntu 24.04
 
 This approach should also work on other distributions that support systemd.
 
@@ -233,9 +298,9 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 
 .. code-block:: console
 
-    $ unzip datagerry-<version>.zip
-    $ cd datagerry
-    $ sudo ./setup.sh
+    unzip datagerry-<version>.zip
+    cd datagerry
+    sudo ./setup.sh
 
 | 
 
@@ -259,8 +324,8 @@ Enable and start the DataGerry service using systemd:
 
 .. code-block:: console
 
-    $ sudo systemctl enable datagerry.service
-    $ sudo systemctl start datagerry.service
+    systemctl enable datagerry.service
+    systemctl start datagerry.service
 
 | 
 
@@ -316,7 +381,7 @@ Navigate to the directory containing the package and run:
 
 .. code-block:: console
 
-    $ sudo apt install ./<datagerry-version>.deb
+    apt install ./<datagerry-version>.deb
 
 | 
 

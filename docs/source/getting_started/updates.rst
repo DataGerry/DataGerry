@@ -54,24 +54,36 @@ Important notes:
     - The update duration typically takes a few seconds to a few minutes depending on your system and data volume
     - Always back up your database and configuration files before starting an update
     - Review the changelog or release notes for any version-specific instructions
-
+    - The installation commands must be executed by a user with sudo rights. Ensure you have administrative privileges to properly perform the installation.
 | 
 
 By following this process, your on-premise deployment remains secure, current, and compatible with the latest features.
 
 | 
 
-Updating zip Package from 2.2.0 to 3.0.0
+Updating Docker Compose
 ----------------------------------------
 
-To update the zip package to the version 3.0.0 from 2.2.0 follow these steps:
+.. code-block:: console
+
+    cd DataGerry-docker
+    docker compose down
+    git pull
+    docker compose up -d
+	
+|
+
+Updating zip Package
+----------------------------------------
+
+To update the zip package follow these steps:
 
 .. code-block:: console
 
     systemctl stop datagerry
-    systemctl stop rabbitmq-server
-    systemctl disable rabbitmq-server
-    unzip datagerry-3.0.0.zip (to the directory of the old installation)
+    systemctl stop rabbitmq-server (only required for updates from 2.2.0 to 3.x)
+    systemctl disable rabbitmq-server (only required for updates from 2.2.0 to 3.x)
+    unzip datagerry-<version>.zip (to the directory of the old installation)
     cd datagerry
     ./setup.sh
     systemctl daemon-reload
@@ -86,7 +98,7 @@ Execute the following command with the new version package:
 
 .. code-block:: console
 
-    sudo apt install ./<datagerry-version>.deb
+    apt install ./<datagerry-version>.deb
 
 | 
 
@@ -97,4 +109,4 @@ Execute the following command with the new version package:
 
 .. code-block:: console
 
-    sudo rpm -Uvh DATAGERRY-<version>.x86_64.rpm
+    rpm -Uvh DATAGERRY-<version>.x86_64.rpm
