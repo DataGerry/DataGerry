@@ -60,18 +60,31 @@ Important notes:
 By following this process, your on-premise deployment remains secure, current, and compatible with the latest features.
 
 | 
+Update Docker Compose
+=================================
 
-Updating zip Package from 2.2.0 to 3.0.0
+.. code-block:: sh
+	:linenos:
+
+    cd DataGerry-docker
+	docker compose down -v
+	git pull
+    docker compose up -d
+	
+| 
+|
+
+Updating zip Package
 ----------------------------------------
 
-To update the zip package to the version 3.0.0 from 2.2.0 follow these steps:
+To update the zip package follow these steps:
 
 .. code-block:: console
 
     systemctl stop datagerry
-    systemctl stop rabbitmq-server
-    systemctl disable rabbitmq-server
-    unzip datagerry-3.0.0.zip (to the directory of the old installation)
+    systemctl stop rabbitmq-server (only required for updates from 2.2.0 to 3.x)
+    systemctl disable rabbitmq-server (only required for updates from 2.2.0 to 3.x)
+    unzip datagerry-<version>.zip (to the directory of the old installation)
     cd datagerry
     ./setup.sh
     systemctl daemon-reload
