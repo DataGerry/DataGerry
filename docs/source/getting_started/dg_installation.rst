@@ -178,7 +178,7 @@ Use default Docker installation guide.
 3. Start DataGerry using DockerHub images:
 
 .. code-block:: sh
-	:linenos:
+    :linenos:
 
     cd DataGerry-docker
 	docker compose up -d
