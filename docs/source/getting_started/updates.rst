@@ -60,11 +60,12 @@ Important notes:
 By following this process, your on-premise deployment remains secure, current, and compatible with the latest features.
 
 | 
-Update Docker Compose
-=================================
+
+Updating Docker Compose
+----------------------------------------
 
 .. code-block:: sh
-	:linenos:
+    :linenos:
 
     cd DataGerry-docker
 	docker compose down -v
