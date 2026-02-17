@@ -113,24 +113,84 @@ Use default Docker installation guide.
 	:linenos:
 
 	git clone https://github.com/DataGerry/DataGerry-docker.git  
-	cd DataGerry-docker
+    cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
+    cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
 .. note::
 	We recommend always to use the latest tag version.
+
+	If you like to use SSL, do the following steps:
+	
+	Create config folders for SSL: 
+	
+	.. code-block:: sh
+		:linenos:
+	
+		mkdir /opt/DataGerry-docker/conf/ssl
+		mkdir /opt/DataGerry-docker/conf/ssl/certs
+		mkdir /opt/DataGerry-docker/conf/ssl/private
+
+	Copy your own certificates to these folders!
+		
+	Copy the Nginx SSL-configuration file for DataGerry:
+
+	.. code-block:: sh
+		:linenos:
+	
+		cp /opt/DataGerry-docker/conf/nginx-ssl_default.conf /opt/DataGerry-docker/conf/nginx-ssl.conf
+
+	Change the certificates within the config (nginx-ssl.conf), with your own:	
+			
+	.. code-block:: sh
+		:linenos:	
+	
+		ssl_certificate /DataGerry-docker/conf/ssl/certs/cmdb.pem;
+		ssl_certificate_key /DataGerry-docker/conf/ssl/private/cmdb.key;
+
+	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
+
+	.. code-block:: sh
+		:linenos:	
+
+        dg-frontend:
+		# comment for ssl
+		# - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf
+		# uncomment for ssl
+		- ./conf/nginx-ssl.conf:/etc/nginx/conf.d/default.conf
+		- ./conf/ssl/certs/:/etc/ssl/certs/
+		- ./conf/ssl/private/:/etc/ssl/private/
+
+        dg-backend:
+        # uncomment for ssl
+		- ./conf/ssl/certs/:/etc/ssl/certs/
+		- ./conf/ssl/private/:/etc/ssl/private/
+
 
 3. Start DataGerry using DockerHub images:
 
 .. code-block:: sh
 	:linenos:
 
+    cd DataGerry-docker
 	docker compose up -d
 
 .. note::
-	| Now you can access the DataGerry frontend:	
-	| 'http://localhost'
+	| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+
+	| The default login credentials are:
+	|
+	| **Username: admin**
+	| **Password: admin**
+	|
+
+	| If you want to have a look into DataGerry logs please use:
 	
-	| Default User: admin
-	| Default Password: admin
+	.. code-block:: sh
+		:linenos:
+		
+		docker logs dg-backend
+		docker logs dg-frontend
+		docker logs dg-mongodb
 
 | 
 
