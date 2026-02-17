@@ -153,7 +153,7 @@ Use default Docker installation guide.
 		:linenos:	
 	
 		certfile = /etc/ssl/certs/cmdb.pem
-        keyfile = /etc/ssl/private/cmdb.key
+		keyfile = /etc/ssl/private/cmdb.key
 
 
 	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
@@ -168,8 +168,8 @@ Use default Docker installation guide.
 		- ./conf/nginx-ssl.conf:/etc/nginx/conf.d/default.conf
 		- ./conf/ssl/certs/:/etc/ssl/certs/
 		- ./conf/ssl/private/:/etc/ssl/private/
-
-        dg-backend:
+	
+		dg-backend:
 		# uncomment for ssl
 		- ./conf/ssl/certs/:/etc/ssl/certs/
 		- ./conf/ssl/private/:/etc/ssl/private/
@@ -178,9 +178,9 @@ Use default Docker installation guide.
 3. Start DataGerry using DockerHub images:
 
 .. code-block:: sh
-    :linenos:
+	:linenos:
 
-    cd DataGerry-docker
+	cd DataGerry-docker
 	docker compose up -d
 
 .. note::
