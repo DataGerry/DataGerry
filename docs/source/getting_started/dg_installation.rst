@@ -150,9 +150,9 @@ Use default Docker installation guide.
 			
 	.. code-block:: console
 		
-        ssl = true
-        certfile = /etc/ssl/certs/cmdb.pem
-        ckeyfile = /etc/ssl/private/cmdb.key
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
 
 
 	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
