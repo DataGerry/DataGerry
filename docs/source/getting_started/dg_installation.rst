@@ -4,7 +4,10 @@ On-Premises Installation
 
 This page provides a detailed overview of how to install DataGerry on various operating systems and platforms.
 
-| 
+| .. note::
+    
+	| The installation commands must be executed by a user with sudo rights. 
+	| Ensure you have administrative privileges to properly perform the installation.
 
 =======================================================================================================================
 
@@ -18,7 +21,7 @@ The following installation methods are supported:
 
 - **Docker Image** (simplified deployment via containers)
 - **RPM Package** (for RHEL/CentOS-based systems)
-- **tar.gz Archive with Setup Script** (for Debian/Ubuntu and other distributions)
+- **zip Archive with Setup Script** (for all distributions)
 - **Deb Package** (for Debian-based systems)
 
 For the fastest setup, we recommend using Docker along with the provided docker-compose configuration.
@@ -109,8 +112,7 @@ Use default Docker installation guide.
 
 2. Getting started with DataGerry-docker:
 
-.. code-block:: sh
-    :linenos:
+.. code-block:: console
     
     git clone https://github.com/DataGerry/DataGerry-docker.git  
     cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
@@ -123,8 +125,7 @@ Use default Docker installation guide.
 	
 	Create config folders for SSL: 
 	
-	.. code-block:: sh
-		:linenos:
+	.. code-block:: console
 	
 		mkdir /opt/DataGerry-docker/conf/ssl
 		mkdir /opt/DataGerry-docker/conf/ssl/certs
@@ -134,32 +135,28 @@ Use default Docker installation guide.
 		
 	Copy the Nginx SSL-configuration file for DataGerry:
 
-	.. code-block:: sh
-		:linenos:
+	.. code-block:: console
 	
 		cp /opt/DataGerry-docker/conf/nginx-ssl_default.conf /opt/DataGerry-docker/conf/nginx-ssl.conf
 
 	Change the certificates within the config (nginx-ssl.conf), with your own:	
 			
-	.. code-block:: sh
-		:linenos:	
+	.. code-block:: console
 	
 		ssl_certificate /opt/DataGerry-docker/conf/ssl/certs/cmdb.pem;
 		ssl_certificate_key /opt/DataGerry-docker/conf/ssl/private/cmdb.key;
 
 	Change the certificates within the config (cmdb.conf), with your own:	
 			
-	.. code-block:: sh
-		:linenos:	
-	
+	.. code-block:: console
+		
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
 
 	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
 
-	.. code-block:: sh
-		:linenos:	
+	.. code-block:: console
 	
 		dg-frontend:
 		# comment for ssl
@@ -177,8 +174,7 @@ Use default Docker installation guide.
 
 3. Start DataGerry using DockerHub images:
 
-.. code-block:: sh
-	:linenos:
+.. code-block:: 
 
 	cd DataGerry-docker
 	docker compose up -d
@@ -194,8 +190,7 @@ Use default Docker installation guide.
 
 	| If you want to have a look into DataGerry logs please use:
 	
-	.. code-block:: sh
-		:linenos:
+	.. code-block:: console
 		
 		docker logs dg-backend
 		docker logs dg-frontend
@@ -246,7 +241,7 @@ Once MongoDB is installed, install the RPM package:
 
 .. code-block:: console
 
-    $ sudo rpm -ivh DATAGERRY-<version>.x86_64.rpm
+    rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
 
 You can now access the frontend:
@@ -302,9 +297,9 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 
 .. code-block:: console
 
-    $ unzip datagerry-<version>.zip
-    $ cd datagerry
-    $ sudo ./setup.sh
+    unzip datagerry-<version>.zip
+    cd datagerry
+    sudo ./setup.sh
 
 | 
 
@@ -328,8 +323,8 @@ Enable and start the DataGerry service using systemd:
 
 .. code-block:: console
 
-    $ sudo systemctl enable datagerry.service
-    $ sudo systemctl start datagerry.service
+    sudo systemctl enable datagerry.service
+    sudo systemctl start datagerry.service
 
 | 
 
@@ -385,7 +380,7 @@ Navigate to the directory containing the package and run:
 
 .. code-block:: console
 
-    $ sudo apt install ./<datagerry-version>.deb
+    apt install ./<datagerry-version>.deb
 
 | 
 

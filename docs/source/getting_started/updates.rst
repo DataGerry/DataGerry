@@ -54,7 +54,7 @@ Important notes:
     - The update duration typically takes a few seconds to a few minutes depending on your system and data volume
     - Always back up your database and configuration files before starting an update
     - Review the changelog or release notes for any version-specific instructions
-
+    - The installation commands must be executed by a user with sudo rights. Ensure you have administrative privileges to properly perform the installation.
 | 
 
 By following this process, your on-premise deployment remains secure, current, and compatible with the latest features.
@@ -98,7 +98,7 @@ Execute the following command with the new version package:
 
 .. code-block:: console
 
-    sudo apt install ./<datagerry-version>.deb
+    apt install ./<datagerry-version>.deb
 
 | 
 
@@ -109,4 +109,4 @@ Execute the following command with the new version package:
 
 .. code-block:: console
 
-    sudo rpm -Uvh DATAGERRY-<version>.x86_64.rpm
+    rpm -Uvh DATAGERRY-<version>.x86_64.rpm
