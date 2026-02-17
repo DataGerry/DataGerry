@@ -147,7 +147,7 @@ Use default Docker installation guide.
 		ssl_certificate /opt/DataGerry-docker/conf/ssl/certs/cmdb.pem;
 		ssl_certificate_key /opt/DataGerry-docker/conf/ssl/private/cmdb.key;
 
-    Change the certificates within the config (cmdb.conf), with your own:	
+	Change the certificates within the config (cmdb.conf), with your own:	
 			
 	.. code-block:: sh
 		:linenos:	
