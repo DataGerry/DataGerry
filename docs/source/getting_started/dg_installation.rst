@@ -7,7 +7,7 @@ This page provides a detailed overview of how to install DataGerry on various op
 .. note::	
 
     | The installation commands must be executed by a user with sudo rights. 
-	| Ensure you have administrative privileges to properly perform the installation.
+    | Ensure you have administrative privileges to properly perform the installation.
 
 =======================================================================================================================
 
@@ -323,8 +323,8 @@ Enable and start the DataGerry service using systemd:
 
 .. code-block:: console
 
-    sudo systemctl enable datagerry.service
-    sudo systemctl start datagerry.service
+    systemctl enable datagerry.service
+    systemctl start datagerry.service
 
 | 
 

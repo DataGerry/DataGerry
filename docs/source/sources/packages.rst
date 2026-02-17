@@ -2,9 +2,6 @@
 Download Packages
 ************************
 
-.. note::
-    You can change the version number to download older versions.
-
 .. _package-deb-anchor:
 DEB
 ========
