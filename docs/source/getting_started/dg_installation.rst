@@ -150,18 +150,18 @@ Use default Docker installation guide.
     Change the certificates within the config (cmdb.conf), with your own:	
 			
 	.. code-block:: sh
-		:linenos:
-
-        certfile = /etc/ssl/certs/cmdb.pem
+		:linenos:	
+	
+		certfile = /etc/ssl/certs/cmdb.pem
         keyfile = /etc/ssl/private/cmdb.key
 
 
 	Activate SSL in docker compose file (/opt/DataGerry-docker/docker-compose.yml):
 
 	.. code-block:: sh
-		:linenos:
-
-        dg-frontend:
+		:linenos:	
+	
+		dg-frontend:
 		# comment for ssl
 		# - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf
 		# uncomment for ssl
