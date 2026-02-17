@@ -10,6 +10,16 @@ jobs:
 
   test:
     runs-on: ubuntu-22.04
+    services:
+      mongo:
+        image: mongo:${{ matrix.mongodb-version }}
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd="mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     strategy:
       matrix:
         python-version: ['3.12']
@@ -21,25 +31,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcairo2-dev pkg-config libjpeg-dev zlib1g-dev libfreetype6-dev libffi-dev netcat
-
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.7.0
-        with:
-          mongodb-version: ${{ matrix.mongodb-version }}
-
-      - name: Wait for MongoDB to be ready
-        run: |
-          echo "Waiting for MongoDB..."
-          for i in {1..20}; do
-            if nc -z localhost 27017; then
-              echo "MongoDB is up!"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "MongoDB did not start in time"
-          exit 1
+          sudo apt-get install -y libcairo2-dev pkg-config libjpeg-dev zlib1g-dev libfreetype6-dev libffi-dev
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
