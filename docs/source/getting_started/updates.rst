@@ -67,7 +67,7 @@ Updating Docker Compose
 .. code-block:: console
 
     cd DataGerry-docker
-    docker compose down -v
+    docker compose down
     git pull
     docker compose up -d
 	

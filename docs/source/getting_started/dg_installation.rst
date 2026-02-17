@@ -4,9 +4,9 @@ On-Premises Installation
 
 This page provides a detailed overview of how to install DataGerry on various operating systems and platforms.
 
-| .. note::
-    
-	| The installation commands must be executed by a user with sudo rights. 
+.. note::	
+
+    | The installation commands must be executed by a user with sudo rights. 
 	| Ensure you have administrative privileges to properly perform the installation.
 
 =======================================================================================================================
@@ -21,7 +21,7 @@ The following installation methods are supported:
 
 - **Docker Image** (simplified deployment via containers)
 - **RPM Package** (for RHEL/CentOS-based systems)
-- **zip Archive with Setup Script** (for all distributions)
+- **zip Package with Setup Script** (for all distributions)
 - **Deb Package** (for Debian-based systems)
 
 For the fastest setup, we recommend using Docker along with the provided docker-compose configuration.
@@ -265,14 +265,14 @@ You can now access the frontend:
 
 | 
 
-Setup via zip Archive
+Setup via zip Package
 ==============================
 
-For Linux distributions that are not RPM-based, we provide a ``zip`` archive containing a setup script
+For Linux distributions that are not RPM-based or DEB-based, we provide a ``zip`` archive containing a setup script
 for simplified installation. This method requires **systemd** and has been tested on the following distributions:
 
-    - Ubuntu 20.04
     - Ubuntu 22.04
+    - Ubuntu 24.04
 
 This approach should also work on other distributions that support systemd.
 
