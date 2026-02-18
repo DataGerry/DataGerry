@@ -18,7 +18,7 @@
 #                                              GET - REFERENCES OF OBJECT                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 get:
-    tags:
+    tags: 
         - Objects
         - OnPremise
     summary: Retrieve referenced Objects of an Object [OnPremise]
