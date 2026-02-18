@@ -39,6 +39,7 @@ type RefreshOption = { label: string; value: number };
 })
 
 export class AutomationsListComponent implements OnInit, OnDestroy {
+  private readonly autoRefreshStorageKey = 'automations.list.autoRefreshMs';
   // Table column templates
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @ViewChild('directionTemplate', { static: true }) directionTemplate: TemplateRef<any>;
@@ -67,6 +68,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
   ];
   public selectedRefreshMs = 0;
   public isLogsViewOpen = false;
+  public isCronModalOpen = false;
   public runningSchedulerIds: number[] = [];
   public runningRefreshToken = 0;
   private refreshTimerId?: number;
@@ -149,6 +151,8 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       }
     ];
 
+    this.loadStoredAutoRefreshSetting();
+    this.resetAutoRefreshTimer();
     this.loadAutomations();
   }
 
@@ -284,6 +288,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
   setCron(automation: any): void {
     const modalRef = this.modalService.open(CronExpressionModalComponent, { size: 'lg' });
+    this.isCronModalOpen = true;
     modalRef.componentInstance.currentCron = automation?.cronExp || automation?.scheduler?.cronExp || '';
     modalRef.componentInstance.automationName = automation?.connection?.title || automation?.scheduler?.title || automation?.name || '';
 
@@ -294,7 +299,10 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         }
         this.updateCronExp(automation, cronExp);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        this.isCronModalOpen = false;
+      });
   }
 
 
@@ -497,12 +505,13 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
   setAutoRefresh(ms: number): void {
     this.selectedRefreshMs = ms;
+    this.storeAutoRefreshSetting();
     this.resetAutoRefreshTimer();
   }
 
 
   refreshNow(): void {
-    if (this.isLogsViewOpen) {
+    if (this.isLogsViewOpen || this.isCronModalOpen) {
       return;
     }
     this.loadAutomations();
@@ -526,7 +535,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     this.clearAutoRefreshTimer();
     if (this.selectedRefreshMs > 0) {
       this.refreshTimerId = window.setInterval(() => {
-        if (!this.isLogsViewOpen) {
+        if (!this.isLogsViewOpen && !this.isCronModalOpen) {
           this.loadAutomations();
         }
       }, this.selectedRefreshMs);
@@ -539,6 +548,23 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       window.clearInterval(this.refreshTimerId);
       this.refreshTimerId = undefined;
     }
+  }
+
+
+  private loadStoredAutoRefreshSetting(): void {
+    const rawValue = window.localStorage.getItem(this.autoRefreshStorageKey);
+    if (rawValue === null) {
+      return;
+    }
+
+    const parsedValue = Number(rawValue);
+    const isValidOption = this.refreshOptions.some((option) => option.value === parsedValue);
+    this.selectedRefreshMs = isValidOption ? parsedValue : 0;
+  }
+
+
+  private storeAutoRefreshSetting(): void {
+    window.localStorage.setItem(this.autoRefreshStorageKey, String(this.selectedRefreshMs));
   }
 
 
