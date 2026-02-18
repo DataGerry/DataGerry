@@ -162,7 +162,26 @@ def get_all_oc_templates_detailed(
 
         templates: list[dict[str, Any]] = oc_template_manager.get_all_templates(from_connector_id, to_connector_id)
 
-        return DefaultResponse(templates).make_response()
+        invoker_name = "DataGerry"
+        datagerry_templates = []
+        if current_app.cloud_mode and not current_app.local_mode:
+            invoker_name = "DataGerryCloud"
+
+        # Filter DataGerry templates
+        if templates:
+            datagerry_templates: list[dict[str, Any]] = [
+                t for t in templates
+                if isinstance(t, dict)
+                and (
+                    t.get("connection", {}).get("fromConnector", {})
+                    .get("invoker", {}).get("name") == invoker_name
+                    or
+                    t.get("connection", {}).get("toConnector", {})
+                    .get("invoker", {}).get("name") == invoker_name
+                )
+            ]
+
+        return DefaultResponse(datagerry_templates).make_response()
     except OcTemplateGetError as err:
         LOGGER.error("[get_all_oc_templates_detailed] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium detailed Templates!")
