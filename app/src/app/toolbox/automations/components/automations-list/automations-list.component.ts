@@ -40,6 +40,7 @@ type RefreshOption = { label: string; value: number };
 
 export class AutomationsListComponent implements OnInit, OnDestroy {
   private readonly autoRefreshStorageKey = 'automations.list.autoRefreshMs';
+  private readonly internalConnectorTitle = 'DataGerryInternal';
   // Table column templates
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @ViewChild('directionTemplate', { static: true }) directionTemplate: TemplateRef<any>;
@@ -99,6 +100,13 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         template: this.directionTemplate,
         sortable: false,
         style: { width: '100px', 'text-align': 'center' }
+      },
+      {
+        display: 'Connector',
+        name: 'connector',
+        data: 'connectorDisplay',
+        sortable: false,
+        style: { width: '180px' }
       },
       {
         display: 'Cron',
@@ -199,7 +207,8 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
         this.automations = list?.map(automation => ({
           ...automation,
-          direction: this.getDirection(automation)
+          direction: this.getDirection(automation),
+          connectorDisplay: this.getConnectorDisplay(automation)
         }));
       
         this.totalAutomations = list?.length;
@@ -245,12 +254,35 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     const fromConnector = automation?.connection?.fromConnector;
     const toConnector = automation?.connection?.toConnector;
 
-    if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title !== 'DataGerryInternal') {
+    if (fromConnector?.title === this.internalConnectorTitle && toConnector?.title !== this.internalConnectorTitle) {
       return 'outgoing';
-    } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
+    } else if (toConnector?.title === this.internalConnectorTitle && fromConnector?.title !== this.internalConnectorTitle) {
       return 'incoming';
-    } else if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title === 'DataGerryInternal') {
+    } else if (fromConnector?.title === this.internalConnectorTitle && toConnector?.title === this.internalConnectorTitle) {
       return 'internal';
+    }
+  }
+
+  private getConnectorDisplay(automation: any): string {
+    const fromTitle = automation?.connection?.fromConnector?.title;
+    const toTitle = automation?.connection?.toConnector?.title;
+    const direction = this.getDirection(automation);
+
+    if (direction === 'incoming') {
+      return fromTitle;
+    }
+    if (direction === 'outgoing') {
+      return toTitle;
+    }
+    if (direction === 'internal') {
+      return this.internalConnectorTitle;
+    }
+
+    if (fromTitle && fromTitle !== this.internalConnectorTitle) {
+      return fromTitle;
+    }
+    if (toTitle && toTitle !== this.internalConnectorTitle) {
+      return toTitle;
     }
   }
 
