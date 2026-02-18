@@ -51,7 +51,6 @@ import { IsmsValidationService } from '../services/isms-validation.service';
 })
 export class RiskMatrixReportComponent implements OnInit {
 
-    /* DOM node that will be rendered to a canvas */
     @ViewChild('reportContent', { static: false })
     reportContent!: ElementRef<HTMLDivElement>;
 

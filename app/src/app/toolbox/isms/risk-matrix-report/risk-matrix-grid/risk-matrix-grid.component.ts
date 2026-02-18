@@ -43,7 +43,7 @@ export class RiskMatrixGridComponent {
 
     /* ───────── derived helpers ───────── */
 
-    /** backend ➜ cell lookup */
+    /** backend -> cell lookup */
     cell(row: number, col: number): ReportMatrixCell | undefined {
         return this.cells.find(c => c.row === row && c.column === col);
     }
