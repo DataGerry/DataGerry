@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Introduction &mdash; DataGerry latest documentation</title>
+  <title>Download Packages &mdash; DataGerry latest documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=f76a5f1d" />
@@ -21,8 +21,8 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Cloud vs. On-Premises" href="cloud_vs_on_premises.html" />
-    <link rel="prev" title="DataGerry Documentation" href="../index.html" /> 
+    <link rel="next" title="Changelogs" href="changelog.html" />
+    <link rel="prev" title="Website" href="../media/media.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -46,13 +46,13 @@
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Introduction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cloud_vs_on_premises.html">Cloud vs. On-Premises</a></li>
-<li class="toctree-l1"><a class="reference internal" href="service_portal.html">Cloud version</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dg_installation.html">On-Premises Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="updates.html">Updating DataGerry</a></li>
-<li class="toctree-l1"><a class="reference internal" href="administration.html">Administration</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/welcome.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/cloud_vs_on_premises.html">Cloud vs. On-Premises</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/service_portal.html">Cloud version</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/dg_installation.html">On-Premises Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/updates.html">Updating DataGerry</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/administration.html">Administration</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Usage</span></p>
 <ul>
@@ -87,11 +87,16 @@
 <li class="toctree-l1"><a class="reference internal" href="../media/media.html#contact-us">Contact us</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Sources</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../sources/packages.html">Download Packages</a></li>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Download Packages</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#deb">DEB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#rpm">RPM</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#zip">ZIP</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sources/changelog.html">Changelogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelogs</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">REST API</span></p>
 <ul>
@@ -99,7 +104,7 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">License</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="license.html">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/license.html">License</a></li>
 </ul>
 
         </div>
@@ -116,9 +121,9 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Introduction</li>
+      <li class="breadcrumb-item active">Download Packages</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/getting_started/welcome.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../_sources/sources/packages.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -126,63 +131,32 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="introduction">
-<h1>Introduction<a class="headerlink" href="#introduction" title="Link to this heading"></a></h1>
-<img alt="../_images/introduction_datagerry.png" class="align-center" src="../_images/introduction_datagerry.png" />
-<div class="line-block">
-<div class="line"><br /></div>
+  <section id="download-packages">
+<h1>Download Packages<a class="headerlink" href="#download-packages" title="Link to this heading"></a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>You can change the version number to download older versions.</p>
 </div>
-<p><strong>DataGerry</strong> is an enterprise-grade, open-source <strong>Configuration Management Database (CMDB)</strong> and <strong>Asset Management Tool</strong>
-that gives you full flexibility to define, customize, and manage your data models. Unlike conventional tools with rigid
-schemas, DataGerry allows you to model any type of object—servers, routers, locations, licenses, or entirely
-custom assets—based on the unique requirements of your organization.</p>
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<p><strong>Key Features</strong></p>
-<ul class="simple">
-<li><dl class="simple">
-<dt><strong>Customizable Data Models</strong></dt><dd><p>Design Types with custom fields and relationships. You’re not limited by predefined structures—every data model is
-entirely user-defined.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><strong>User-Friendly Interface</strong></dt><dd><p>A clean and intuitive web interface helps you efficiently manage assets and configuration items with minimal learning curve.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><strong>Integration &amp; Automation Capabilities</strong></dt><dd><p>Integrate with external tools via a powerful REST API or automate workflows in real time using webhooks.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><strong>Reporting and Import/Export Tools</strong></dt><dd><p>Import and export data in formats like CSV, JSON, XML, and XLSX. Build custom reports and queries using the integrated
-report builder.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><strong>Scalable and Extensible</strong></dt><dd><p>Designed for growth, DataGerry supports multi-tenancy in the cloud version and handles large, complex environments</p>
-</dd>
-</dl>
-</li>
-</ul>
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<p><strong>Why DataGerry?</strong></p>
-<p>With its flexible data modeling, seamless integration options, and extensibility, DataGerry supports smarter
-decisions, streamlined automation, and full visibility across your entire IT landscape.</p>
+<section id="deb">
+<span id="package-deb-anchor"></span><h2>DEB<a class="headerlink" href="#deb" title="Link to this heading"></a></h2>
+<p><a class="reference external" href="https://packages.buildkite.com/becon-gmbh/datagerry-deb/any/pool/any/main/D/DataGerry/DataGerry_3.0.0_all.deb" rel="noreferrer" target="_blank">https://packages.buildkite.com/becon-gmbh/datagerry-deb/any/pool/any/main/D/DataGerry/DataGerry_3.0.0_all.deb</a></p>
+</section>
+<section id="rpm">
+<span id="package-rpm-anchor"></span><h2>RPM<a class="headerlink" href="#rpm" title="Link to this heading"></a></h2>
+<p><a class="reference external" href="https://packages.buildkite.com/becon-gmbh/datagerry-rpm/rpm_any/rpm_any/x86_64/DATAGERRY-3.0.0-1.el9.x86_64.rpm" rel="noreferrer" target="_blank">https://packages.buildkite.com/becon-gmbh/datagerry-rpm/rpm_any/rpm_any/x86_64/DATAGERRY-3.0.0-1.el9.x86_64.rpm</a></p>
+</section>
+<section id="zip">
+<span id="package-zip-anchor"></span><h2>ZIP<a class="headerlink" href="#zip" title="Link to this heading"></a></h2>
+<p><a class="reference external" href="https://packages.buildkite.com/becon-gmbh/datagerry-zip/files/datagerry-3.0.0.zip" rel="noreferrer" target="_blank">https://packages.buildkite.com/becon-gmbh/datagerry-zip/files/datagerry-3.0.0.zip</a></p>
+</section>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../index.html" class="btn btn-neutral float-left" title="DataGerry Documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="cloud_vs_on_premises.html" class="btn btn-neutral float-right" title="Cloud vs. On-Premises" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="../media/media.html" class="btn btn-neutral float-left" title="Website" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="changelog.html" class="btn btn-neutral float-right" title="Changelogs" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
