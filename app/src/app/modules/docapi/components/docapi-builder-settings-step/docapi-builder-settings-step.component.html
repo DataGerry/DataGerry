@@ -45,11 +45,12 @@
                     <input
                         type="text"
                         formControlName="name"
-                        class="form-control"
+                        class="form-control name-input-disabled-vibe"
                         [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                                     'is-invalid': name.invalid && (name.dirty || name.touched) }"
                         id="docNameInput"
-                        readonly
+                        
+                        disable
                         lowercase
                         required
                     >

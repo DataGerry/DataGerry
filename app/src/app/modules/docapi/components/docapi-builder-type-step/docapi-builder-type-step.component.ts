@@ -39,6 +39,7 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
                 this.typeParamPreData = data?.template_parameters;
             }
 
+            this.buildTemplateTypeOptions();
             this.checkTypeChildValid();
 
         }
@@ -47,13 +48,23 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
     @Input() public mode: CmdbMode;
     public modes = CmdbMode;
     public typeForm: UntypedFormGroup;
-    public readonly docTypeSelect: any[] = [
-        { label: 'Object Template', content: 'OBJECT', description: 'Template for single objects' },
-        { label: 'Default Template', content: 'DEFAULT', description: '' }
-    ];
+    public docTypeSelect: any[] = [];
+
+    @Output() public typeParamReady = new EventEmitter<DocapiBuilderTypeStepBaseComponent>();
+
+    private _typeParamComponent: DocapiBuilderTypeStepBaseComponent;
 
     @ViewChild('typeparam')
-    public typeParamComponent: DocapiBuilderTypeStepBaseComponent;
+    set typeParamComponent(component: DocapiBuilderTypeStepBaseComponent) {
+        this._typeParamComponent = component;
+        if (component) {
+            this.typeParamReady.emit(component);
+        }
+    }
+
+    get typeParamComponent(): DocapiBuilderTypeStepBaseComponent {
+        return this._typeParamComponent;
+    }
     public typeParamPreData: any;
 
     public typeValid: boolean = false;
@@ -84,9 +95,34 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
 
 
     public ngOnInit(): void {
+        this.buildTemplateTypeOptions();
         this.typeForm?.valueChanges?.subscribe(() => {
             this.typeValid = this.typeForm?.valid;
             this.formValidEmitter?.emit(this.typeValid && this.typeChildValid);
         });
+    }
+
+    private buildTemplateTypeOptions(): void {
+        const isEditMode = this.mode === CmdbMode.Edit;
+        const currentType = this.typeForm?.get('template_type')?.value;
+        const allowObject = isEditMode && currentType === 'OBJECT';
+
+        const objectOption = {
+            label: 'Object Template (Deprecated)',
+            content: 'OBJECT',
+            description: 'Template for single objects',
+            disabled: !allowObject
+        };
+        const defaultOption = {
+            label: 'Default Template',
+            content: 'DEFAULT',
+            description: ''
+        };
+
+        if (isEditMode) {
+            this.docTypeSelect = allowObject ? [objectOption, defaultOption] : [defaultOption];
+        } else {
+            this.docTypeSelect = [defaultOption];
+        }
     }
 }
