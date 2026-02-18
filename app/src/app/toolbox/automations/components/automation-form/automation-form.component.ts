@@ -182,10 +182,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (templates) => {
           this.templates = templates || [];
+          this.syncSelectedTemplateWithAvailableTemplates();
         },
         error: (err) => {
           this.toast.error(err?.error?.message);
           this.templates = [];
+          this.resetTemplateSelection();
         }
       });
   }
@@ -239,10 +241,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     // Load templates if connector IDs have changed and both are available
     if ((this.currentSourceConnectorId !== previousSourceId || this.currentTargetConnectorId !== previousTargetId) &&
       this.currentSourceConnectorId && this.currentTargetConnectorId) {
+      this.resetTemplateSelection();
       this.loadTemplates();
     } else if (!this.currentSourceConnectorId || !this.currentTargetConnectorId) {
       // Clear templates if one of the connector IDs is missing
       this.templates = [];
+      this.resetTemplateSelection();
     }
   }
 
@@ -259,6 +263,31 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     // Reset connector selection when direction changes to prevent auto-selection issues
     this.form.patchValue({ connector: '' });
+    this.templates = [];
+    this.resetTemplateSelection();
+  }
+
+  private resetTemplateSelection(): void {
+    this.selectedTemplate = null;
+    if (this.form.get('business_template')?.value) {
+      this.form.patchValue({ business_template: '' }, { emitEvent: false });
+    }
+  }
+
+  private syncSelectedTemplateWithAvailableTemplates(): void {
+    const selectedTemplateId = this.form.get('business_template')?.value;
+    if (!selectedTemplateId) {
+      this.selectedTemplate = null;
+      return;
+    }
+
+    const matchedTemplate = this.templates.find(t => t.templateId === selectedTemplateId) || null;
+    if (!matchedTemplate) {
+      this.resetTemplateSelection();
+      return;
+    }
+
+    this.selectedTemplate = matchedTemplate;
   }
 
 

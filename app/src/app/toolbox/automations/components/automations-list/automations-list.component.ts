@@ -39,6 +39,8 @@ type RefreshOption = { label: string; value: number };
 })
 
 export class AutomationsListComponent implements OnInit, OnDestroy {
+  private readonly autoRefreshStorageKey = 'automations.list.autoRefreshMs';
+  private readonly internalConnectorTitle = 'DataGerryInternal';
   // Table column templates
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @ViewChild('directionTemplate', { static: true }) directionTemplate: TemplateRef<any>;
@@ -67,6 +69,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
   ];
   public selectedRefreshMs = 0;
   public isLogsViewOpen = false;
+  public isCronModalOpen = false;
   public runningSchedulerIds: number[] = [];
   public runningRefreshToken = 0;
   private refreshTimerId?: number;
@@ -97,6 +100,13 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         template: this.directionTemplate,
         sortable: false,
         style: { width: '100px', 'text-align': 'center' }
+      },
+      {
+        display: 'Connector',
+        name: 'connector',
+        data: 'connectorDisplay',
+        sortable: false,
+        style: { width: '180px' }
       },
       {
         display: 'Cron',
@@ -149,6 +159,8 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       }
     ];
 
+    this.loadStoredAutoRefreshSetting();
+    this.resetAutoRefreshTimer();
     this.loadAutomations();
   }
 
@@ -195,7 +207,8 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
         this.automations = list?.map(automation => ({
           ...automation,
-          direction: this.getDirection(automation)
+          direction: this.getDirection(automation),
+          connectorDisplay: this.getConnectorDisplay(automation)
         }));
       
         this.totalAutomations = list?.length;
@@ -241,12 +254,35 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     const fromConnector = automation?.connection?.fromConnector;
     const toConnector = automation?.connection?.toConnector;
 
-    if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title !== 'DataGerryInternal') {
+    if (fromConnector?.title === this.internalConnectorTitle && toConnector?.title !== this.internalConnectorTitle) {
       return 'outgoing';
-    } else if (toConnector?.title === 'DataGerryInternal' && fromConnector?.title !== 'DataGerryInternal') {
+    } else if (toConnector?.title === this.internalConnectorTitle && fromConnector?.title !== this.internalConnectorTitle) {
       return 'incoming';
-    } else if (fromConnector?.title === 'DataGerryInternal' && toConnector?.title === 'DataGerryInternal') {
+    } else if (fromConnector?.title === this.internalConnectorTitle && toConnector?.title === this.internalConnectorTitle) {
       return 'internal';
+    }
+  }
+
+  private getConnectorDisplay(automation: any): string {
+    const fromTitle = automation?.connection?.fromConnector?.title;
+    const toTitle = automation?.connection?.toConnector?.title;
+    const direction = this.getDirection(automation);
+
+    if (direction === 'incoming') {
+      return fromTitle;
+    }
+    if (direction === 'outgoing') {
+      return toTitle;
+    }
+    if (direction === 'internal') {
+      return this.internalConnectorTitle;
+    }
+
+    if (fromTitle && fromTitle !== this.internalConnectorTitle) {
+      return fromTitle;
+    }
+    if (toTitle && toTitle !== this.internalConnectorTitle) {
+      return toTitle;
     }
   }
 
@@ -284,6 +320,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
   setCron(automation: any): void {
     const modalRef = this.modalService.open(CronExpressionModalComponent, { size: 'lg' });
+    this.isCronModalOpen = true;
     modalRef.componentInstance.currentCron = automation?.cronExp || automation?.scheduler?.cronExp || '';
     modalRef.componentInstance.automationName = automation?.connection?.title || automation?.scheduler?.title || automation?.name || '';
 
@@ -294,7 +331,10 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
         }
         this.updateCronExp(automation, cronExp);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        this.isCronModalOpen = false;
+      });
   }
 
 
@@ -497,12 +537,13 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
   setAutoRefresh(ms: number): void {
     this.selectedRefreshMs = ms;
+    this.storeAutoRefreshSetting();
     this.resetAutoRefreshTimer();
   }
 
 
   refreshNow(): void {
-    if (this.isLogsViewOpen) {
+    if (this.isLogsViewOpen || this.isCronModalOpen) {
       return;
     }
     this.loadAutomations();
@@ -526,7 +567,7 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     this.clearAutoRefreshTimer();
     if (this.selectedRefreshMs > 0) {
       this.refreshTimerId = window.setInterval(() => {
-        if (!this.isLogsViewOpen) {
+        if (!this.isLogsViewOpen && !this.isCronModalOpen) {
           this.loadAutomations();
         }
       }, this.selectedRefreshMs);
@@ -539,6 +580,23 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
       window.clearInterval(this.refreshTimerId);
       this.refreshTimerId = undefined;
     }
+  }
+
+
+  private loadStoredAutoRefreshSetting(): void {
+    const rawValue = window.localStorage.getItem(this.autoRefreshStorageKey);
+    if (rawValue === null) {
+      return;
+    }
+
+    const parsedValue = Number(rawValue);
+    const isValidOption = this.refreshOptions.some((option) => option.value === parsedValue);
+    this.selectedRefreshMs = isValidOption ? parsedValue : 0;
+  }
+
+
+  private storeAutoRefreshSetting(): void {
+    window.localStorage.setItem(this.autoRefreshStorageKey, String(this.selectedRefreshMs));
   }
 
 
