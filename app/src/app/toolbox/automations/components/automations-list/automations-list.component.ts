@@ -41,6 +41,7 @@ type RefreshOption = { label: string; value: number };
 export class AutomationsListComponent implements OnInit, OnDestroy {
   private readonly autoRefreshStorageKey = 'automations.list.autoRefreshMs';
   private readonly internalConnectorTitle = 'DataGerryInternal';
+  private readonly internalConnectorDisplay = 'Built-in DataGerry';
   // Table column templates
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @ViewChild('directionTemplate', { static: true }) directionTemplate: TemplateRef<any>;
@@ -269,13 +270,13 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     const direction = this.getDirection(automation);
 
     if (direction === 'incoming') {
-      return fromTitle;
+      return this.getConnectorTitleForDisplay(fromTitle);
     }
     if (direction === 'outgoing') {
-      return toTitle;
+      return this.getConnectorTitleForDisplay(toTitle);
     }
     if (direction === 'internal') {
-      return this.internalConnectorTitle;
+      return this.internalConnectorDisplay;
     }
 
     if (fromTitle && fromTitle !== this.internalConnectorTitle) {
@@ -284,6 +285,15 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
     if (toTitle && toTitle !== this.internalConnectorTitle) {
       return toTitle;
     }
+
+    return this.getConnectorTitleForDisplay(fromTitle || toTitle);
+  }
+
+  private getConnectorTitleForDisplay(title?: string): string {
+    if (!title) {
+      return '-';
+    }
+    return title === this.internalConnectorTitle ? this.internalConnectorDisplay : title;
   }
 
 
