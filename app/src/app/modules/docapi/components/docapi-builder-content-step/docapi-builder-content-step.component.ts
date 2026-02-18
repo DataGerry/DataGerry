@@ -51,7 +51,7 @@ export class DocapiBuilderContentStepComponent {
             this.templateTypeId = data?.parameters?.type ?? null;
             if (data.parameters?.type) {
                 // Pass the template type to the helper service
-                this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 3, this.templateType).then(helperData => {
+                this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 5, this.templateType).then(helperData => {
                     this.templateHelperData = helperData;
                 });
             }
