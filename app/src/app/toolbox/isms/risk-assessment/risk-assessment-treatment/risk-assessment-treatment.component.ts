@@ -118,7 +118,6 @@ public markInlineSnapshot(): void {
 
  setInlineToEditMode(): void {
     if (!this.cmInline) { return; }
-    //  this.cmInline.createMode = false;        // switch off “create” mode
      this.cmInline?.refreshSnapshot();         // take a pristine snapshot
    }
 

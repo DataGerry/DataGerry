@@ -62,7 +62,6 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
     @Input() groupId?: number;
     @Input() assessmentIds: number[] = null;
     @Input() fromReport = false;
-    // @Input() summaryLine: string = '';s
     @Input() riskSummaryLine: string = '';
     @Input() objectGroupName: string = '';
 
@@ -84,40 +83,33 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
     sort: Sort = { name: 'public_id', order: SortDirection.ASCENDING };
     loading = false;
     isLoading$ = this.loader.isLoading$;
-    public filter = ''; 
-    public configurationIsValid: boolean = false; 
-
-
-
+    public filter = '';
+    public configurationIsValid: boolean = false;
 
     columns: Column[] = [];
     initialVisibleColumns: string[] = [];
 
     /* ────────── look-up maps ────────── */
-    private riskNameMap = new Map<number, string>();
     private personNameMap = new Map<number, string>();
     private groupNameMap = new Map<number, string>();
     private implStateMap = new Map<number, string>();
     private riskMatrixFlat: any[] = [];
     private riskClassMap = new Map<number, RiskClass>();
 
-    /* ────────── ctor ────────── */
     constructor(
         private readonly route: ActivatedRoute,
         private readonly router: Router,
         private readonly destroyRef: DestroyRef,
 
-        /* services (full names!) */
         private readonly riskAssessmentService: RiskAssessmentService,
-        // private readonly riskService: RiskService,
         private readonly personService: PersonService,
         private readonly personGroupService: PersonGroupService,
         private readonly optionService: ExtendableOptionService,
         private readonly riskMatrixService: RiskMatrixService,
         private readonly riskClassService: RiskClassService,
-        private readonly filterBuilder: FilterBuilderService, 
+        private readonly filterBuilder: FilterBuilderService,
         private readonly ismsValidationService: IsmsValidationService,
-        
+
 
         private readonly loader: LoaderService,
         private readonly toast: ToastService,
@@ -131,21 +123,20 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
 
         this.ismsValidationService.checkConfigSilently().subscribe({
             next: (isValid) => {
-             this.configurationIsValid = isValid;
-              if (!isValid) return;
-              this.readFiltersFromRoute();
-              this.columns = this.buildColumns();
-              this.initialVisibleColumns = this.columns.filter(c => !c.hidden)
-                  .map(c => c.name);
-      
-              /* first load dictionaries ➜ then rows */
-              this.loadReferenceData()
-                  .subscribe({ next: () => this.loadRows() });
+                this.configurationIsValid = isValid;
+                if (!isValid) return;
+                this.readFiltersFromRoute();
+                this.columns = this.buildColumns();
+                this.initialVisibleColumns = this.columns.filter(c => !c.hidden)
+                    .map(c => c.name);
+
+                this.loadReferenceData()
+                    .subscribe({ next: () => this.loadRows() });
             },
             error: (err) => {
-              this.toast.error(err?.error?.message);
+                this.toast.error(err?.error?.message);
             }
-          })
+        })
 
 
     }
@@ -168,7 +159,6 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
 
     private buildColumns(): Column[] {
         return [
-            // { display: 'Public ID', name: 'public_id', data: 'public_id', style: { width: '100px', 'text-align': 'center' } },
             { display: 'Risk', name: 'risk', data: 'risk_id', template: this.riskTpl, style: { 'text-align': 'center' } },
             {
                 display: 'Risk before treatment',
@@ -241,7 +231,6 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
         };
 
         return forkJoin({
-            // risks: this.riskService.getRisks(base),
             persons: this.personService.getPersons(base),
             groups: this.personGroupService.getPersonGroups(base),
             implOpt: this.optionService.getExtendableOptionsByType('IMPLEMENTATION_STATE'),
@@ -269,122 +258,96 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
     }
 
     /* ───── rows ───── */
-    // private loadRows(): void {
-
-    //     this.loader.show(); this.loading = true;
-
-    //     const params: CollectionParameters = {
-    //         filter: this.buildFilter(),
-    //         page: this.page,
-    //         limit: this.limit,
-    //         sort: this.sort.name,
-    //         order: this.sort.order
-    //     };
-
-    //     this.riskAssessmentService.getRiskAssessments(params)
-    //         .pipe(finalize(() => { this.loader.hide(); this.loading = false; }))
-    //         .subscribe({
-    //             next: res => {
-    //                 this.rows = res.results; this.total = res.total;
-    //                 console.log('risk assesment', res.results)
-    //             },
-    //             error: err => this.toast.error(err?.error?.message || 'Load failed')
-    //         });
-
-    // }
 
     /* ───── rows ───── */
-private loadRows(): void {
+    private loadRows(): void {
+        this.loader.show();
+        this.loading = true;
 
-    /* 1 ▪ Visual feedback */
-    this.loader.show();
-    this.loading = true;
-  
-    /* 2 ▪ Context filter (risk/object/group/report) */
-    const ctxFilter: Record<string, any> = this.buildFilter();   // {} if none
-  
-    /* 3 ▪ Search filter from the global box */
-    let searchFilter: Record<string, any> = {};
-    if (this.filter.trim().length) {
-      const raw = this.filterBuilder.buildFilter(
-        this.filter,
-        [
-          { name: 'naming.risk_id_name' },
-          { name: 'naming.object_id_name' },
-          { name: 'naming.responsible_persons_id_names' },
-          { name: 'public_id' }
-        ]
-      );
-  
-      // buildFilter() may return string | object | any[]
-      try {
-        if (typeof raw === 'string') {
-          searchFilter = JSON.parse(raw);        // string → object
-        } else if (Array.isArray(raw)) {
-          searchFilter = { $or: raw };           // array → wrap in $or
-        } else if (raw && typeof raw === 'object') {
-          searchFilter = raw;                    // already an object
+        const ctxFilter: Record<string, any> = this.buildFilter();   // {} if none
+
+        /*  Search filter from the global box */
+        let searchFilter: Record<string, any> = {};
+        if (this.filter.trim().length) {
+            const raw = this.filterBuilder.buildFilter(
+                this.filter,
+                [
+                    { name: 'naming.risk_id_name' },
+                    { name: 'naming.object_id_name' },
+                    { name: 'naming.responsible_persons_id_names' },
+                    { name: 'public_id' }
+                ]
+            );
+
+            // buildFilter() may return string | object | any[]
+            try {
+                if (typeof raw === 'string') {
+                    searchFilter = JSON.parse(raw);        // string -> object
+                } else if (Array.isArray(raw)) {
+                    searchFilter = { $or: raw };           // array -> wrap in $or
+                } else if (raw && typeof raw === 'object') {
+                    searchFilter = raw;                    // already an object
+                }
+            } catch (e) {
+                searchFilter = {};
+            }
         }
-      } catch (e) {
-        searchFilter = {};
-      }
+
+        /* 4 ▪ Merge filters (ignore empties, flatten nested $and) */
+        const parts: Record<string, any>[] = [];
+
+        const push = (part: Record<string, any>) => {
+            if (!part || !Object.keys(part).length) { return; }
+
+            if (part.$and && Array.isArray(part.$and)) {
+                part.$and.forEach(p => push(p));         // flatten
+            } else {
+                parts.push(part);
+            }
+        };
+
+        push(ctxFilter);
+        push(searchFilter);
+
+        const finalFilter =
+            parts.length > 1 ? { $and: parts } :
+                parts.length === 1 ? parts[0] : {};
+
+        /* 5 ▪ Call backend */
+        const params: CollectionParameters = {
+            filter: finalFilter,    
+            page: this.page,
+            limit: this.limit,
+            sort: this.sort.name,
+            order: this.sort.order
+        };
+
+        this.riskAssessmentService.getRiskAssessments(params)
+            .pipe(finalize(() => {
+                this.loader.hide();
+                this.loading = false;
+            }))
+            .subscribe({
+                next: res => {
+                    this.rows = res.results;
+                    this.total = res.total;
+                },
+                error: err => this.toast.error(err?.error?.message)
+            });
     }
-  
-    /* 4 ▪ Merge filters (ignore empties, flatten nested $and) */
-    const parts: Record<string, any>[] = [];
-  
-    const push = (part: Record<string, any>) => {
-      if (!part || !Object.keys(part).length) { return; }
-  
-      if (part.$and && Array.isArray(part.$and)) {
-        part.$and.forEach(p => push(p));         // flatten
-      } else {
-        parts.push(part);
-      }
-    };
-  
-    push(ctxFilter);
-    push(searchFilter);
-  
-    const finalFilter =
-      parts.length > 1 ? { $and: parts } :
-      parts.length === 1 ? parts[0]     : {};
-  
-    /* 5 ▪ Call backend */
-    const params: CollectionParameters = {
-      filter: finalFilter,                       // type: any  (same as before)
-      page:   this.page,
-      limit:  this.limit,
-      sort:   this.sort.name,
-      order:  this.sort.order
-    };
-  
-    this.riskAssessmentService.getRiskAssessments(params)
-      .pipe(finalize(() => {
-        this.loader.hide();
-        this.loading = false;
-      }))
-      .subscribe({
-        next: res => {
-          this.rows  = res.results;
-          this.total = res.total;
-        },
-        error: err => this.toast.error(err?.error?.message)
-      });
-  }
-  
 
 
 
-        /* ───── table events ───── */
-        onPageChange(p: number) { this.page = p; this.loadRows(); }
-        onPageSizeChange(l: number) { this.limit = l; this.page = 1; this.loadRows(); }
-        onSortChange(s: Sort) { this.sort = s; this.loadRows(); }
-        onSearchChange(search: string): void {
-            this.filter = search.trim();
-            this.page   = 1;       // reset paging so the user sees results immediately
-            this.loadRows();
-          }
+
+    /* ───── table events ───── */
+    onPageChange(p: number) { this.page = p; this.loadRows(); }
+    onPageSizeChange(l: number) { this.limit = l; this.page = 1; this.loadRows(); }
+    onSortChange(s: Sort) { this.sort = s; this.loadRows(); }
+    onSearchChange(search: string): void {
+        this.filter = search.trim();
+        this.page = 1;       // reset paging so the user sees results immediately
+        this.loadRows();
+    }
 
     /* ───── look-ups ───── */
     riskName(row: RiskAssessment): string {
@@ -393,15 +356,6 @@ private loadRows(): void {
     implState(id: number) { return this.implStateMap.get(id) ?? id; }
 
     responsible(row: RiskAssessment): string {
-        // const id = row.responsible_persons_id;
-        // if (!id) { return '–'; }
-
-        // if (row.responsible_persons_id_ref_type === 'PERSON') {
-        //     return this.personNameMap.get(id) ?? '–';
-        // }
-        // if (row.responsible_persons_id_ref_type === 'PERSON_GROUP') {
-        //     return this.groupNameMap.get(id) ?? '–';
-        // }
         return row.naming?.responsible_persons_id_names || '–';
     }
 
@@ -439,15 +393,6 @@ private loadRows(): void {
     }
 
     /* ───── actions ───── */
-    // onEdit(row: any): void {
-    //     this.router.navigate(['/isms/risk-assessments/edit', row.public_id], {
-    //       state: {
-    //         riskAssessment: row,
-    //         objectSummary: this.summaryLine 
-    //       }
-    //     });
-    //   }
-
     onEdit(row: RiskAssessment): void {
         this.activeModal.dismiss();
         switch (this.ctx()) {
@@ -483,28 +428,18 @@ private loadRows(): void {
         }
     }
 
-    // onDuplicate(row: any) {
-    //     // this.router.navigate(['/isms/risk-assessments/add'], {
-    //     //     state: { riskAssessment: row }
-    //     // });
-    // }
 
     onDuplicate(row: RiskAssessment): void {
         const ref = this.modal.open(DuplicateRiskAssessmentModalComponent, { size: 'lg' });
-        ref.componentInstance.ctx               = this.ctx();    // OBJECT | GROUP | RISK
-        ref.componentInstance.item              = row;
-        ref.componentInstance.objectSummaryLine =  row.naming?.object_id_name ?? '';
-        ref.componentInstance.objectGroupName   = this.objectGroupName ?? '';
-        ref.componentInstance.riskSummaryLine   = this.riskSummaryLine ?? '';
-      
-        ref.result.then(() => this.loadRows()).catch(() => {/* dismissed */});
-      }
+        ref.componentInstance.ctx = this.ctx();    // OBJECT | GROUP | RISK
+        ref.componentInstance.item = row;
+        ref.componentInstance.objectSummaryLine = row.naming?.object_id_name ?? '';
+        ref.componentInstance.objectGroupName = this.objectGroupName ?? '';
+        ref.componentInstance.riskSummaryLine = this.riskSummaryLine ?? '';
 
-    //   onView(row: any) {
-    //     this.router.navigate(['/isms/risk-assessments/view', row.public_id], {
-    //       state: { riskAssessment: row, objectSummary: this.summaryLine }
-    //     });
-    //   }
+        ref.result.then(() => this.loadRows()).catch(() => {/* dismissed */ });
+    }
+
 
     onView(row: RiskAssessment): void {
         this.activeModal.dismiss();
@@ -542,7 +477,6 @@ private loadRows(): void {
     }
 
 
-
     /* ───── DELETE helper ───── */
     onDelete(row: RiskAssessment): void {
 
@@ -574,17 +508,6 @@ private loadRows(): void {
         return 'NONE';
     }
 
-
-    // onAddAssessment(): void {
-    //     if (this.objectId) {
-    //         this.router.navigate(
-    //             ['/isms/objects', this.objectId, 'risk-assessments', 'add'],
-    //             { state: { objectSummary: this.summaryLine } }
-    //         );
-    //     } else {
-    //         this.router.navigate(['/isms/risk-assessments/add']);
-    //     }
-    // }
 
     onAddAssessment(): void {
         if (this.objectId) {
@@ -631,7 +554,4 @@ private loadRows(): void {
     public getTextColor(color: string): string {
         return getTextColorBasedOnBackground(color);
     }
-
-
-
 }

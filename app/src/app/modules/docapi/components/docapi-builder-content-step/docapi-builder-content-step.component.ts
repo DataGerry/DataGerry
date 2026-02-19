@@ -51,7 +51,7 @@ export class DocapiBuilderContentStepComponent {
             this.templateTypeId = data?.parameters?.type ?? null;
             if (data.parameters?.type) {
                 // Pass the template type to the helper service
-                this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 3, this.templateType).then(helperData => {
+                this.templateHelperService?.getObjectTemplateHelperData(data.parameters.type, '', 5, this.templateType).then(helperData => {
                     this.templateHelperData = helperData;
                 });
             }
@@ -151,9 +151,8 @@ export class DocapiBuilderContentStepComponent {
         
         if (this.templateType === 'DEFAULT') {
             items.push(this.getExternalObjectsMenuItem(editor));
+            items.push(this.getReportMenuItem(editor));
         }
-
-        items.push(this.getReportMenuItem(editor));
         
         return items;
     }
@@ -189,7 +188,7 @@ export class DocapiBuilderContentStepComponent {
             }
         }
 
-        if (isRoot) {
+        if (isRoot && this.templateType === 'DEFAULT') {
             items.push(this.getRelationsMenuItem(editor));
         }
 
@@ -282,7 +281,7 @@ export class DocapiBuilderContentStepComponent {
         const item = {
             type: 'menuitem',
             text: 'Relations',
-            icon: 'share',
+            icon: 'link',
             onAction: () => {
                 this.openRelationTemplateModal(editor);
             }
@@ -304,7 +303,7 @@ export class DocapiBuilderContentStepComponent {
 
     private openExternalObjectsModal(editor: any): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
-            size: 'lg',
+            size: 'xl',
             backdrop: 'static'
         });
         

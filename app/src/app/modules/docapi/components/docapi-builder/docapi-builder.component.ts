@@ -15,8 +15,9 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, Input, OnDestroy, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { DocapiService } from '../../services/docapi.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
@@ -27,6 +28,8 @@ import { DocapiBuilderTypeStepComponent } from '../docapi-builder-type-step/doca
 import { DocapiBuilderStyleStepComponent } from '../docapi-builder-style-step/docapi-builder-style-step.component';
 import { DocapiBuilderContentStepComponent } from '../docapi-builder-content-step/docapi-builder-content-step.component';
 import { DocTemplate } from '../../models/cmdb-doctemplate';
+import { Subscription } from 'rxjs';
+import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -34,7 +37,7 @@ import { DocTemplate } from '../../models/cmdb-doctemplate';
     styleUrls: ['./docapi-builder.component.scss'],
     standalone: false
 })
-export class DocapiBuilderComponent {
+export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
@@ -53,6 +56,11 @@ export class DocapiBuilderComponent {
     @ViewChild(DocapiBuilderStyleStepComponent, { static: true })
     public styleStep: DocapiBuilderStyleStepComponent;
 
+    private typeParamSubscription?: Subscription;
+    private suppressTypeChange = false;
+    private warningModalOpen = false;
+    private previousTypeState: { templateType: string; parameters: any } | null = null;
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -60,9 +68,18 @@ export class DocapiBuilderComponent {
     constructor(
         private docapiService: DocapiService,
         private router: Router,
-        private toast: ToastService
+        private toast: ToastService,
+        private modalService: NgbModal
     ) {
 
+    }
+
+    public ngAfterViewInit(): void {
+        // this.registerTypeChangeHandlers();
+    }
+
+    public ngOnDestroy(): void {
+        this.typeParamSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -105,6 +122,149 @@ export class DocapiBuilderComponent {
         this.docInstance.template_parameters = typeParamComponent?.typeParamForm?.value;
         this.docInstance.template_data = contentForm?.get('template_data')?.value;
         this.docInstance.template_style = styleForm?.get('template_style')?.value;
+    }
+
+    private registerTypeChangeHandlers(): void {
+        if (!this.typeStep?.typeForm) {
+            return;
+        }
+
+        this.previousTypeState = this.getCurrentTypeState();
+
+        this.typeStep.typeForm.valueChanges.subscribe(() => {
+            this.handleTypeChange();
+            this.registerTypeParamWatcher();
+        });
+
+        this.registerTypeParamWatcher();
+    }
+
+    public onTypeParamReady(): void {
+        this.registerTypeParamWatcher();
+    }
+
+    private registerTypeParamWatcher(): void {
+        this.typeParamSubscription?.unsubscribe();
+        const paramForm = this.typeStep?.typeParamComponent?.typeParamForm;
+        if (!paramForm) {
+            return;
+        }
+
+        this.typeParamSubscription = paramForm.valueChanges.subscribe(() => {
+            this.handleTypeChange();
+        });
+    }
+
+    private handleTypeChange(): void {
+        if (this.suppressTypeChange) {
+            return;
+        }
+
+        const currentState = this.getCurrentTypeState();
+        if (!this.previousTypeState || this.isSameTypeState(currentState, this.previousTypeState)) {
+            this.previousTypeState = currentState;
+            return;
+        }
+
+        const contentControl = this.contentStep?.contentForm?.get('template_data');
+        const contentValue = contentControl?.value ?? this.docInstance?.template_data;
+        const hasContent = this.hasMeaningfulContent(contentValue);
+        const hasEdits = !!contentControl?.dirty;
+        if (!hasContent && !hasEdits) {
+            this.previousTypeState = currentState;
+            return;
+        }
+
+        this.openTypeChangeWarning(currentState);
+    }
+
+    private openTypeChangeWarning(nextState: { templateType: string; parameters: any }): void {
+        if (this.warningModalOpen) {
+            return;
+        }
+
+        this.warningModalOpen = true;
+        const modalRef = this.modalService.open(CoreWarningModalComponent, {
+            size: 'md',
+            backdrop: 'static'
+        });
+
+        modalRef.componentInstance.title = 'Confirm change';
+        modalRef.componentInstance.message =
+            'Changing the template or object type will clear the current document content. Do you want to continue?';
+        modalRef.componentInstance.confirmLabel = 'Yes, clear content';
+        modalRef.componentInstance.cancelLabel = 'Cancel';
+        modalRef.componentInstance.warningTitle = 'Warning:';
+        modalRef.componentInstance.warningIconClass = 'fas fa-exclamation-triangle';
+
+        modalRef.result
+            .then((result: string) => {
+                if (result === 'confirmed') {
+                    this.contentStep?.contentForm?.get('template_data')?.setValue('');
+                    this.previousTypeState = nextState;
+                } else {
+                    this.revertTypeChange();
+                }
+            })
+            .catch(() => {
+                this.revertTypeChange();
+            })
+            .finally(() => {
+                this.warningModalOpen = false;
+            });
+    }
+
+    private revertTypeChange(): void {
+        this.suppressTypeChange = true;
+        this.restorePreviousTypeState();
+        this.suppressTypeChange = false;
+    }
+
+    private getCurrentTypeState(): { templateType: string; parameters: any } {
+        return {
+            templateType: this.typeStep?.typeForm?.get('template_type')?.value,
+            parameters: this.typeStep?.typeParamComponent?.typeParamForm?.value
+        };
+    }
+
+    private restorePreviousTypeState(): void {
+        if (!this.previousTypeState) {
+            return;
+        }
+        this.typeStep?.typeForm?.patchValue(
+            { template_type: this.previousTypeState.templateType },
+            { emitEvent: false }
+        );
+        this.typeStep?.typeParamComponent?.typeParamForm?.patchValue(
+            this.previousTypeState.parameters,
+            { emitEvent: false }
+        );
+    }
+
+    private isSameTypeState(
+        nextState: { templateType: string; parameters: any },
+        prevState: { templateType: string; parameters: any }
+    ): boolean {
+        if (nextState.templateType !== prevState.templateType) {
+            return false;
+        }
+        return JSON.stringify(nextState.parameters || {}) === JSON.stringify(prevState.parameters || {});
+    }
+
+    private hasMeaningfulContent(value: any): boolean {
+        if (value === null || value === undefined) {
+            return false;
+        }
+        const raw = value.toString();
+        if (!raw.trim()) {
+            return false;
+        }
+        const stripped = raw
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return stripped.length > 0;
     }
 
 

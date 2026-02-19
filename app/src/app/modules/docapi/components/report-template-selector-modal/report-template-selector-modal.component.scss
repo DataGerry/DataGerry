@@ -5,7 +5,6 @@ $dg-selected-background-color: #cccccc;
 $dg-hover-background-color: #bfbfbf;
 $dg-error-message-color: #dc3545;
 
-// Target the modal component directly
 :host {
   display: block;
 }
@@ -17,7 +16,6 @@ $dg-error-message-color: #dc3545;
   color: white;
   padding: 1.5rem 2rem;
   border-bottom: none;
-  border-radius: 16px 16px 0 0;
 
   .modal-title {
     font-weight: 600;
@@ -27,7 +25,6 @@ $dg-error-message-color: #dc3545;
   }
 }
 
-// Modal body styling - Side by side layout
 .modal-body {
   padding: 0;
   display: grid;
@@ -55,7 +52,6 @@ $dg-error-message-color: #dc3545;
       display: block;
     }
 
-    // No custom styling for ng-select - let it use default styles
   }
 
   /* Right Content Area - Table and Preview */

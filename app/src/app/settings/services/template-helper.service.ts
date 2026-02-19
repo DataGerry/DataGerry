@@ -44,7 +44,7 @@ export class TemplateHelperService implements OnDestroy {
     let publicIdTemplate: string;
     if (templateType === 'DEFAULT') {
       if (prefix) {
-        publicIdTemplate = '{{root.fields' + prefix + '[\'id\']}}';
+        publicIdTemplate = '{{root.fields' + prefix + '[\'public_id\']}}';
       } else {
         publicIdTemplate = '{{root.public_id}}';
       }
@@ -109,41 +109,20 @@ export class TemplateHelperService implements OnDestroy {
           if (!refSection) {
             continue;
           }
-          await this.getSectionReferenceType(refSection.reference.type_id).then((referenceType: CmdbType) => {
-            const referenceFields: Array<TemplateHelpdataElement> = [];
-            let referenceFieldNames: Array<string> = [];
-            if (refSection.reference.selected_fields && refSection.reference.selected_fields.length > 0) {
-              referenceFieldNames = refSection.reference.selected_fields;
-            } else {
-              const referenceTypeSection = referenceType.render_meta.sections.find(s => s.name === refSection.reference.section_name);
-              if (referenceTypeSection) {
-                referenceFieldNames = referenceTypeSection.fields;
-              }
-            }
-            for (const refFieldName of referenceFieldNames) {
-              const refField = referenceType.fields.find(f => f.name === refFieldName);
-              if (refField) {
-                let refFieldTemplate: string;
-                if (templateType === 'DEFAULT') {
-                  refFieldTemplate = (changedPrefix ? '{{root.fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{root.fields[\'' + refField.name + '\']}}');
-                } else {
-                  refFieldTemplate = (changedPrefix ? '{{fields' + changedPrefix + '[\'fields\'][\'' + refField.name + '\']}}' : '{{fields[\'' + refField.name + '\']}}');
-                }
-                referenceFields.push(({
-                  label: refField.label,
-                  templatedata: refFieldTemplate,
-                  name: refField.name,
-                  type: refField.type
-                }) as TemplateHelpdataElement);
-              }
-            }
-            templateHelperData.push(({
-              label: field.label,
-              subdata: referenceFields,
-              name: field.name,
-              type: field.type
-            }) as TemplateHelpdataElement);
-          });
+          const referenceType: CmdbType = await this.getSectionReferenceType(refSection.reference.type_id);
+          const referenceFields = await this.buildReferenceSectionFields(
+            referenceType,
+            refSection,
+            changedPrefix,
+            iteration,
+            templateType
+          );
+          templateHelperData.push(({
+            label: field.label,
+            subdata: referenceFields,
+            name: field.name,
+            type: field.type
+          }) as TemplateHelpdataElement);
         } else {
           // Generate field placeholder based on template type
           let fieldTemplate: string;
@@ -202,6 +181,101 @@ export class TemplateHelperService implements OnDestroy {
       console.error(error);
     }
     return templateHelperData;
+  }
+
+  private async buildReferenceSectionFields(
+    referenceType: CmdbType,
+    refSection: any,
+    prefix: string,
+    iteration: number,
+    templateType: string
+  ): Promise<Array<TemplateHelpdataElement>> {
+    const referenceFields: Array<TemplateHelpdataElement> = [];
+    let referenceFieldNames: Array<string> = [];
+    if (refSection.reference.selected_fields && refSection.reference.selected_fields.length > 0) {
+      referenceFieldNames = refSection.reference.selected_fields;
+    } else {
+      const referenceTypeSection = referenceType.render_meta.sections.find(s => s.name === refSection.reference.section_name);
+      if (referenceTypeSection) {
+        referenceFieldNames = referenceTypeSection.fields;
+      }
+    }
+
+    for (const refFieldName of referenceFieldNames) {
+      const refField = referenceType.fields.find(f => f.name === refFieldName);
+      if (!refField) {
+        continue;
+      }
+
+      if (templateType === 'DEFAULT' && iteration > 0 && (refField.type === 'ref' || refField.type === 'ref-section-field')) {
+        const nextPrefix = `${prefix}['fields']['${refField.name}']`;
+        const subdata = await this.buildReferenceFieldSubdata(refField, referenceType, nextPrefix, iteration - 1, templateType);
+        if (subdata.length > 0) {
+          referenceFields.push(({
+            label: refField.label,
+            subdata,
+            name: refField.name,
+            type: refField.type
+          }) as TemplateHelpdataElement);
+          continue;
+        }
+      }
+
+      let refFieldTemplate: string;
+      if (templateType === 'DEFAULT') {
+        refFieldTemplate = (prefix ? `{{root.fields${prefix}['fields']['${refField.name}']}}` : `{{root.fields['${refField.name}']}}`);
+      } else {
+        refFieldTemplate = (prefix ? `{{fields${prefix}['fields']['${refField.name}']}}` : `{{fields['${refField.name}']}}`);
+      }
+      referenceFields.push(({
+        label: refField.label,
+        templatedata: refFieldTemplate,
+        name: refField.name,
+        type: refField.type
+      }) as TemplateHelpdataElement);
+    }
+
+    return referenceFields;
+  }
+
+  private async buildReferenceFieldSubdata(
+    field: any,
+    parentType: CmdbType,
+    prefix: string,
+    iteration: number,
+    templateType: string
+  ): Promise<Array<TemplateHelpdataElement>> {
+    if (field.type === 'ref') {
+      if (!field.ref_types) {
+        return [];
+      }
+      if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
+        return this.getObjectTemplateHelperData(field.ref_types, prefix, iteration, templateType);
+      }
+      if (field.ref_types.length === 1) {
+        return this.getObjectTemplateHelperData(field.ref_types[0], prefix, iteration, templateType);
+      }
+      const grouped = [];
+      for (const type of field.ref_types) {
+        const data = await this.getObjectTemplateHelperData(type, prefix, iteration, templateType);
+        grouped.push(({
+          label: 'ref_type ' + type,
+          subdata: data
+        }) as TemplateHelpdataElement);
+      }
+      return grouped;
+    }
+
+    if (field.type === 'ref-section-field') {
+      const refSection = parentType.render_meta.sections.find(s => s.name === field.name.substring(0, field.name.length - 6));
+      if (!refSection) {
+        return [];
+      }
+      const referenceType: CmdbType = await this.getSectionReferenceType(refSection.reference.type_id);
+      return this.buildReferenceSectionFields(referenceType, refSection, prefix, iteration, templateType);
+    }
+
+    return [];
   }
 
   public ngOnDestroy(): void {
