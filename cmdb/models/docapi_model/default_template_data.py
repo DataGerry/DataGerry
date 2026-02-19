@@ -196,13 +196,14 @@ class DefaultTemplateData:
             "report": self._report_accessor(),
         }
 
+
     def get_template_data(self) -> dict[str, Any]:
         """
         Returns the template_data
         """
         return self.template_data
 
-    # Root element accessor
+
     def _root_accessor(self):
         root = dict(self.root_data)
         root["relation"] = self._relation_accessor(self.root_object_id)
@@ -322,7 +323,7 @@ class DefaultTemplateData:
             )
 
             safe_globals = {"datetime": datetime}
-            #pylint: disable=W0123
+            # pylint: disable=W0123
             report_query = eval(processed_query_string, safe_globals)
 
             objects = []
@@ -334,6 +335,7 @@ class DefaultTemplateData:
             # Build label map for headers
             field_label_map = {}
             type_id = report.get("type_id")
+            type_obj = None
 
             if type_id:
                 type_obj = self.types_manager.get_type(type_id)
@@ -351,6 +353,11 @@ class DefaultTemplateData:
                 headers.append(field_label_map.get(field_id, field_id))
 
             rows = []
+
+            # determine ONCE if we need MDS expansion
+            use_mds = False
+            if type_obj and report.get("mds_mode", "ROWS") == "ROWS":
+                use_mds = self._report_uses_mds_fields(report, type_obj)
 
             for obj in objects:
                 # Base fields
@@ -391,10 +398,14 @@ class DefaultTemplateData:
                     rows.append(row)
 
                 else:
-                    expanded_rows = self._expand_mds_rows(
-                        base_fields,
-                        mds_sections
-                    )
+                    # Only expand if report actually uses MDS fields
+                    if use_mds:
+                        expanded_rows = self._expand_mds_rows(
+                            base_fields,
+                            mds_sections
+                        )
+                    else:
+                        expanded_rows = [base_fields]   # no cartesian product
 
                     for expanded in expanded_rows:
                         row = [str(expanded.get("public_id", ""))]
@@ -545,8 +556,6 @@ class DefaultTemplateData:
         Collapse MDS values into stacked columns
         """
         result = dict(base_fields)
-
-        # field_name -> [values...]
         collected = {}
 
         for section in mds_sections:
@@ -560,3 +569,21 @@ class DefaultTemplateData:
             )
 
         return result
+
+
+    def _report_uses_mds_fields(self, report: dict[str, Any], type_obj: dict[str, Any]) -> bool:
+        """TODO: document"""
+        selected = set(report.get("selected_fields", []))
+
+        render_meta: dict[str, Any] = type_obj.get("render_meta", {})
+        sections: list[dict[str, Any]] = render_meta.get("sections", [])
+
+        for section in sections:
+            if section.get("type") != "multi-data-section":
+                continue
+
+            for field_name in section.get("fields", []):
+                if field_name in selected:
+                    return True
+
+        return False
