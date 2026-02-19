@@ -259,12 +259,12 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         if (!raw.trim()) {
             return false;
         }
-        const stripped = raw
-            .replace(/<[^>]*>/g, '')
-            .replace(/&nbsp;/gi, ' ')
+        const container = document.createElement('div');
+        container.innerHTML = raw;
+        const text = (container.textContent || container.innerText || '')
             .replace(/\s+/g, ' ')
             .trim();
-        return stripped.length > 0;
+        return text.length > 0;
     }
 
 
