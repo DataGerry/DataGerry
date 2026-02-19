@@ -39,6 +39,7 @@ from cmdb.manager import (
     WebhooksManager,
     ObjectRelationsManager,
     ObjectRelationLogsManager,
+    ObjectGroupsManager,
 )
 
 from cmdb.security.acl.permission import AccessControlPermission
@@ -1163,6 +1164,10 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser):
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
                                                                             ManagerType.OBJECT_RELATION_LOGS,
                                                                             request_user)
+        object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
         current_location = None
 
@@ -1210,6 +1215,9 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser):
                 "[delete_cmdb_object] Locations Exception: %s. Type: %s", error, type(error), exc_info=True
             )
             abort(500, "Failed to handle potential Locations of this Object!")
+
+        # Remove the object from all static groups
+        object_groups_manager.remove_ids_from_static_groups(public_id)
 
         is_deleted = objects_manager.delete_with_follow_up(public_id, request_user, AccessControlPermission.DELETE)
 
@@ -1299,6 +1307,10 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
                                                                             ManagerType.OBJECT_RELATION_LOGS,
                                                                             request_user)
+        object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
         # check if object exists
         current_object_instance = objects_manager.get_object(public_id)
@@ -1337,6 +1349,9 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
 
             # delete the current object and its location
             locations_manager.delete_location(current_location['public_id'])
+
+            # Remove the object from all static groups
+            object_groups_manager.remove_ids_from_static_groups(public_id)
 
             deleted = objects_manager.delete_with_follow_up(public_id,
                                                             request_user,
@@ -1403,7 +1418,10 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser):
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
                                                                             ManagerType.OBJECT_RELATION_LOGS,
                                                                             request_user)
-
+        object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
         # check if object exists
         current_object_instance = objects_manager.get_object(public_id)
 
@@ -1442,7 +1460,11 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser):
                 children_object_ids.append(child['object_id'])
                 locations_manager.delete_location(child['public_id'])
 
-            # # delete the objects of child locations
+            # Remove the objects from all static groups
+            if children_object_ids:
+                object_groups_manager.remove_ids_from_static_groups(children_object_ids)
+
+            # delete the objects of child locations
             for child_object_id in children_object_ids:
                 objects_manager.delete_with_follow_up(child_object_id,
                                                       request_user,
@@ -1456,6 +1478,10 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser):
 
             # # delete the current object and its location
             locations_manager.delete_location(current_location['public_id'])
+
+            # Remove the objects from all static groups
+            object_groups_manager.remove_ids_from_static_groups(public_id)
+
             deleted = objects_manager.delete_with_follow_up(public_id,
                                                             request_user,
                                                             AccessControlPermission.DELETE)
@@ -1531,6 +1557,10 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser):
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
                                                                             ManagerType.OBJECT_RELATION_LOGS,
                                                                             request_user)
+        object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
         ids = []
         operator_in = {'$in': []}
@@ -1577,6 +1607,9 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser):
                                                         current_type_instance,
                                                         request_user,
                                                         False).result()
+
+            # Remove the objects from all static groups
+            object_groups_manager.remove_ids_from_static_groups(current_object_instance.get_public_id())
 
             objects_manager.delete_with_follow_up(current_object_instance.get_public_id(),
                                                   request_user,
