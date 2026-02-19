@@ -18,10 +18,12 @@ This module contains the implementation of the ObjectGroupsManager
 """
 from logging import Logger, getLogger
 
+from pymongo.results import UpdateResult
+
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.object_group_model import CmdbObjectGroup, ObjectReferenceType
+from cmdb.models.object_group_model import CmdbObjectGroup, ObjectReferenceType, ObjectGroupMode
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 
 from cmdb.errors.manager.object_groups_manager import OBJECT_GROUPS_MANAGER_ERRORS
@@ -105,3 +107,27 @@ class ObjectGroupsManager(GenericManager):
                 self.db_name,
                 **{'risk_assessment_id': {'$in': risk_assessment_ids}},
             )
+
+
+    def remove_ids_from_static_groups(self, public_ids: int | list[int]) -> UpdateResult:
+        """
+        Removes a public_id or list of public_ids of a CmdbObject from the 'assigned_ids' of all static CmdbObjectGroups
+        Args:
+            public_ids (int): public_id of the target CmdbObject
+
+        Returns:
+            UpdateResult: Result of the deletion
+        """
+        criteria = {"group_type": ObjectGroupMode.STATIC}
+
+        if isinstance(public_ids, list):
+            criteria["assigned_ids"] = {"$in": public_ids}
+            update = {"assigned_ids": {"$in": public_ids}}
+        else:
+            criteria["assigned_ids"] = public_ids
+            update = {"assigned_ids": public_ids}
+
+        return self.update_many_pull(
+            criteria=criteria,
+            update=update,
+        )

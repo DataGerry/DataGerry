@@ -158,6 +158,7 @@ class ObjectImporter(BaseImporter):
                     success_imports.append(ImportSuccessMessage(public_id=current_public_id, obj=current_import_object))
             else:
                 try:
+                    #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
                     self.objects_manager.delete_with_follow_up(current_public_id, self.request_user)
                 except ObjectsManagerDeleteError as err:
                     LOGGER.error("[_import] ObjectsManagerDeleteError: %s", err, exc_info=True)
