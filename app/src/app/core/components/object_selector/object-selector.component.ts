@@ -131,7 +131,7 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
       filter: filters,
       projection: baseProjection,
       limit: this.isSearching ? 0 : this.pageSize, // In search mode, get all results
-      sort: 'public_id',
+      sort: 'type_id',
       order: 1,
       page: this.isSearching ? 1 : this.currentPage
     };
@@ -142,20 +142,21 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
       finalize(() => this.setLoading(false))
     ).subscribe({
       next: (response: APIGetMultiResponse<RenderResult>) => {
+        const incomingResults = this.getUniqueObjectsById(response.results || []);
 
         if (resetPagination) {
-          this.objectList = response.results || [];
+          this.objectList = incomingResults;
         } else {
-          this.objectList = [...this.objectList, ...(response.results || [])];
+          this.objectList = this.getUniqueObjectsById([...this.objectList, ...incomingResults]);
         }
         
         // Update hasMoreData for pagination mode
         if (!this.isSearching) {
-          this.hasMoreData = response.results?.length === this.pageSize;
-          // Only increment page if we're not resetting pagination
-          if (!resetPagination) {
-            this.currentPage++;
-          }
+          this.hasMoreData = incomingResults.length === this.pageSize;
+          // Advance page after each successful non-search fetch:
+          // reset fetch (page 1) -> next page becomes 2
+          // incremental fetch (page N) -> next page becomes N + 1
+          this.currentPage++;
         }
         
         this.initSelectedObjects();
@@ -177,6 +178,17 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
         this.initSelectedObjects();
       }
     });
+  }
+
+  private getUniqueObjectsById(objects: RenderResult[]): RenderResult[] {
+    const uniqueByObjectId = new Map<number, RenderResult>();
+    for (const obj of objects) {
+      const objectId = obj?.object_information?.object_id;
+      if (objectId !== undefined && objectId !== null && !uniqueByObjectId.has(objectId)) {
+        uniqueByObjectId.set(objectId, obj);
+      }
+    }
+    return Array.from(uniqueByObjectId.values());
   }
 
   private initSelectedObjects(): void {
