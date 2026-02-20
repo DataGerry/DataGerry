@@ -67,17 +67,6 @@ export class GraphInteractionService {
     contextMenuVisible: boolean;
     createMenuVisible: boolean;
   } {
-    if (node.isRoot) {
-      return {
-        selectedNode: selectedNode,
-        selectedNodes: selectedNodes,
-        contextMenuX: contextMenuX,
-        contextMenuY: contextMenuY,
-        contextMenuVisible: false,
-        createMenuVisible: createMenuVisible
-      };
-    }
-
     event.preventDefault();
     event.stopPropagation();
 
