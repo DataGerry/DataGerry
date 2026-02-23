@@ -75,7 +75,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     }
 
     public ngAfterViewInit(): void {
-        // this.registerTypeChangeHandlers();
+        this.registerTypeChangeHandlers();
     }
 
     public ngOnDestroy(): void {
@@ -169,8 +169,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         const contentControl = this.contentStep?.contentForm?.get('template_data');
         const contentValue = contentControl?.value ?? this.docInstance?.template_data;
         const hasContent = this.hasMeaningfulContent(contentValue);
-        const hasEdits = !!contentControl?.dirty;
-        if (!hasContent && !hasEdits) {
+        if (!hasContent) {
             this.previousTypeState = currentState;
             return;
         }
