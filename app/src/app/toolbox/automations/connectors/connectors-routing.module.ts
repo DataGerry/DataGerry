@@ -22,28 +22,34 @@ import { ConnectorsComponent } from './connectors.component';
 import { ConnectorsResolver } from './services/connectors-resolver.service';
 import { ConnectorFormComponent } from './components/connector-form/connector-form.component';
 import { ConnectorsListComponent } from './components/connectors-list/connectors-list.component';
+import { PermissionGuard } from 'src/app/modules/auth/guards/permission.guard';
 
 const routes: Routes = [
   {
     path: '',
     component: ConnectorsComponent,
+    canActivate: [PermissionGuard],
+    canActivateChild: [PermissionGuard],
+    data: {
+      right: 'base.openCelium.connector.view'
+    },
     children: [
       { 
         path: '', 
         component: ConnectorsListComponent,
-        data: { breadcrumb: 'Connectors' }
+        data: { breadcrumb: 'Connectors', right: 'base.openCelium.connector.view' }
       },
       {
         path: 'add',
         component: ConnectorFormComponent,
         resolve: { invokers: ConnectorsResolver },
-        data: { mode: 'create', breadcrumb: 'Create Connector' }
+        data: { mode: 'create', breadcrumb: 'Create Connector', right: 'base.openCelium.connector.add' }
       },
       {
         path: 'edit/:id',
         component: ConnectorFormComponent,
         resolve: { invokers: ConnectorsResolver },
-        data: { mode: 'edit', breadcrumb: 'Edit Connector' }
+        data: { mode: 'edit', breadcrumb: 'Edit Connector', right: 'base.openCelium.connector.edit' }
       }
     ]
   }

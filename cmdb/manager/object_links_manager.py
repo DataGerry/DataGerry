@@ -215,3 +215,24 @@ class ObjectLinksManager(BaseManager):
             return self.delete({'public_id':public_id})
         except (BaseManagerGetError, BaseManagerDeleteError) as err:
             raise ObjectLinksManagerDeleteError(err) from err
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def delete_object_links(self, public_ids: int | list[int]):
+        """Deletes all ObjectLinks where the object is primary or secondary."""
+        if isinstance(public_ids, list):
+            filter_query = {
+                "$or": [
+                    {"primary": {"$in": public_ids}},
+                    {"secondary": {"$in": public_ids}},
+                ]
+            }
+        else:
+            filter_query = {
+                "$or": [
+                    {"primary": public_ids},
+                    {"secondary": public_ids},
+                ]
+            }
+
+        return self.delete_many_raw(filter_query=filter_query)

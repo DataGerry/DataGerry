@@ -884,6 +884,7 @@ def validate_subscrption_user(
         raise RequestError(str(err)) from err
 
 
+#TODO: Move this method to DataGerry ServicePortal Manager
 def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
     """
     Synchronize configuration items with the service portal
@@ -937,31 +938,6 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as err:
         LOGGER.error("[sync_config_items] Request Error: %s. Type: %s", err, type(err))
         return False
-
-
-def mongo_retry(retries: int = 3, delay:int = 2):
-    """
-    Decorator to retry MongoDB operations in case of transient errors.
-    
-    Args:
-        retries (int): Number of retries
-        delay (int): Seconds between retries
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for _ in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except (NetworkTimeout, AutoReconnect) as e:
-                    last_exception = e
-                    time.sleep(delay)
-            # After retries exhausted
-            raise last_exception
-        return wrapper
-    return decorator
-
 
 # --------------------------------------------------- USER CACHING --------------------------------------------------- #
 
