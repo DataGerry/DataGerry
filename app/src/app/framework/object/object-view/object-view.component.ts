@@ -433,7 +433,6 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
     this.showRelationRoleDialog = false;
     this.selectedRelationInstance = null;
     this.dialogMode = CmdbMode.Create; // Reset to default mode
-    this.toastService.info('Operation cancelled');
     this.changesRef.markForCheck();
   }
 
