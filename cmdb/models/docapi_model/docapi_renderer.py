@@ -41,11 +41,11 @@ class DocApiRenderer:
     """
 
     def __init__(
-            self,
-            objects_manager: ObjectsManager,
-            target_template: DocapiTemplate,
-            target_object: CmdbObject,
-        ) -> None:
+        self,
+        objects_manager: ObjectsManager,
+        target_template: DocapiTemplate,
+        target_object: CmdbObject,
+    ) -> None:
         """
         Initializes the DocApiRenderer
 
@@ -53,9 +53,9 @@ class DocApiRenderer:
             objects_manager (ObjectsManager): The manager responsible for CmdbObjects
             template (DocapiTemplate): Target template
         """
-        self.target_template = target_template
-        self.target_object = target_object
-        self.objects_manager = objects_manager
+        self.target_template: DocapiTemplate = target_template
+        self.target_object: CmdbObject = target_object
+        self.objects_manager: ObjectsManager = objects_manager
 
 
     def render_object_template(self, request_user: CmdbUser = None) -> BytesIO:

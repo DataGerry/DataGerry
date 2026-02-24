@@ -140,8 +140,9 @@ class ObjectsManager(BaseManager):
         self,
         public_id: int,
         user: CmdbUser | None = None,
-        permission: AccessControlPermission | None = None
-    ) -> dict[str, Any] | None:
+        permission: AccessControlPermission | None = None,
+        as_dict: bool = True
+    ) -> dict[str, Any] | CmdbObject | None:
         """
         Retrieves a CmdbObject from the database
 
@@ -149,14 +150,14 @@ class ObjectsManager(BaseManager):
             public_id (int): public_id of the CmdbObject
             user (CmdbUser | None): CmdbUser requesting the action
             permission (AccessControlPermission | None): Extended CmdbUser ACL rights
+            as_dict (bool): If true the object is returned as dictionary else as an CmdbObject
             
         Raises:
             ObjectsManagerGetError: When a CmdbObject could not be retrieved
             AccessDeniedError: If the CmdbUser does not have the permission for this action
 
         Returns:
-            dict | None: A dictionary representation of the CmdbObject or the CmdbObject instace
-                                               if found in database, otherwise None
+            dict[str, Any] | Cmdbobject | None: The CmdbObject either as object or dict if found else None
         """
         try:
             requested_object = self.get_one(public_id)
@@ -166,7 +167,7 @@ class ObjectsManager(BaseManager):
                 object_type = self.get_object_type(requested_object.type_id)
                 verify_access(object_type, user, permission)
 
-                return CmdbObject.to_json(requested_object)
+                return CmdbObject.to_json(requested_object) if as_dict else requested_object
 
             return None
         except AccessDeniedError as err:
@@ -326,7 +327,7 @@ class ObjectsManager(BaseManager):
 
 
     #TODO: ERROR-FIX (Create a ObjectsManagerGetTypeError)
-    def get_object_type(self, type_id: int) -> CmdbType | None:
+    def get_object_type(self, type_id: int, raw: bool = False) -> CmdbType | None:
         """
         Retrieves the CmdbType for the given public_id of the CmdbType
 
@@ -342,6 +343,9 @@ class ObjectsManager(BaseManager):
         try:
             requested_type = self.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
             requested_type = CmdbType.from_data(requested_type)
+
+            if raw:
+                requested_type = CmdbType.to_json(requested_type)
 
             return requested_type
         except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
@@ -729,6 +733,50 @@ class ObjectsManager(BaseManager):
         return self.delete_object(public_id, user, permission)
 
 
+    # def delete_all_object_references(self, public_ids: int | list[int], type_id: int):
+    #     """
+    #     TODO: document
+    #     Delete one or multiple references of Objects from Objects
+    #     """
+    #     target_type = self.get_object_type(type_id, True)
+
+    #     ref_field_names = self.get_reference_field_names_from_type(target_type)
+
+    #     if not ref_field_names:
+    #         return None  # nothing to do
+
+    #     if isinstance(public_ids, list):
+    #         if not public_ids:
+    #             return None  # nothing to do
+
+    #         ids_filter = {"$in": public_ids}
+    #     else:
+    #         ids_filter = public_ids
+
+    #     filter_query = {
+    #         "type_id": type_id,
+    #         "fields.value": ids_filter,
+    #         "fields.name": {"$in": list(ref_field_names)},
+    #     }
+
+    #     update = {
+    #         "$set": {
+    #             "fields.$[f].value": ""
+    #         }
+    #     }
+
+    #     array_filters = [
+    #         {
+    #             "f.value": ids_filter,
+    #             "f.name": {"$in": list(ref_field_names)},
+    #         }
+    #     ]
+
+    #     return self.update_many_raw(
+    #         filter_query=filter_query,
+    #         update=update,
+    #         array_filters=array_filters,
+    #     )
     def delete_all_object_references(self, public_id: int) -> None:
         """
         Removes all references to the specified object by clearing its reference fields
@@ -745,7 +793,7 @@ class ObjectsManager(BaseManager):
             # Get all objects which reference the targeted object
             referenced_objects = self.references(
                                     object_=object_instance,
-                                    criteria={'$match': {'active': {'$eq': True}}},
+                                    criteria={},
                                     limit=0,
                                     skip=0,
                                     sort='public_id',
@@ -978,3 +1026,12 @@ class ObjectsManager(BaseManager):
             return summary_line
         except Exception as err:
             raise ObjectsManagerSummaryLineError(err) from err
+
+
+    # def get_reference_field_names_from_type(self, type_schema: dict) -> set[str]:
+    #     """TODO: document"""
+    #     return {
+    #         field["name"]
+    #         for field in type_schema.get("fields", [])
+    #         if field.get("type") in {"ref", "ref-section-field"}
+    #     }

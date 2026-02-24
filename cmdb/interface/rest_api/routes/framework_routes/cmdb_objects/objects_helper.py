@@ -14,28 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-TODO: document
+Helper methods for CmdbObject routes
 """
+from logging import Logger, getLogger
+
+# from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 # -------------------------------------------------------------------------------------------------------------------- #
 
+LOGGER: Logger = getLogger(__name__)
+
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               AggregatedFields - CLASS                                               #
-# -------------------------------------------------------------------------------------------------------------------- #
-class AggregatedFields:
-    """
-    TODO: document
-    """
-    def __init__(self, field_dicts: list[dict]) -> None:
-        self._field_dicts = field_dicts
-
-
-    def __getitem__(self, field_name: str) -> str:
-        values = []
-
-        for d in self._field_dicts:
-            val = d.get(field_name)
-            if val is None or val == "":
-                continue
-            values.append(str(val))
-
-        return ", ".join(values)
