@@ -53,16 +53,6 @@ class CategoryMeta:
         return self.icon
 
 
-    def has_order(self) -> bool:
-        """
-        Checks whether an order value is set for the CmdbCategory
-
-        Returns:
-            bool: True if the order is set, otherwise False
-        """
-        return bool(self.order)
-
-
     def get_order(self) -> int:
         """
         Retrieves the order of the CmdbCategory

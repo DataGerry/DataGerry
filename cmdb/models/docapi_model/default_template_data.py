@@ -95,6 +95,9 @@ class DefaultTemplateData:
         request_user,
         template_type
     ) -> None:
+        """
+        TODO: document
+        """
         self.template_string = template_string
         self.request_user = request_user
         self.template_type = template_type
@@ -177,6 +180,8 @@ class DefaultTemplateData:
             for rel_id, _, _ in RELATION_STEP_REGEX.findall(placeholder):
                 relation_ids.add(int(rel_id))
 
+        self.all_object_relations: list[dict] = []  # global relation list
+
         if relation_ids:
             cursor = self.relations_manager.find(
                 criteria={"public_id": {"$in": list(relation_ids)}}
@@ -187,7 +192,11 @@ class DefaultTemplateData:
             cursor = self.object_relations_manager.find(
                 criteria={"relation_id": {"$in": list(relation_ids)}}
             )
-            self.object_relations = list(cursor)
+            # store global list separately
+            self.all_object_relations = list(cursor)
+
+        # Keep self.object_relations for first-hop scoped traversal
+        self.object_relations = list(self.all_object_relations)
 
         # Final template data
         self.template_data: dict[str, Any] = {
@@ -210,14 +219,15 @@ class DefaultTemplateData:
 
         return root
 
-    # Relation traversal engine
+
     def _relation_accessor(self, start_object_id: int):
-        def _relation_fn(relation_id: int, side: str):
+        def _relation_fn(relation_id: int, side: str) -> RelationResult:
             return self._relation_traversal(
                 start_object_id,
                 relation_id,
                 side
             )
+
         return _relation_fn
 
 
@@ -226,10 +236,11 @@ class DefaultTemplateData:
         start_object_id: int,
         relation_id: int,
         side: str,
-    ):
+    ) -> RelationResult:
         matches = []
 
-        for rel in self.object_relations:
+        # Find objects for this hop
+        for rel in self.object_relations:  # still use scoped here
             if rel["relation_id"] != relation_id:
                 continue
 
@@ -238,42 +249,68 @@ class DefaultTemplateData:
             elif side == "child" and rel["relation_parent_id"] == start_object_id:
                 matches.append(rel["relation_child_id"])
 
-        # Ensure related objects are cached
-        missing_ids = [
-            oid for oid in matches
-            if oid not in self.object_cache
-        ]
-
+        # Cache objects & types (unchanged)
+        missing_ids = [oid for oid in matches if oid not in self.object_cache]
         if missing_ids:
-            cursor = self.objects_manager.find(
-                criteria={"public_id": {"$in": missing_ids}}
-            )
+            cursor = self.objects_manager.find(criteria={"public_id": {"$in": missing_ids}})
             for obj in cursor:
                 self.object_cache[obj["public_id"]] = obj
 
-        # Ensure related types are cached
         missing_type_ids = {
             obj["type_id"]
             for obj in self.object_cache.values()
             if obj.get("type_id") and obj["type_id"] not in self.type_cache
         }
-
         if missing_type_ids:
-            cursor = self.types_manager.find(
-                criteria={"public_id": {"$in": list(missing_type_ids)}}
-            )
+            cursor = self.types_manager.find(criteria={"public_id": {"$in": list(missing_type_ids)}})
             for t in cursor:
                 self.type_cache[t["public_id"]] = t
+
+        # Build scoped relations for relation_fields
+        scoped_relations = []
+        for rel in self.object_relations:
+            if rel["relation_id"] != relation_id:
+                continue
+
+            if side == "parent":
+                if rel["relation_child_id"] == start_object_id and rel["relation_parent_id"] in matches:
+                    scoped_relations.append(rel)
+            elif side == "child":
+                if rel["relation_parent_id"] == start_object_id and rel["relation_child_id"] in matches:
+                    scoped_relations.append(rel)
+
+        # LOGGER.debug("[_relation_traversal] MATCHES => %s", matches)
+
+        # LOGGER.debug(
+        #     "[_relation_traversal] matches=%s scoped=%s global=%s",
+        #     matches,
+        #     [(r["relation_parent_id"], r["relation_child_id"]) for r in scoped_relations],
+        #     [(r["relation_parent_id"], r["relation_child_id"]) for r in self.all_object_relations],
+        # )
+
+        # LOGGER.debug(
+        #     "[_relation_traversal] SCOPED RELATIONS => %s",
+        #     [
+        #         {
+        #             "parent": r["relation_parent_id"],
+        #             "child": r["relation_child_id"],
+        #             "fields": r.get("field_values")
+        #         }
+        #         for r in scoped_relations
+        #     ]
+        # )
 
         return RelationResult(
             matches,
             self.object_cache,
             self.type_cache,
-            self.object_relations,
+            scoped_relations,          # scoped for relation_fields
+            self.all_object_relations, # global for multi-hop traversal
             self.request_user,
             self.objects_manager,
             self.template_type
         )
+
 
     # External object accessor
     def _object_accessor(self):
@@ -448,9 +485,8 @@ class DefaultTemplateData:
         - First column is narrow (Public ID)
         - Remaining columns share the rest of the width evenly
         """
-
         # Column Width Calculation
-        num_cols = len(headers)
+        num_cols: int = len(headers)
         if num_cols < 1:
             return ""
 
@@ -551,7 +587,7 @@ class DefaultTemplateData:
         return rows
 
 
-    def _expand_mds_columns(self, base_fields, mds_sections):
+    def _expand_mds_columns(self, base_fields, mds_sections: list[dict[str, Any]]):
         """
         Collapse MDS values into stacked columns
         """
@@ -572,7 +608,9 @@ class DefaultTemplateData:
 
 
     def _report_uses_mds_fields(self, report: dict[str, Any], type_obj: dict[str, Any]) -> bool:
-        """TODO: document"""
+        """
+        TODO: document
+        """
         selected = set(report.get("selected_fields", []))
 
         render_meta: dict[str, Any] = type_obj.get("render_meta", {})

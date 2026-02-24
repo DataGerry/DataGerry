@@ -17,6 +17,7 @@
 This module contains the implementation of the LocationsManager
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -143,7 +144,7 @@ class LocationsManager(BaseManager):
             raise LocationsManagerGetError(err) from err
 
 
-    def get_location_for_object(self, object_id: int) -> dict:
+    def get_location_for_object(self, object_id: int) -> dict[str, Any] | None:
         """
         Retrieves a single CmdbLocation for the given CmdbObject's public_id
 
@@ -154,7 +155,7 @@ class LocationsManager(BaseManager):
             LocationsManagerGetError: If CmdbLocation could not be retrieved
 
         Returns:
-            CmdbLocation: The requested CmdbLocation is found, else None
+            dict[str, Any] | None: The requested CmdbLocation as dict if found, else None
         """
         try:
             return self.get_one_by({'object_id':object_id})

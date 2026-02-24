@@ -488,7 +488,7 @@ max-statements=50
 min-public-methods=0
 
 # Maximum number of positional arguments (see R0917)
-max-positional-arguments=7
+max-positional-arguments=8
 
 [CLASSES]
 
