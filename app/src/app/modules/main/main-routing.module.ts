@@ -148,7 +148,7 @@ const routes: Routes = [
     {
         path: 'docapi',
         data: {
-            breadcrumb: 'DocAPI'
+            breadcrumb: 'Document Generator'
         },
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
