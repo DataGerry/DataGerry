@@ -163,7 +163,26 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     private loadFieldsForType(typeId: number): void {
         const selectedType = this.types.find((type) => type.public_id === typeId);
         if (selectedType && selectedType.fields && selectedType.fields.length > 0) {
-            this.fields = selectedType.fields;
+            const nonRefSectionFieldNames = new Set(
+                (selectedType?.render_meta?.sections || [])
+                    .filter((section) => section?.type !== 'ref-section')
+                    .flatMap((section) => section?.fields || [])
+            );
+
+            const refSectionFieldNames = new Set(
+                (selectedType?.render_meta?.sections || [])
+                    .filter((section) => section?.type === 'ref-section')
+                    .filter((section) => !!section?.name)
+                    .map((section) => `${section.name}-field`)
+            );
+
+            this.fields = selectedType.fields.filter((field) =>
+                // If render_meta sections are available, only include fields that belong to non-ref sections.
+                (nonRefSectionFieldNames.size === 0 || nonRefSectionFieldNames.has(field?.name)) &&
+                field?.type !== 'ref' &&
+                field?.type !== 'ref-section-field' &&
+                !refSectionFieldNames.has(field?.name)
+            );
             this.filterBuilderReady = true;
         } else {
             this.fields = [];
@@ -190,6 +209,12 @@ export class CreateReportComponent implements OnInit, OnDestroy {
 
                 // Load fields for the selected type
                 this.loadFieldsForType(report.type_id);
+
+                // Remove hidden/ineligible fields (e.g. ref-section selections) from preselected edit values
+                const allowedFieldNames = new Set(this.fields.map((field) => field.name));
+                this.createReportForm.patchValue({
+                    fields: (report.selected_fields || []).filter((name) => allowedFieldNames.has(name))
+                });
 
                 // Set conditions and make filter builder ready
                 this.conditions = report.conditions;

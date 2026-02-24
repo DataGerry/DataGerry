@@ -316,7 +316,7 @@
 
 
   <!-- Enhanced Context Menu -->
-  <div class="context-menu modern-menu" *ngIf="contextMenuVisible && selectedNode && !selectedNode.isRoot"
+  <div class="context-menu modern-menu" *ngIf="contextMenuVisible && selectedNode"
     [style.left.px]="contextMenuX" [style.top.px]="contextMenuY">
     <div class="menu-header">
       <span class="material-icons">settings</span>
@@ -325,16 +325,16 @@
 
     <div class="menu-divider"></div>
     <div class="menu-section">
-      <div class="menu-item highlight" (click)="selectAsRootNode()">
+      <div class="menu-item highlight" *ngIf="!selectedNode?.isRoot" (click)="selectAsRootNode()">
         <span class="material-icons">adjust</span>
         <span class="menu-item-text">Set as Root Node</span>
       </div>
-      <div class="menu-item" (click)="toggleExpand(selectedNode!,$event)">
+      <div class="menu-item" (click)="onContextToggleExpand($event)">
         <span class="material-icons">
-          {{ selectedNode?.expanded ? 'unfold_less' : 'unfold_more' }}
+          {{ getContextExpandIcon(selectedNode) }}
         </span>
         <span class="menu-item-text">
-          {{ selectedNode?.expanded ? 'Collapse' : 'Expand' }}
+          {{ getContextExpandLabel(selectedNode) }}
         </span>
       </div>
       <div class="menu-item" (click)="centerOnNode(selectedNode!)">

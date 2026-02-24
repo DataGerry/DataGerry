@@ -42,6 +42,7 @@ import { CiExplorerExportService } from './services/ci-explorer-export.service';
 import { GraphInteractionService } from './services/graph-interaction.service';
 import { GraphKeyboardService } from './services/graph-keyboard.service';
 import { GraphNavigationService } from './services/graph-navigation.service';
+import { GraphRootNodeService } from './services/graph-root-node.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.service';
 
@@ -49,7 +50,7 @@ import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.s
   selector: 'app-graph-editor',
   templateUrl: './graph-editor.component.html',
   styleUrls: ['./graph-editor.component.scss'],
-  providers: [GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService],
+  providers: [GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService, GraphRootNodeService],
   standalone: false
 })
 export class GraphEditorComponent implements OnInit, OnDestroy {
@@ -167,6 +168,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     private graphInteractionService: GraphInteractionService,
     private graphKeyboardService: GraphKeyboardService,
     private graphNavigationService: GraphNavigationService,
+    private graphRootNodeService: GraphRootNodeService,
     private toastService: ToastService
   ) {
     this.filterForm = this.fb?.group({
@@ -583,8 +585,50 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       event.stopPropagation(); // Prevent modal from opening
     }
 
-    if (node.isRoot || node.isLoading) return;
+    if (node.isLoading) return;
+
+    if (node.isRoot) {
+      this.toggleRootExpansion();
+      return;
+    }
+
     node.expanded ? this.collapseNodeInstance(node) : this.expandNodeInstance(node);
+  }
+
+  private toggleRootExpansion(): void {
+    const rootNode = this.graphRootNodeService.getRootNode(this.nodes);
+    if (!rootNode || rootNode.isLoading) {
+      return;
+    }
+
+    if (this.graphRootNodeService.hasVisibleNodesBeyondRoot(this.nodes)) {
+      const collapsed = this.graphRootNodeService.collapseRootNode(rootNode, this.nodes, this.connections);
+      if (collapsed) {
+        this.selectedConnection = null;
+        this.performHierarchicalLayout();
+        this.updateNodeStates();
+      }
+      return;
+    }
+
+    this.rootNodeId = rootNode.id;
+    this.loadInitialGraph(true);
+  }
+
+  public getContextExpandIcon(node: GraphNode | null): string {
+    return this.graphRootNodeService.getExpandIcon(node, this.nodes);
+  }
+
+  public getContextExpandLabel(node: GraphNode | null): string {
+    return this.graphRootNodeService.getExpandLabel(node, this.nodes);
+  }
+
+  public onContextToggleExpand(event: MouseEvent): void {
+    if (!this.selectedNode) {
+      return;
+    }
+    this.toggleExpand(this.selectedNode, event);
+    this.contextMenuVisible = false;
   }
 
 
