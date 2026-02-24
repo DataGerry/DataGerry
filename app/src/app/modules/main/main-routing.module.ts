@@ -19,6 +19,7 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { AuthGuard } from '../auth/guards/auth.guard';
+import { PermissionGuard } from '../auth/guards/permission.guard';
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
 import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
@@ -95,19 +96,23 @@ const routes: Routes = [
             breadcrumb: 'Automations'
         },
         canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         children: [
             {
                 path: '',
+                data: {
+                    right: 'base.openCelium.connection.view'
+                },
                 loadChildren: () => import('../../toolbox/automations/automations.module').then(m => m.AutomationsModule)
             },
             {
                 path: 'connectors',
                 data: {
-                    breadcrumb: 'Connectors'
+                    breadcrumb: 'Connectors',
+                    right: 'base.openCelium.connector.view'
                 },
-                canActivate: [AuthGuard],
-                canActivateChild: [AuthGuard],
+                canActivate: [AuthGuard, PermissionGuard],
+                canActivateChild: [AuthGuard, PermissionGuard],
                 loadChildren: () => import('../../toolbox/automations/connectors/connectors.module').then(m => m.ConnectorsModule)
             },
             {

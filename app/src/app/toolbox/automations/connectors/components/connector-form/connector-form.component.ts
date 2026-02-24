@@ -686,7 +686,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
 
   cancel(): void {
-    this.router.navigate(['../'], { relativeTo: this.route });
+    this.router.navigate(['/automations/connectors']);
   }
 
 
