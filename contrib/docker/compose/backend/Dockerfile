@@ -1,4 +1,4 @@
-FROM python:3.9.19-bookworm
+FROM python:3.12-bookworm
 
 WORKDIR /app
 
@@ -11,4 +11,4 @@ ADD etc/cmdb.conf etc/cmdb.conf
 
 EXPOSE 80
 
-CMD ["python3", "-m",  "cmdb", "-s", "--cloud"]
+CMD ["python3", "-m",  "cmdb", "-s", "--local"]
