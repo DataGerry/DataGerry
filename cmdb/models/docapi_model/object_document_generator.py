@@ -70,12 +70,12 @@ class ObjectDocumentGenerator:
     """
 
     def __init__(
-            self,
-            template: DocapiTemplate,
-            cmdb_render_object: RenderResult,
-            doctype: PdfDocumentType,
-            objects_manager: ObjectsManager,
-            request_user: CmdbUser = None,
+        self,
+        template: DocapiTemplate,
+        cmdb_render_object: RenderResult,
+        doctype: PdfDocumentType,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser = None
         ) -> None:
         """
         Initializes the ObjectDocumentGenerator
@@ -119,8 +119,6 @@ class ObjectDocumentGenerator:
                 self.request_user,
                 self.template.template_type
             ).get_template_data()
-
-        # LOGGER.debug(f"template_data: {template_data}")
 
         rendered_template = TemplateEngine().render_template_string(self.template.get_template_data(), template_data)
 

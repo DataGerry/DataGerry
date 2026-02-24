@@ -663,6 +663,30 @@ class MongoDatabaseManager:
             raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
 
 
+    # def update_many_raw(
+    #     self,
+    #     collection: str,
+    #     db_name: str,
+    #     filter_query: dict,
+    #     update: dict,
+    #     array_filters: list[dict] | None = None,
+    # ) -> UpdateResult:
+    #     """TODO: document"""
+    #     try:
+    #         kwargs = {}
+    #         if array_filters:
+    #             kwargs["array_filters"] = array_filters
+
+    #         return self.get_collection(collection, db_name).update_many(
+    #             filter_query,
+    #             update,
+    #             **kwargs,
+    #         )
+    #     except Exception as err:
+    #         raise DocumentUpdateError(
+    #             f"Error updating documents in collection '{collection}': {err}"
+    #         ) from err
+
     @retry_operation
     def update_public_id_counter(
         self,
@@ -980,5 +1004,14 @@ class MongoDatabaseManager:
         """
         try:
             return self.get_collection(collection, db_name).delete_many(requirements)
+        except Exception as err:
+            raise DocumentDeleteError(f"Error deleting documents from collection '{collection}': {err}") from err
+
+
+    @retry_operation
+    def delete_many_raw(self, collection: str, db_name: str, filter_query: dict) -> DeleteResult:
+        """TODO: document"""
+        try:
+            return self.get_collection(collection, db_name).delete_many(filter_query)
         except Exception as err:
             raise DocumentDeleteError(f"Error deleting documents from collection '{collection}': {err}") from err
