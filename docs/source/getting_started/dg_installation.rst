@@ -228,8 +228,8 @@ MongoDB Setup
 
 DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
-To install MongoDB, follow the official MongoDB guide for your platform:  
-`MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
+| To install MongoDB, follow the official MongoDB guide for your platform:  
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
 
 | 
 
@@ -311,8 +311,8 @@ MongoDB Setup
 
 DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
-To install MongoDB, follow the official MongoDB guide for your platform:  
-`MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
+| To install MongoDB, follow the official MongoDB guide for your platform:  
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
 
 =======================================================================================================================
 
@@ -389,8 +389,8 @@ MongoDB Setup
 
 DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
-To install MongoDB, follow the official MongoDB guide for your platform:  
-`MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux/>`_
+| To install MongoDB, follow the official MongoDB guide for your platform:  
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux/>`_
 
 | 
 
