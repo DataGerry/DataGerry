@@ -259,6 +259,8 @@ Once MongoDB is installed, install the RPM package:
 
 		systemctl restart datagerry
 
+| 
+
 =======================================================================================================================
 
 Accessing the Web Interface
@@ -281,6 +283,7 @@ Accessing the Web Interface
     .. code-block:: console
 	
 		journalctl -xe -u datagerry -f
+
 |
 
 =======================================================================================================================
@@ -342,6 +345,10 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 	.. code-block:: console
 
 		systemctl restart datagerry
+
+| 
+
+=======================================================================================================================
 
 Accessing the Web Interface
 ---------------------------
@@ -419,6 +426,9 @@ Navigate to the directory containing the package and run:
 
 		systemctl restart datagerry
 
+| 
+
+=======================================================================================================================
 
 Accessing the Web Interface
 ---------------------------
