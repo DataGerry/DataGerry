@@ -255,8 +255,8 @@ Once MongoDB is installed, install the RPM package:
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
-    Restart datagerry service:
-    
+	Restart datagerry service:
+
 .. note::
 	If you like to use SSL, do the following steps:
 
@@ -268,9 +268,9 @@ Once MongoDB is installed, install the RPM package:
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
-    Restart datagerry service:
+	Restart datagerry service:
 
-    .. code-block:: console
+	.. code-block:: console
 
 		systemctl restart datagerry
 
