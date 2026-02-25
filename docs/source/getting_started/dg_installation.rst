@@ -226,8 +226,6 @@ Supported Platforms:
 MongoDB Setup
 -------------
 
-DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
-
 | To install MongoDB, follow the official MongoDB guide for your platform:  
 | `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
 
@@ -311,8 +309,6 @@ This approach should also work on other distributions that support systemd.
 MongoDB Setup
 -------------
 
-DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
-
 | To install MongoDB, follow the official MongoDB guide for your platform:  
 | `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
 
@@ -389,8 +385,6 @@ For Debian-based systems, DataGerry provides a `.deb` package for easy installat
 
 MongoDB Setup
 -------------
-
-DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
 | To install MongoDB, follow the official MongoDB guide for your platform:  
 | `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux/>`_
