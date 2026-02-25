@@ -132,6 +132,9 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         new_object_data['creation_time'] = datetime.now(timezone.utc)
         new_object_data['version'] = '1.0.0'
 
+        # Validate fields have type
+        validate_and_fill_object_fields(objects_manager, new_object_data)
+
         new_object_id = objects_manager.insert_object(new_object_data, request_user, AccessControlPermission.CREATE)
 
         current_type_instance: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
@@ -834,6 +837,9 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
             new_data['fields'] = old_fields
 
             update_comment = new_data.pop('comment', "")
+
+            # Validate fields have type
+            validate_and_fill_object_fields(objects_manager, new_data)
 
             update_object_instance = CmdbObject(**json.loads(json.dumps(new_data, default=default),
                                                             object_hook=object_hook))
@@ -1757,3 +1763,37 @@ def delete_invalid_object_relations(public_id: int,
             )
         except Exception as err:
             LOGGER.error("[delete_invalid_object_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
+
+
+def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
+    """
+    Validates that all fields in `object_data['fields']` exist in the type schema
+    and fills in missing `type` properties from the type schema.
+
+    Args:
+        objects_manager (ObjectsManager): manager to access type schemas
+        object_data (dict[str, Any]): the incoming object data to validate/enrich
+
+    Raises:
+        abort(400) if any field name is not in the type schema
+    """
+    type_id = object_data.get("type_id")
+    if not type_id:
+        abort(400, "Missing type_id in object data!")
+
+    # Retrieve type schema as dict (field_name -> field_type)
+    type_schema = objects_manager.get_object_type(type_id, raw=True)
+    type_field_map = {f["name"]: f["type"] for f in type_schema["fields"]}
+
+    for field in object_data.get("fields", []):
+        field_name = field.get("name")
+        if not field_name:
+            abort(400, "One of the fields is missing a 'name' property!")
+
+        # Early abort if field not in type
+        if field_name not in type_field_map:
+            abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
+
+        # Fill missing 'type' property
+        if "type" not in field or not field["type"]:
+            field["type"] = type_field_map[field_name]

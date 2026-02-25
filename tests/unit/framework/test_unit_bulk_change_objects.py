@@ -91,10 +91,12 @@ def fixture_example_object():
         active=True,
         fields=[
             {
+                "type": "text",
                 "name": "dummy-field-1",
                 "value": 'dummy-value'
             },
             {
+                "type": "text",
                 "name": "dummy-field-2",
                 "value": ''
             }
@@ -115,6 +117,7 @@ def fixture_change_object() -> dict:
         "author_id": 1,
         "fields": [
             {
+                "type": "text",
                 "name": "dummy-field-2",
                 "value": "dummy-change"
             }
