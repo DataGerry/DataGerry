@@ -245,25 +245,12 @@ Once MongoDB is installed, install the RPM package:
     rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
 .. note::
-	We recommend always to use the latest tag version.
-
-	If you like to use SSL, do the following steps:
-	
-	Create config folders for SSL: 
-	
-	.. code-block:: console
-	
-		mkdir /opt/DataGerry-docker/conf/ssl
-		mkdir /opt/DataGerry-docker/conf/ssl/certs
-		mkdir /opt/DataGerry-docker/conf/ssl/private
-
-.. note::
 	If you like to use SSL, do the following steps:
 
 	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
 	
 	.. code-block:: console
-		
+	
 		ssl = true
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
