@@ -34,7 +34,7 @@ Requirements
 DataGerry has the following system requirements:
 
 - **Linux Operating System**
-- **MongoDB 6.0** (MongoDB 4.4+ is generally compatible but not officially supported)
+- **MongoDB 6.0 or 7.0** 
 
 Although DataGerry ships with a built-in web server, it is recommended to place it behind **Nginx** for improved
 performance and security.
@@ -146,7 +146,7 @@ Use default Docker installation guide.
 		ssl_certificate /opt/DataGerry-docker/conf/ssl/certs/cmdb.pem;
 		ssl_certificate_key /opt/DataGerry-docker/conf/ssl/private/cmdb.key;
 
-	Set ssl to true and change the certificates within the config (cmdb.conf), with your own:	
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
@@ -226,10 +226,10 @@ Supported Platforms:
 MongoDB Setup
 -------------
 
-DataGerry requires MongoDB 6.0. MongoDB 4.4+ may work but is not guaranteed.
+DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
-Installation instructions are available here:  
-`MongoDB Installation for RHEL <https://www.mongodb.com/docs/v6.0/tutorial/install-mongodb-on-red-hat/>`_
+To install MongoDB, follow the official MongoDB guide for your platform:  
+`MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
 
 | 
 
@@ -243,6 +243,19 @@ Once MongoDB is installed, install the RPM package:
 .. code-block:: console
 
     rpm -ivh DATAGERRY-<version>.x86_64.rpm
+
+.. note::
+
+	If you like to use SSL, activate it within the config (/etc/datagerry/cmdb.conf):
+	
+	Set ssl to true and change the certificates with your own:	
+			
+	.. code-block:: console
+		
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
+
 
 
 You can now access the frontend:
@@ -284,10 +297,10 @@ This approach should also work on other distributions that support systemd.
 MongoDB Setup
 -------------
 
-DataGerry requires **MongoDB 6.0** as its database backend. MongoDB 4.4+ is generally compatible, though not officially supported.
+DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
 To install MongoDB, follow the official MongoDB guide for your platform:  
-`MongoDB Installation Guide <https://www.mongodb.com/docs/v6.0/administration/install-on-linux/>`_
+`MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
 
 =======================================================================================================================
 
@@ -302,7 +315,19 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
     cd datagerry
     sudo ./setup.sh
 
-| 
+.. note::
+
+	If you like to use SSL, activate it within the config (/etc/datagerry/cmdb.conf):
+	
+	Set ssl to true and change the certificates with your own:	
+			
+	.. code-block:: console
+		
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
+
+
 
 Configuration
 -------------
@@ -366,9 +391,10 @@ For Debian-based systems, DataGerry provides a `.deb` package for easy installat
 MongoDB Setup
 -------------
 
-Follow the official MongoDB guide to install MongoDB 6.0 on Debian:
+DataGerry requires **MongoDB 6.0** or **MongoDB 7.0**
 
-`Install MongoDB on Debian <https://www.mongodb.com/docs/v6.0/tutorial/install-mongodb-on-debian/>`_
+To install MongoDB, follow the official MongoDB guide for your platform:  
+`MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux/>`_
 
 | 
 
@@ -383,7 +409,18 @@ Navigate to the directory containing the package and run:
 
     apt install ./<datagerry-version>.deb
 
-| 
+.. note::
+
+	If you like to use SSL, activate it within the config (/etc/datagerry/cmdb.conf):
+	
+	Set ssl to true and change the certificates with your own:	
+			
+	.. code-block:: console
+		
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
+
 
 Web Interface Access
 --------------------
