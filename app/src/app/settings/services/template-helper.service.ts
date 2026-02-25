@@ -29,6 +29,7 @@ import { CmdbType } from '../../framework/models/cmdb-type';
 export class TemplateHelperService implements OnDestroy {
 
   private subscriber: ReplaySubject<void>;
+  private typeDisplayNameCache = new Map<number, string>();
 
   constructor(private typeService: TypeService) {
     this.subscriber = new ReplaySubject<void>();
@@ -36,6 +37,22 @@ export class TemplateHelperService implements OnDestroy {
 
   private async getSectionReferenceType(typeID: number) {
     return firstValueFrom(this.typeService.getType(typeID).pipe(takeUntil(this.subscriber)));
+  }
+
+  private async getTypeDisplayName(typeId: number): Promise<string> {
+    const cachedName = this.typeDisplayNameCache.get(typeId);
+    if (cachedName) {
+      return cachedName;
+    }
+
+    try {
+      const type = await this.getSectionReferenceType(typeId);
+      const displayName = type?.label || type?.name || `Type ${typeId}`;
+      this.typeDisplayNameCache.set(typeId, displayName);
+      return displayName;
+    } catch {
+      return `Type ${typeId}`;
+    }
   }
 
   public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3, templateType: string = 'OBJECT') {
@@ -90,8 +107,9 @@ export class TemplateHelperService implements OnDestroy {
             subdata = [];
             for (const type of field.ref_types) {
               const data = await this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1, templateType);
+              const typeDisplayName = await this.getTypeDisplayName(type);
               subdata.push(({
-                label: 'ref_type ' + type,
+                label: typeDisplayName,
                 subdata: data
               }));
             }
@@ -258,8 +276,9 @@ export class TemplateHelperService implements OnDestroy {
       const grouped = [];
       for (const type of field.ref_types) {
         const data = await this.getObjectTemplateHelperData(type, prefix, iteration, templateType);
+        const typeDisplayName = await this.getTypeDisplayName(type);
         grouped.push(({
-          label: 'ref_type ' + type,
+          label: typeDisplayName,
           subdata: data
         }) as TemplateHelpdataElement);
       }
