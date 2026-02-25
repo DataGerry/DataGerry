@@ -245,10 +245,9 @@ Once MongoDB is installed, install the RPM package:
     rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
 .. note::
-
-	| If you like to use SSL, do the following steps:
+	If you like to use SSL, do the following steps:
 	
-	| Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
@@ -256,7 +255,7 @@ Once MongoDB is installed, install the RPM package:
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
-    | Restart datagerry service:
+    Restart datagerry service:
 
 	.. code-block:: console
 		
@@ -280,8 +279,8 @@ Accessing the Web Interface
 
     If you want to have a look into DataGerry logs please use:
 	
-	.. code-block:: console
-		
+    .. code-block:: console
+	
 		journalctl -xe -u datagerry -f
 |
 
