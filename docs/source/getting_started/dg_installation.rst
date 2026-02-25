@@ -257,22 +257,9 @@ Once MongoDB is installed, install the RPM package:
 
 	Restart datagerry service:
 
-.. note::
-	If you like to use SSL, do the following steps:
-
-	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
-
 	.. code-block:: console
 
-		ssl = true
-		certfile = /etc/ssl/certs/cmdb.pem
-		keyfile = /etc/ssl/private/cmdb.key
-
-	Restart datagerry service:
-
-	.. code-block:: console
-
-		systemctl restart datagerry
+	systemctl restart datagerry
 
 =======================================================================================================================
 
@@ -341,23 +328,23 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
     cd datagerry
     sudo ./setup.sh
 
-.. note::
 
+.. note::
 	If you like to use SSL, do the following steps:
+
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:
 	
-	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
-			
 	.. code-block:: console
-		
+	
 		ssl = true
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
-    | Restart datagerry service:
+	Restart datagerry service:
 
 	.. code-block:: console
-		
-		systemctl restart datagerry
+
+	systemctl restart datagerry
 
 
 .. note::
@@ -420,22 +407,21 @@ Navigate to the directory containing the package and run:
     apt install ./<datagerry-version>.deb
 
 .. note::
+	If you like to use SSL, do the following steps:
 
-	If you like to use SSL, activate it within the config (/etc/datagerry/cmdb.conf):
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:
 	
-	Set ssl to true and change the certificates with your own:	
-			
 	.. code-block:: console
-		
+	
 		ssl = true
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
-    | Restart datagerry service:
+	Restart datagerry service:
 
 	.. code-block:: console
-		
-		systemctl restart datagerry
+
+	systemctl restart datagerry
 
 
 .. note::
