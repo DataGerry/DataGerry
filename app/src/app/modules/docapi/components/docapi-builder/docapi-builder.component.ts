@@ -27,7 +27,7 @@ import { DocapiBuilderSettingsStepComponent } from '../docapi-builder-settings-s
 import { DocapiBuilderTypeStepComponent } from '../docapi-builder-type-step/docapi-builder-type-step.component';
 import { DocapiBuilderStyleStepComponent } from '../docapi-builder-style-step/docapi-builder-style-step.component';
 import { DocapiBuilderContentStepComponent } from '../docapi-builder-content-step/docapi-builder-content-step.component';
-import { DocTemplate } from '../../models/cmdb-doctemplate';
+import { DocTemplate, DocTemplateUpdateResponse } from '../../models/cmdb-doctemplate';
 import { Subscription } from 'rxjs';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -274,7 +274,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private handleCreateMode(): void {
         this.docapiService.postDocTemplate(this.docInstance).subscribe({
             next: (publicIdResp: string) => {
-                this.toast.success("DocAPI document successfully created!");
+                this.toast.success("Template successfully created!");
                 this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: publicIdResp } });
             },
             error: (error: any) => {
@@ -290,9 +290,11 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
      */
     private handleEditMode(): void {
         this.docapiService.putDocTemplate(this.docInstance).subscribe({
-            next: (updateResp: DocTemplate) => {
-                this.toast.success(`DocAPI document successfully edited: ${updateResp.public_id}`);
-                this.router.navigate(['/docapi/'], { queryParams: { docEditSuccess: updateResp.public_id } });
+            next: (updateResp: DocTemplateUpdateResponse) => {
+                const publicId = updateResp.body?.public_id;
+                const name = updateResp.body?.name;
+                this.toast.success(`Template successfully edited: ${name}`);
+                this.router.navigate(['/docapi/'], { queryParams: { docEditSuccess: publicId } });
             },
             error: (error: any) => {
                 // console.error(error);

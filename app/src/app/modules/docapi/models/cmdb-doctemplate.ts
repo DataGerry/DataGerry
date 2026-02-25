@@ -26,3 +26,11 @@ export class DocTemplate {
     public template_type: string;
     public template_parameters: object;
 }
+
+export interface DocTemplateUpdateResponse {
+    body: DocTemplate;
+    status: number;
+    statusText: string;
+    url: string;
+    ok: boolean;
+}
