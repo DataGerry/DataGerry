@@ -18,6 +18,7 @@
 import { AfterViewInit, Component, Input, OnDestroy, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { WizardComponent } from '@rg-software/angular-archwizard';
 
 import { DocapiService } from '../../services/docapi.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
@@ -41,6 +42,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
+    @ViewChild('wizard', { static: false })
+    public wizard: WizardComponent;
 
     @ViewChild(DocapiBuilderSettingsStepComponent, { static: true })
     public settingsStep: DocapiBuilderSettingsStepComponent;
@@ -101,6 +104,30 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
             this.handleCreateMode();
         } else if (this.mode === CmdbMode.Edit) {
             this.handleEditMode();
+        }
+    }
+
+    public cancel(): void {
+        this.router.navigate(['/docapi']);
+    }
+
+    public nextStep(): void {
+        if (!this.wizard) {
+            return;
+        }
+
+        const nextIndex = this.wizard.currentStepIndex + 1;
+        this.wizard.goToStep(nextIndex);
+    }
+
+    public previousStep(): void {
+        if (!this.wizard) {
+            return;
+        }
+
+        const previousIndex = this.wizard.currentStepIndex - 1;
+        if (previousIndex >= 0) {
+            this.wizard.goToStep(previousIndex);
         }
     }
 
