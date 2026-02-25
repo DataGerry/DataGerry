@@ -259,14 +259,15 @@ Once MongoDB is installed, install the RPM package:
 
 	.. code-block:: console
 
-	systemctl restart datagerry
+		systemctl restart datagerry
 
 =======================================================================================================================
 
 Accessing the Web Interface
 ---------------------------
 
-| Now you can connect to DataGerry, by navigating to http://localhost in your web browser (for SSL use https://localhost).
+| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+| (for SSL use https://localhost)
 
 | The default login credentials are:
 |
@@ -344,11 +345,11 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 
 	.. code-block:: console
 
-	systemctl restart datagerry
-
+		systemctl restart datagerry
 
 .. note::
-	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
+	| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+	| (for SSL use https://localhost)
 
 	| The default login credentials are:
 	|
@@ -421,11 +422,12 @@ Navigate to the directory containing the package and run:
 
 	.. code-block:: console
 
-	systemctl restart datagerry
+		systemctl restart datagerry
 
 
 .. note::
 	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
+	| (for SSL use https://localhost)
 
 	| The default login credentials are:
 	|
