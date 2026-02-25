@@ -245,7 +245,6 @@ Once MongoDB is installed, install the RPM package:
     rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
 .. note::
-
 	If you like to use SSL, do the following steps:
 	
 	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
@@ -262,10 +261,12 @@ Once MongoDB is installed, install the RPM package:
 		
 		systemctl restart datagerry
 
+=======================================================================================================================
+
 Accessing the Web Interface
 ---------------------------
 
-| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
+| Now you can connect to DataGerry, by navigating to http://localhost in your web browser (for SSL use https://localhost).
 
 | The default login credentials are:
 |
