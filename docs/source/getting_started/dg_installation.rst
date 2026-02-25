@@ -181,7 +181,7 @@ Use default Docker installation guide.
 	docker compose up -d
 
 .. note::
-	| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
 
 	| The default login credentials are:
 	|
@@ -246,9 +246,9 @@ Once MongoDB is installed, install the RPM package:
 
 .. note::
 
-	If you like to use SSL, activate it within the config (/etc/datagerry/cmdb.conf):
+	If you like to use SSL, do the following steps:
 	
-	Set ssl to true and change the certificates with your own:	
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
@@ -256,18 +256,30 @@ Once MongoDB is installed, install the RPM package:
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
+    | Restart datagerry service:
 
+	.. code-block:: console
+		
+		systemctl restart datagerry
 
-You can now access the frontend:
-
-.. code-block:: console
-
-    http://<host>:4000
-    user: admin
-    password: admin
 
 .. note::
-   If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
+	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
+
+	| The default login credentials are:
+	|
+	| **Username: admin**
+	| **Password: admin**
+	|
+
+	| If you want to have a look into DataGerry logs please use:
+	
+	.. code-block:: console
+		
+		journalctl -xe -u datagerry -f
+
+
+    | If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
 
 | 
 
@@ -317,9 +329,9 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 
 .. note::
 
-	If you like to use SSL, activate it within the config (/etc/datagerry/cmdb.conf):
+	If you like to use SSL, do the following steps:
 	
-	Set ssl to true and change the certificates with your own:	
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
@@ -327,46 +339,30 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
+    | Restart datagerry service:
 
+	.. code-block:: console
+		
+		systemctl restart datagerry
 
-Configuration
--------------
-
-After the setup, configure the MongoDB connection in the configuration file:
-
-.. code-block:: console
-
-    /etc/datagerry/cmdb.conf
-
-You can also override configuration values using environment variables (see the configuration section for details).
-
-| 
-
-Service Activation
-------------------
-
-Enable and start the DataGerry service using systemd:
-
-.. code-block:: console
-
-    systemctl enable datagerry.service
-    systemctl start datagerry.service
-
-| 
-
-Accessing the Web Interface
----------------------------
-
-Once started, you can access the DataGerry web interface at:
-
-.. code-block:: console
-
-    http://<host>:4000
-    user: admin
-    password: admin
 
 .. note::
-   If you are unable to access the frontend, ensure that port **4000** is open and not blocked by your system firewall.
+	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
+
+	| The default login credentials are:
+	|
+	| **Username: admin**
+	| **Password: admin**
+	|
+
+	| If you want to have a look into DataGerry logs please use:
+	
+	.. code-block:: console
+		
+		journalctl -xe -u datagerry -f
+
+
+    | If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
 
 | 
 
@@ -421,20 +417,30 @@ Navigate to the directory containing the package and run:
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
 
+    | Restart datagerry service:
 
-Web Interface Access
---------------------
+	.. code-block:: console
+		
+		systemctl restart datagerry
 
-Once installed, you can access the DataGerry web frontend at:
-
-.. code-block:: console
-
-    http://<host>:4000
-    user: admin
-    password: admin
 
 .. note::
-   If the interface is not reachable, ensure that port **4000** is open in your firewall settings.
+	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
+
+	| The default login credentials are:
+	|
+	| **Username: admin**
+	| **Password: admin**
+	|
+
+	| If you want to have a look into DataGerry logs please use:
+	
+	.. code-block:: console
+		
+		journalctl -xe -u datagerry -f
+
+
+    | If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
 
 | 
 
