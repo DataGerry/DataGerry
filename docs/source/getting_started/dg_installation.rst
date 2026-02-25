@@ -245,9 +245,10 @@ Once MongoDB is installed, install the RPM package:
     rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
 .. note::
-	If you like to use SSL, do the following steps:
+
+	| If you like to use SSL, do the following steps:
 	
-	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
+	| Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
