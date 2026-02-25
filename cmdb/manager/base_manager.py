@@ -531,18 +531,18 @@ class BaseManager:
             raise BaseManagerUpdateError(str(err)) from err
 
 
-    # def update_many_raw(self, filter_query: dict, update: dict, array_filters: list[dict] | None = None):
-    #     """TODO: document"""
-    #     try:
-    #         return self.dbm.update_many_raw(
-    #             collection=self.collection,
-    #             db_name=self.db_name,
-    #             filter_query=filter_query,
-    #             update=update,
-    #             array_filters=array_filters,
-    #         )
-    #     except DocumentUpdateError as err:
-    #         raise BaseManagerUpdateError(str(err)) from err
+    def update_many_raw(self, filter_query: dict, update: dict, array_filters: list[dict] | None = None):
+        """TODO: document"""
+        try:
+            return self.dbm.update_many_raw(
+                collection=self.collection,
+                db_name=self.db_name,
+                filter_query=filter_query,
+                update=update,
+                array_filters=array_filters,
+            )
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
