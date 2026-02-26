@@ -114,7 +114,7 @@ Use default Docker installation guide.
 
 .. code-block:: console
     
-    git clone https://github.com/DataGerry/DataGerry-docker.git  
+    git clone https://github.com/DataGerry/DataGerry-docker.git /opt/DataGerry-docker
     cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
     cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
@@ -139,14 +139,14 @@ Use default Docker installation guide.
 	
 		cp /opt/DataGerry-docker/conf/nginx-ssl_default.conf /opt/DataGerry-docker/conf/nginx-ssl.conf
 
-	Change the certificates within the config (nginx-ssl.conf), with your own:	
+	Change the certificates within the config (conf/nginx-ssl.conf), with your own:	
 			
 	.. code-block:: console
 	
-		ssl_certificate /opt/DataGerry-docker/conf/ssl/certs/cmdb.pem;
-		ssl_certificate_key /opt/DataGerry-docker/conf/ssl/private/cmdb.key;
+		ssl_certificate /etc/ssl/certs/cmdb.pem;
+		ssl_certificate_key /etc/ssl/private/cmdb.key;
 
-	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:	
+	Set ssl to true and change the certificates within the config (conf/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
