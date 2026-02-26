@@ -129,6 +129,7 @@
       type="button"
       class="field-menu-item-btn"
       [class.has-children]="item.subdata?.length"
+      [class.is-selected]="isSelectedField(item)"
       (click)="onMenuItemClick(item, path, $event)">
       <span class="field-menu-item-label">{{ item.label }}</span>
       <span class="field-menu-item-arrow" *ngIf="item.subdata?.length">

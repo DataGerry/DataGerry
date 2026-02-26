@@ -34,6 +34,7 @@ export class DocapiEditComponent implements OnInit {
     public docId: number;
     public docInstance: DocTemplate;
     public mode: number = CmdbMode.Edit;
+    public templateLabel: string = '';
 
 
     constructor(private docapiService: DocapiService, private route: ActivatedRoute) {
@@ -42,6 +43,17 @@ export class DocapiEditComponent implements OnInit {
 
 
     public ngOnInit(): void {
-        this.docapiService?.getDocTemplate(this.docId).subscribe((docInstance: DocTemplate) => this.docInstance = docInstance);
+        this.docapiService?.getDocTemplate(this.docId).subscribe((docInstance: DocTemplate) => {
+            this.docInstance = docInstance;
+            this.templateLabel = docInstance?.label?.trim() ?? '';
+        });
+    }
+
+    public onLabelChanged(label: string): void {
+        this.templateLabel = label?.trim() ?? '';
+    }
+
+    public get title(): string {
+        return this.templateLabel ? `Edit ${this.templateLabel} Template` : 'Edit Template';
     }
 }

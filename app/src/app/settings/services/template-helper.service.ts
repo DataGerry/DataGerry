@@ -55,6 +55,28 @@ export class TemplateHelperService implements OnDestroy {
     }
   }
 
+  private parseTypeId(value: any): number | null {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private buildDefaultRefPrefix(prefix: string, fieldName: string, typeId?: number | null): string {
+    const base = prefix ? `${prefix}['fields']['${fieldName}']` : `['${fieldName}']`;
+    const parsedTypeId = this.parseTypeId(typeId);
+    if (!parsedTypeId) {
+      return base;
+    }
+    return `${base}.type(${parsedTypeId})`;
+  }
+
+  private appendTypeSelector(prefix: string, typeId: any): string {
+    const parsedTypeId = this.parseTypeId(typeId);
+    if (!parsedTypeId || /\.type\(\d+\)$/.test(prefix)) {
+      return prefix;
+    }
+    return `${prefix}.type(${parsedTypeId})`;
+  }
+
   public async getObjectTemplateHelperData(typeId: number, prefix: string = '', iteration: number = 3, templateType: string = 'OBJECT') {
     const templateHelperData = [];
     // Generate Public ID placeholder based on template type
@@ -94,18 +116,26 @@ export class TemplateHelperService implements OnDestroy {
 
       for (const field of updatedCmdbTypeObj.fields) {
         if (field.type === 'ref' && iteration > 0) {
-          const changedPrefix = (prefix ? prefix + '[\'fields\'][\'' + field.name + '\']' : '[\'' + field.name + '\']');
           let subdata;
 
           if (!field.ref_types) {
             subdata = [];
           } else if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
+            const changedPrefix = templateType === 'DEFAULT'
+              ? this.buildDefaultRefPrefix(prefix, field.name, field.ref_types)
+              : (prefix ? prefix + '[\'fields\'][\'' + field.name + '\']' : '[\'' + field.name + '\']');
             subdata = await this.getObjectTemplateHelperData(field.ref_types, changedPrefix, iteration - 1, templateType);
           } else if (field.ref_types.length === 1) {
+            const changedPrefix = templateType === 'DEFAULT'
+              ? this.buildDefaultRefPrefix(prefix, field.name, field.ref_types[0])
+              : (prefix ? prefix + '[\'fields\'][\'' + field.name + '\']' : '[\'' + field.name + '\']');
             subdata = await this.getObjectTemplateHelperData(field.ref_types[0], changedPrefix, iteration - 1, templateType);
           } else {
             subdata = [];
             for (const type of field.ref_types) {
+              const changedPrefix = templateType === 'DEFAULT'
+                ? this.buildDefaultRefPrefix(prefix, field.name, type)
+                : (prefix ? prefix + '[\'fields\'][\'' + field.name + '\']' : '[\'' + field.name + '\']');
               const data = await this.getObjectTemplateHelperData(type, changedPrefix, iteration - 1, templateType);
               const typeDisplayName = await this.getTypeDisplayName(type);
               subdata.push(({
@@ -268,14 +298,23 @@ export class TemplateHelperService implements OnDestroy {
         return [];
       }
       if (!isNaN(field.ref_types) && !Array.isArray(field.ref_types)) {
-        return this.getObjectTemplateHelperData(field.ref_types, prefix, iteration, templateType);
+        const refPrefix = templateType === 'DEFAULT'
+          ? this.appendTypeSelector(prefix, field.ref_types)
+          : prefix;
+        return this.getObjectTemplateHelperData(field.ref_types, refPrefix, iteration, templateType);
       }
       if (field.ref_types.length === 1) {
-        return this.getObjectTemplateHelperData(field.ref_types[0], prefix, iteration, templateType);
+        const refPrefix = templateType === 'DEFAULT'
+          ? this.appendTypeSelector(prefix, field.ref_types[0])
+          : prefix;
+        return this.getObjectTemplateHelperData(field.ref_types[0], refPrefix, iteration, templateType);
       }
       const grouped = [];
       for (const type of field.ref_types) {
-        const data = await this.getObjectTemplateHelperData(type, prefix, iteration, templateType);
+        const refPrefix = templateType === 'DEFAULT'
+          ? this.appendTypeSelector(prefix, type)
+          : prefix;
+        const data = await this.getObjectTemplateHelperData(type, refPrefix, iteration, templateType);
         const typeDisplayName = await this.getTypeDisplayName(type);
         grouped.push(({
           label: typeDisplayName,
