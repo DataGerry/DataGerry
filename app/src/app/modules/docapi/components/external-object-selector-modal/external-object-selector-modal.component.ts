@@ -127,7 +127,10 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     if (!this.fieldMenuOpen) {
       this.activePath = [];
       this.activeItems = [];
+      return;
     }
+
+    this.restoreSelectedPath();
   }
 
 
@@ -146,7 +149,8 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.selectedField = {
       label: this.buildSelectedLabel(path, item.label),
       template: item.templatedata,
-      type: item.type
+      type: item.type,
+      menuPathKeys: (path || []).map((entry) => this.getMenuItemKey(entry))
     };
     this.fieldMenuOpen = false;
     this.activePath = [];
@@ -203,6 +207,51 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     this.activePath = this.activePath.slice(0, index + 1);
     const last = this.activePath[this.activePath.length - 1];
     this.activeItems = last?.subdata || [];
+  }
+
+
+  public isSelectedField(item: any): boolean {
+    if (!item?.templatedata || !this.selectedField?.template) {
+      return false;
+    }
+    return item.templatedata === this.selectedField.template;
+  }
+
+
+  private restoreSelectedPath(): void {
+    const menuPathKeys = this.selectedField?.menuPathKeys;
+    if (!Array.isArray(menuPathKeys) || menuPathKeys.length === 0) {
+      this.activePath = [];
+      this.activeItems = [];
+      return;
+    }
+
+    const restoredPath = [];
+    let items = this.fieldMenuItems;
+
+    for (const key of menuPathKeys) {
+      const match = (items || []).find((candidate) =>
+        this.getMenuItemKey(candidate) === key && candidate?.subdata?.length
+      );
+      if (!match) {
+        break;
+      }
+      restoredPath.push(match);
+      items = match.subdata;
+    }
+
+    this.activePath = restoredPath;
+    this.activeItems = restoredPath.length
+      ? restoredPath[restoredPath.length - 1]?.subdata || []
+      : [];
+  }
+
+
+  private getMenuItemKey(item: any): string {
+    const name = item?.name || '';
+    const label = item?.label || '';
+    const type = item?.type || '';
+    return `${name}|${label}|${type}`;
   }
 
 

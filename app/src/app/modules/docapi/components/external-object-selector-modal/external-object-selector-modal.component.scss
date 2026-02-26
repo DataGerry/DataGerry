@@ -353,6 +353,12 @@ $dg-error-message-color: #dc3545;
               &.has-children:hover .field-menu-item-arrow i {
                 color: $dg-primary-color;
               }
+
+              &.is-selected {
+                background: rgba($dg-primary-color, 0.14);
+                color: $dg-primary-color;
+                font-weight: 600;
+              }
             }
 
             .field-menu-item-arrow i {
