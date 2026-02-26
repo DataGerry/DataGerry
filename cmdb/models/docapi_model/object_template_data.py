@@ -24,6 +24,7 @@ from cmdb.manager import ObjectsManager, LocationsManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.docapi_model.reference_result import RefResult
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_result import RenderResult
 
@@ -127,7 +128,12 @@ class ObjectTemplateData:
 
         # DEFAULT templates (modern)
         if ftype in ("ref", "location") and value and depth > 0:
-            return self._resolve_reference(value, depth)
+            resolved = self._resolve_reference(value, depth)
+
+            if resolved and ftype == "ref":
+                return RefResult(resolved)  # wrap only "ref" fields
+
+            return resolved
 
         if ftype == "ref-section-field":
             section_fields = {}
@@ -158,6 +164,7 @@ class ObjectTemplateData:
         data: dict[str, Any] = {
             "id": cmdb_render_object.object_information.get("object_id"),
             "public_id": cmdb_render_object.object_information.get("object_id"),
+            "type_id": cmdb_render_object.type_information.get("type_id"),
             "fields": {}
         }
 
