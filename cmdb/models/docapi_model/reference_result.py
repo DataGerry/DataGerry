@@ -34,24 +34,18 @@ class RefResult:
 
     def type(self, type_id: int):
         """TODO: document"""
-        if not self.obj_data:
-            return None
+        try:
+            if not self.obj_data:
+                return {}
 
-        obj_type_id = self.obj_data.get("type_id")
+            obj_type_id = self.obj_data.get("type_id")
 
-        if obj_type_id == type_id:
-            return self.obj_data
+            if obj_type_id == type_id:
+                return self.obj_data
 
-        return None
-    # def type(self, expected_type_id: int) -> dict | None:
-    #     """
-    #     Returns the object data if it matches the expected type, otherwise None.
-    #     """
-    #     # obj_type_id = self.obj_data.get("fields", {}).get("type_id")
-    #     obj_type_id = self.obj_data.get("type_id")
-    #     if obj_type_id == expected_type_id:
-    #         return self.obj_data
-    #     return None
+            return {}
+        except Exception:
+            return {}
 
 
     def __getitem__(self, key):

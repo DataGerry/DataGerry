@@ -285,9 +285,9 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     except Exception as err:
         LOGGER.error("[render_object_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500,
-              f"An unexpected error occured while trying to render the Template with ID: {public_id} "
-              f"for Object with ID: {object_id}!"
-            )
+            f"An unexpected error occured while trying to render the Template with ID: {public_id} "
+            f"for Object with ID: {object_id}!"
+        )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

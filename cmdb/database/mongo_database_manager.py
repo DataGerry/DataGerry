@@ -32,7 +32,7 @@ from pymongo.errors import (
     ServerSelectionTimeoutError,
     ExecutionTimeout,
 )
-from pymongo import IndexModel
+from pymongo import IndexModel, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.results import DeleteResult, UpdateResult
@@ -421,6 +421,49 @@ class MongoDatabaseManager:
         ) from err
 
 
+    def insert_many(
+        self,
+        collection: str,
+        db_name: str,
+        data: list[dict[str, Any]],
+        skip_public: bool = False
+    ) -> list[int]:
+        """
+        Inserts multiple documents into a collection.
+
+        Args:
+            collection (str): Name of the collection.
+            data (list[dict]): Documents to insert.
+            skip_public (bool): If True, assumes public_id is already assigned.
+
+        Returns:
+            list[int]: List of inserted public_ids
+        """
+        try:
+            if not data:
+                return []
+
+            if not skip_public:
+                # Assign public_ids individually (slow but safe fallback)
+                for doc in data:
+                    if "public_id" not in doc:
+                        doc["public_id"] = self.get_next_public_id(collection, db_name, inc_id=True)
+
+            self.get_collection(collection, db_name).insert_many(data, ordered=False)
+
+            return [doc["public_id"] for doc in data]
+
+        except DuplicateKeyError as err:
+            raise DocumentInsertError(f"Duplicate public_id detected in insert_many: {err}") from err
+
+        except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure) as net_err:
+            raise DocumentNetworkError(f"Network/timeout error while inserting documents: {net_err}") from net_err
+
+        except Exception as err:
+            raise DocumentInsertError(
+                f"Failed to insert many documents into collection '{collection}': {err}"
+            ) from err
+
 
     @retry_operation
     def bulk_write(self, collection: str,  db_name: str, operations: list) -> None:
@@ -465,6 +508,49 @@ class MongoDatabaseManager:
         except Exception as err:
             raise PublicIdCounterInitError(
                 f"Failed to initialize public ID counter for collection '{collection}': {err}"
+            ) from err
+
+
+    @retry_operation
+    def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
+        """TODO: document"""
+        try:
+            if not inc_id:
+                cur_count = self.get_collection(
+                    PUBLIC_ID_COUNTER_COLLECTION,
+                    db_name
+                ).find_one({'_id': collection})
+
+                return (cur_count['counter'] + 1) if cur_count else 1
+
+            ids = self.reserve_public_ids(collection, db_name, 1)
+            return ids[0]
+
+        except Exception as err:
+            raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
+
+
+    @retry_operation
+    def reserve_public_ids(self, collection: str, db_name: str, amount: int) -> list[int]:
+        """
+        Atomically reserves a block of public_ids for bulk inserts.
+        """
+        try:
+            doc = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one_and_update(
+                {"_id": collection},
+                {"$inc": {"counter": amount}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER
+            )
+
+            new_max = doc["counter"]
+            start = new_max - amount + 1
+
+            return list(range(start, new_max + 1))
+
+        except Exception as err:
+            raise DocumentGetError(
+                f"Failed to reserve public_ids for collection '{collection}': {err}"
             ) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -934,33 +1020,33 @@ class MongoDatabaseManager:
             ) from err
 
 
-    @retry_operation
-    def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
-        """
-        Retrieves the next public_id for the specified collection
+    # @retry_operation
+    # def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
+    #     """
+    #     Retrieves the next public_id for the specified collection
 
-        Args:
-            collection (str): Name of the database collection
+    #     Args:
+    #         collection (str): Name of the database collection
 
-        Raises:
-            DocumentGetError: If there was an error getting or updating the counter document
+    #     Raises:
+    #         DocumentGetError: If there was an error getting or updating the counter document
 
-        Returns:
-            int: The next available public_id for the collection
-        """
-        try:
-            cur_count = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
-            if cur_count:
-                new_id = cur_count['counter'] + 1
-            else:
-                docs_count: int = self.init_public_id_counter(collection, db_name)
-                new_id: int = docs_count + 1
+    #     Returns:
+    #         int: The next available public_id for the collection
+    #     """
+    #     try:
+    #         cur_count = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
+    #         if cur_count:
+    #             new_id = cur_count['counter'] + 1
+    #         else:
+    #             docs_count: int = self.init_public_id_counter(collection, db_name)
+    #             new_id: int = docs_count + 1
 
-            self.update_public_id_counter(collection, db_name, increment=inc_id)
+    #         self.update_public_id_counter(collection, db_name, increment=inc_id)
 
-            return new_id
-        except Exception as err:
-            raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
+    #         return new_id
+    #     except Exception as err:
+    #         raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

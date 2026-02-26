@@ -96,6 +96,37 @@ class BaseManager:
         except DocumentInsertError as err:
             raise BaseManagerInsertError(str(err)) from err
 
+
+    def insert_many(
+        self,
+        data: list[dict[str, Any]],
+        skip_public: bool = False,
+    ) -> None:
+        """
+        Insert multiple documents into the manager's collection.
+
+        Args:
+            data (list[dict]): Documents to insert (public_id must be pre-assigned if skip_public=True)
+            skip_public (bool): Skip public_id generation (default True for bulk inserts)
+        """
+        try:
+            if skip_public:
+                return self.dbm.insert_many(self.collection, self.db_name, data)
+
+            # If you ever want public_id generation here in the future:
+            for item in data:
+                if "public_id" not in item:
+                    item["public_id"] = self.dbm.get_next_public_id(
+                        self.collection,
+                        self.db_name,
+                        inc_id=True
+                    )
+
+            return self.dbm.insert_many(self.collection, self.db_name, data)
+
+        except Exception as err:
+            raise BaseManagerInsertError(str(err)) from err
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     def iterate_query(
