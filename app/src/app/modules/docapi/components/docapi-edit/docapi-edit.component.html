@@ -1,2 +1,2 @@
-<cmdb-content-header title="Edit Template"/>
-<cmdb-docapi-builder [docInstance]="docInstance" [mode]="mode"/>
+<cmdb-content-header [title]="title"/>
+<cmdb-docapi-builder [docInstance]="docInstance" [mode]="mode" (labelChanged)="onLabelChanged($event)"/>

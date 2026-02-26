@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { AfterViewInit, Component, Input, OnDestroy, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
@@ -29,7 +29,7 @@ import { DocapiBuilderTypeStepComponent } from '../docapi-builder-type-step/doca
 import { DocapiBuilderStyleStepComponent } from '../docapi-builder-style-step/docapi-builder-style-step.component';
 import { DocapiBuilderContentStepComponent } from '../docapi-builder-content-step/docapi-builder-content-step.component';
 import { DocTemplate, DocTemplateUpdateResponse } from '../../models/cmdb-doctemplate';
-import { Subscription } from 'rxjs';
+import { startWith, Subscription } from 'rxjs';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
@@ -42,6 +42,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
+    @Output() public labelChanged = new EventEmitter<string>();
     @ViewChild('wizard', { static: false })
     public wizard: WizardComponent;
 
@@ -60,6 +61,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     public styleStep: DocapiBuilderStyleStepComponent;
 
     private typeParamSubscription?: Subscription;
+    private labelSubscription?: Subscription;
     private suppressTypeChange = false;
     private warningModalOpen = false;
     private previousTypeState: { templateType: string; parameters: any } | null = null;
@@ -79,10 +81,12 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     public ngAfterViewInit(): void {
         this.registerTypeChangeHandlers();
+        this.registerLabelChangeHandler();
     }
 
     public ngOnDestroy(): void {
         this.typeParamSubscription?.unsubscribe();
+        this.labelSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -164,6 +168,18 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         });
 
         this.registerTypeParamWatcher();
+    }
+
+    private registerLabelChangeHandler(): void {
+        const labelControl = this.settingsStep?.settingsForm?.get('label');
+        if (!labelControl) {
+            return;
+        }
+ 
+        this.labelSubscription?.unsubscribe();
+        this.labelSubscription = labelControl.valueChanges
+            .pipe(startWith(labelControl.value))
+            .subscribe((value: string) => this.labelChanged.emit(value ?? ''));
     }
 
     public onTypeParamReady(): void {
