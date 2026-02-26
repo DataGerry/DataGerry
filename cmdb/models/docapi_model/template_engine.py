@@ -59,7 +59,11 @@ class TemplateEngine:
 
         environment.globals["report"] = lambda public_id: (template_data.get("reports", {}).get(public_id))
 
-        # Load the template string into the Jinja2 environment
-        template = environment.from_string(template_string)
+        try:
+            # Load the template string into the Jinja2 environment
+            template = environment.from_string(template_string)
 
-        return template.render(template_data)
+            return template.render(template_data)
+        except Exception as err:
+            LOGGER.debug("Template rendering failed - continuing with empty output. Error: %s", err)
+            return ""
