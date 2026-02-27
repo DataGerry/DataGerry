@@ -19,6 +19,8 @@ Implementation of the TemplateEngine
 from logging import Logger, getLogger
 
 from jinja2 import Environment, ChainableUndefined
+
+from cmdb.models.docapi_model.reference_result import SafeDict
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -51,19 +53,33 @@ class TemplateEngine:
         """
         # Initialize the Jinja2 environment with ChainableUndefined to handle undefined variables gracefully
         environment = Environment(undefined=ChainableUndefined)
+        environment.finalize = lambda x: "" if x is None else x
 
-        # Register methods
-        environment.globals["object"] = lambda public_id: (template_data.get("objects", {}).get(public_id))
+        safe_template_data = self._safe_wrap(template_data)
 
-        environment.globals["root"] = template_data.get("root")
+        environment.globals["object"] = lambda public_id: (
+            safe_template_data.get("objects", {}).get(public_id, "")
+        )
+        environment.globals["root"] = safe_template_data.get("root", "")
+        environment.globals["report"] = lambda public_id: (
+            safe_template_data.get("reports", {}).get(public_id, "")
+        )
 
-        environment.globals["report"] = lambda public_id: (template_data.get("reports", {}).get(public_id))
+        # Load the template string into the Jinja2 environment
+        template = environment.from_string(template_string)
 
         try:
-            # Load the template string into the Jinja2 environment
-            template = environment.from_string(template_string)
-
-            return template.render(template_data)
+            return template.render(safe_template_data)
+            # return template.render(template_data)
         except Exception as err:
-            LOGGER.debug("Template rendering failed - continuing with empty output. Error: %s", err)
-            return ""
+            LOGGER.error("Template rendering failed (unexpected fatal error): %s", err)
+            return template_string  # fallback: return raw template so PDF is not empty
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def _safe_wrap(self, data):
+        if isinstance(data, dict):
+            return SafeDict({k: self._safe_wrap(v) for k, v in data.items()})
+        if isinstance(data, list):
+            return [self._safe_wrap(v) for v in data]
+        return data

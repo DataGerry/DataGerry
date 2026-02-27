@@ -18,51 +18,42 @@ TODO: document
 """
 from logging import Logger, getLogger
 
-from cmdb.models.docapi_model.safe_dict import SafeDict
+from cmdb.models.docapi_model.safe_null import SafeNull
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                ReferenceResult - CLASS                                               #
+#                                                   SafeDict - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-class RefResult:
-    """
-    Wrapper for a resolved reference field to allow type filtering in templates.
-    """
-    def __init__(self, obj_data: dict | None):
-        self.obj_data = obj_data or {}
-
-    def type(self, type_id: int):
-        """TODO. document"""
-        try:
-            if not self.obj_data:
-                return SafeDict({})
-
-            obj_type_id = self.obj_data.get("type_id")
-
-            if obj_type_id == type_id:
-                return SafeDict(self.obj_data)
-
-            return SafeDict({})
-        except Exception:
-            return SafeDict({})
-
+class SafeDict(dict):
+    """TODO: document"""
     def __getitem__(self, key):
         try:
-            value = self.obj_data.get(key)
-            if isinstance(value, dict):
-                return SafeDict(value)
-            return value if value is not None else SafeDict({})
+            value = super().get(key)
+            return self._wrap(value)
         except Exception:
-            return SafeDict({})
+            return super().get(key, SafeNull())
 
-    def get(self, key, default=None):
-        """TODO. document"""
+    def get(self, key, default=""):
         try:
-            value = self.obj_data.get(key, default)
-            if isinstance(value, dict):
-                return SafeDict(value)
-            return value
+            value = super().get(key, default)
+            return self._wrap(value)
         except Exception:
-            return default
+            return super().get(key, SafeNull())
+
+    def __getattr__(self, name):
+        value = super().get(name, None)
+        return self._wrap(value)
+
+    def _wrap(self, value):
+        if value is None:
+            return SafeNull()
+
+        if isinstance(value, dict):
+            return SafeDict(value)
+
+        if isinstance(value, list):
+            return [self._wrap(v) for v in value]
+
+        return value
