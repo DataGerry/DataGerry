@@ -34,7 +34,7 @@ Requirements
 DataGerry has the following system requirements:
 
 - **Linux Operating System**
-- **MongoDB 6.0 or 7.0** 
+- **MongoDB 6.0, 7.0 or 8.0** 
 
 Although DataGerry ships with a built-in web server, it is recommended to place it behind **Nginx** for improved
 performance and security.
@@ -227,7 +227,7 @@ MongoDB Setup
 -------------
 
 | To install MongoDB, follow the official MongoDB guide for your platform:  
-| `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
 
 | 
 
@@ -252,6 +252,9 @@ Once MongoDB is installed, install the RPM package:
 		ssl = true
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
+
+	Please make sure, the datagerry user has sufficent permissions to read your certificate files.
+	Additionally the private folder needs read and exeute permission for datagerry user.
 
 	Restart datagerry service:
 
@@ -313,7 +316,7 @@ MongoDB Setup
 -------------
 
 | To install MongoDB, follow the official MongoDB guide for your platform:  
-| `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux>`_
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
 
 =======================================================================================================================
 
@@ -339,6 +342,9 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
 		ssl = true
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
+
+	Please make sure, the datagerry user has sufficent permissions to read your certificate files.
+	Additionally the private folder needs read and exeute permission for datagerry user.
 
 	Restart datagerry service:
 
@@ -394,7 +400,7 @@ MongoDB Setup
 -------------
 
 | To install MongoDB, follow the official MongoDB guide for your platform:  
-| `MongoDB Installation Guide <https://www.mongodb.com/docs/v7.0/administration/install-on-linux/#std-label-install-mdb-community-edition-linux/>`_
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
 
 | 
 
@@ -419,6 +425,9 @@ Navigate to the directory containing the package and run:
 		ssl = true
 		certfile = /etc/ssl/certs/cmdb.pem
 		keyfile = /etc/ssl/private/cmdb.key
+
+	Please make sure, the datagerry user has sufficent permissions to read your certificate files.
+	Additionally the private folder needs read and exeute permission for datagerry user.
 
 	Restart datagerry service:
 

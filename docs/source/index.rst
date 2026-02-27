@@ -71,8 +71,7 @@ and manage any type of asset or configuration data.
     :maxdepth: 2
 
     sources/packages
-    Download Docker Frontend <https://hub.docker.com/r/becongmbh/datagerry-frontend>
-    Download Docker Backend <https://hub.docker.com/r/becongmbh/datagerry-backend>
+    sources/docker
     Repository <https://github.com/DATAGerry/DATAGerry>
     sources/changelog
 
