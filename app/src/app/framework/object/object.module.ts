@@ -56,16 +56,11 @@ import { ObjectLogUserComponent } from './components/object-log-list/object-log-
 import { ObjectDocsComponent } from './components/object-docs/object-docs.component';
 import { ObjectAttachmentsComponent } from './components/object-attachments/object-attachments.component';
 import { ObjectsByTypeComponent } from './objects-by-type/objects-by-type.component';
-import { ObjectLinkAddModalComponent } from './modals/object-link-add-modal/object-link-add-modal.component';
-import { ObjectLinkDeleteModalComponent } from './modals/object-link-delete-modal/object-link-delete-modal.component';
 import { ObjectDeleteModalComponent } from './modals/object-delete-modal/object-delete-modal.component';
 import { ObjectsDeleteModalComponent } from './modals/objects-delete-modal/objects-delete-modal.component';
 import { ObjectTableActionsComponent } from './components/object-table-actions/object-table-actions.component';
 import { ObjectTableHeadComponent } from './components/object-table-head/object-table-head.component';
 import { ObjectReferencesTableComponent } from './components/object-references/object-references-table/object-references-table.component';
-import { ObjectLinksTableComponent } from './components/object-links-table/object-links-table.component';
-import { ObjectLinksTablePartnerCellComponent } from './components/object-links-table/object-links-table-partner-cell/object-links-table-partner-cell.component';
-import { ObjectLinksTableActionCellComponent } from './components/object-links-table/object-links-table-action-cell/object-links-table-action-cell.component';
 import { ObjectReferencesComponent } from './components/object-references/object-references.component';
 import { ObjectReferencesByTypeComponent } from './components/object-references/object-references-by-type/object-references-by-type.component';
 import { ObjectReferencesTypeColumnComponent } from './components/object-references/object-references-type-column/object-references-type-column.component';
@@ -105,8 +100,6 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectLogComponent,
         ObjectLogChangeViewComponent,
         ObjectLogUserComponent,
-        ObjectLinkAddModalComponent,
-        ObjectLinkDeleteModalComponent,
         ObjectBulkChangeComponent,
         ObjectBulkChangePreviewComponent,
         ObjectBulkChangeEditorComponent,
@@ -118,9 +111,6 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectDeleteModalComponent,
         ObjectsDeleteModalComponent,
         ObjectTableHeadComponent,
-        ObjectLinksTableComponent,
-        ObjectLinksTablePartnerCellComponent,
-        ObjectLinksTableActionCellComponent,
         ObjectReferencesTableComponent,
         ObjectReferencesComponent,
         ObjectReferencesByTypeComponent,
