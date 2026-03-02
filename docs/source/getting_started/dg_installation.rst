@@ -483,6 +483,15 @@ After installing Nginx for your platform, adapt the following configuration for 
 
 This setup will:
 
+    - Listen on ports **80 (HTTP)** 
+    - Forward HTTP requests from `http://<host>/` to the DataGerry backend at `http://127.0.0.1:4000`
+
+
+.. include:: ../../../contrib/nginx/nginx-ssl.conf
+    :literal:
+
+This setup will:
+
     - Listen on ports **80 (HTTP)** and **443 (HTTPS)**
     - Automatically redirect HTTP to HTTPS
     - Forward HTTPS requests from `https://<host>/` to the DataGerry backend at `http://127.0.0.1:4000`
