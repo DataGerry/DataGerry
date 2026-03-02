@@ -34,7 +34,6 @@ from cmdb.manager import (
     LocationsManager,
     LogsManager,
     ObjectsManager,
-    ObjectLinksManager,
     ReportsManager,
     WebhooksManager,
     ObjectRelationsManager,
@@ -1175,10 +1174,6 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             ManagerType.OBJECT_GROUP,
             request_user
         )
-        object_links_manager: ObjectLinksManager = ManagerProvider.get_manager(
-            ManagerType.OBJECT_LINKS,
-            request_user
-        )
 
         current_object_instance: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
 
@@ -1190,13 +1185,12 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         if not current_type_instance:
             abort(500, "Type of Object not found in database!")
 
-        # Remove object links and references
+        # Remove references
         try:
-            object_links_manager.delete_object_links(public_id)
             objects_manager.delete_all_object_references(public_id)
         except Exception as error:
             LOGGER.error(
-                "[delete_cmdb_object] Links + Refenreces Exception: %s. Type: %s", error, type(error), exc_info=True
+                "[delete_cmdb_object] Delete Refenreces Exception: %s. Type: %s", error, type(error), exc_info=True
             )
 
         current_object_render_result = CmdbRender(current_object_instance,
@@ -1292,7 +1286,7 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
 
     This function performs the following steps:
     1. Verifies the existence of the CMDB object
-    2. Removes all links and references associated with the CmdbObject
+    2. Removes all references associated with the CmdbObject
     3. Checks for the location associated with the CmdbObject
     4. If a location exists, retrieves and deletes all child locations
     5. Deletes the CmdbObject and its location
@@ -1319,10 +1313,7 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
             ManagerType.OBJECT_GROUP,
             request_user
         )
-        object_links_manager: ObjectLinksManager = ManagerProvider.get_manager(
-            ManagerType.OBJECT_LINKS,
-            request_user
-        )
+
 
         # check if object exists
         current_object_instance = objects_manager.get_object(public_id)
@@ -1332,13 +1323,12 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
 
         current_object_instance = CmdbObject.from_data(current_object_instance)
 
-        # Remove object links and references
+        # Remove and references
         try:
-            object_links_manager.delete_object_links(public_id)
             objects_manager.delete_all_object_references(public_id)
         except Exception as error:
             LOGGER.error(
-                "[delete_cmdb_object_with_child_locations] Links + Refenreces Exception: %s. Type: %s",
+                "[delete_cmdb_object_with_child_locations] Delete Refenreces Exception: %s. Type: %s",
                 error, type(error), exc_info=True
             )
 
@@ -1434,10 +1424,7 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser):
             ManagerType.OBJECT_GROUP,
             request_user
         )
-        object_links_manager: ObjectLinksManager = ManagerProvider.get_manager(
-            ManagerType.OBJECT_LINKS,
-            request_user
-        )
+
         # check if object exists
         current_object_instance = objects_manager.get_object(public_id)
 
@@ -1446,13 +1433,12 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser):
 
         current_object_instance = CmdbObject.from_data(current_object_instance)
 
-        # Remove object links and references
+        # Remove references
         try:
-            object_links_manager.delete_object_links(public_id)
             objects_manager.delete_all_object_references(public_id)
         except Exception as error:
             LOGGER.error(
-                "[delete_object_with_child_objects] Links + Refenreces Exception: %s. Type: %s",
+                "[delete_object_with_child_objects] Delete Refenreces Exception: %s. Type: %s",
                 error, type(error), exc_info=True
             )
 
@@ -1552,7 +1538,7 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser):
     Deletes multiple CmdbObjects by their public_ids
 
     This function removes multiple CmdbObjects, ensuring they do not have associated locations,
-    deleting their links, references, and related object relations. It also logs the deletion
+    deleting their references and related object relations. It also logs the deletion
     and triggers a webhook event.
 
     Args:
@@ -1575,10 +1561,6 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser):
                                                                             request_user)
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_GROUP,
-            request_user
-        )
-        object_links_manager: ObjectLinksManager = ManagerProvider.get_manager(
-            ManagerType.OBJECT_LINKS,
             request_user
         )
 
@@ -1613,12 +1595,11 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser):
         current_object_instance: CmdbObject
         for current_object_instance in objects:
             try:
-                # Remove object links and references
-                object_links_manager.delete_object_links(current_object_instance.public_id)
+                # Remove references
                 objects_manager.delete_all_object_references(current_object_instance.public_id)
             except Exception as error:
                 LOGGER.error(
-                    "[delete_many_cmdb_objects] Links + Refenreces Exception: %s. Type: %s",
+                    "[delete_many_cmdb_objects] Delete Refenreces Exception: %s. Type: %s",
                     error, type(error), exc_info=True
                 )
 

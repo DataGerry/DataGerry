@@ -34,7 +34,6 @@ class ManagerType(Enum):
     TYPES = 'TypesManager'
     LOCATIONS = 'LocationsManager'
     SECTION_TEMPLATES = 'SectionTemplatesManager'
-    OBJECT_LINKS = 'ObjectLinksManager'
     SETTINGS = 'SettingsManager'
     SECURITY = 'SecurityManager'
     REPORT_CATEGORIES = 'ReportCategoriesManager'

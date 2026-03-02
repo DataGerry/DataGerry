@@ -38,8 +38,6 @@ tags:
       description: API Routes related to **Objects**
     - name: ObjectGroups
       description: API Routes related to **ObjectGroups**
-    - name: ObjectLinks
-      description: API Routes related to **ObjectLinks**
     - name: Types
       description: API Routes related to **Types**
     - name: Categories
@@ -112,10 +110,6 @@ paths:
         $ref: "./paths/object_groups/object-groups.yaml"
     /object_groups/{public_id}:
         $ref: "./paths/object_groups/object-groups-by-id.yaml"
-    /objects/links:
-        $ref: "./paths/object_links/object-links.yaml"
-    /objects/links/{public_id}:
-        $ref: "./paths/object_links/object-links-by-id.yaml"
     /types:
         $ref: "./paths/types/types.yaml"
     /types/{public_id}:
