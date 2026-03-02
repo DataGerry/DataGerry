@@ -156,7 +156,6 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.system_routes.setup_routes import setup_blueprint
     from cmdb.interface.rest_api.routes.settings_routes.date_routes import date_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.objects_routes import objects_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.object_links_routes import links_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.types_routes import types_blueprint
     from cmdb.interface.rest_api.routes.connection import connection_routes
     from cmdb.interface.rest_api.routes.framework_routes.categories_routes import categories_blueprint
@@ -221,7 +220,6 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
     app.register_blueprint(date_blueprint, url_prefix='/date')
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
-    app.register_blueprint(links_blueprint, url_prefix='/objects/links')
     app.register_blueprint(types_blueprint, url_prefix='/types')
     app.register_blueprint(connection_routes)
     app.register_blueprint(categories_blueprint, url_prefix='/categories')

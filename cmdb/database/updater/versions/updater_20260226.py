@@ -22,7 +22,6 @@ from datetime import datetime, timezone
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
-from cmdb.models.object_link_model.cmdb_object_link import CmdbObjectLink
 from cmdb.models.relation_model.cmdb_relation import CmdbRelation
 from cmdb.models.object_relation_model.cmdb_object_relation import CmdbObjectRelation
 
@@ -31,6 +30,7 @@ from cmdb.errors.updater import UpdaterException
 
 LOGGER: Logger = getLogger(__name__)
 
+OBJECT_LINK_COLLECTION: str = "framework.links"
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                Update20260226 - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -50,10 +50,8 @@ class Update20260226(BaseDatabaseUpdate):
 
     def start_update(self) -> None:
         try:
-            object_link_collection: str = CmdbObjectLink.COLLECTION
-
             object_links = list(self.dbm.find(
-                collection=object_link_collection,
+                collection=OBJECT_LINK_COLLECTION,
                 db_name=self.db_name,
                 filter={},
                 projection={"primary": 1, "secondary": 1, "_id": 0}
