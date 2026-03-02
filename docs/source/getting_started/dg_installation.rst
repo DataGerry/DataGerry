@@ -487,6 +487,8 @@ This setup will:
     - Forward HTTP requests from `http://<host>/` to the DataGerry backend at `http://127.0.0.1:4000`
 
 
+If you like to use SSL, use the following configuration:
+
 .. include:: ../../../contrib/nginx/nginx-ssl.conf
     :literal:
 
