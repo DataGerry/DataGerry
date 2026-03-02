@@ -110,7 +110,7 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
                     type: fieldType,
                     operators: operators,
                     defaultValue: '',
-                    ...(fieldType === 'category' && field.options ? { options: field.options } : {}) // Only add options if category
+                    ...(fieldType === 'category' && field.options ? { options: this.normalizeCategoryOptions(field.options) } : {})
                 };
             });
 
@@ -123,6 +123,22 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
             };
             this.config.fields = {};
         }
+    }
+
+    /**
+     * Normalizes option objects for query-builder category inputs.
+     * Query-builder uses `opt.value` for the outgoing rule value.
+     */
+    private normalizeCategoryOptions(options: Array<{ name?: string; label?: string; value?: any }>): Array<{ name: string; value: any }> {
+        return options.map((option) => {
+            const resolvedValue = option?.value !== undefined ? option.value : option?.name;
+            const resolvedName = option?.label || option?.name || String(resolvedValue ?? '');
+
+            return {
+                name: resolvedName,
+                value: resolvedValue
+            };
+        }).filter((option) => option.value !== undefined);
     }
 
 
@@ -158,7 +174,16 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
                     if (rule.rules.length === 0 || checkForEmptyFields(rule.rules)) {
                         return true;
                     }
-                } else if (rule.value === '' && rule.operator !== 'is null' && rule.operator !== 'is not null') {
+                } else if (
+                    rule.operator !== 'is null' &&
+                    rule.operator !== 'is not null' &&
+                    (
+                        rule.value === '' ||
+                        rule.value === undefined ||
+                        rule.value === null ||
+                        (Array.isArray(rule.value) && rule.value.length === 0)
+                    )
+                ) {
                     // If the value is empty and the operator is not null checks, return true
                     return true;
                 }
