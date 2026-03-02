@@ -34,7 +34,7 @@ Requirements
 DataGerry has the following system requirements:
 
 - **Linux Operating System**
-- **MongoDB 6.0** (MongoDB 4.4+ is generally compatible but not officially supported)
+- **MongoDB 6.0, 7.0 or 8.0** 
 
 Although DataGerry ships with a built-in web server, it is recommended to place it behind **Nginx** for improved
 performance and security.
@@ -114,7 +114,7 @@ Use default Docker installation guide.
 
 .. code-block:: console
     
-    git clone https://github.com/DataGerry/DataGerry-docker.git  
+    git clone https://github.com/DataGerry/DataGerry-docker.git /opt/DataGerry-docker
     cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
     cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
@@ -139,14 +139,14 @@ Use default Docker installation guide.
 	
 		cp /opt/DataGerry-docker/conf/nginx-ssl_default.conf /opt/DataGerry-docker/conf/nginx-ssl.conf
 
-	Change the certificates within the config (nginx-ssl.conf), with your own:	
+	Change the certificates within the config (conf/nginx-ssl.conf), with your own:	
 			
 	.. code-block:: console
 	
-		ssl_certificate /opt/DataGerry-docker/conf/ssl/certs/cmdb.pem;
-		ssl_certificate_key /opt/DataGerry-docker/conf/ssl/private/cmdb.key;
+		ssl_certificate /etc/ssl/certs/cmdb.pem;
+		ssl_certificate_key /etc/ssl/private/cmdb.key;
 
-	Set ssl to true and change the certificates within the config (cmdb.conf), with your own:	
+	Set ssl to true and change the certificates within the config (conf/cmdb.conf), with your own:	
 			
 	.. code-block:: console
 		
@@ -181,7 +181,7 @@ Use default Docker installation guide.
 	docker compose up -d
 
 .. note::
-	| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+	| Now you can connect to DataGerry, by navigating to http://localhost (for SSL https://localhost) in your web browser.
 
 	| The default login credentials are:
 	|
@@ -226,10 +226,8 @@ Supported Platforms:
 MongoDB Setup
 -------------
 
-DataGerry requires MongoDB 6.0. MongoDB 4.4+ may work but is not guaranteed.
-
-Installation instructions are available here:  
-`MongoDB Installation for RHEL <https://www.mongodb.com/docs/v6.0/tutorial/install-mongodb-on-red-hat/>`_
+| To install MongoDB, follow the official MongoDB guide for your platform:  
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
 
 | 
 
@@ -244,19 +242,52 @@ Once MongoDB is installed, install the RPM package:
 
     rpm -ivh DATAGERRY-<version>.x86_64.rpm
 
-
-You can now access the frontend:
-
-.. code-block:: console
-
-    http://<host>:4000
-    user: admin
-    password: admin
-
 .. note::
-   If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
+	If you like to use SSL, do the following steps:
+
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:
+	
+	.. code-block:: console
+	
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
+
+	Please make sure, the datagerry user has sufficent permissions to read your certificate files.
+	Additionally the private folder needs read and exeute permission for datagerry user.
+
+	Restart datagerry service:
+
+	.. code-block:: console
+
+		systemctl restart datagerry
 
 | 
+
+=======================================================================================================================
+
+Accessing the Web Interface
+---------------------------
+
+| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+| (for SSL use https://localhost)
+
+| The default login credentials are:
+|
+| **Username: admin**
+| **Password: admin**
+|
+| If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
+
+.. note::
+
+    If you want to have a look into DataGerry logs please use:
+	
+    .. code-block:: console
+	
+		journalctl -xe -u datagerry -f
+
+|
 
 =======================================================================================================================
 
@@ -284,10 +315,8 @@ This approach should also work on other distributions that support systemd.
 MongoDB Setup
 -------------
 
-DataGerry requires **MongoDB 6.0** as its database backend. MongoDB 4.4+ is generally compatible, though not officially supported.
-
-To install MongoDB, follow the official MongoDB guide for your platform:  
-`MongoDB Installation Guide <https://www.mongodb.com/docs/v6.0/administration/install-on-linux/>`_
+| To install MongoDB, follow the official MongoDB guide for your platform:  
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
 
 =======================================================================================================================
 
@@ -302,47 +331,51 @@ Download the ZIP :ref:`here <package-zip-anchor>`.
     cd datagerry
     sudo ./setup.sh
 
-| 
 
-Configuration
--------------
+.. note::
+	If you like to use SSL, do the following steps:
 
-After the setup, configure the MongoDB connection in the configuration file:
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:
+	
+	.. code-block:: console
+	
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
 
-.. code-block:: console
+	Please make sure, the datagerry user has sufficent permissions to read your certificate files.
+	Additionally the private folder needs read and exeute permission for datagerry user.
 
-    /etc/datagerry/cmdb.conf
+	Restart datagerry service:
 
-You can also override configuration values using environment variables (see the configuration section for details).
+	.. code-block:: console
 
-| 
-
-Service Activation
-------------------
-
-Enable and start the DataGerry service using systemd:
-
-.. code-block:: console
-
-    systemctl enable datagerry.service
-    systemctl start datagerry.service
+		systemctl restart datagerry
 
 | 
+
+=======================================================================================================================
 
 Accessing the Web Interface
 ---------------------------
 
-Once started, you can access the DataGerry web interface at:
+| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+| (for SSL use https://localhost)
 
-.. code-block:: console
-
-    http://<host>:4000
-    user: admin
-    password: admin
+| The default login credentials are:
+|
+| **Username: admin**
+| **Password: admin**
+|
+| If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
 
 .. note::
-   If you are unable to access the frontend, ensure that port **4000** is open and not blocked by your system firewall.
 
+    If you want to have a look into DataGerry logs please use:
+	
+    .. code-block:: console
+	
+		journalctl -xe -u datagerry -f
 | 
 
 =======================================================================================================================
@@ -366,9 +399,8 @@ For Debian-based systems, DataGerry provides a `.deb` package for easy installat
 MongoDB Setup
 -------------
 
-Follow the official MongoDB guide to install MongoDB 6.0 on Debian:
-
-`Install MongoDB on Debian <https://www.mongodb.com/docs/v6.0/tutorial/install-mongodb-on-debian/>`_
+| To install MongoDB, follow the official MongoDB guide for your platform:  
+| `MongoDB Installation Guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
 
 | 
 
@@ -383,23 +415,51 @@ Navigate to the directory containing the package and run:
 
     apt install ./<datagerry-version>.deb
 
+.. note::
+	If you like to use SSL, do the following steps:
+
+	Set ssl to true and change the certificates within the config (/etc/datagery/cmdb.conf), with your own:
+	
+	.. code-block:: console
+	
+		ssl = true
+		certfile = /etc/ssl/certs/cmdb.pem
+		keyfile = /etc/ssl/private/cmdb.key
+
+	Please make sure, the datagerry user has sufficent permissions to read your certificate files.
+	Additionally the private folder needs read and exeute permission for datagerry user.
+
+	Restart datagerry service:
+
+	.. code-block:: console
+
+		systemctl restart datagerry
+
 | 
 
-Web Interface Access
---------------------
+=======================================================================================================================
 
-Once installed, you can access the DataGerry web frontend at:
+Accessing the Web Interface
+---------------------------
 
-.. code-block:: console
+| Now you can connect to DataGerry, by navigating to http://localhost in your web browser.
+| (for SSL use https://localhost)
 
-    http://<host>:4000
-    user: admin
-    password: admin
+| The default login credentials are:
+|
+| **Username: admin**
+| **Password: admin**
+|
+| If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
 
 .. note::
-   If the interface is not reachable, ensure that port **4000** is open in your firewall settings.
 
-| 
+    If you want to have a look into DataGerry logs please use:
+	
+    .. code-block:: console
+	
+		journalctl -xe -u datagerry -f
+|
 
 =======================================================================================================================
 
@@ -419,6 +479,20 @@ We recommend using **Nginx** as a reverse proxy to enhance performance, enable S
 After installing Nginx for your platform, adapt the following configuration for your environment:
 
 .. include:: ../../../contrib/nginx/nginx.conf
+    :literal:
+
+This setup will:
+
+    - Listen on ports **80 (HTTP)** 
+    - Forward HTTP requests from `http://<host>/` to the DataGerry backend at `http://127.0.0.1:4000`
+
+
+
+=======================================================================================================================
+
+If you like to use SSL, use the following configuration:
+
+.. include:: ../../../contrib/nginx/nginx-ssl.conf
     :literal:
 
 This setup will:

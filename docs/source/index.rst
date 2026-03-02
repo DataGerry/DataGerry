@@ -71,7 +71,7 @@ and manage any type of asset or configuration data.
     :maxdepth: 2
 
     sources/packages
-    Download Docker <https://hub.docker.com/r/becongmbh/datagerry>
+    sources/docker
     Repository <https://github.com/DATAGerry/DATAGerry>
     sources/changelog
 
