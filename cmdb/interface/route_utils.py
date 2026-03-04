@@ -31,8 +31,6 @@ from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
 
-from pymongo.errors import NetworkTimeout, AutoReconnect
-
 from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
 from cmdb.manager import (
     UsersManager,

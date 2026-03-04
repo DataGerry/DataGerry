@@ -17,6 +17,7 @@
 This module contains the implementation of the WebhooksManager
 """
 from logging import Logger, getLogger
+from typing import Any
 import json
 from datetime import datetime, timezone
 import requests
@@ -138,7 +139,8 @@ class WebhooksManager(BaseManager):
             operation: WebhookEventType = None,
             object_before: dict = None,
             object_after: dict = None,
-            changes: dict = None) -> None:
+            changes: dict = None
+        ) -> None:
         """
         Sends a webhook event to all configured webhook endpoints that are subscribed 
         to the specified operation type.
@@ -157,10 +159,8 @@ class WebhooksManager(BaseManager):
             if not webhooks:
                 return
 
-            # Check all webhooks
             webhook: CmdbWebhook
             for webhook in webhooks:
-                # Check if webhook is active
                 if not webhook.active:
                     continue
 
@@ -194,7 +194,8 @@ class WebhooksManager(BaseManager):
             operation: WebhookEventType,
             object_before: dict,
             object_after:dict,
-            changes: dict = None) -> dict:
+            changes: dict = None
+        ) -> dict[str, Any]:
         """
         Constructs the payload dictionary for a webhook event
 
@@ -205,7 +206,7 @@ class WebhooksManager(BaseManager):
             changes (dict, optional): A dictionary summarizing the changes made to the object
 
         Returns:
-            dict: A dictionary containing event metadata and object data to be sent to webhook endpoints
+            dict[str, Any]: A dictionary containing event metadata and object data to be sent to webhook endpoints
         """
         return {
             'event_time': datetime.now(timezone.utc),

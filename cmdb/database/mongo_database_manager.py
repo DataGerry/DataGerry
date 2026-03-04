@@ -533,7 +533,7 @@ class MongoDatabaseManager:
     @retry_operation
     def reserve_public_ids(self, collection: str, db_name: str, amount: int) -> list[int]:
         """
-        Atomically reserves a block of public_ids for bulk inserts.
+        Atomically reserves a block of public_ids for bulk inserts
         """
         try:
             doc = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one_and_update(

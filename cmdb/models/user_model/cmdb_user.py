@@ -33,6 +33,8 @@ from cmdb.errors.models.cmdb_user import (
 
 LOGGER: Logger = getLogger(__name__)
 
+DEFAULT_CONFIG_ITEMS_LIMIT: int = 1000
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbUser - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -55,7 +57,6 @@ class CmdbUser(CmdbDAO):
     DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
     DEFAULT_GROUP: int = 2
     DEFAULT_API_LEVEL = 0
-    DEFAULT_CONFIG_ITEMS_LIMIT = 1000
 
     SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 
@@ -70,7 +71,7 @@ class CmdbUser(CmdbDAO):
         password: str | None = None,
         database: str = 'test',
         api_level: int = 0,
-        config_items_limit: int = 1000,
+        config_items_limit: int = DEFAULT_CONFIG_ITEMS_LIMIT,
         image: str | None = None,
         first_name: str | None = None,
         last_name: str | None = None,
@@ -168,7 +169,7 @@ class CmdbUser(CmdbDAO):
                 active = data['active'],
                 database = data.get('database', 'test'),
                 api_level = data.get('api_level', 0),
-                config_items_limit = data.get('config_items_limit', 1000),
+                config_items_limit = data.get('config_items_limit', DEFAULT_CONFIG_ITEMS_LIMIT),
                 group_id = data.get('group_id'),
                 registration_time = reg_date,
                 authenticator = data.get('authenticator'),
@@ -242,3 +243,18 @@ class CmdbUser(CmdbDAO):
             return f'{self.first_name} {self.last_name}'
 
         return self.user_name
+
+
+    def is_config_item_limit_reached(self, objects_count: int) -> bool:
+        """
+        Checks if the configuration item limit for the user has been reached
+
+        Args:
+            objects_count (int): Amount of current CmdbObjects
+        Returns:
+            bool: True if the user has reached or exceeded their config item limit, False otherwise
+        """
+        if not self.config_items_limit:
+            self.config_items_limit = DEFAULT_CONFIG_ITEMS_LIMIT
+
+        return objects_count >= self.config_items_limit

@@ -20,16 +20,16 @@ import os
 import json
 from logging import Logger, getLogger
 from typing import Any
+
 from requests import Response, delete, post, get
 
 from flask import current_app
 
+from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
 
-from cmdb.errors.security import (
-    NoAccessTokenError,
-)
-
+from cmdb.errors.security import NoAccessTokenError
+from cmdb.errors.dg_service_portal import DgServicePortalGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -46,6 +46,8 @@ SCHEDULER_ID_URL: str = "/datagerry/opencelium/entity/scheduler"
 GET_SCHEDULER_IDS: str = f"{SCHEDULER_ID_URL}/list"
 
 GET_USER_DATA_URL: str = "/datagerry/lookup"
+
+SYNC_CONFIG_ITEMS_URL: str = "/datagerry/config-item/update"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            DgServicePortalManager - CLASS                                            #
@@ -480,9 +482,55 @@ class DgServicePortalManager:
         if self.is_valid_response(response):
             return json.loads(response.text)
 
-        LOGGER.error("[get_dg_sp_user_data] Error: %s", response.text)
-        #TODO: add explicit exception
-        raise Exception("Failed retrieving user data from Service Portal!")
+        LOGGER.error("[get_dg_sp_user_data] DG ServicePortal Error: %s", response.text)
+        raise DgServicePortalGetError("Failed retrieving user data from DG Service Portal!")
+
+
+    def sync_config_items(self, request_user: CmdbUser, config_item_count: int) -> bool:
+        """
+        Synchronize configuration items with the service portal
+
+        This function sends a request to the service portal to sync configuration items for a specific 
+        user and database. It is only executed in cloud mode. If the mode is local, the function simply 
+        returns `True`
+
+        Args:
+            request_user (CmdbUser): The user which is using the API route
+            config_item_count (int): Number of CmdbObjects in Database
+
+        Returns:
+            bool:
+                - `True` if the synchronization was successful
+                - `False` if the request failed or an error occurred
+
+        Raises:
+            NoAccessTokenError: If the `X-ACCESS-TOKEN` environment variable is not set
+        """
+        # Just do this in cloud mode
+        if current_app.local_mode:
+            return True
+
+        payload: dict[str, Any] = {
+            "email": request_user.email,
+            "database_name": request_user.database,
+            "config_item_count": config_item_count
+        }
+
+        try:
+            response: Response = self.sp_post(SYNC_CONFIG_ITEMS_URL, payload)
+
+            if self.is_valid_response(response):
+                return True
+
+            LOGGER.error("[sync_config_items] DG ServicePortal Error: %s", response.text)
+            return False
+        except Exception as err:
+            LOGGER.error(
+                "[sync_config_items] Could not sync config items count to DG ServicePortal. Error: %s. Type: %s",
+                err,
+                type(err)
+            )
+            return False
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
