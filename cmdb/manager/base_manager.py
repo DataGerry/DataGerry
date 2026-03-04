@@ -111,7 +111,7 @@ class BaseManager:
         """
         try:
             if skip_public:
-                return self.dbm.insert_many(self.collection, self.db_name, data)
+                return self.dbm.insert_many(self.collection, self.db_name, data, skip_public)
 
             # If you ever want public_id generation here in the future:
             for item in data:
@@ -417,6 +417,14 @@ class BaseManager:
         """
         try:
             return self.dbm.get_next_public_id(self.collection, self.db_name, inc_id)
+        except DocumentGetError as err:
+            raise BaseManagerGetError(str(err)) from err
+
+
+    def reserve_public_ids(self, amount: int) -> list[int]:
+        """TODO: document"""
+        try:
+            return self.dbm.reserve_public_ids(self.collection, self.db_name, amount)
         except DocumentGetError as err:
             raise BaseManagerGetError(str(err)) from err
 

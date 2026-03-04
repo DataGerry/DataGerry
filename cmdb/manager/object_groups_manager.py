@@ -17,6 +17,7 @@
 This module contains the implementation of the ObjectGroupsManager
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from pymongo.results import UpdateResult
 
@@ -111,18 +112,19 @@ class ObjectGroupsManager(GenericManager):
 
     def remove_ids_from_static_groups(self, public_ids: int | list[int]) -> UpdateResult:
         """
-        Removes a public_id or list of public_ids of a CmdbObject from the 'assigned_ids' of all static CmdbObjectGroups
+        Removes a public_id or list of public_ids of CmdbObjects from the 'assigned_ids' of all static CmdbObjectGroups
+
         Args:
-            public_ids (int): public_id of the target CmdbObject
+            public_ids (int | list[int]): public_id or public_ids of the target CmdbObjects
 
         Returns:
             UpdateResult: Result of the deletion
         """
-        criteria = {"group_type": ObjectGroupMode.STATIC}
+        criteria: dict[str, ObjectGroupMode] = {"group_type": ObjectGroupMode.STATIC}
 
         if isinstance(public_ids, list):
             criteria["assigned_ids"] = {"$in": public_ids}
-            update = {"assigned_ids": {"$in": public_ids}}
+            update: dict[str, Any] = {"assigned_ids": {"$in": public_ids}}
         else:
             criteria["assigned_ids"] = public_ids
             update = {"assigned_ids": public_ids}
