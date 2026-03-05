@@ -17,8 +17,7 @@
 Implementation of general API route helpers
 """
 from logging import Logger, getLogger
-from typing import Any
-from flask import request
+from flask import request, abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import LocationsManager
@@ -38,6 +37,19 @@ def fetch_only_active_objects() -> bool:
         bool: True if cookie value is true or True else False
     """
     return request.args.get('onlyActiveObjCookie') in ['True', 'true']
+
+
+def extract_public_ids(public_ids: str) -> list[int]:
+    """TODO: document"""
+    extracted_ids: list[int] = []
+
+    for v in public_ids.split(","):
+        try:
+            extracted_ids.append(int(v))
+        except (ValueError, TypeError):
+            abort(400, f"Invalid value detected for public_id: {v} !")
+
+    return extracted_ids
 
 
 def object_has_location(request_user: CmdbUser, public_id: int) -> bool:

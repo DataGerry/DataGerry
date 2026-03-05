@@ -362,6 +362,36 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetTypeError(str(err)) from err
 
 
+    def find_objects(
+            self,
+            criteria: dict[str, Any],
+            as_dict: bool = False
+        ) -> list[CmdbObject] | list[dict[str, Any]]:
+        """
+        Get a list of CmdbObjects by a filter
+
+        Args:
+            criteria: Filter which should be applied during the search
+            as_dict (bool = False): If True the list will contain dictionaries instead of CmdbObjects
+
+        Raises:
+            ObjectsManagerGetError: When the retrieval of CmdbObjects failed
+
+        Returns:
+            list[CmdbType] | list[dict[str, Any]]: list of CmdbObjects matching the criteria
+        """
+        try:
+            found_objects: dict[str, Any] = list(self.find(criteria=criteria))
+
+            if as_dict:
+                return found_objects
+
+            return [CmdbObject.from_data(found_object) for found_object in found_objects]
+        except Exception as err:
+            LOGGER.error("[find_objects] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerGetError(str(err)) from err
+
+
     def count_objects(self, criteria: dict[str, Any] | None = None) -> int:
         """
         Returns the number of objects with the given criteria
@@ -719,7 +749,7 @@ class ObjectsManager(BaseManager):
             self, public_id: int,
             user: CmdbUser = None,
             permission: AccessControlPermission = None
-        ) -> None:
+        ) -> bool:
         """
         Deletes a CmdbObject by its public_id after verifying access and type status and also deletes
         RiskAssessments using this Object!

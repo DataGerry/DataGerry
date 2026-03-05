@@ -20,7 +20,7 @@ import json
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
+from flask import abort, current_app
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database.database_utils import default
@@ -34,6 +34,7 @@ from cmdb.manager import (
     ObjectRelationLogsManager,
     ObjectGroupsManager,
     LocationsManager,
+    ObjectsManager,
 )
 
 from cmdb.models.type_model.cmdb_type import CmdbType
@@ -49,6 +50,31 @@ from cmdb.framework.rendering.cmdb_render import CmdbRender
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def delete_one_cascade(
+        request_user: CmdbUser,
+        deleted_object: CmdbObject,
+        object_type: CmdbType,
+        objects_manager: ObjectsManager
+    ) -> None:
+    """TODO: document"""
+    # Remove the object from all static object groups
+    handle_delete_from_object_groups(request_user, deleted_object.get_public_id())
+
+    # Remove invalid CmdbObjectRelations since the object no longer exists
+    handle_delete_invalid_object_relations(request_user, deleted_object.get_public_id())
+
+    # Send deletion event to all active webhooks
+    handle_notify_webhooks(request_user, deleted_object)
+
+    # Create ObjectLog of the deletion
+    handle_creat_object_log(request_user, deleted_object, object_type)
+
+    # Sync config item count in CLOUD_MODE
+    if current_app.cloud_mode:
+        objects_count: int = objects_manager.count_objects()
+        handle_sync_config_item_count(request_user, objects_count)
+
 
 def handle_notify_webhooks(request_user: CmdbUser, to_delete_object: CmdbObject) -> None:
     """TODO: document"""
@@ -112,7 +138,7 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
         abort(500, "An internal server error occured while handling Locations of this Object!")
 
 
-def handle_remove_location_and_child_locations(request_user: CmdbUser, public_id: int) -> None:
+def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id: int) -> None:
     """TODO: document"""
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
@@ -138,7 +164,7 @@ def handle_remove_location_and_child_locations(request_user: CmdbUser, public_id
     locations_manager.delete_location(object_location['public_id'])
 
 
-def handle_remove_from_object_groups(request_user: CmdbUser, public_ids: int | list[int]) -> None:
+def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | list[int]) -> None:
     """TODO: document"""
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
 
@@ -197,3 +223,37 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
 
     # Create all Logs
     object_relation_logs_manager.insert_many(logs_to_create, skip_public=True)
+
+
+def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
+    """
+    Validates that all fields in `object_data['fields']` exist in the type schema
+    and fills in missing `type` properties from the type schema.
+
+    Args:
+        objects_manager (ObjectsManager): manager to access type schemas
+        object_data (dict[str, Any]): the incoming object data to validate/enrich
+
+    Raises:
+        abort(400) if any field name is not in the type schema
+    """
+    type_id = object_data.get("type_id")
+    if not type_id:
+        abort(400, "Missing type_id in object data!")
+
+    # Retrieve type schema as dict (field_name -> field_type)
+    type_schema = objects_manager.get_object_type(type_id, as_dict=True)
+    type_field_map = {f["name"]: f["type"] for f in type_schema["fields"]}
+
+    for field in object_data.get("fields", []):
+        field_name = field.get("name")
+        if not field_name:
+            abort(400, "One of the fields is missing a 'name' property!")
+
+        # Early abort if field not in type
+        if field_name not in type_field_map:
+            abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
+
+        # Fill missing 'type' property
+        if "type" not in field or not field["type"]:
+            field["type"] = type_field_map[field_name]
