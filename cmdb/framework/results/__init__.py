@@ -17,10 +17,8 @@
 This module provides different result classes storing data
 """
 from .iteration_result import IterationResult
-from .list_result import ListResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'IterationResult',
-    'ListResult',
 ]

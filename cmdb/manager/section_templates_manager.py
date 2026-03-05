@@ -31,7 +31,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeFieldSection
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.object_model import CmdbObject
-from cmdb.framework.results import IterationResult, ListResult
+from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError, BaseManagerInsertError
@@ -141,7 +141,7 @@ class SectionTemplatesManager(BaseManager):
             raise BaseManagerGetError(str(err)) from err
 
 
-    def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict:
+    def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict[str, int]:
         """
         Retrieves the number of types and objects which are using this Template (if it is global)
 
@@ -149,9 +149,9 @@ class SectionTemplatesManager(BaseManager):
             template_name (str): Name of CmdbSectionTemplate
             is_global (bool): If this CmdbSectionTemplate is global
         Returns:
-            dict: Counts of types and objects which use this CmdbSectionTemplate
+            dict[str, int]: Counts of types and objects which use this CmdbSectionTemplate
         """
-        counts = {
+        counts: dict[str, int] = {
             'types': 0,
             'objects': 0
         }
@@ -163,17 +163,17 @@ class SectionTemplatesManager(BaseManager):
             "global_template_ids":template_name
         }
 
-        found_types: ListResult = self.types_manager.find_types(type_filter)
+        found_types: list[CmdbType] = self.types_manager.find_types(type_filter)
 
-        if len(found_types.results) == 0:
+        if len(found_types) == 0:
             return counts
 
-        counts['types'] = len(found_types.results)
+        counts['types'] = len(found_types)
         objects_count: int = 0
 
         a_type: CmdbType
-        for a_type in found_types.results:
-            objects: list = self.objects_manager.get_objects_by(type_id=a_type.public_id)
+        for a_type in found_types:
+            objects: list[CmdbObject] = self.objects_manager.get_objects_by(type_id=a_type.public_id)
             objects_count += len(objects)
 
         counts['objects'] = objects_count
@@ -199,9 +199,8 @@ class SectionTemplatesManager(BaseManager):
         new_section_label: str = self.get_section_label_diff(new_params, CmdbSectionTemplate.to_json(current_template))
         field_diffs = self.get_fields_diff(new_params, CmdbSectionTemplate.to_json(current_template))
 
-        types_to_change = self.get_types_using_template(new_params['name'])
+        types_to_change: list[CmdbType] = self.get_types_using_template(new_params['name'])
 
-        a_type: CmdbType
         for a_type in types_to_change:
 
             to_change_global_section: TypeFieldSection = a_type.get_section(new_params['name'])
@@ -333,7 +332,7 @@ class SectionTemplatesManager(BaseManager):
         }
 
 
-    def get_types_using_template(self, template_name: str) -> list:
+    def get_types_using_template(self, template_name: str) -> list[CmdbType]:
         """
         Retrives types which are using the current global template
 
@@ -341,15 +340,13 @@ class SectionTemplatesManager(BaseManager):
             template_name (str): Name of the global template
 
         Returns:
-            ListResult: All types using the given global template
+            list[CmdbType]: All types using the given global template
         """
         type_filter: dict = {
             "global_template_ids":template_name
         }
 
-        found_types: ListResult = self.types_manager.find_types(type_filter)
-
-        return found_types.results
+        return self.types_manager.find_types(type_filter)
 
 
     def cleanup_global_section_objects(self, type_id: int, section_field_names: list[str]) -> None:
@@ -399,7 +396,7 @@ class SectionTemplatesManager(BaseManager):
         Args:
             template_name (str): The name of the global section template
         """
-        found_types: ListResult = self.get_types_using_template(template_name)
+        found_types: list[CmdbType] = self.get_types_using_template(template_name)
 
         a_type: CmdbType
         for a_type in found_types:

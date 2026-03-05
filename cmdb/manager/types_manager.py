@@ -30,7 +30,7 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.type_model import CmdbType, TypeFieldSection
 from cmdb.models.object_model import CmdbObject
 
-from cmdb.framework.results import IterationResult, ListResult
+from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -165,27 +165,32 @@ class TypesManager(BaseManager):
             raise TypesManagerIterationError(str(err)) from err
 
 
-    def find_types(self, criteria: dict) -> ListResult[CmdbType]:
+    def find_types(self, criteria: dict[str, Any]) -> list[CmdbType]:
         """
-        Get a list of types by a filter query
+        Get a list of CmdbTypes by a filter
 
         Args:
-            filter: Filter for matched querys
+            criteria: Filter which should be applied during the search
 
         Returns:
-            ListResult
+            list[CmdbType]: list of CmdbTypes matching the criteria
         """
         try:
-            results = self.find(criteria=criteria)
+            found_types = self.find(criteria=criteria)
 
-            types: list[CmdbType] = [CmdbType.from_data(result) for result in results]
-
-            return ListResult(types)
+            return [CmdbType.from_data(found_type) for found_type in found_types]
         except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
             raise TypesManagerGetError(str(err)) from err
         except Exception as err:
             LOGGER.error("[find_types] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerGetError(str(err)) from err
+
+
+    def get_types_as_map(self, public_ids: list[int]) -> dict[int, CmdbType]:
+        """TODO: document"""
+        all_types: list[CmdbType] = self.find_types(criteria={"public_id": {"$in": public_ids}})
+
+        return {object_type.public_id: object_type for object_type in all_types}
 
 
     def count_types(self) -> int:

@@ -284,7 +284,7 @@ class BaseManager:
             raise err
 
 
-    def find(self, *args: Any, criteria: dict = None, **kwargs: Any) -> Cursor:
+    def find(self, *args: Any, criteria: dict = None, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Retrieves documents from the specified collection that match the given criteria.
 
@@ -297,13 +297,19 @@ class BaseManager:
             BaseManagerGetError: If an error occurs while retrieving documents from the collection
 
         Returns:
-            Cursor: A cursor for the result set, allowing iteration over the documents that match the criteria
+            list[dict[str, Any]]: A list of dicstionaries matching the criteria
         """
         try:
             if criteria is None:
                 criteria = {}
 
-            return self.dbm.find(collection=self.collection, db_name=self.db_name, filter=criteria, *args, **kwargs)
+            return list(self.dbm.find(
+                collection=self.collection,
+                db_name=self.db_name,
+                filter=criteria,
+                *args,
+                **kwargs
+            ))
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
