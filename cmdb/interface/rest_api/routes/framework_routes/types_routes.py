@@ -19,6 +19,7 @@ Implementation of all API routes for CmdbTypes
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
+
 from flask import abort, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -34,7 +35,6 @@ from cmdb.manager import (
 )
 
 from cmdb.models.relation_model import CmdbRelation
-
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -56,9 +56,7 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
-from cmdb.errors.manager import (
-    BaseManagerGetError,
-)
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
@@ -182,6 +180,95 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     except Exception as err:
         LOGGER.error("[get_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the Types!")
+
+
+@types_blueprint.route('/with_clean_status', methods=['GET', 'HEAD'])
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@insert_request_user
+@types_blueprint.protect(auth=True, right='base.framework.type.view')
+@types_blueprint.parse_parameters(TypeIterationParameters)
+def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for getting multiple CmdbTypes with clean status
+
+    Args:
+        params (CollectionParameters): Filter for requested CmdbTypes
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Returns:
+        GetMultiResponse: All the CmdbTypes matching the CollectionParameters
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+        view: bool = params.active
+
+        if view:
+            if isinstance(params.filter, dict):
+                if params.filter.keys():
+                    params.filter.update({'active': view})
+                else:
+                    params.filter = [{'$match': {'active': view}}, {'$match': params.filter}]
+            elif isinstance(params.filter, list):
+                params.filter.append({'$match': {'active': view}})
+
+        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+
+        iteration_result: IterationResult[CmdbType] = types_manager.iterate(builder_params)
+
+        types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
+
+        # Retrieve all type_ids
+        type_ids: list[int] = [t["public_id"] for t in types if t.get("public_id") is not None]
+
+        objects_of_types: list[CmdbObject] = objects_manager.find_objects(criteria={'type_id': {"$in": type_ids}})
+
+        # Group objects
+        objects_by_type: dict[int, list[CmdbObject]] = {}
+
+        for obj in objects_of_types:
+            objects_by_type.setdefault(obj.type_id, []).append(obj)
+
+        # Get clean status of types
+        response_items: list[dict[str, Any]] = []
+
+        for type_data, type_model in zip(types, iteration_result.results):
+
+            type_id: int = type_data["public_id"]
+            expected_fields = {f["name"] for f in type_model.fields}
+
+            type_objects: list[CmdbObject] = objects_by_type.get(type_id, [])
+
+            clean = True
+
+            for obj in type_objects:
+                obj_fields = {f["name"] for f in obj.fields}
+
+                if obj_fields != expected_fields:
+                    clean = False
+                    break
+
+            response_items.append({
+                "type_data": type_data,
+                "clean_status": clean
+            })
+
+        api_response = GetMultiResponse(
+            response_items,
+            total=iteration_result.total,
+            params=params,
+            url=request.url,
+            body=request.method == 'HEAD'
+        )
+
+        return api_response.make_response()
+    except TypesManagerIterationError as err:
+        LOGGER.error("[get_cmdb_types] %s: %s", type(err), err, exc_info=True)
+        abort(400, "Failed to iterate Types from the database!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while retrieving the Types with clean status!")
 
 
 @types_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
