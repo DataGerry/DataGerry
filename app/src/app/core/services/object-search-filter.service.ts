@@ -24,7 +24,11 @@ export class ObjectSearchFilterService {
   /**
    * Build the base match stage for a set of type IDs.
    */
-  public buildTypeMatch(typeIds: number[]): any[] {
+  public buildTypeMatch(typeIds?: number[]): any[] {
+    if (!typeIds || typeIds.length === 0) {
+      return [];
+    }
+
     return [{ $match: { type_id: { $in: typeIds } } }];
   }
 
@@ -32,14 +36,16 @@ export class ObjectSearchFilterService {
    * Builds the aggregation pipeline used to search objects by a term.
    * When the search term is empty, this falls back to a simple type filter.
    */
-  public buildSearchPipeline(searchTerm: string, typeIds: number[]): any[] {
+  public buildSearchPipeline(searchTerm: string, typeIds?: number[]): any[] {
     const normalizedTerm = (searchTerm ?? '').toString().trim();
+    const typeMatchStage = this.buildTypeMatch(typeIds);
+
     if (!normalizedTerm) {
-      return this.buildTypeMatch(typeIds);
+      return typeMatchStage;
     }
 
     return [
-      { $match: { type_id: { $in: typeIds } } },
+      ...typeMatchStage,
       {
         $lookup: {
           from: 'framework.objects',
