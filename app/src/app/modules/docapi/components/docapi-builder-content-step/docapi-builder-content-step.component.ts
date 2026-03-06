@@ -136,7 +136,7 @@ export class DocapiBuilderContentStepComponent {
             });
 
             editor?.ui?.registry?.addButton('pagemargins', {
-                text: 'Page Margins',
+                text: 'Page Options',
                 tooltip: 'Set page margins for all pages',
                 onAction: () => this.openPageMarginsDialog(editor)
             });
@@ -148,7 +148,7 @@ export class DocapiBuilderContentStepComponent {
         return this.contentForm?.get('template_data');
     }
 
-    
+
     constructor(
         private templateHelperService: TemplateHelperService,
         private modalService: NgbModal
