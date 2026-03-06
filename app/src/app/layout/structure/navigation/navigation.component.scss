@@ -175,6 +175,31 @@ $navbar-dropdown-header-background: $primary;
     max-height: 70px;
   }
 
+  .notification-nav-item {
+    .notification-toggle-btn {
+      background: transparent;
+      border: 0;
+      position: relative;
+      padding: 0;
+    }
+
+    .notification-badge {
+      position: absolute;
+      top: 6px;
+      right: -7px;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: #dc3545;
+      color: #ffffff;
+      font-size: 0.7rem;
+      font-weight: 600;
+      line-height: 18px;
+      text-align: center;
+      padding: 0 4px;
+    }
+  }
+
   .navbar-right-menu {
     .nav-link {
       min-width: 32px;

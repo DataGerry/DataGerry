@@ -270,6 +270,20 @@
               <p class="hover-trigger">Settings</p>
             </div>
 
+            <li class="nav-item notification-nav-item">
+              <button
+                type="button"
+                class="nav-link notification-toggle-btn"
+                aria-label="Open notifications" 
+                [attr.aria-expanded]="isNotificationDrawerOpen"
+                (click)="toggleNotificationDrawer()">
+                <i class="fas fa-bell hover-trigger"></i>
+                <span class="notification-badge" *ngIf="(notificationCount$ | async) as count">
+                  {{ formatNotificationCount(count) }}
+                </span>
+              </button>
+            </li>
+
             <!-- nav user -->
             <li class="nav-item dropdown ms-0">
               <a class="nav-link nav-user me-0" data-bs-toggle="dropdown" id="topbar-userdrop" href="#" role="button"
@@ -320,3 +334,8 @@
     </div>
   </div>
 </nav>
+
+<cmdb-notification-drawer
+  [open]="isNotificationDrawerOpen"
+  (close)="closeNotificationDrawer()">
+</cmdb-notification-drawer>

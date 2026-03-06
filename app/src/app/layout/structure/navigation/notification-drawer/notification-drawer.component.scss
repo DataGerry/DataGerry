@@ -1,0 +1,247 @@
+@import 'src/scss/variables';
+
+// ── Backdrop ────────────────────────────────────────────────────────────────
+.notification-drawer-backdrop {
+  position: fixed;
+  top: $navbar-height;
+  left: 0;
+  width: 100%;
+  height: calc(100vh - #{$navbar-height});
+  background: rgba(10, 14, 20, 0.2);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  z-index: 1040;
+}
+
+// ── Drawer Shell ────────────────────────────────────────────────────────────
+.notification-drawer {
+  position: fixed;
+  top: $navbar-height;
+  right: 0;
+  width: min(400px, 100vw);
+  height: calc(100vh - #{$navbar-height});
+  background: #ffffff;
+  border-left: 1px solid #e5e8ec;
+  box-shadow:
+    -20px 0 48px rgba(0, 0, 0, 0.08),
+    -4px 0 12px rgba(0, 0, 0, 0.04);
+  z-index: 1045;
+  display: flex;
+  flex-direction: column;
+}
+
+// ── Header ──────────────────────────────────────────────────────────────────
+.notification-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem 0.875rem 1.25rem;
+  background: #ffffff;
+  border-bottom: 2px solid #f0f2f5;
+  position: relative;
+  flex-shrink: 0;
+
+  // Orange brand accent line at top
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #e8820c 0%, #f5a623 100%);
+  }
+}
+
+.notification-drawer__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #2d3748;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.notification-drawer__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+// Clear all button
+.notification-drawer__actions .btn-outline-secondary {
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  border-color: #d1d5db;
+  color: #6b7280;
+  background: transparent;
+  letter-spacing: 0.02em;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+    color: #374151;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(232, 130, 12, 0.4);
+    outline-offset: 2px;
+  }
+}
+
+// Close button
+.notification-drawer__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  color: #9ca3af;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  line-height: 1;
+  padding: 0;
+
+  &:hover {
+    background: #fee8d4;
+    border-color: #f5a623;
+    color: #e8820c;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(232, 130, 12, 0.4);
+    outline-offset: 2px;
+  }
+}
+
+// ── Content Scroll Area ─────────────────────────────────────────────────────
+.notification-drawer__content {
+  overflow-y: auto;
+  padding: 0.875rem 1rem;
+  flex: 1;
+  background: #f8f9fb;
+
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 99px;
+  }
+}
+
+// ── Empty State ─────────────────────────────────────────────────────────────
+.notification-drawer__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+// ── Notification List ───────────────────────────────────────────────────────
+.notification-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notification-list__item {
+  background: #ffffff;
+  border: 1px solid #e9ecf0;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem 0.75rem 1rem;
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    border-radius: 8px 0 0 8px;
+    background: #d1d5db;
+  }
+
+  &:hover {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+    border-color: #d1d5db;
+  }
+}
+
+.notification-list__item--success::before { background: #22c55e; }
+.notification-list__item--error::before   { background: #ef4444; }
+.notification-list__item--info::before    { background: #3b82f6; }
+.notification-list__item--warning::before { background: #f59e0b; }
+
+.notification-list__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.notification-list__message {
+  font-size: 0.8375rem;
+  color: #374151;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+// ── Type Badge ──────────────────────────────────────────────────────────────
+.notification-type {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.notification-type--success {
+  color: #15803d;
+  background: #dcfce7;
+}
+.notification-type--error {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.notification-type--info {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+.notification-type--warning {
+  color: #b45309;
+  background: #fef3c7;
+}
+
+// ── Timestamp ───────────────────────────────────────────────────────────────
+.notification-time {
+  color: #9ca3af;
+  font-size: 0.71rem;
+  white-space: nowrap;
+}
