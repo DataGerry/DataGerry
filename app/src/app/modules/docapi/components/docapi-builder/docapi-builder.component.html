@@ -22,7 +22,7 @@
         ></app-button>
     </aw-wizard-step>
 
-    <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = { templateType: typeStep.typeForm.get('template_type').value, parameters: typeStep.typeParamComponent?.typeParamForm?.value }">
+    <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = { templateType: typeStep.typeForm.get('template_type')?.value, parameters: typeStep.typeParamComponent?.typeParamForm?.value }">
         <ng-template awWizardStepSymbol>
             <i class="fas fa-cogs"></i>
         </ng-template>
@@ -55,6 +55,8 @@
             [preData]="docInstance"
             [typeParam]="typeParam"
             [mode]="mode"
+            (previewRequested)="openPreviewObjectModal()"
+            (pageMarginsChanged)="onPageMarginsChanged($event)"
         />
         <app-button
             label="Previous"

@@ -44,6 +44,7 @@ import { RelationTemplateSelectorModalComponent } from './components/relation-te
 import { ReportTemplateSelectorModalComponent } from './components/report-template-selector-modal/report-template-selector-modal.component';
 import { CoreModule } from 'src/app/core/core.module';
 import { RunReportModule } from 'src/app/toolbox/reporting/report/run-report.module';
+import { DocapiPreviewObjectModalComponent } from './components/docapi-preview-object-modal/docapi-preview-object-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [
@@ -59,7 +60,8 @@ import { RunReportModule } from 'src/app/toolbox/reporting/report/run-report.mod
         DocapiBuilderStyleStepComponent,
         ExternalObjectSelectorModalComponent,
         RelationTemplateSelectorModalComponent,
-        ReportTemplateSelectorModalComponent
+        ReportTemplateSelectorModalComponent,
+        DocapiPreviewObjectModalComponent
     ],
     imports: [
         CommonModule,

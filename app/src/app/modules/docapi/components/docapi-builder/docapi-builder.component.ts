@@ -19,6 +19,7 @@ import { AfterViewInit, Component, EventEmitter, Input, OnDestroy, Output, ViewC
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
+import { FileSaverService } from 'ngx-filesaver';
 
 import { DocapiService } from '../../services/docapi.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
@@ -29,8 +30,10 @@ import { DocapiBuilderTypeStepComponent } from '../docapi-builder-type-step/doca
 import { DocapiBuilderStyleStepComponent } from '../docapi-builder-style-step/docapi-builder-style-step.component';
 import { DocapiBuilderContentStepComponent } from '../docapi-builder-content-step/docapi-builder-content-step.component';
 import { DocTemplate, DocTemplateUpdateResponse } from '../../models/cmdb-doctemplate';
-import { startWith, Subscription } from 'rxjs';
+import { firstValueFrom, startWith, Subscription } from 'rxjs';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
+import { DocapiPreviewObjectModalComponent } from '../docapi-preview-object-modal/docapi-preview-object-modal.component';
+import { PageMargins, upsertPageMarginsStyleBlock } from '../../utils/page-margins.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -39,7 +42,6 @@ import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-w
     standalone: false
 })
 export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
-
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
     @Output() public labelChanged = new EventEmitter<string>();
@@ -65,6 +67,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private suppressTypeChange = false;
     private warningModalOpen = false;
     private previousTypeState: { templateType: string; parameters: any } | null = null;
+    public previewInProgress = false;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
@@ -74,7 +77,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         private docapiService: DocapiService,
         private router: Router,
         private toast: ToastService,
-        private modalService: NgbModal
+        private modalService: NgbModal,
+        private fileSaverService: FileSaverService
     ) {
 
     }
@@ -133,6 +137,39 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         if (previousIndex >= 0) {
             this.wizard.goToStep(previousIndex);
         }
+    }
+
+    public onPageMarginsChanged(margins: PageMargins): void {
+        const styleControl = this.styleStep?.styleForm?.get('template_style');
+        if (!styleControl) {
+            return;
+        }
+
+        const currentStyle = styleControl.value ?? '';
+        const nextStyle = upsertPageMarginsStyleBlock(currentStyle, margins);
+        styleControl.setValue(nextStyle);
+    }
+
+
+    public openPreviewObjectModal(): void {
+        const modalRef = this.modalService.open(DocapiPreviewObjectModalComponent, {
+            size: 'lg',
+            backdrop: 'static'
+        });
+
+        modalRef.componentInstance.templateType = this.typeStep?.typeForm?.get('template_type')?.value ?? 'OBJECT';
+        modalRef.componentInstance.templateTypeId = this.typeStep?.typeParamComponent?.typeParamForm?.get('type')?.value ?? null;
+
+        modalRef.result
+            .then((objectId: number) => {
+                if (!objectId) {
+                    return;
+                }
+                this.confirmSaveBeforePreview(objectId);
+            })
+            .catch(() => {
+                return;
+            });
     }
 
 
@@ -307,6 +344,109 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
             .replace(/\s+/g, ' ')
             .trim();
         return text.length > 0;
+    }
+
+    private confirmSaveBeforePreview(objectId: number): void {
+        const modalRef = this.modalService.open(CoreWarningModalComponent, {
+            size: 'md',
+            backdrop: 'static'
+        });
+
+        modalRef.componentInstance.title = 'Save template for preview';
+        modalRef.componentInstance.message =
+            'To generate a preview document, your template must be saved first. Continue and save now?';
+        modalRef.componentInstance.confirmLabel = 'Save and Preview';
+        modalRef.componentInstance.cancelLabel = 'Cancel';
+        modalRef.componentInstance.warningTitle = 'Information:';
+        modalRef.componentInstance.warningIconClass = 'fas fa-info-circle';
+
+        modalRef.result
+            .then((result: string) => {
+                if (result === 'confirmed') {
+                    void this.saveAndPreviewDocument(objectId);
+                }
+            })
+            .catch(() => {
+                return;
+            });
+    }
+
+
+    private async saveAndPreviewDocument(objectId: number): Promise<void> {
+        if (this.previewInProgress) {
+            return;
+        }
+
+        this.previewInProgress = true;
+
+        try {
+            const templateId = await this.saveTemplateForPreview();
+            const response = await firstValueFrom(this.docapiService.getRenderedObjectDoc(templateId, objectId));
+            const filename = this.getPreviewFilename();
+            this.fileSaverService.save(response.body, filename);
+            this.toast.success('Preview document downloaded successfully.');
+        } catch {
+            this.toast.error('Unable to generate preview. Please review your template and try again.');
+        } finally {
+            this.previewInProgress = false;
+        }
+    }
+
+
+    private async saveTemplateForPreview(): Promise<number> {
+        if (!this.docInstance && this.mode === CmdbMode.Create) {
+            this.docInstance = new DocTemplate();
+        }
+
+        this.updateDocInstance();
+
+        if (this.mode === CmdbMode.Create) {
+            const createdResponse = await firstValueFrom(this.docapiService.postDocTemplate(this.docInstance));
+            const createdTemplateId = this.extractTemplateId(createdResponse);
+            if (!createdTemplateId) {
+                throw new Error('Template creation did not return a valid template ID');
+            }
+
+            this.docInstance.public_id = createdTemplateId;
+            this.mode = CmdbMode.Edit;
+            this.toast.success('Template saved successfully.');
+            return createdTemplateId;
+        }
+
+        const updateResponse = await firstValueFrom(this.docapiService.putDocTemplate(this.docInstance));
+        const updatedTemplateId = updateResponse?.body?.public_id ?? this.docInstance?.public_id;
+        if (!updatedTemplateId) {
+            throw new Error('Template update did not return a valid template ID');
+        }
+
+        this.docInstance.public_id = updatedTemplateId;
+        this.toast.success('Template saved successfully.');
+        return updatedTemplateId;
+    }
+
+
+    private getPreviewFilename(): string {
+        const templateName = this.docInstance?.name?.trim() || this.docInstance?.label?.trim() || 'template-preview';
+        return `${templateName}.pdf`;
+    }
+
+
+    private extractTemplateId(response: any): number | null {
+        const templateIdCandidates = [
+            response?.body?.public_id,
+            response?.public_id,
+            response?.body,
+            response
+        ];
+
+        for (const candidate of templateIdCandidates) {
+            const parsedId = Number(candidate);
+            if (Number.isFinite(parsedId) && parsedId > 0) {
+                return parsedId;
+            }
+        }
+
+        return null;
     }
 
 
