@@ -56,6 +56,7 @@ import { CategoryTreeFilterPipe } from './pipes/categoryTreeFilter.pipe';
 import { TypeFilterPipe } from './pipes/typeFilter.pipe';
 
 import { NavigationComponent } from './structure/navigation/navigation.component';
+import { NotificationDrawerComponent } from './structure/navigation/notification-drawer/notification-drawer.component';
 import { BreadcrumbComponent } from './structure/breadcrumb/breadcrumb.component';
 import { IconPickerComponent } from './helpers/icon-picker/icon-picker.component';
 import { ChartsComponent } from './components/charts/charts.component';
@@ -96,6 +97,7 @@ import { CoreModule } from '../core/core.module';
     declarations: [
         BreadcrumbComponent,
         NavigationComponent,
+        NotificationDrawerComponent,
         SidebarComponent,
         LocationTreeComponent,
         SidebarCategoryComponent,

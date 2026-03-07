@@ -34,6 +34,7 @@ import { ObjectSearchFilterService } from 'src/app/core/services/object-search-f
 })
 export class ObjectSelectorComponent implements OnInit, OnChanges {
   @Input() typeIds: number[] = [];
+  @Input() allObjects = false;
   @Input() multiple = false;
   @Input() selectedIds: any[] = [];
   @Input() isViewMode = false;
@@ -86,14 +87,15 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    // If typeIds change (and it's not the first change), refetch objects
-    if (changes.typeIds && !changes.typeIds.firstChange) {
+    // Refetch when object scope changes.
+    if ((changes.typeIds && !changes.typeIds.firstChange) ||
+        (changes.allObjects && !changes.allObjects.firstChange)) {
       this.fetchObjects(true);
     }
   }
 
   private fetchObjects(resetPagination: boolean = true): void {
-    if (!this.typeIds || this.typeIds.length === 0) {
+    if (!this.allObjects && (!this.typeIds || this.typeIds.length === 0)) {
       this.initSelectedObjects();
       return;
     }
@@ -105,9 +107,10 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     }
 
     // Build filters based on mode
+    const effectiveTypeIds = this.allObjects ? undefined : this.typeIds;
     const filters = this.objectSearchFilterService.buildSearchPipeline(
       this.isSearching ? this.searchTerm : '',
-      this.typeIds
+      effectiveTypeIds
     );
 
     if (this.isViewMode && this.selectedIds?.length) {
