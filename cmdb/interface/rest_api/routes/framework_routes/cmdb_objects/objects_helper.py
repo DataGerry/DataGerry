@@ -227,33 +227,71 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
 
 def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
     """
-    Validates that all fields in `object_data['fields']` exist in the type schema
-    and fills in missing `type` properties from the type schema.
+    Validates that all object fields exist in the type schema
+    and fills missing 'type' properties.
 
-    Args:
-        objects_manager (ObjectsManager): manager to access type schemas
-        object_data (dict[str, Any]): the incoming object data to validate/enrich
-
-    Raises:
-        abort(400) if any field name is not in the type schema
+    This includes:
+    - object.fields[]
+    - multi_data_sections[].values[].data[]
     """
-    type_id = object_data.get("type_id")
+
+    type_id: int | None = object_data.get("type_id")
     if not type_id:
         abort(400, "Missing type_id in object data!")
 
-    # Retrieve type schema as dict (field_name -> field_type)
-    type_schema = objects_manager.get_object_type(type_id, as_dict=True)
+    type_schema: dict[str, Any] | None = objects_manager.get_object_type(type_id, as_dict=True)
     type_field_map = {f["name"]: f["type"] for f in type_schema["fields"]}
 
-    for field in object_data.get("fields", []):
-        field_name = field.get("name")
-        if not field_name:
-            abort(400, "One of the fields is missing a 'name' property!")
+    def validate_field_list(fields: list[dict[str, Any]]) -> None:
+        for field in fields:
+            field_name: str | None = field.get("name")
 
-        # Early abort if field not in type
-        if field_name not in type_field_map:
-            abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
+            if not field_name:
+                abort(400, "One of the fields is missing a 'name' property!")
 
-        # Fill missing 'type' property
-        if "type" not in field or not field["type"]:
-            field["type"] = type_field_map[field_name]
+            if field_name not in type_field_map:
+                abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
+
+            if "type" not in field or not field["type"]:
+                field["type"] = type_field_map[field_name]
+
+    # Validate normal object fields
+    validate_field_list(object_data.get("fields", []))
+
+    # Validate multi-data sections
+    for section in object_data.get("multi_data_sections", []):
+        for value in section.get("values", []):
+            validate_field_list(value.get("data", []))
+
+# def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
+#     """
+#     Validates that all fields in `object_data['fields']` exist in the type schema
+#     and fills in missing `type` properties from the type schema.
+
+#     Args:
+#         objects_manager (ObjectsManager): manager to access type schemas
+#         object_data (dict[str, Any]): the incoming object data to validate/enrich
+
+#     Raises:
+#         abort(400) if any field name is not in the type schema
+#     """
+#     type_id = object_data.get("type_id")
+#     if not type_id:
+#         abort(400, "Missing type_id in object data!")
+
+#     # Retrieve type schema as dict (field_name -> field_type)
+#     type_schema = objects_manager.get_object_type(type_id, as_dict=True)
+#     type_field_map = {f["name"]: f["type"] for f in type_schema["fields"]}
+
+#     for field in object_data.get("fields", []):
+#         field_name = field.get("name")
+#         if not field_name:
+#             abort(400, "One of the fields is missing a 'name' property!")
+
+#         # Early abort if field not in type
+#         if field_name not in type_field_map:
+#             abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
+
+#         # Fill missing 'type' property
+#         if "type" not in field or not field["type"]:
+#             field["type"] = type_field_map[field_name]

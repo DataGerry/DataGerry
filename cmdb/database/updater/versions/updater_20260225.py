@@ -18,6 +18,7 @@ Implementation of Update20260225
 """
 from logging import Logger, getLogger
 from collections import defaultdict
+from typing import Any
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
@@ -67,7 +68,7 @@ class Update20260225(BaseDatabaseUpdate):
             }
         }
         """
-        types = self.types_manager.find(criteria={})
+        types: list[dict[str, Any]] = self.types_manager.find(criteria={})
 
         mapping: dict[int, dict[str, str]] = {}
 
@@ -98,6 +99,7 @@ class Update20260225(BaseDatabaseUpdate):
                 for field_name, field_type in field_map.items():
                     by_field_type[field_type].append(field_name)
 
+                # Update normal fields
                 for field_type, names in by_field_type.items():
                     self.objects_manager.update_many_raw(
                         filter_query={
@@ -112,6 +114,30 @@ class Update20260225(BaseDatabaseUpdate):
                         update={
                             "$set": {
                                 "fields.$[f].type": field_type
+                            }
+                        },
+                        array_filters=[
+                            {
+                                "f.name": {"$in": names},
+                                "f.type": {"$exists": False},
+                            }
+                        ],
+                    )
+
+                    # Update MDS fields
+                    self.objects_manager.update_many_raw(
+                        filter_query={
+                            "type_id": type_id,
+                            "multi_data_sections.values.data": {
+                                "$elemMatch": {
+                                    "name": {"$in": names},
+                                    "type": {"$exists": False},
+                                }
+                            },
+                        },
+                        update={
+                            "$set": {
+                                "multi_data_sections.$[].values.$[].data.$[f].type": field_type
                             }
                         },
                         array_filters=[

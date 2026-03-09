@@ -773,15 +773,9 @@ class ObjectsManager(BaseManager):
 
     def delete_all_object_references(self, public_ids: int | list[int]) -> None:
         """
-        Remove one or multiple public_id references from all objects. Only fields with type 'ref' or
-        'ref-section-field' are affected
-
-        Args:
-            public_ids(int | list[int]): public_id or list of public_ids which should be removed from references
-
-        Raises:
-            ObjectsManagerUpdateError: When no public_ids are provided
-            ObjectsManagerUpdateError: If the removal of the referenced public_ids failed
+        Remove one or multiple public_id references from all objects.
+        Only fields with type 'ref' or 'ref-section-field' are affected.
+        Also removes references inside multi_data_sections.
         """
         try:
             if not public_ids:
@@ -795,6 +789,7 @@ class ObjectsManager(BaseManager):
             else:
                 ids_filter: int = public_ids
 
+            # Remove from normal fields
             filter_query: dict[str, Any] = {
                 "fields": {
                     "$elemMatch": {
@@ -822,9 +817,93 @@ class ObjectsManager(BaseManager):
                 update=update,
                 array_filters=array_filters,
             )
+
+            # Remove from multi_data_sections[].values[].data[]
+            filter_query_multi: dict[str, Any] = {
+                "multi_data_sections.values.data": {
+                    "$elemMatch": {
+                        "type": {"$in": ["ref", "ref-section-field"]},
+                        "value": ids_filter,
+                    }
+                }
+            }
+
+            update_multi: dict[str, Any] = {
+                "$set": {
+                    "multi_data_sections.$[].values.$[].data.$[f].value": ""
+                }
+            }
+
+            array_filters_multi: list[dict[str, Any]] = [
+                {
+                    "f.type": {"$in": ["ref", "ref-section-field"]},
+                    "f.value": ids_filter,
+                }
+            ]
+
+            self.update_many_raw(
+                filter_query=filter_query_multi,
+                update=update_multi,
+                array_filters=array_filters_multi,
+            )
         except Exception as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(str(err)) from err
+
+    # def delete_all_object_references(self, public_ids: int | list[int]) -> None:
+    #     """
+    #     Remove one or multiple public_id references from all objects. Only fields with type 'ref' or
+    #     'ref-section-field' are affected
+
+    #     Args:
+    #         public_ids(int | list[int]): public_id or list of public_ids which should be removed from references
+
+    #     Raises:
+    #         ObjectsManagerUpdateError: When no public_ids are provided
+    #         ObjectsManagerUpdateError: If the removal of the referenced public_ids failed
+    #     """
+    #     try:
+    #         if not public_ids:
+    #             raise ObjectsManagerUpdateError("No public ids provided to delete from references!")
+
+    #         if isinstance(public_ids, list):
+    #             if not public_ids:
+    #                 return
+
+    #             ids_filter: dict[str, list[int]] = {"$in": public_ids}
+    #         else:
+    #             ids_filter: int = public_ids
+
+    #         filter_query: dict[str, Any] = {
+    #             "fields": {
+    #                 "$elemMatch": {
+    #                     "type": {"$in": ["ref", "ref-section-field"]},
+    #                     "value": ids_filter,
+    #                 }
+    #             }
+    #         }
+
+    #         update: dict[str, Any] = {
+    #             "$set": {
+    #                 "fields.$[f].value": ""
+    #             }
+    #         }
+
+    #         array_filters: list[dict[str, Any]] = [
+    #             {
+    #                 "f.type": {"$in": ["ref", "ref-section-field"]},
+    #                 "f.value": ids_filter,
+    #             }
+    #         ]
+
+    #         self.update_many_raw(
+    #             filter_query=filter_query,
+    #             update=update,
+    #             array_filters=array_filters,
+    #         )
+    #     except Exception as err:
+    #         LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
+    #         raise ObjectsManagerUpdateError(str(err)) from err
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 

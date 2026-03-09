@@ -50,7 +50,7 @@ class Update20260226(BaseDatabaseUpdate):
 
     def start_update(self) -> None:
         try:
-            object_links = list(self.dbm.find(
+            object_links: list[dict[str, Any]] = list(self.dbm.find(
                 collection=OBJECT_LINK_COLLECTION,
                 db_name=self.db_name,
                 filter={},
@@ -65,7 +65,7 @@ class Update20260226(BaseDatabaseUpdate):
                     unique_object_ids.add(link["secondary"])
 
                 # Fetch objects and create map for type_id
-                objects_cursor = self.objects_manager.find(
+                objects_cursor: list[dict[str, Any]] = self.objects_manager.find(
                     criteria={"public_id": {"$in": list(unique_object_ids)}},
                     projection={"public_id": 1, "type_id": 1, "_id": 0}
                 )
@@ -82,9 +82,11 @@ class Update20260226(BaseDatabaseUpdate):
 
                 mapper_relation_id: int = 0
                 relation_collection: str = CmdbRelation.COLLECTION
+                object_relation_collection = CmdbObjectRelation.COLLECTION
+                existing_relations: set[tuple[int, int]] = set()
 
                 if self.dbm.count(
-                    CmdbRelation.COLLECTION,
+                    relation_collection,
                     self.db_name,
                     criteria={"relation_name": "DgObjectLinks"}
                 ) == 0:
@@ -97,7 +99,7 @@ class Update20260226(BaseDatabaseUpdate):
                         mapper_relation_data
                     )
                 else:
-                    # Retrieve the public_id
+                    # The mapper relation already exists => retrieve the public_id
                     existing_relation_cursor  = self.dbm.find(
                         relation_collection,
                         self.db_name,
@@ -108,9 +110,22 @@ class Update20260226(BaseDatabaseUpdate):
                     mapper_relation_data = next(existing_relation_cursor, None)
 
                     if not mapper_relation_data:
-                        raise Exception("Mapper Relation not found!")
+                        raise UpdaterException("Mapper Relation not found for update '20260226'!")
 
                     mapper_relation_id = mapper_relation_data['public_id']
+
+                    # Only needed if relation already existed
+                    existing_object_relations = list(self.dbm.find(
+                        collection=object_relation_collection,
+                        db_name=self.db_name,
+                        filter={"relation_id": mapper_relation_id},
+                        projection={"relation_parent_id": 1, "relation_child_id": 1, "_id": 0}
+                    ))
+
+                    existing_relations = {
+                        (rel["relation_parent_id"], rel["relation_child_id"])
+                        for rel in existing_object_relations
+                    }
 
                 # Map all existing ObjectLinks on ObjectRelations
                 relations_to_insert: list[dict[str, Any]] = []
@@ -118,6 +133,10 @@ class Update20260226(BaseDatabaseUpdate):
                 for link in object_links:
                     parent_id = link["primary"]
                     child_id = link["secondary"]
+
+                    # Skip if relation already exists
+                    if (parent_id, child_id) in existing_relations:
+                        continue
 
                     parent_type_id = object_type_map.get(parent_id)
                     child_type_id = object_type_map.get(child_id)
@@ -138,9 +157,7 @@ class Update20260226(BaseDatabaseUpdate):
 
                 # Insert all new ObjectRelations into Database
                 if relations_to_insert:
-                    object_relation_collection = CmdbObjectRelation.COLLECTION
-
-                    reserved_ids = self.dbm.reserve_public_ids(
+                    reserved_ids: list[int] = self.dbm.reserve_public_ids(
                         object_relation_collection,
                         self.db_name,
                         amount=len(relations_to_insert)
