@@ -17,7 +17,7 @@
 This module contains the implementation of CmdbLocation, which is representing a location in Datagarry
 """
 from logging import Logger, getLogger
-
+from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.models.cmdb_location import (
@@ -41,7 +41,13 @@ class CmdbLocation(CmdbDAO):
     COLLECTION = 'framework.locations'
     MODEL = 'Location'
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = ['name', 'parent', 'object_id', 'type_id', 'type_label']
+    REQUIRED_INIT_KEYS: list[str] = ['name', 'parent', 'object_id', 'type_id', 'type_label']
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': False},
+        {'keys': [('parent', CmdbDAO.DAO_ASCENDING)], 'name': 'parent', 'unique': False},
+        {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False}
+    ]
 
     SCHEMA: dict = {
         'public_id': {

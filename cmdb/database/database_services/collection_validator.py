@@ -17,8 +17,10 @@
 Implementation of CollectionValidator
 """
 from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 
+from pymongo import IndexModel
 from pymongo.results import UpdateResult
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
@@ -157,10 +159,13 @@ class CollectionValidator:
 
             # Check all Framework Classes
             for framework_class in FRAMEWORK_CLASSES:
+                # get the expected indexes
+                expected_indexes = framework_class.get_index_keys()
+
                 # If collection does not exist, create it and initialise with default data
                 if framework_class.COLLECTION not in all_collections:
                     self.dbm.create_collection(framework_class.COLLECTION, self.db_name)
-                    self.dbm.create_indexes(framework_class.COLLECTION, self.db_name, framework_class.get_index_keys())
+                    self.dbm.create_indexes(framework_class.COLLECTION, self.db_name, expected_indexes)
 
                     # Create the root CmdbLocation
                     if framework_class == CmdbLocation:
@@ -191,9 +196,21 @@ class CollectionValidator:
 
                         for predefined_isms_option in predefined_isms_options:
                             self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_isms_option)
+                else:
+                    try:
+                        self.ensure_indexes(framework_class.COLLECTION, self.db_name, expected_indexes)
+                    except Exception as err:
+                        LOGGER.error(
+                            "[init_framework_collections] Failed to update indexes for collection %s. "
+                            "Exception: %s. Type: %s.",
+                            framework_class.COLLECTION,
+                            err,
+                            type(err),
+                            exc_info=True
+                        )
         except Exception as err:
             LOGGER.error("[init_framework_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-            raise CollectionInitError(err) from err
+            raise CollectionInitError(str(err)) from err
 
 
     def init_management_collections(self) -> None:
@@ -204,7 +221,7 @@ class CollectionValidator:
             CollectionInitError: If the initialisation of a collection failed
         """
         try:
-            all_collections = self.get_all_db_collections(self.db_name)
+            all_collections: list[str] = self.get_all_db_collections(self.db_name)
 
             for management_class in USER_MANAGEMENT_COLLECTION:
                 if management_class.COLLECTION not in all_collections:
@@ -240,6 +257,7 @@ class CollectionValidator:
         except Exception as err:
             LOGGER.error("[init_management_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             raise CollectionInitError(str(err)) from err
+
 # -------------------------------------------------- HELEPER METHODS ------------------------------------------------- #
 
     def get_all_db_collections(self, db_name: str) -> list[str]:
@@ -250,6 +268,25 @@ class CollectionValidator:
             list[str]: List of all collection names
         """
         return self.dbm.connector.get_database(db_name).list_collection_names()
+
+
+    def ensure_indexes(self, collection: str, db_name: str, expected: list[IndexModel]) -> None:
+        """
+        TODO: document
+        """
+        existing_indexes = self.dbm.get_index_info(collection, db_name)
+
+        existing_names = set(existing_indexes.keys())
+
+        missing_indexes = []
+
+        for index in expected:
+            if index.document['name'] not in existing_names:
+                missing_indexes.append(index)
+
+        if missing_indexes:
+            LOGGER.info("Updating Indexes for collections in database: %s!", db_name)
+            self.dbm.create_indexes(collection, db_name, missing_indexes)
 
 # ---------------------------------------------- CmdbLocation - SECTION ---------------------------------------------- #
 
@@ -278,7 +315,6 @@ class CollectionValidator:
                 # Insert root location data
                 LOGGER.info("Creating ROOT location!")
                 status = self.dbm.upsert_set(collection, self.db_name, get_root_location_data())
-
             else:
                 # Update the root location data
                 LOGGER.info("Updating ROOT location!")
@@ -349,7 +385,7 @@ class CollectionValidator:
                 # The category does not exist, create it
                 LOGGER.info("Creating 'General' Report Category")
 
-                general_category = {
+                general_category: dict[str, Any] = {
                     'name': 'General',
                     'predefined': True,
                 }

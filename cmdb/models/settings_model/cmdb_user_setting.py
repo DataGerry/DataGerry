@@ -17,6 +17,8 @@
 Implementation of CmdbUserSetting
 """
 from logging import Logger, getLogger
+from typing import Any
+
 from pymongo import IndexModel
 
 from cmdb.models.settings_model.user_setting_payload import UserSettingPayload
@@ -44,10 +46,9 @@ class CmdbUserSetting:
 
     COLLECTION = 'management.users.settings'
     MODEL = 'UserSetting'
-    INDEX_KEYS = [
-        {'keys': [('resource', 1), ('user_id', 1)],
-         'name': 'resource-user',
-         'unique': True}
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('resource', 1), ('user_id', 1)], 'name': 'resource-user', 'unique': True}
     ]
 
     SCHEMA: dict = {

@@ -17,7 +17,7 @@
 Implementation of CmdbPersonGroup
 """
 from logging import Logger, getLogger
-
+from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.models.cmdb_person_group import (
@@ -40,6 +40,10 @@ class CmdbPersonGroup(CmdbDAO):
     """
     COLLECTION = "management.personGroup"
     MODEL = 'PersonGroup'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('group_members', CmdbDAO.DAO_ASCENDING)], 'name': 'group_members', 'unique': False}
+    ]
 
     SCHEMA: dict = {
         'public_id': {

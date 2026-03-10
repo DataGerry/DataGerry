@@ -17,6 +17,7 @@
 Implementation of CmdbExtendableOption in DataGerry
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
@@ -41,7 +42,7 @@ class CmdbExtendableOption(CmdbDAO):
     """
     COLLECTION = "framework.extendableOptions"
     MODEL = 'ExtendableOption'
-    INDEX_KEYS = [
+    INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('option_type', CmdbDAO.DAO_ASCENDING)], 'name': 'option_type', 'unique': False}
     ]
 

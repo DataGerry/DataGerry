@@ -45,6 +45,11 @@ class CmdbObjectGroup(CmdbDAO):
     COLLECTION = "framework.objectGroups"
     MODEL = 'ObjectGroup'
 
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('group_type', CmdbDAO.DAO_ASCENDING)], 'name': 'group_type', 'unique': False},
+        {'keys': [('assigned_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'assigned_ids', 'unique': False}
+    ]
+
     SCHEMA: dict = {
         'public_id': {
             'type': 'integer',

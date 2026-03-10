@@ -98,7 +98,8 @@ class CmdbWebhookEvent(CmdbDAO):
             changes: dict,
             response_code: int,
             status: bool,
-            **kwargs):
+            **kwargs
+        ) -> None:
         """
         Initializes a new instance of the CmdbWebhookEvent class, representing the result of a webhook event operation
 
