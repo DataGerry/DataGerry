@@ -17,6 +17,7 @@
 Implementation of IsmsRiskAssessment in DataGerry - ISMS
 """
 from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
@@ -49,6 +50,26 @@ class IsmsRiskAssessment(CmdbDAO):
     COLLECTION = "isms.riskAssessment"
     MODEL = 'RiskAssessment'
 
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('risk_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_id', 'unique': False},
+        {'keys': [('object_id_ref_type', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id_ref_type', 'unique': False},
+        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': False},
+        {'keys': [('interviewed_persons', CmdbDAO.DAO_ASCENDING)], 'name': 'interviewed_persons', 'unique': False},
+        {
+            'keys': [('responsible_persons_id_ref_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_persons_id_ref_type',
+            'unique': False
+        },
+        {
+            'keys': [('responsible_persons_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_persons_id',
+            'unique': False
+        },
+        {'keys': [('implementation_status', CmdbDAO.DAO_ASCENDING)], 'name': 'implementation_status', 'unique': False},
+        {'keys': [('auditor_id_ref_type', CmdbDAO.DAO_ASCENDING)], 'name': 'auditor_id_ref_type', 'unique': False},
+        {'keys': [('auditor_id', CmdbDAO.DAO_ASCENDING)], 'name': 'auditor_id', 'unique': False},
+    ]
+
     SCHEMA: dict = get_isms_risk_assessment_schema()
 
     #pylint: disable=R0913, R0914, R0917
@@ -80,7 +101,8 @@ class IsmsRiskAssessment(CmdbDAO):
             audit_done_date: datetime,
             auditor_id_ref_type: PersonReferenceType,
             auditor_id: int,
-            audit_result: str):
+            audit_result: str
+        ) -> None:
         """
         Initialises an IsmsRiskAssessment
 

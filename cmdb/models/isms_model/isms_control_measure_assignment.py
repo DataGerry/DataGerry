@@ -17,6 +17,7 @@
 Implementation of IsmsControlMeasureAssignment in DataGerry - ISMS
 """
 from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
@@ -44,6 +45,21 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     """
     COLLECTION = "isms.controlMeasureAssignment"
     MODEL = 'ControlMeasureAssignment'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('control_measure_id', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_id', 'unique': False},
+        {'keys': [('risk_assessment_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_assessment_id', 'unique': False},
+        {
+            'keys': [('responsible_for_implementation_id_ref_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_for_implementation_id_ref_type',
+            'unique': False
+        },
+        {
+            'keys': [('responsible_for_implementation_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_for_implementation_id',
+            'unique': False
+        }
+    ]
 
     SCHEMA: dict = {
         'public_id': { # public_id of the IsmsControlMeasureAssignment

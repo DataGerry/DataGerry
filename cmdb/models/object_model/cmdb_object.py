@@ -50,6 +50,16 @@ class CmdbObject(CmdbDAO):
     REQUIRED_INIT_KEYS: list[str] = ['type_id', 'creation_time', 'author_id', 'active', 'fields', 'version']
     SCHEMA: dict[str, Any] = get_cmdb_object_schema()
 
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False},
+        {"keys": [("fields.value", CmdbDAO.DAO_ASCENDING)], "name": "fields_value", "unique": False},
+        {
+            "keys": [("multi_data_sections.values.data.value", CmdbDAO.DAO_ASCENDING)],
+            "name": "multi_data_sections_values_data_value",
+            "unique": False
+        }
+    ]
+
     #pylint: disable=R0913, R0917
     def __init__(
         self,

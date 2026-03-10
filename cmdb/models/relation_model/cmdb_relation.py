@@ -17,6 +17,7 @@
 Represents a CmdbRelation in DataGerry
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.class_schema.cmdb_relation_schema import get_cmdb_relation_schema
 
@@ -44,23 +45,31 @@ class CmdbRelation(CmdbDAO):
     """
     COLLECTION = "framework.relations"
     MODEL = 'Relation'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('parent_type_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'parent_type_ids', 'unique': False},
+        {'keys': [('child_type_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'child_type_ids', 'unique': False}
+    ]
+
     SCHEMA: dict = get_cmdb_relation_schema()
 
     #pylint: disable=R0913, R0917
-    def __init__(self,
-                 public_id: int,
-                 relation_name: str,
-                 parent_type_ids: list[int],
-                 child_type_ids: list[int],
-                 relation_name_parent: str,
-                 relation_name_child: str,
-                 description: str = None,
-                 relation_icon_parent: str  = None,
-                 relation_color_parent: str  = None,
-                 relation_icon_child: str  = None,
-                 relation_color_child: str  = None,
-                 sections: list[TypeFieldSection] = None,
-                 fields: list[dict] = None):
+    def __init__(
+            self,
+            public_id: int,
+            relation_name: str,
+            parent_type_ids: list[int],
+            child_type_ids: list[int],
+            relation_name_parent: str,
+            relation_name_child: str,
+            description: str = None,
+            relation_icon_parent: str  = None,
+            relation_color_parent: str  = None,
+            relation_icon_child: str  = None,
+            relation_color_child: str  = None,
+            sections: list[TypeFieldSection] = None,
+            fields: list[dict] = None
+        ) -> None:
         """
         Initialises a CmdbRelation
 

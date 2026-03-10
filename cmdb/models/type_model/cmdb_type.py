@@ -53,12 +53,10 @@ class CmdbType(CmdbDAO):
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
-    INDEX_KEYS: list[dict[str, Any]] = [{
-        'keys': [('name', CmdbDAO.DAO_ASCENDING)],
-        'name': 'name',
-        'unique': True
-    }]
-
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
+        {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
+    ]
 
     #pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
     def __init__(

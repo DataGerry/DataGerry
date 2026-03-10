@@ -38,7 +38,7 @@ class ControlMeasureManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str = None) -> None:
         super().__init__(dbm, IsmsControlMeasure, CONTROL_MEASURE_MANAGER_ERRORS, database)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #

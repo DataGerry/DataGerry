@@ -17,6 +17,7 @@
 Implementation of IsmsControlMeasure in DataGerry - ISMS
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
@@ -41,6 +42,11 @@ class IsmsControlMeasure(CmdbDAO):
     """
     COLLECTION = "isms.controlMeasure"
     MODEL = 'ControlMeasure'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('control_measure_type', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_type', 'unique': False},
+    ]
+
     # pylint: disable=R0801
     SCHEMA: dict = {
         'public_id': {
@@ -106,8 +112,8 @@ class IsmsControlMeasure(CmdbDAO):
             chapter: str = None,
             description: str = None,
             is_applicable: bool = False,
-            reason: str = None,
-        ):
+            reason: str = None
+        ) -> None:
         """
         Initialises an IsmsControlMeasure
 

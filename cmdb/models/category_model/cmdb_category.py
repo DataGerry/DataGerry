@@ -46,7 +46,7 @@ class CmdbCategory(CmdbDAO):
     MODEL = 'Category'
     SCHEMA: dict = get_cmdb_category_schema()
 
-    INDEX_KEYS = [
+    INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
         {'keys': [('parent', CmdbDAO.DAO_ASCENDING)], 'name': 'parent', 'unique': False},
         {'keys': [('types', CmdbDAO.DAO_ASCENDING)], 'name': 'types', 'unique': False}
