@@ -249,3 +249,20 @@ class CmdbObject(CmdbDAO):
                 return f.get('value')
 
         raise ValueError(field)
+
+
+    def has_fields_of_type(self, field_type: str) -> bool:
+        """TODO: document"""
+        # check normal fields
+        for field in self.fields or []:
+            if field.get("type") == field_type:
+                return True
+
+        # check multi-data sections
+        for section in self.multi_data_sections or []:
+            for row in section.get("values", []):
+                for field in row.get("data", []):
+                    if field.get("type") == field_type:
+                        return True
+
+        return False
