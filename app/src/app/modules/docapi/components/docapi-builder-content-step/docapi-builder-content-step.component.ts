@@ -24,7 +24,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../relation-template-selector-modal/relation-template-selector-modal.component';
 import { ReportTemplateSelectorModalComponent } from '../report-template-selector-modal/report-template-selector-modal.component';
-import { DEFAULT_PAGE_MARGINS, PageMargins, parseMarginValue, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
+import { DEFAULT_PAGE_MARGINS, PageMargins, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
+import { DocapiPageMarginsModalComponent } from '../docapi-page-margins-modal/docapi-page-margins-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -138,7 +139,7 @@ export class DocapiBuilderContentStepComponent {
             editor?.ui?.registry?.addButton('pagemargins', {
                 text: 'Page Options',
                 tooltip: 'Set page margins for all pages',
-                onAction: () => this.openPageMarginsDialog(editor)
+                onAction: () => this.openPageMarginsDialog()
             });
         }
     };
@@ -364,47 +365,23 @@ export class DocapiBuilderContentStepComponent {
     }
 
 
-    private openPageMarginsDialog(editor: any): void {
-        editor?.windowManager?.open({
-            title: 'Page Margins (All Pages)',
-            body: {
-                type: 'panel',
-                items: [
-                    { type: 'input', name: 'top', label: 'Margin: top (mm)' },
-                    { type: 'input', name: 'bottom', label: 'Margin: bottom (mm)' },
-                    { type: 'input', name: 'left', label: 'Margin: left (mm)' },
-                    { type: 'input', name: 'right', label: 'Margin: right (mm)' }
-                ]
-            },
-            buttons: [
-                {
-                    type: 'submit',
-                    text: 'Apply'
-                }
-            ],
-            initialData: {
-                top: this.pageMargins.top.toString(),
-                bottom: this.pageMargins.bottom.toString(),
-                left: this.pageMargins.left.toString(),
-                right: this.pageMargins.right.toString()
-            },
-            onSubmit: (dialogApi) => {
-                const data = dialogApi?.getData();
-                const top = parseMarginValue(data?.top);
-                const bottom = parseMarginValue(data?.bottom);
-                const left = parseMarginValue(data?.left);
-                const right = parseMarginValue(data?.right);
+    private openPageMarginsDialog(): void {
+        const modalRef = this.modalService.open(DocapiPageMarginsModalComponent, {
+            size: 'lg',
+            backdrop: 'static'
+        });
 
-                if (top === null || bottom === null || left === null || right === null) {
-                    editor?.windowManager?.alert('Please enter valid margin values (numbers >= 0).');
+        modalRef.componentInstance.initialMargins = { ...this.pageMargins };
+
+        modalRef.result
+            .then((margins: PageMargins) => {
+                if (!margins) {
                     return;
                 }
 
-                const margins: PageMargins = { top, bottom, left, right };
                 this.pageMargins = margins;
                 this.pageMarginsChanged.emit(margins);
-                dialogApi?.close();
-            }
-        });
+            })
+            .catch(() => undefined);
     }
 }
