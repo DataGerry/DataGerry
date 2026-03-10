@@ -490,3 +490,8 @@ class CmdbType(CmdbDAO):
         field_names = [field["name"] for field in self.fields if field["type"] == field_type]
 
         return field_names
+
+
+    def get_fields_with_type(self, field_type: str) -> dict[str, dict[str, Any]]:
+        """TODO: document"""
+        return {f["name"]: f for f in self.fields if f["type"] == field_type}
