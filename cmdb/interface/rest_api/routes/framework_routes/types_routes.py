@@ -32,6 +32,7 @@ from cmdb.manager import (
     ObjectsManager,
     ReportsManager,
     RelationsManager,
+    UsersManager,
 )
 
 from cmdb.models.relation_model import CmdbRelation
@@ -201,6 +202,7 @@ def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: Cm
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
         view: bool = params.active
 
@@ -233,10 +235,25 @@ def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: Cm
         # Get clean status of types
         response_items: list[dict[str, Any]] = []
 
-        for type_data, type_model in zip(types, iteration_result.results):
+        # Get all users for types
+        user_ids = {
+            uid
+            for t in types
+            for uid in (t.get("author_id"), t.get("editor_id"))
+            if uid is not None
+        }
 
-            type_id: int = type_data["public_id"]
-            expected_fields = {f["name"] for f in type_model.fields}
+        users: list[dict[str, Any]] = users_manager.find(criteria={"public_id": {"$in": list(user_ids)}})
+        users: list[CmdbUser] = [CmdbUser.from_data(a_user) for a_user in users]
+
+        user_lookup: dict[int, str] = {
+            user.public_id: user.get_display_name()
+            for user in users
+        }
+
+        for type_data in types:
+            type_id = type_data["public_id"]
+            expected_fields = {f["name"] for f in type_data["fields"]}
 
             type_objects: list[CmdbObject] = objects_by_type.get(type_id, [])
 
@@ -249,8 +266,13 @@ def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: Cm
                     clean = False
                     break
 
+            author: str | None = user_lookup.get(type_data.get("author_id"))
+            last_editor: str | None = user_lookup.get(type_data.get("editor_id"))
+
             response_items.append({
                 "type_data": type_data,
+                "author": author,
+                "last_editor": last_editor,
                 "clean_status": clean
             })
 
