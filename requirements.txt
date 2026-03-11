@@ -31,6 +31,7 @@ lazy-object-proxy==1.12.0
 ldap3==2.9.1
 MarkupSafe==3.0.3
 mccabe==0.7.0
+openai==2.26.0
 openpyxl==3.1.5
 packaging==26.0
 Pillow==12.1.1
