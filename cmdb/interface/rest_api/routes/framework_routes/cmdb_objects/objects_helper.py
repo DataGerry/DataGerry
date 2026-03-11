@@ -35,6 +35,7 @@ from cmdb.manager import (
     ObjectGroupsManager,
     LocationsManager,
     ObjectsManager,
+    TypesManager,
 )
 
 from cmdb.models.type_model.cmdb_type import CmdbType
@@ -55,7 +56,8 @@ def delete_one_cascade(
         request_user: CmdbUser,
         deleted_object: CmdbObject,
         object_type: CmdbType,
-        objects_manager: ObjectsManager
+        objects_manager: ObjectsManager,
+        log_action: LogAction
     ) -> None:
     """TODO: document"""
     # Remove the object from all static object groups
@@ -65,10 +67,10 @@ def delete_one_cascade(
     handle_delete_invalid_object_relations(request_user, deleted_object.get_public_id())
 
     # Send deletion event to all active webhooks
-    handle_notify_webhooks(request_user, deleted_object)
+    handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
 
     # Create ObjectLog of the deletion
-    handle_creat_object_log(request_user, deleted_object, object_type)
+    handle_creat_object_log(request_user, deleted_object, object_type, log_action)
 
     # Sync config item count in CLOUD_MODE
     if current_app.cloud_mode:
@@ -76,20 +78,100 @@ def delete_one_cascade(
         handle_sync_config_item_count(request_user, objects_count)
 
 
-def handle_notify_webhooks(request_user: CmdbUser, to_delete_object: CmdbObject) -> None:
+def sync_select_field_options(
+        request_user: CmdbUser,
+        target_object: CmdbObject,
+        object_type: CmdbType
+    ) -> None:
+    """TODO: document"""
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+    type_select_fields: dict[str, dict[str, Any]] = object_type.get_fields_with_type("select")
+
+    new_options = {}
+
+    def process_field(field: dict[str, Any]) -> None:
+        """TODO: document"""
+        if field.get("type") != "select":
+            return
+
+        value = field.get("value")
+
+        if value in (None, "", [], {}):
+            return
+
+        field_name = field.get("name")
+
+        if field_name not in type_select_fields:
+            return
+
+        options = type_select_fields[field_name].get("options", [])
+
+        existing_names = {opt["name"] for opt in options}
+
+        if value not in existing_names:
+            new_options.setdefault(field_name, set()).add(value)
+
+    # check main fields
+    for field in target_object.fields:
+        process_field(field)
+
+    # check multi data sections
+    for section in target_object.multi_data_sections or []:
+        for row in section.get("values", []):
+            for field in row.get("data", []):
+                process_field(field)
+
+    if not new_options:
+        return
+
+    # apply updates to type
+    updated = False
+
+    for field in object_type.fields:
+        fname = field["name"]
+
+        if fname not in new_options:
+            continue
+
+        field.setdefault("options", [])
+
+        for value in new_options[fname]:
+            field["options"].append({
+                "name": value,
+                "label": value
+            })
+
+            updated = True
+
+    if updated:
+        types_manager.update_type(object_type.public_id, object_type)
+
+
+def handle_notify_webhooks(
+        request_user: CmdbUser,
+        target_object: CmdbObject,
+        event_type: WebhookEventType
+    ) -> None:
     """TODO: document"""
     try:
         webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
-        webhooks_manager.send_webhook_event(
-            WebhookEventType.DELETE,
-            object_before=CmdbObject.to_json(to_delete_object)
-        )
+        if event_type == WebhookEventType.CREATE:
+            webhooks_manager.send_webhook_event(event_type, object_after=CmdbObject.to_json(target_object))
+
+        if event_type == WebhookEventType.DELETE:
+            webhooks_manager.send_webhook_event(event_type, object_before=CmdbObject.to_json(target_object))
     except Exception as err:
         LOGGER.error("[handle_webhooks] Send Webhook Event Exception: %s, Type:%s", err, type(err))
 
 
-def handle_creat_object_log(request_user: CmdbUser, target_object: CmdbObject, target_type: CmdbType) -> None:
+def handle_creat_object_log(
+        request_user: CmdbUser,
+        target_object: CmdbObject,
+        target_type: CmdbType,
+        log_action: LogAction
+    ) -> None:
     """TODO: document"""
     try:
         rendered_object: RenderResult = CmdbRender(
@@ -100,16 +182,21 @@ def handle_creat_object_log(request_user: CmdbUser, target_object: CmdbObject, t
 
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
+        log_comment: str = "Object created"
+
+        if log_action == LogAction.DELETE:
+            log_comment = "Object was deleted"
+
         log_data: dict[str, Any] = {
             'object_id': rendered_object.object_information['object_id'],
             'version': rendered_object.object_information['version'],
             'user_id': request_user.get_public_id(),
             'user_name': request_user.get_display_name(),
-            'comment': 'Object was deleted',
+            'comment': log_comment,
             'render_state': json.dumps(rendered_object, default=default).encode('UTF-8')
         }
 
-        logs_manager.insert_log(action=LogAction.DELETE, log_type=CmdbObjectLog.__name__, **log_data)
+        logs_manager.insert_log(action=log_action, log_type=CmdbObjectLog.__name__, **log_data)
     except Exception as err:
         LOGGER.error("[handle_logs] Failed to create ObjectLog. Error: %s", err)
 
@@ -262,36 +349,3 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
     for section in object_data.get("multi_data_sections", []):
         for value in section.get("values", []):
             validate_field_list(value.get("data", []))
-
-# def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
-#     """
-#     Validates that all fields in `object_data['fields']` exist in the type schema
-#     and fills in missing `type` properties from the type schema.
-
-#     Args:
-#         objects_manager (ObjectsManager): manager to access type schemas
-#         object_data (dict[str, Any]): the incoming object data to validate/enrich
-
-#     Raises:
-#         abort(400) if any field name is not in the type schema
-#     """
-#     type_id = object_data.get("type_id")
-#     if not type_id:
-#         abort(400, "Missing type_id in object data!")
-
-#     # Retrieve type schema as dict (field_name -> field_type)
-#     type_schema = objects_manager.get_object_type(type_id, as_dict=True)
-#     type_field_map = {f["name"]: f["type"] for f in type_schema["fields"]}
-
-#     for field in object_data.get("fields", []):
-#         field_name = field.get("name")
-#         if not field_name:
-#             abort(400, "One of the fields is missing a 'name' property!")
-
-#         # Early abort if field not in type
-#         if field_name not in type_field_map:
-#             abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
-
-#         # Fill missing 'type' property
-#         if "type" not in field or not field["type"]:
-#             field["type"] = type_field_map[field_name]

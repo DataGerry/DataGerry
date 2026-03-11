@@ -55,7 +55,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, sync_config_items, verify_api_access, handle_db_errors
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
 from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     extract_public_ids,
@@ -71,6 +71,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     handle_delete_object_location,
     handle_delete_location_and_child_locations,
     validate_and_fill_object_fields,
+    sync_select_field_options,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
@@ -121,12 +122,11 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         new_object_json = json.dumps(request.json)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
-        objects_count: int = objects_manager.count_objects()
+        objects_count: int = 0
 
         if current_app.cloud_mode:
+            objects_count: int = objects_manager.count_objects()
             if request_user.is_config_item_limit_reached(objects_count):
                 abort(400, "The maximum amout of ConfigItems is reached!")
 
@@ -140,18 +140,25 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
             if existing_object:
                 abort(400, f'Object with ID: {new_object_data["public_id"]} already exists!')
 
+        object_type: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
+
+        if not object_type:
+            abort(404, f"Type with ID:{new_object_data['type_id']} of new Object not found!")
+
         if 'active' not in new_object_data:
             new_object_data['active'] = True
 
         new_object_data['creation_time'] = datetime.now(timezone.utc)
         new_object_data['version'] = '1.0.0'
 
-        # Validate fields have type
+        # Validate fields have type property
         validate_and_fill_object_fields(objects_manager, new_object_data)
 
-        new_object_id = objects_manager.insert_object(new_object_data, request_user, AccessControlPermission.CREATE)
-
-        current_type_instance: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
+        new_object_id: int = objects_manager.insert_object(
+            new_object_data,
+            request_user,
+            AccessControlPermission.CREATE
+        )
 
         current_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
 
@@ -160,61 +167,18 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
 
         current_object: CmdbObject = CmdbObject.from_data(current_object)
 
+        # sync select fields
+        if current_object.has_fields_of_type("select"):
+            sync_select_field_options(request_user, current_object, object_type)
+
         # Handle Webhook Events
-        try:
-            webhooks_manager.send_webhook_event(WebhookEventType.CREATE,
-                                                object_after=CmdbObject.to_json(current_object))
-        except Exception as err:
-            #TODO: ERROR-FIX
-            LOGGER.error(
-                "[insert_cmdb_object] Unable to send Webhook Event. Error: %s , Type: %s",
-                err, type(err), exc_info=True
-            )
+        handle_notify_webhooks(request_user, current_object, WebhookEventType.CREATE)
 
-        # Render CmdbObject
-        try:
-            current_object_render_result = CmdbRender(
-                                                current_object,
-                                                current_type_instance,
-                                                request_user,
-                                                False
-                                            ).result()
-        except Exception as err:
-            #TODO: ERROR-FIX
-            LOGGER.error("[insert_cmdb_object] Error: %s , Type: %s", err, type(err), exc_info=True)
-            abort(500, "Object could not be rendered!")
-
-        try:
-            if current_app.cloud_mode:
-                objects_count = objects_manager.count_objects()
-
-                success = sync_config_items(request_user.email, request_user.database, objects_count)
-
-                if not success:
-                    LOGGER.error(
-                        "[insert_cmdb_object] Config items for User: '%s' not synced (StatusCode not 200)!",
-                        request_user.email
-                    )
-        except Exception as error:
-            LOGGER.error(
-                "[insert_cmdb_object] Failed to sync config items count to service portal. Error: %s", error
-            )
+        if current_app.cloud_mode:
+            handle_sync_config_item_count(request_user, objects_count)
 
         # Generate new insert log
-        try:
-            log_params: dict[str, Any] = {
-                "object_id": new_object_id,
-                "user_id": request_user.get_public_id(),
-                "user_name": request_user.get_display_name(),
-                "comment": "Object created",
-                "render_state": json.dumps(current_object_render_result, default=default).encode('UTF-8'),
-                "version": current_object.version
-            }
-
-            logs_manager.insert_log(action=LogAction.CREATE, log_type=CmdbObjectLog.__name__, **log_params)
-        except Exception as error:
-            #TODO: ERROR-FIX
-            LOGGER.error("[insert_cmdb_object] Failed to create ObjectLog. Error: %s", error)
+        handle_creat_object_log(request_user, current_object, object_type, LogAction.CREATE)
 
         return DefaultResponse(new_object_id).make_response()
     except HTTPException as http_err:
@@ -869,6 +833,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
             new_data['version'] = update_object_instance.update_version(version_type)
 
             objects_manager.update_object(obj_id, new_data, request_user, AccessControlPermission.UPDATE)
+
             results.append(new_data)
 
             object_after = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
@@ -876,7 +841,11 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
             if not object_after:
                 abort(404, f"Updated Object with ID:{public_id} not found in database!")
 
-            object_after = CmdbObject.from_data(object_after)
+            object_after: CmdbObject = CmdbObject.from_data(object_after)
+
+            # sync select fields
+            if object_after.has_fields_of_type("select"):
+                sync_select_field_options(request_user, object_after, current_type_instance)
 
             #EVENT: UPDATE-EVENT
             try:
@@ -1190,7 +1159,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         objects_manager.delete_all_object_references(public_id)
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, to_delete_object_type, objects_manager)
+        delete_one_cascade(request_user, to_delete_object, to_delete_object_type, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
@@ -1251,7 +1220,7 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
         objects_manager.delete_all_object_references(public_id)
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, to_delete_object_type, objects_manager)
+        delete_one_cascade(request_user, to_delete_object, to_delete_object_type, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
@@ -1343,13 +1312,14 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
                 handle_delete_invalid_object_relations(request_user, child_object_id)
 
                 # Notify via Webhooks
-                handle_notify_webhooks(request_user, CmdbObject.from_data(child_object))
+                handle_notify_webhooks(request_user, CmdbObject.from_data(child_object), WebhookEventType.DELETE)
 
                 # Create object deletion log entry
                 handle_creat_object_log(
                     request_user,
                     CmdbObject.from_data(child_object),
-                    child_object_type
+                    child_object_type,
+                    LogAction.DELETE
                 )
 
             # Remove all child objects from static object groups
@@ -1363,7 +1333,7 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
         objects_manager.delete_all_object_references(public_id)
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, target_object, to_delete_object_type, objects_manager)
+        delete_one_cascade(request_user, target_object, to_delete_object_type, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
@@ -1449,10 +1419,10 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
             handle_delete_invalid_object_relations(request_user, current_object.get_public_id())
 
             # Send deletion event to all active webhooks
-            handle_notify_webhooks(request_user, current_object)
+            handle_notify_webhooks(request_user, current_object, WebhookEventType.DELETE)
 
             # Create ObjectLog of the deletion
-            handle_creat_object_log(request_user, current_object, current_object_type)
+            handle_creat_object_log(request_user, current_object, current_object_type, LogAction.DELETE)
 
             ack.append(current_object.get_public_id())
 
