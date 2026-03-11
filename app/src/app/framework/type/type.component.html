@@ -34,7 +34,7 @@
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
 <ng-template #cleanTemplate let-item="item">
-  <cmdb-clean-button [type]="item"></cmdb-clean-button>
+  <cmdb-clean-button [type]="item" [cleanStatus]="item.clean_status"></cmdb-clean-button>
 </ng-template>
 
 <ng-template #exportTemplate>
