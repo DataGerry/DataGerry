@@ -79,7 +79,7 @@
                 
                 <!-- Existing Columns -->
                 <th
-                    table-column-head *ngFor="let column of columns"
+                    table-column-head *ngFor="let column of columns; trackBy: trackByName"
                     [column]="column"
                     [sortActivated]="column.name === sort.name"
                     [ngClass]="columnClasses"
@@ -109,7 +109,7 @@
                 <th *ngIf="selectEnabled" [ngStyle]="{'width': '2rem'}"></th>
                 
                 <!-- Search Inputs for Columns -->
-                <th *ngFor="let column of columns" [hidden]="column.hidden">
+                <th *ngFor="let column of columns; trackBy: trackByName" [hidden]="column.hidden">
                     <input type="text" class="form-control form-control-sm" [formControlName]="column.name"
                         placeholder="Search {{column.display}}" />
                 </th>
@@ -121,12 +121,12 @@
             [cdkDropListData]="items" [cdkDropListDisabled]="!isDraggable" (cdkDropListDropped)="onRowDrop($event)">
             <tr
                 table-row
-                *ngFor="let item of items; let rowIndex = index"
+                *ngFor="let item of items; let rowIndex = index; trackBy: trackById"
                 [item]="item"
                 [rowIndex]="rowIndex"
                 cdkDrag
                 [ngClass]="[
-                    (rowClasses && rowClasses.length ? rowClasses.join(' ') : ''),
+                    joinedRowClasses,
                     reportRowValidationClass ? reportRowValidationClass(item) : ''
                 ]"
             >
@@ -152,7 +152,7 @@
                 <!-- Data Columns -->
                 <td
                     table-cell
-                    *ngFor="let column of columns"
+                    *ngFor="let column of columns; trackBy: trackByName"
                     [column]="column"
                     [item]="item"
                     [hidden]="column.hidden"
