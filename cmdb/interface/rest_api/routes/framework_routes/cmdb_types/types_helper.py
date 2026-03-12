@@ -71,13 +71,14 @@ def prepare_builder_parameters(type_params: TypeIterationParameters) -> BuilderP
     Returns:
         BuilderParameters: The prepared BuilderParameters
     """
-    if isinstance(type_params.filter, dict):
-        if type_params.filter.keys():
-            type_params.filter.update({'active': type_params.active})
-        else:
-            type_params.filter = [{'$match': {'active': type_params.active}}, {'$match': type_params.filter}]
-    elif isinstance(type_params.filter, list):
-        type_params.filter.append({'$match': {'active': type_params.active}})
+    if type_params.active:
+        if isinstance(type_params.filter, dict):
+            if type_params.filter.keys():
+                type_params.filter.update({'active': type_params.active})
+            else:
+                type_params.filter = [{'$match': {'active': type_params.active}}, {'$match': type_params.filter}]
+        elif isinstance(type_params.filter, list):
+            type_params.filter.append({'$match': {'active': type_params.active}})
 
     return BuilderParameters(**CollectionParameters.get_builder_params(type_params))
 
