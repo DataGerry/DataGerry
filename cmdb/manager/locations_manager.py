@@ -32,6 +32,7 @@ from cmdb.errors.manager import (
     BaseManagerGetError,
     BaseManagerDeleteError,
     BaseManagerIterationError,
+    BaseManagerUpdateError,
 )
 from cmdb.errors.manager.locations_manager import (
     LocationsManagerInitError,
@@ -177,9 +178,9 @@ class LocationsManager(BaseManager):
             list[CmdbLocation]: All CmdbLocations matching the requirements
         """
         try:
-            locations_list = []
+            locations_list: list[CmdbLocation] = []
 
-            locations = self.get_many(**requirements)
+            locations: list[dict[str, Any]] = self.get_many(**requirements)
 
             for location in locations:
                 locations_list.append(CmdbLocation.from_data(location))
@@ -187,7 +188,7 @@ class LocationsManager(BaseManager):
             return locations_list
         except Exception as err:
             LOGGER.error("[get_locations_by] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(err) from err
+            raise LocationsManagerGetError(str(err)) from err
 
 
     def get_all_locations_excluding_root(self) -> list[dict[str, Any]]:
@@ -281,12 +282,33 @@ class LocationsManager(BaseManager):
             if isinstance(data, CmdbLocation):
                 data = CmdbLocation.to_json(data)
 
-            update_key = 'object_id' if per_object else 'public_id'
+            update_key: str = 'object_id' if per_object else 'public_id'
 
             self.update({update_key: object_id}, data)
         except Exception as err:
             LOGGER.error("[update_location] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerUpdateError(err) from err
+            raise LocationsManagerUpdateError(str(err)) from err
+
+
+    def update_locations_by_type(self, type_id: int, data: dict[str, Any]) -> None:
+        """
+        Updates all CmdbLocations of the provided CmdbTypes public_id
+
+        Args:
+            type_id (int): public_id of CmdbType for which the CmdbLocations should be updated
+            data (dict[str, Any]): the data which should be applied
+
+        Raises:
+            LocationsManagerUpdateError: When the Update-Operation fails
+        """
+        try:
+            if not data:
+                LOGGER.error("No data provided to [update_locations_by_type] therefore no update executed!")
+                return
+
+            self.update_many(criteria={"type_id": type_id}, update=data)
+        except BaseManagerUpdateError as err:
+            raise LocationsManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -317,7 +339,7 @@ class LocationsManager(BaseManager):
             public_ids (list[dict[str, Any]]): list of CmdbLocations which should be deleted
         """
         try:
-            location_ids = [location['public_id'] for location in locations]
+            location_ids: list[int] = [location['public_id'] for location in locations]
             self.delete_many_raw({"public_id": {"$in": location_ids}})
         except BaseManagerDeleteError as err:
             raise LocationsManagerDeleteError(str(err)) from err

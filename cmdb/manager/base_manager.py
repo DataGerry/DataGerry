@@ -532,7 +532,8 @@ class BaseManager:
             criteria: dict,
             update: dict,
             add_to_set: bool = False,
-            plain: bool = False) -> UpdateResult:
+            plain: bool = False
+    ) -> UpdateResult:
         """
         Updates multiple documents in the collection that match the given filter
 
@@ -588,6 +589,22 @@ class BaseManager:
             )
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(str(err)) from err
+
+
+    def bulk_write(self, operations: list) -> None:
+        """
+        Performs a bulk write on the current manager's collection.
+
+        Args:
+            operations (list): List of pymongo operations (e.g., UpdateOne, DeleteOne, etc.)
+
+        Raises:
+            BaseManagerUpdateError: If the bulk write fails.
+        """
+        try:
+            self.dbm.bulk_write(self.collection, self.db_name, operations)
+        except DocumentInsertError as err:
+            raise BaseManagerUpdateError(f"Bulk write failed in collection '{self.collection}': {err}") from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

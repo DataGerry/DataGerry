@@ -18,12 +18,13 @@ This module contains the implementation of the RelationsManager
 """
 from logging import Logger, getLogger
 
+from pymongo import UpdateOne
+
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.relation_model import CmdbRelation
-
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
@@ -165,6 +166,26 @@ class RelationsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[update_relation] Exception: %s. Type: %s", err, type(err))
             raise RelationsManagerUpdateError(err) from err
+
+
+    def remove_type_from_relations(self, type_id: int) -> None:
+        """Removes a type_id from all relation parent/child lists."""
+
+        criteria = {
+            '$or': [
+                {'parent_type_ids': type_id},
+                {'child_type_ids': type_id}
+            ]
+        }
+
+        update = {
+            '$pull': {
+                'parent_type_ids': type_id,
+                'child_type_ids': type_id
+            }
+        }
+
+        self.update_many(criteria=criteria, update=update, plain=True)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
