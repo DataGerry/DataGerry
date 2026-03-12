@@ -26,6 +26,7 @@ import { RelationTemplateSelectorModalComponent } from '../relation-template-sel
 import { ReportTemplateSelectorModalComponent } from '../report-template-selector-modal/report-template-selector-modal.component';
 import { DEFAULT_PAGE_MARGINS, PageMargins, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
 import { DocapiPageMarginsModalComponent } from '../docapi-page-margins-modal/docapi-page-margins-modal.component';
+import { DocapiAiAssistantModalComponent } from '../docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -90,7 +91,7 @@ export class DocapiBuilderContentStepComponent {
             'undo redo | formatselect | bold italic underline forecolor backcolor removeformat | \
             alignleft aligncenter alignright alignjustify | \
             bullist numlist outdent indent | image table hr pagebreak | code ',
-        toolbar2: 'cmdbdata pagemargins | previewdoc',
+        toolbar2: 'cmdbdata pagemargins aiassistant | previewdoc',
         noneditable_noneditable_class: 'mceNonEditable',
         paste_data_images: true,
         automatic_uploads: true,
@@ -140,6 +141,24 @@ export class DocapiBuilderContentStepComponent {
                 text: 'Page Options',
                 tooltip: 'Set page margins for all pages',
                 onAction: () => this.openPageMarginsDialog()
+            });
+
+            editor?.ui?.registry?.addButton('aiassistant', {
+                icon: 'help',
+                tooltip: 'AI Assistant (using OpenAI API)',
+                onAction: () => this.openAiAssistantModal(editor),
+                onSetup: () => {
+                    setTimeout(() => {
+                        const toolbarButtonIcon = editor?.getContainer?.()
+                            ?.querySelector('button[aria-label="AI Assistant (using OpenAI API)"] .tox-icon') as HTMLElement | null;
+
+                        if (toolbarButtonIcon) {
+                            toolbarButtonIcon.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>';
+                        }
+                    });
+
+                    return () => undefined;
+                }
             });
         }
     };
@@ -381,6 +400,24 @@ export class DocapiBuilderContentStepComponent {
 
                 this.pageMargins = margins;
                 this.pageMarginsChanged.emit(margins);
+            })
+            .catch(() => undefined);
+    }
+
+
+    private openAiAssistantModal(editor: any): void {
+        const modalRef = this.modalService.open(DocapiAiAssistantModalComponent, {
+            size: 'xl',
+            backdrop: 'static'
+        });
+
+        modalRef.result
+            .then((generatedHtml: string) => {
+                if (!generatedHtml) {
+                    return;
+                }
+
+                editor.insertContent(generatedHtml);
             })
             .catch(() => undefined);
     }
