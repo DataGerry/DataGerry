@@ -17,6 +17,7 @@
 This module contains the implementation of the UsersManager
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -185,6 +186,24 @@ class UsersManager(BaseManager):
             LOGGER.error("[iterate] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerIterationError(err) from err
 
+
+    def get_user_lookup(self, user_ids: list[int]) -> dict[int, CmdbUser]:
+        """
+        Retrieves a lookup dictionary of CmdbUsers filtered by the provided user_ids
+
+        Args:
+            user_ids (list[int]): The public_ids of CmdbUsers which should be retrieved
+
+        Returns:
+            dict[int, CmdbUser]: The lookup dictionary with the CmdbUsers
+        """
+        users: list[dict[str, Any]] = self.find(criteria={"public_id": {"$in": list(user_ids)}})
+
+        user_lookup: dict[int, CmdbUser] = {
+            user['public_id']: CmdbUser.from_data(user) for user in users
+        }
+
+        return user_lookup
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_user(self, public_id: int, user_data: CmdbUser | dict) -> None:

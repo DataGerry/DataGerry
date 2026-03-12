@@ -21,6 +21,7 @@ import json
 from typing import Any
 
 from bson import Regex, json_util
+from pymongo import UpdateOne
 from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
@@ -133,6 +134,34 @@ class ObjectsManager(BaseManager):
             raise err
         except Exception as err:
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerInsertError(str(err)) from err
+
+
+    def bulk_update_multi_data_sections(self, updated_objects: list[CmdbObject]) -> None:
+        """
+        Bulk updates the multi_data_sections field for a list of updated CmdbObjects.
+
+        Args:
+            updated_objects (list[CmdbObject]): Objects that have modified multi_data_sections.
+
+        Raises:
+            BaseManagerUpdateError: If the bulk write fails.
+        """
+        try:
+            if not updated_objects:
+                return
+
+            operations: list[UpdateOne] = [
+                UpdateOne(
+                    {"public_id": obj.public_id},
+                    {"$set": {"multi_data_sections": obj.multi_data_sections}}
+                )
+                for obj in updated_objects
+            ]
+
+            self.bulk_write(operations)
+        except Exception as err:
+            LOGGER.error("[bulk_update_multi_data_sections] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -411,7 +440,7 @@ class ObjectsManager(BaseManager):
 
             return self.count_documents(self.collection)
         except BaseManagerGetError as err:
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetError(str(err)) from err
 
 
     def get_new_object_public_id(self) -> int:
@@ -556,15 +585,17 @@ class ObjectsManager(BaseManager):
 
 
     #TODO: REFACTOR-FIX
-    def references(self,
-                   object_: CmdbObject,
-                   criteria: dict,
-                   limit: int,
-                   skip: int,
-                   sort: str,
-                   order: int,
-                   user: CmdbUser = None,
-                   permission: AccessControlPermission = None) -> IterationResult[CmdbObject]:
+    def references(
+        self,
+        object_: CmdbObject,
+        criteria: dict,
+        limit: int,
+        skip: int,
+        sort: str,
+        order: int,
+        user: CmdbUser = None,
+        permission: AccessControlPermission = None
+    ) -> IterationResult[CmdbObject]:
         """
         Retrieves all CmdbObjects that reference the given CmdbObject
 
@@ -636,6 +667,40 @@ class ObjectsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
+
+
+    def get_grouped_objects_for_types(self, type_ids: list[int]) -> dict[int, list[CmdbObject]]:
+        """
+        Grouping all existing objects by the given public_ids of CmdbTypes
+
+        Args:
+            type_ids (list[int]): All public_ids of CmdbTypes which should be considered
+
+        Returns:
+            dict[int, list[CmdbObject]]: Dictionary with grouped CmdbObjects
+
+        Example:
+            {
+                1: [Obj1, Obj2],
+                2: [Obj3, Obj4],
+            }
+        """
+        try:
+            objects_of_types: list[CmdbObject] = self.find_objects(criteria={'type_id': {"$in": type_ids}})
+
+            # Group objects
+            objects_by_type: dict[int, list[CmdbObject]] = {}
+
+            for obj in objects_of_types:
+                objects_by_type.setdefault(obj.type_id, []).append(obj)
+
+            return objects_by_type
+        except ObjectsManagerGetError as err:
+            LOGGER.error("[get_grouped_objects_for_types] ObjectsManagerGetError: %s", err)
+            raise
+        except Exception as err:
+            LOGGER.error("[get_grouped_objects_for_types] Exception: %s, Type: %s", err, type(err))
+            raise ObjectsManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
