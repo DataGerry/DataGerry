@@ -45,6 +45,8 @@ import { ReportTemplateSelectorModalComponent } from './components/report-templa
 import { CoreModule } from 'src/app/core/core.module';
 import { RunReportModule } from 'src/app/toolbox/reporting/report/run-report.module';
 import { DocapiPreviewObjectModalComponent } from './components/docapi-preview-object-modal/docapi-preview-object-modal.component';
+import { DocapiPageMarginsModalComponent } from './components/docapi-page-margins-modal/docapi-page-margins-modal.component';
+import { DocapiAiAssistantModalComponent } from './components/docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [
@@ -61,7 +63,9 @@ import { DocapiPreviewObjectModalComponent } from './components/docapi-preview-o
         ExternalObjectSelectorModalComponent,
         RelationTemplateSelectorModalComponent,
         ReportTemplateSelectorModalComponent,
-        DocapiPreviewObjectModalComponent
+        DocapiPreviewObjectModalComponent,
+        DocapiPageMarginsModalComponent,
+        DocapiAiAssistantModalComponent
     ],
     imports: [
         CommonModule,

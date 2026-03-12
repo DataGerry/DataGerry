@@ -24,7 +24,9 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../relation-template-selector-modal/relation-template-selector-modal.component';
 import { ReportTemplateSelectorModalComponent } from '../report-template-selector-modal/report-template-selector-modal.component';
-import { DEFAULT_PAGE_MARGINS, PageMargins, parseMarginValue, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
+import { DEFAULT_PAGE_MARGINS, PageMargins, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
+import { DocapiPageMarginsModalComponent } from '../docapi-page-margins-modal/docapi-page-margins-modal.component';
+import { DocapiAiAssistantModalComponent } from '../docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -89,7 +91,7 @@ export class DocapiBuilderContentStepComponent {
             'undo redo | formatselect | bold italic underline forecolor backcolor removeformat | \
             alignleft aligncenter alignright alignjustify | \
             bullist numlist outdent indent | image table hr pagebreak | code ',
-        toolbar2: 'cmdbdata pagemargins | previewdoc',
+        toolbar2: 'cmdbdata pagemargins aiassistant | previewdoc',
         noneditable_noneditable_class: 'mceNonEditable',
         paste_data_images: true,
         automatic_uploads: true,
@@ -138,7 +140,25 @@ export class DocapiBuilderContentStepComponent {
             editor?.ui?.registry?.addButton('pagemargins', {
                 text: 'Page Options',
                 tooltip: 'Set page margins for all pages',
-                onAction: () => this.openPageMarginsDialog(editor)
+                onAction: () => this.openPageMarginsDialog()
+            });
+
+            editor?.ui?.registry?.addButton('aiassistant', {
+                icon: 'help',
+                tooltip: 'AI Assistant (using OpenAI API)',
+                onAction: () => this.openAiAssistantModal(editor),
+                onSetup: () => {
+                    setTimeout(() => {
+                        const toolbarButtonIcon = editor?.getContainer?.()
+                            ?.querySelector('button[aria-label="AI Assistant (using OpenAI API)"] .tox-icon') as HTMLElement | null;
+
+                        if (toolbarButtonIcon) {
+                            toolbarButtonIcon.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>';
+                        }
+                    });
+
+                    return () => undefined;
+                }
             });
         }
     };
@@ -364,47 +384,41 @@ export class DocapiBuilderContentStepComponent {
     }
 
 
-    private openPageMarginsDialog(editor: any): void {
-        editor?.windowManager?.open({
-            title: 'Page Margins (All Pages)',
-            body: {
-                type: 'panel',
-                items: [
-                    { type: 'input', name: 'top', label: 'Margin: top (mm)' },
-                    { type: 'input', name: 'bottom', label: 'Margin: bottom (mm)' },
-                    { type: 'input', name: 'left', label: 'Margin: left (mm)' },
-                    { type: 'input', name: 'right', label: 'Margin: right (mm)' }
-                ]
-            },
-            buttons: [
-                {
-                    type: 'submit',
-                    text: 'Apply'
-                }
-            ],
-            initialData: {
-                top: this.pageMargins.top.toString(),
-                bottom: this.pageMargins.bottom.toString(),
-                left: this.pageMargins.left.toString(),
-                right: this.pageMargins.right.toString()
-            },
-            onSubmit: (dialogApi) => {
-                const data = dialogApi?.getData();
-                const top = parseMarginValue(data?.top);
-                const bottom = parseMarginValue(data?.bottom);
-                const left = parseMarginValue(data?.left);
-                const right = parseMarginValue(data?.right);
+    private openPageMarginsDialog(): void {
+        const modalRef = this.modalService.open(DocapiPageMarginsModalComponent, {
+            size: 'lg',
+            backdrop: 'static'
+        });
 
-                if (top === null || bottom === null || left === null || right === null) {
-                    editor?.windowManager?.alert('Please enter valid margin values (numbers >= 0).');
+        modalRef.componentInstance.initialMargins = { ...this.pageMargins };
+
+        modalRef.result
+            .then((margins: PageMargins) => {
+                if (!margins) {
                     return;
                 }
 
-                const margins: PageMargins = { top, bottom, left, right };
                 this.pageMargins = margins;
                 this.pageMarginsChanged.emit(margins);
-                dialogApi?.close();
-            }
+            })
+            .catch(() => undefined);
+    }
+
+
+    private openAiAssistantModal(editor: any): void {
+        const modalRef = this.modalService.open(DocapiAiAssistantModalComponent, {
+            size: 'xl',
+            backdrop: 'static'
         });
+
+        modalRef.result
+            .then((generatedHtml: string) => {
+                if (!generatedHtml) {
+                    return;
+                }
+
+                editor.insertContent(generatedHtml);
+            })
+            .catch(() => undefined);
     }
 }

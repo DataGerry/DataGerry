@@ -1,0 +1,120 @@
+<div class="modal-header bg-primary text-white">
+    <h4 class="modal-title">
+        <i class="fa-solid fa-wand-magic-sparkles me-2"></i>
+        AI Assistant
+    </h4>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
+</div>
+
+<div class="modal-body">
+    <div class="ai-assistant-layout">
+
+        <!-- LEFT: Prompt Panel -->
+        <aside class="prompt-panel">
+            <div class="panel-section">
+                <label class="field-label" for="aiAssistantPrompt">
+                    <i class="fa-solid fa-pen-to-square me-1"></i>
+                    Prompt
+                </label>
+                <textarea
+                    id="aiAssistantPrompt"
+                    class="form-control prompt-textarea"
+                    [formControl]="promptControl"
+                    placeholder="Describe the document content you want to generate..."
+                    rows="7"
+                    maxlength="4000">
+                </textarea>
+                <div class="textarea-footer">
+                    <small *ngIf="promptControl.invalid && promptControl.touched" class="text-danger">
+                        <i class="fa-solid fa-circle-exclamation me-1"></i>A prompt is required.
+                    </small>
+                    <span class="char-counter" [class.char-warning]="(promptControl.value?.length || 0) > 3800">
+                        {{ promptControl.value?.length || 0 }} / 4000
+                    </span>
+                </div>
+            </div>
+
+            <div class="panel-section tips-section">
+                <p class="tips-heading">
+                    <i class="fa-solid fa-lightbulb me-1"></i>
+                    Tips
+                </p>
+                <ul class="tips-list">
+                    <li>Specify the <strong>CI type</strong> - e.g. <em>"a server inventory table"</em></li>
+                    <li>Mention the <strong>fields</strong> you want — e.g. <em>"include hostname, IP, OS, and owner"</em></li>
+                    <li>Describe the <strong>layout</strong> — table, bullet list, or sections with headings</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- RIGHT: Preview Panel -->
+        <section class="preview-panel">
+            <div class="preview-panel-header">
+                <i class="fa-solid fa-eye me-2"></i>
+                Generated HTML Preview
+                <span *ngIf="generatedHtml" class="preview-badge">Ready</span>
+            </div>
+
+            <div class="preview-panel-body">
+                <!-- Content -->
+                <div *ngIf="generatedHtml && !isGenerating"
+                     class="preview-content"
+                     [innerHTML]="generatedHtml">
+                </div>
+
+                <!-- Loading -->
+                <div *ngIf="isGenerating" class="preview-state">
+                    <div class="state-spinner">
+                        <div class="spinner-ring"></div>
+                        <div class="spinner-ring spinner-ring--delay"></div>
+                    </div>
+                    <p class="state-title">Generating your content…</p>
+                    <p class="state-desc">This may take a few seconds</p>
+                </div>
+
+                <!-- Empty -->
+                <div *ngIf="!generatedHtml && !isGenerating" class="preview-state">
+                    <div class="state-icon">
+                        <i class="fa-solid fa-file-code"></i>
+                    </div>
+                    <p class="state-title">No preview yet</p>
+                    <p class="state-desc">Enter a prompt and click <strong>Generate</strong> to see results here</p>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Error -->
+    <div *ngIf="requestError" class="error-banner mt-3" role="alert">
+        <i class="fa-solid fa-triangle-exclamation me-2"></i>
+        {{ requestError }}
+    </div>
+</div>
+
+<div class="modal-footer">
+    <app-button
+        [bootstrapClass]="'btn-secondary'"
+        label="Cancel"
+        type="button"
+        (clicked)="cancel()">
+    </app-button>
+
+    <div class="footer-actions-right">
+        <app-button
+            [bootstrapClass]="'btn-primary'"
+            [label]="isGenerating ? 'Generating…' : 'Generate'"
+            [disabled]="isGenerating || promptForm.invalid"
+            type="button"
+            (clicked)="generate()">
+        </app-button>
+
+        <app-button
+            [bootstrapClass]="'btn-success'"
+            label="Insert"
+            type="button"
+            [disabled]="!generatedHtml || isGenerating"
+            (clicked)="insertGeneratedHtml()">
+        </app-button>
+    </div>
+</div>

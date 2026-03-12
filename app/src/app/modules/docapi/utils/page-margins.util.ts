@@ -32,6 +32,7 @@ export const DEFAULT_PAGE_MARGINS: Readonly<PageMargins> = {
 const PAGE_MARGINS_START_MARKER = '/* DATAGERRY_PAGE_MARGINS_START */';
 const PAGE_MARGINS_END_MARKER = '/* DATAGERRY_PAGE_MARGINS_END */';
 
+
 export function parseMarginValue(value: unknown): number | null {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -39,6 +40,7 @@ export function parseMarginValue(value: unknown): number | null {
     }
     return parsed;
 }
+
 
 export function parsePageMarginsFromStyle(styleValue?: string, defaults: PageMargins = DEFAULT_PAGE_MARGINS): PageMargins {
     if (!styleValue) {
@@ -58,6 +60,7 @@ export function parsePageMarginsFromStyle(styleValue?: string, defaults: PageMar
     };
 }
 
+
 export function upsertPageMarginsStyleBlock(existingStyle: string, margins: PageMargins): string {
     const marginBlock = createPageMarginsBlock(margins);
     const markerRegex = new RegExp(
@@ -76,6 +79,7 @@ export function upsertPageMarginsStyleBlock(existingStyle: string, margins: Page
     return `${marginBlock}\n\n${existingStyle}`;
 }
 
+
 function createPageMarginsBlock(margins: PageMargins): string {
     return [
         PAGE_MARGINS_START_MARKER,
@@ -89,6 +93,7 @@ function createPageMarginsBlock(margins: PageMargins): string {
     ].join('\n');
 }
 
+
 function extractMarginProperty(styleValue: string, propertyName: string): number | null {
     const regex = new RegExp(`${propertyName}\\s*:\\s*([0-9]*\\.?[0-9]+)\\s*mm`, 'i');
     const match = styleValue.match(regex);
@@ -98,6 +103,7 @@ function extractMarginProperty(styleValue: string, propertyName: string): number
     const parsed = Number(match[1]);
     return Number.isFinite(parsed) ? parsed : null;
 }
+
 
 function escapeRegex(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
