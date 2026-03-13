@@ -32,7 +32,6 @@ export class DocapiPreviewObjectModalComponent implements OnInit {
     @Input() templateTypeId: number | null = null;
 
     public typeIds: number[] = [];
-    public allObjects = false;
     public selectedObject: RenderResult | null = null;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -44,13 +43,10 @@ export class DocapiPreviewObjectModalComponent implements OnInit {
     }
 
     public ngOnInit(): void {
-        if (this.templateType === 'OBJECT' && this.templateTypeId) {
+        console.log('templateTypeId', this.templateTypeId);
+        if (this.templateTypeId !== null && this.templateTypeId !== undefined) {
             this.typeIds = [this.templateTypeId];
-            this.allObjects = false;
-            return;
         }
-
-        this.allObjects = true;
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
