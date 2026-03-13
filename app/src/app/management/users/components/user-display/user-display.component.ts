@@ -27,13 +27,17 @@ import { User } from '../../../models/user';
 })
 export class UserDisplayComponent {
 
-  @Input() user: User;
+  @Input() user: Partial<User> | null = null;
   @Input() maxWidth: string = '40';
 
-  public get name() {
-    if ((this.user.first_name !== null) && (this.user.last_name !== null)) {
-      return `${ this.user.first_name } ${ this.user.last_name }`;
+  public get name(): string {
+    const firstName = this.user?.first_name?.trim();
+    const lastName = this.user?.last_name?.trim();
+
+    if (firstName && lastName) {
+      return `${ firstName } ${ lastName }`;
     }
-    return this.user.user_name;
+
+    return this.user?.user_name ?? '';
   }
 }

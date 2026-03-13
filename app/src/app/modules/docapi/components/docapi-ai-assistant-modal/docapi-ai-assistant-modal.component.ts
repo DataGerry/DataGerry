@@ -23,6 +23,8 @@ import { firstValueFrom } from 'rxjs';
 import { DocapiAiAssistantService } from '../../services/docapi-ai-assistant.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+export type PreviewMode = 'preview' | 'source';
+
 @Component({
     selector: 'cmdb-docapi-ai-assistant-modal',
     templateUrl: './docapi-ai-assistant-modal.component.html',
@@ -37,6 +39,7 @@ export class DocapiAiAssistantModalComponent {
     public generatedHtml = '';
     public requestError = '';
     public isGenerating = false;
+    public previewMode: PreviewMode = 'preview';
 
     constructor(
         public readonly activeModal: NgbActiveModal,
@@ -72,6 +75,11 @@ export class DocapiAiAssistantModalComponent {
         } finally {
             this.isGenerating = false;
         }
+    }
+
+
+    public setPreviewMode(mode: PreviewMode): void {
+        this.previewMode = mode;
     }
 
 

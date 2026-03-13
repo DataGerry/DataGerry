@@ -158,7 +158,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         });
 
         modalRef.componentInstance.templateType = this.typeStep?.typeForm?.get('template_type')?.value ?? 'OBJECT';
-        modalRef.componentInstance.templateTypeId = this.typeStep?.typeParamComponent?.typeParamForm?.get('type')?.value ?? null;
+        modalRef.componentInstance.templateTypeId = this.getSelectedObjectTypePublicId();
 
         modalRef.result
             .then((objectId: number) => {
@@ -170,6 +170,15 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
             .catch(() => {
                 return;
             });
+    }
+
+    private getSelectedObjectTypePublicId(): number | null {
+        const selectedTypePublicId = Number(this.typeStep?.typeParamComponent?.typeParamForm?.get('type')?.value);
+        if (Number.isFinite(selectedTypePublicId) && selectedTypePublicId > 0) {
+            return selectedTypePublicId;
+        }
+
+        return null;
     }
 
 
