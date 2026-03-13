@@ -38,15 +38,25 @@ import { UserSetting } from '../../management/user-settings/models/user-setting'
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { User } from '../../management/models/user';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+type TypeListUserData = {
+    author?: string;
+    author_image?: string;
+    last_editor?: string;
+    last_editor_image?: string;
+};
 
 type TypeWithCleanStatus = {
     type_data: CmdbType;
     clean_status: boolean;
+    user_data?: TypeListUserData;
 };
 
 type TypeTableItem = CmdbType & {
     clean_status?: boolean;
+    user_data?: TypeListUserData;
 };
 
 @Component({
@@ -332,7 +342,8 @@ export class TypeComponent implements OnInit, OnDestroy {
                     this.types = (apiResponse?.results || []).map((item: TypeWithCleanStatus) => {
                         return {
                             ...(item.type_data as CmdbType),
-                            clean_status: item.clean_status
+                            clean_status: item.clean_status,
+                            user_data: item.user_data
                         } as TypeTableItem;
                     });
                     this.totalTypes = apiResponse?.total;
@@ -377,6 +388,29 @@ export class TypeComponent implements OnInit, OnDestroy {
     public onSelectedChange(selectedItems: Array<TypeTableItem>): void {
         this.selectedTypes = selectedItems;
         this.selectedTypeIDs = selectedItems.map(t => t.public_id);
+    }
+
+
+    public resolveTypeListUser(item: TypeTableItem, columnName: string): Partial<User> | null {
+        if (!item?.user_data) {
+            return null;
+        }
+
+        if (columnName === 'author_id' && item.user_data.author) {
+            return {
+                user_name: item.user_data.author,
+                image: item.user_data.author_image
+            };
+        }
+
+        if (columnName === 'editor_id' && item.user_data.last_editor) {
+            return {
+                user_name: item.user_data.last_editor,
+                image: item.user_data.last_editor_image
+            };
+        }
+
+        return null;
     }
 
 
