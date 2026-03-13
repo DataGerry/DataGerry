@@ -17,10 +17,25 @@
   </header>
 
   <section class="notification-drawer__content">
-    <ng-container *ngIf="notifications$ | async as notifications">
-      <p *ngIf="notifications.length === 0" class="notification-drawer__empty mb-0">
-        No notifications yet.
-      </p>
+    <ng-container *ngIf="selectedFilter$ | async as selectedFilter">
+      <div class="notification-filter" role="group" aria-label="Filter notifications by type">
+        <button
+          *ngFor="let option of filterOptions"
+          type="button"
+          class="btn btn-sm notification-filter__button"
+          [class.notification-filter__button--active]="selectedFilter === option.value"
+          (click)="setFilter(option.value)">
+          {{ option.label }}
+        </button>
+      </div>
+    </ng-container>
+
+    <ng-container *ngIf="filteredNotifications$ | async as notifications">
+      <ng-container *ngIf="selectedFilter$ | async as selectedFilter">
+        <p *ngIf="notifications.length === 0" class="notification-drawer__empty mb-0">
+          {{ selectedFilter === 'all' ? 'No notifications yet.' : 'No notifications for the selected type.' }}
+        </p>
+      </ng-container>
 
       <ul *ngIf="notifications.length > 0" class="notification-list mb-0">
         <li *ngFor="let notification of notifications; trackBy: trackById" class="notification-list__item"
