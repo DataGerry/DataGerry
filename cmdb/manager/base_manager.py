@@ -328,7 +328,7 @@ class BaseManager:
             dict | None: The found document, or None if no document matches the criteria
         """
         try:
-            target_collection = collection or self.collection
+            target_collection: str = collection or self.collection
 
             return self.dbm.find_one_by(target_collection, self.db_name, criteria)
         except DocumentGetError as err:
@@ -435,14 +435,12 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
-    def count_documents(self, collection: str, *args: Any, **kwargs: Any) -> int:
+    def count_documents(self, criteria: dict[str, Any] | None = None) -> int:
         """
         Counts the number of documents in a collection based on the given filter
 
         Args:
-            collection (str): The name of the collection to count documents from
-            *args: Positional arguments for the 'count' operation
-            **kwargs: Keyword arguments for the 'count' operation (e.g., filter criteria)
+            criteria (dict[str, Any]): Filter for count
 
         Raises:
             BaseManagerGetError: If an error occurs during the 'count' operation
@@ -451,7 +449,7 @@ class BaseManager:
             int: The number of documents that match the given criteria
         """
         try:
-            return self.dbm.count(collection, self.db_name, *args, **kwargs)
+            return self.dbm.count(self.collection, self.db_name, criteria)
         except DocumentGetError as err:
             raise BaseManagerGetError(str(err)) from err
 
@@ -634,12 +632,12 @@ class BaseManager:
             raise BaseManagerDeleteError(str(err)) from err
 
 
-    def delete_many(self, filter_query: dict) -> DeleteResult:
+    def delete_many(self, filter_query: dict[str, Any]) -> DeleteResult:
         """
         Deletes multiple documents from the collection that match the given filter criteria
 
         Args:
-            filter_query (dict): A dictionary specifying the filter criteria for selecting documents to delete
+            filter_query (dict[str, Any]): Dictionary specifying the filter criteria for selecting documents to delete
 
         Raises:
             BaseManagerDeleteError: If the deletion operation fails
@@ -650,7 +648,7 @@ class BaseManager:
         try:
             return self.dbm.delete_many(collection=self.collection, db_name=self.db_name, **filter_query)
         except DocumentDeleteError as err:
-            raise BaseManagerDeleteError(err) from err
+            raise BaseManagerDeleteError(str(err)) from err
 
 
     def delete_many_raw(self, filter_query: dict) -> DeleteResult:

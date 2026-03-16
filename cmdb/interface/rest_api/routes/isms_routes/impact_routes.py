@@ -79,7 +79,7 @@ def insert_isms_impact(data: dict, request_user: CmdbUser) -> Response:
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
         # There is a Limit of 6 Impact classes
-        impact_count = impact_manager.count_items()
+        impact_count = impact_manager.count_documents()
 
         if impact_count >= 6:
             abort(403, "Only a maximum of 6 Impacts can be created!")

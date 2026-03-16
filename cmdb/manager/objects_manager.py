@@ -421,28 +421,6 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(str(err)) from err
 
 
-    def count_objects(self, criteria: dict[str, Any] | None = None) -> int:
-        """
-        Returns the number of objects with the given criteria
-
-        Args:
-            criteria (dict): Filter for counting documents like {'type_id: 1} 
-
-        Raises:
-            ObjectsManagerGetError: When an error occures during counting objects
-
-        Returns:
-            (int): Returns the number of CmdbObjects with the given criteria
-        """
-        try:
-            if criteria:
-                return self.count_documents(self.collection, criteria=criteria)
-
-            return self.count_documents(self.collection)
-        except BaseManagerGetError as err:
-            raise ObjectsManagerGetError(str(err)) from err
-
-
     def get_new_object_public_id(self) -> int:
         """
         Gets the next couter for the public_id from database and increases it

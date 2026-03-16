@@ -42,6 +42,7 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
@@ -74,7 +75,7 @@ def delete_one_cascade(
 
     # Sync config item count in CLOUD_MODE
     if current_app.cloud_mode:
-        objects_count: int = objects_manager.count_objects()
+        objects_count: int = objects_manager.count_documents()
         handle_sync_config_item_count(request_user, objects_count)
 
 
@@ -255,7 +256,7 @@ def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | l
     """TODO: document"""
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
 
-    object_groups_manager.remove_ids_from_static_groups(public_ids)
+    object_groups_manager.remove_ids_from_groups(public_ids, ObjectGroupMode.STATIC)
 
 
 def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int) -> None:

@@ -38,7 +38,7 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.errors.manager import BaseManagerIterationError, BaseManagerGetError, BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 logs_blueprint = APIBlueprint('logs', __name__)
 
@@ -54,13 +54,14 @@ def get_log(public_id: int, request_user: CmdbUser) -> Response:
 
     Args:
         public_id (int): public_id of the requested log
+
     Returns:
-        CmdbObjectLog: The log with the given public_id
+        dict[str, Any]: The log with the given public_id
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        requested_log: CmdbObjectLog = logs_manager.get_one(public_id)
+        requested_log: dict[str, Any] = logs_manager.get_one(public_id)
 
         if not requested_log:
             abort(404, f"The Log with ID:{public_id} was not found!")

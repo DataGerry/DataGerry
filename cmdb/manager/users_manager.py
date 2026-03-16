@@ -19,10 +19,13 @@ This module contains the implementation of the UsersManager
 from logging import Logger, getLogger
 from typing import Any
 
+from pymongo import UpdateOne
+
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
+from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.results import IterationResult
 
@@ -243,9 +246,58 @@ class UsersManager(BaseManager):
         """
         try:
             if public_id == 1:
-                raise UsersManagerDeleteError("You can't delete the admin user!")
+                raise UsersManagerDeleteError("It is not possible to delete the admin user!")
 
             return self.delete({'public_id': public_id})
         except Exception as err:
             LOGGER.error("[delete_user] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerDeleteError(err) from err
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def handle_users_on_group_delete(
+        self,
+        group_id: int,
+        action: GroupDeleteMode,
+        target_group_id: int | None
+    ) -> None:
+        """TODO: document"""
+        try:
+            users_in_group: list[CmdbUser] = self.get_many_users({'group_id': group_id})
+
+            if not users_in_group:
+                return
+
+            if action == GroupDeleteMode.MOVE:
+                if not target_group_id:
+                    raise UsersManagerUpdateError("Target group_id required when moving Users!")
+
+                operations: list[UpdateOne] = [
+                    UpdateOne(
+                        {"public_id": user.public_id},
+                        {"$set": {"group_id": int(target_group_id)}}
+                    )
+                    for user in users_in_group
+                ]
+
+                self.bulk_write(operations)
+            elif action == GroupDeleteMode.DELETE:
+                # Check if the admin user is part of this UserGroup
+                admin_user: dict[str, Any] | None = self.get_one_by({
+                    "group_id": group_id,
+                    "public_id": 1
+                })
+
+                if admin_user:
+                    raise UsersManagerDeleteError("This Group can not be deleted because the admin user is part of it")
+
+                self.delete_many({"group_id": group_id})
+        except UsersManagerDeleteError as err:
+            LOGGER.error("[delete_user_group]  UsersManagerDeleteError: %s", err)
+            raise UsersManagerDeleteError(str(err)) from err
+        except UsersManagerUpdateError as err:
+            LOGGER.error("[delete_user_group] UsersManagerUpdateError: %s", err)
+            raise UsersManagerDeleteError(str(err)) from err
+        except UsersManagerGetError as err:
+            LOGGER.error("[delete_user_group] UsersManagerGetError: %s", err)
+            raise UsersManagerGetError(str(err)) from err

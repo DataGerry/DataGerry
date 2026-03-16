@@ -70,10 +70,10 @@ def get_isms_config_status(request_user: CmdbUser) -> Response:
                                                                                      request_user)
         risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
-        risk_class_amount: int = risk_class_manager.count_items()
-        likelihood_amount: int = likelihood_manager.count_items()
-        impact_amount: int = impact_manager.count_items()
-        impact_category_amount: int = impact_category_manager.count_items()
+        risk_class_amount: int = risk_class_manager.count_documents()
+        likelihood_amount: int = likelihood_manager.count_documents()
+        impact_amount: int = impact_manager.count_documents()
+        impact_category_amount: int = impact_category_manager.count_documents()
 
         current_risk_matrix: dict[str, Any] | None = risk_matrix_manager.get_item(1, as_dict=True)
 

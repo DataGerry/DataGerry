@@ -189,7 +189,7 @@ def count_cmdb_reports_of_type(public_id: int, request_user: CmdbUser):
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
-        reports_count = reports_manager.count_items({'type_id':public_id})
+        reports_count = reports_manager.count_documents({'type_id':public_id})
 
         return DefaultResponse(reports_count).make_response()
     except ReportsManagerGetError as err:
