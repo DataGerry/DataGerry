@@ -87,14 +87,14 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        result_id = groups_manager.insert_group(data)
+        result_id: int = groups_manager.insert_group(data)
 
         created_group: CmdbUserGroup = groups_manager.get_group(result_id)
 
-        if created_group:
-            return InsertSingleResponse(CmdbUserGroup.to_json(created_group), result_id).make_response()
+        if not created_group:
+            abort(404, "Could not retrieve the created UserGroup from the database!")
 
-        abort(404, "Could not retrieve the created UserGroup from the database!")
+        return InsertSingleResponse(CmdbUserGroup.to_json(created_group), result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except GroupsManagerInsertError as err:
@@ -130,13 +130,15 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
         iteration_result: IterationResult[CmdbUserGroup] = groups_manager.iterate(builder_params)
-        groups = [CmdbUserGroup.to_json(group) for group in iteration_result.results]
+        groups: list[dict[str, Any]] = [CmdbUserGroup.to_json(group) for group in iteration_result.results]
 
-        api_response = GetMultiResponse(groups,
-                                        total=iteration_result.total,
-                                        params=params,
-                                        url=request.url,
-                                        body=request.method == 'HEAD')
+        api_response = GetMultiResponse(
+            groups,
+            total=iteration_result.total,
+            params=params,
+            url=request.url,
+            body=request.method == 'HEAD'
+        )
 
         return api_response.make_response()
     except GroupsManagerIterationError as err:
@@ -164,15 +166,15 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        requested_group = groups_manager.get_group(public_id)
+        requested_group: CmdbUserGroup | None = groups_manager.get_group(public_id)
 
-        if requested_group:
-            return GetSingleResponse(
-                CmdbUserGroup.to_json(requested_group),
-                body=request.method == 'HEAD'
-            ).make_response()
+        if not requested_group:
+            abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-        abort(404, f"The UserGroup with ID:{public_id} was not found!")
+        return GetSingleResponse(
+            CmdbUserGroup.to_json(requested_group),
+            body=request.method == 'HEAD'
+        ).make_response()
     except HTTPException as http_err:
         raise http_err
     except GroupsManagerGetError as err:
@@ -205,16 +207,16 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
         to_update_group: CmdbUserGroup = groups_manager.get_group(public_id)
 
-        if to_update_group:
-            group = CmdbUserGroup.from_data(data=data, rights=flat_rights_tree(ALL_RIGHTS))
-            group_dict = CmdbUserGroup.to_json(group)
-            group_dict['rights'] = [right.get('name') for right in group_dict.get('rights', [])]
+        if not to_update_group:
+            abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-            groups_manager.update_group(public_id, group_dict)
+        group: CmdbUserGroup = CmdbUserGroup.from_data(data=data, rights=flat_rights_tree(ALL_RIGHTS))
+        group_dict: dict[str, Any] = CmdbUserGroup.to_json(group)
+        group_dict['rights'] = [right.get('name') for right in group_dict.get('rights', [])]
 
-            return UpdateSingleResponse(group_dict).make_response()
+        groups_manager.update_group(public_id, group_dict)
 
-        abort(404, f"The UserGroup with ID:{public_id} was not found!")
+        return UpdateSingleResponse(group_dict).make_response()
     except HTTPException as http_err:
         raise http_err
     except GroupsManagerUpdateError as err:
@@ -249,50 +251,50 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
-        to_delete_group = groups_manager.get_group(public_id)
+        to_delete_group: CmdbUserGroup | None = groups_manager.get_group(public_id)
 
-        if to_delete_group:
-            # Check if action is set
-            #TODO: REFACTOR-FIX (give the user handling an own function)
-            if params.action:
-                users_in_group: list[CmdbUser] = users_manager.get_many_users({'group_id': public_id})
+        if not to_delete_group:
+            abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-                if len(users_in_group) > 0:
-                    if params.action == GroupDeleteMode.MOVE.value:
-                        if params.group_id:
-                            for user in users_in_group:
-                                user.group_id = int(params.group_id)
+        if GroupDeleteMode.MOVE and not params.group_id:
+            abort(404, "The target group for moving users was not provided!")
 
-                                try:
-                                    users_manager.update_user(user.public_id, user)
-                                except UsersManagerUpdateError as err:
-                                    LOGGER.error("[delete_cmdb_user_group]  %s", err)
-                                    abort(400, f"Could not move user: {user.public_id} to \
-                                                        group: {params.group_id}")
+        target_group: CmdbUserGroup | None = groups_manager.get_group(params.group_id)
 
-                    if params.action == GroupDeleteMode.DELETE.value:
-                        for user in users_in_group:
-                            try:
-                                users_manager.delete_user(user.public_id)
-                            except UsersManagerDeleteError as err:
-                                LOGGER.error("[delete_user_group]  %s", err)
-                                abort(400, f'Could not delete user with ID: {user.public_id} !')
+        if not target_group:
+            abort(404, f"The target UserGroup for moving users with ID:{params.group_id} was not found!")
 
-            groups_manager.delete_group(public_id)
+        if GroupDeleteMode.DELETE:
+            admin_user = users_manager.get_one_by({
+                "group_id": public_id,
+                "public_id": 1
+            })
 
-            return DeleteSingleResponse(raw=CmdbUserGroup.to_json(to_delete_group)).make_response()
+            if admin_user:
+                raise UsersManagerDeleteError("This Group can not be deleted because the admin user is part of it!")
 
-        abort(404, f"The UserGroup with ID:{public_id} was not found!")
+        if params.action is not None:
+            users_manager.handle_users_on_group_delete(public_id, params.action, params.group_id)
+
+        groups_manager.delete_group(public_id)
+
+        return DeleteSingleResponse(CmdbUserGroup.to_json(to_delete_group)).make_response()
     except HTTPException as http_err:
         raise http_err
+    except UsersManagerDeleteError as err:
+        LOGGER.error("[delete_user_group]  UsersManagerDeleteError: %s", err, exc_info=True)
+        abort(500, 'Failed to delete User from Group!')
+    except UsersManagerUpdateError as err:
+        LOGGER.error("[delete_cmdb_user_group] UsersManagerUpdateError: %s", err, exc_info=True)
+        abort(400, f"Failed to move User to Group with ID: {params.group_id}!")
     except UsersManagerGetError as err:
-        LOGGER.error("[delete_cmdb_user_group] %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_user_group] UsersManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve users which are in the UserGroup with ID: {public_id}!")
     except GroupsManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_user_group] %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_user_group] GroupsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the UserGroup with ID: {public_id}!")
     except GroupsManagerGetError as err:
-        LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
+        LOGGER.error("[update_cmdb_user_group] GroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)

@@ -52,7 +52,7 @@ class GroupDeletionParameters(APIParameters):
             group_id (int, optional): The public ID of another group to which users must be moved
             **kwargs: Additional optional parameters
         """
-        self.action = action
+        self.action: GroupDeleteMode | None = action
         self.group_id: int = group_id
         super().__init__(query_string = query_string, **kwargs)
 

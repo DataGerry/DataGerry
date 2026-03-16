@@ -140,7 +140,7 @@ class ObjectImporter(BaseImporter):
 
                     try:
                         if current_app.cloud_mode:
-                            objects_count = self.objects_manager.count_objects()
+                            objects_count = self.objects_manager.count_documents()
 
                             success = sync_config_items(self.request_user.email,
                                                         self.request_user.database,
@@ -175,7 +175,7 @@ class ObjectImporter(BaseImporter):
 
                         try:
                             if current_app.cloud_mode:
-                                objects_count = self.objects_manager.count_objects()
+                                objects_count = self.objects_manager.count_documents()
 
                                 success = sync_config_items(self.request_user.email,
                                                             self.request_user.database,
@@ -223,6 +223,6 @@ class ObjectImporter(BaseImporter):
         Returns:
             bool: True if the limit has been reached, else False
         """
-        objects_count: int = self.objects_manager.count_objects()
+        objects_count: int = self.objects_manager.count_documents()
 
         return objects_count >= request_user.config_items_limit

@@ -352,34 +352,34 @@ def is_extendable_option_used(extendable_option: dict[str, Any], request_user: C
                                                                             )
 
     if extendable_option.get('option_type') == OptionType.THREAT_VULNERABILITY:
-        return threat_manager.count_items({"source": extendable_option.get('public_id')}) > 0
+        return threat_manager.count_documents({"source": extendable_option.get('public_id')}) > 0
 
     if extendable_option.get('option_type') == OptionType.THREAT_VULNERABILITY:
-        return vulnerability_manager.count_items({"source": extendable_option.get('public_id')}) > 0
+        return vulnerability_manager.count_documents({"source": extendable_option.get('public_id')}) > 0
 
     if extendable_option.get('option_type') == OptionType.OBJECT_GROUP:
-        return object_groups_manager.count_items({"categories": extendable_option.get('public_id')}) > 0
+        return object_groups_manager.count_documents({"categories": extendable_option.get('public_id')}) > 0
 
     if extendable_option.get('option_type') == OptionType.CONTROL_MEASURE:
-        return control_measure_manager.count_items({"source": extendable_option.get('public_id')}) > 0
+        return control_measure_manager.count_documents({"source": extendable_option.get('public_id')}) > 0
 
     if extendable_option.get('option_type') == OptionType.IMPLEMENTATION_STATE:
-        control_measures_used = control_measure_manager.count_items(
+        control_measures_used = control_measure_manager.count_documents(
                                     {"implementation_state": extendable_option.get('public_id')}
                                 ) > 0
 
-        risk_assessment_used = risk_assessment_manager.count_items(
+        risk_assessment_used = risk_assessment_manager.count_documents(
                                         {"implementation_status": extendable_option.get('public_id')}
                                 ) > 0
 
-        c_m_assignment_used = c_m_assignment_manager.count_items(
+        c_m_assignment_used = c_m_assignment_manager.count_documents(
                                         {"implementation_status": extendable_option.get('public_id')}
                                 ) > 0
 
         return control_measures_used or risk_assessment_used or c_m_assignment_used
 
     if extendable_option.get('option_type') == OptionType.RISK:
-        return risk_manager.count_items({"category_id": extendable_option.get('public_id')}) > 0
+        return risk_manager.count_documents({"category_id": extendable_option.get('public_id')}) > 0
 
     # If option_type is not recognized
     return False

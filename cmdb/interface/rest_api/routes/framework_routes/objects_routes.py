@@ -126,7 +126,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         objects_count: int = 0
 
         if current_app.cloud_mode:
-            objects_count: int = objects_manager.count_objects()
+            objects_count: int = objects_manager.count_documents()
             if request_user.is_config_item_limit_reached(objects_count):
                 abort(400, "The maximum amout of ConfigItems is reached!")
 
@@ -331,9 +331,9 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         if fetch_only_active_objects():
-            count_of_objects: int = objects_manager.count_objects({"active": True})
+            count_of_objects: int = objects_manager.count_documents({"active": True})
         else:
-            count_of_objects = objects_manager.count_objects()
+            count_of_objects = objects_manager.count_documents()
 
         return DefaultResponse(count_of_objects).make_response()
     except ObjectsManagerGetError as err:
@@ -363,9 +363,9 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         if fetch_only_active_objects():
-            count_of_objects: int = objects_manager.count_objects({"active": True, "type_id": type_id})
+            count_of_objects: int = objects_manager.count_documents({"active": True, "type_id": type_id})
         else:
-            count_of_objects = objects_manager.count_objects({"type_id": type_id})
+            count_of_objects = objects_manager.count_documents({"type_id": type_id})
 
         return DefaultResponse(count_of_objects).make_response()
     except ObjectsManagerGetError as err:
@@ -1434,7 +1434,7 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
         # Sync config item count in CLOUD_MODE
         if current_app.cloud_mode:
-            objects_count: int = objects_manager.count_objects()
+            objects_count: int = objects_manager.count_documents()
             handle_sync_config_item_count(request_user, objects_count)
 
         return DefaultResponse({'successfully': ack}).make_response()

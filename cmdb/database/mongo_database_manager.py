@@ -523,7 +523,8 @@ class MongoDatabaseManager:
 
                 return (cur_count['counter'] + 1) if cur_count else 1
 
-            ids = self.reserve_public_ids(collection, db_name, 1)
+            ids: list[int] = self.reserve_public_ids(collection, db_name, 1)
+
             return ids[0]
 
         except Exception as err:
@@ -940,15 +941,13 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def count(self, collection: str, db_name: str, *args: Any, criteria: dict | None = None, **kwargs: Any) -> int:
+    def count(self, collection: str, db_name: str, criteria: dict | None = None) -> int:
         """
         Count documents based on criteria parameters
 
         Args:
             collection (str): Name of database collection
-            *args: Additional arguments for the count operation
             criteria (dict): Document count requirements (default is empty criteria)
-            **kwargs: Additional keyword arguments for the count operation
 
         Raises:
             DocumentGetError: When the count operation fails
@@ -960,7 +959,7 @@ class MongoDatabaseManager:
         criteria = criteria or {}
 
         try:
-            return self.get_collection(collection, db_name).count_documents(criteria, *args, **kwargs)
+            return self.get_collection(collection, db_name).count_documents(criteria)
         except Exception as err:
             raise DocumentGetError(
                 f"Failed to count documents in collection '{collection}': {err}"
@@ -1018,35 +1017,6 @@ class MongoDatabaseManager:
             raise DocumentGetError(
                 f"Failed to retrieve the highest public_id from collection '{collection}': {err}"
             ) from err
-
-
-    # @retry_operation
-    # def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
-    #     """
-    #     Retrieves the next public_id for the specified collection
-
-    #     Args:
-    #         collection (str): Name of the database collection
-
-    #     Raises:
-    #         DocumentGetError: If there was an error getting or updating the counter document
-
-    #     Returns:
-    #         int: The next available public_id for the collection
-    #     """
-    #     try:
-    #         cur_count = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
-    #         if cur_count:
-    #             new_id = cur_count['counter'] + 1
-    #         else:
-    #             docs_count: int = self.init_public_id_counter(collection, db_name)
-    #             new_id: int = docs_count + 1
-
-    #         self.update_public_id_counter(collection, db_name, increment=inc_id)
-
-    #         return new_id
-    #     except Exception as err:
-    #         raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

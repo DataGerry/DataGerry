@@ -42,6 +42,7 @@ from cmdb.errors.manager.groups_manager import (
 from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupToJsonError,
 )
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -55,7 +56,7 @@ class GroupsManager(BaseManager):
 
     Extends: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager = None, database :str = None):
+    def __init__(self, dbm: MongoDatabaseManager = None, database :str = None) -> None:
         """
         Set the database connection for the GroupsManager
 
@@ -67,7 +68,7 @@ class GroupsManager(BaseManager):
             GroupsManagerInitError: If the GroupsManager could not be initialised
         """
         try:
-            self.rights = flat_rights_tree(ALL_RIGHTS)
+            self.rights: list[BaseRight] = flat_rights_tree(ALL_RIGHTS)
 
             super().__init__(CmdbUserGroup.COLLECTION, dbm, database)
         except Exception as err:

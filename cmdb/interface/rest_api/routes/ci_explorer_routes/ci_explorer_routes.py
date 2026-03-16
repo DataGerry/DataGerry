@@ -220,7 +220,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
                     target_location = locations_manager.get_location(field_value)
                     a_field['value'] = target_location['name']
 
-
         ### Handling of object relations
         if types_filter:
             # Direction-aware filtering:

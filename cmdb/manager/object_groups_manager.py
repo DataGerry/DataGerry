@@ -61,6 +61,7 @@ class ObjectGroupsManager(GenericManager):
         return self.delete_item(public_id)
 
 
+    # TODO: transfer methods to risk assessment manager and control meassure assignment manager
     def delete_object_group_from_risk_assessment_cascade(self, deleted_group_id: int) -> None:
         """
         Deletes all RiskAssessments and their associated ControlMeasureAssignments that reference 
@@ -110,17 +111,19 @@ class ObjectGroupsManager(GenericManager):
             )
 
 
-    def remove_ids_from_static_groups(self, public_ids: int | list[int]) -> UpdateResult:
+    def remove_ids_from_groups(self, public_ids: int | list[int], group_type: ObjectGroupMode) -> UpdateResult:
         """
-        Removes a public_id or list of public_ids of CmdbObjects from the 'assigned_ids' of all static CmdbObjectGroups
+        Removes a public_id or list of public_ids of CmdbObjects from the 'assigned_ids' of all CmdbObjectGroups
+        of the provided group_type
 
         Args:
             public_ids (int | list[int]): public_id or public_ids of the target CmdbObjects
+            group_type (ObjectGroupMode): It is either STATIC or DYNAMIC
 
         Returns:
             UpdateResult: Result of the deletion
         """
-        criteria: dict[str, ObjectGroupMode] = {"group_type": ObjectGroupMode.STATIC}
+        criteria: dict[str, ObjectGroupMode] = {"group_type": group_type}
 
         if isinstance(public_ids, list):
             criteria["assigned_ids"] = {"$in": public_ids}

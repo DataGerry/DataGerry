@@ -19,7 +19,7 @@ Implementation of GroupDeleteMode
 from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class GroupDeleteMode(Enum):
+class GroupDeleteMode(str, Enum):
     """
     Represents the deletion mode for a group
 
@@ -28,6 +28,5 @@ class GroupDeleteMode(Enum):
         MOVE: The group's content is moved before deletion
         DELETE: The group is permanently deleted
     """
-    NONE = None
     MOVE = 'MOVE'
     DELETE = 'DELETE'

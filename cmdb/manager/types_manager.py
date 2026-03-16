@@ -217,22 +217,6 @@ class TypesManager(BaseManager):
         return {object_type.public_id: object_type for object_type in all_types}
 
 
-    def count_types(self) -> int:
-        """
-        Counts the total number of CmdbTypes in the collection
-
-        Raises:
-            TypesManagerGetError: If counting CmdbTypes failed
-
-        Returns:
-            int: The number of CmdbTypes
-        """
-        try:
-            return self.count_documents(self.collection)
-        except BaseManagerGetError as err:
-            raise TypesManagerGetError(str(err)) from err
-
-
     def get_all_types(self) -> list[CmdbType]:
         """
         Retrieves all CmdbTypes from the collection

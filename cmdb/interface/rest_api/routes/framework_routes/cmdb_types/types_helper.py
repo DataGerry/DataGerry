@@ -186,14 +186,14 @@ def verify_type_deletable(
     if not to_delete_type:
         abort(404, f"The Type with ID:{public_id} was not found!")
 
-    objects_count = objects_manager.count_objects({'type_id':public_id})
+    objects_count = objects_manager.count_documents({'type_id':public_id})
 
     # Only possible to delete types when there are no objects
     if objects_count > 0:
         abort(403, "Delete not possible if Objects of this Type exist!")
 
     # Only possible to delete types when there are no reports using it
-    reports_count = reports_manager.count_items({'type_id':public_id})
+    reports_count = reports_manager.count_documents({'type_id':public_id})
 
     if reports_count > 0:
         abort(403, "Delete not possible if Reports exist which are using this Type!")
