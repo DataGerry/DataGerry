@@ -36,7 +36,7 @@ openpyxl==3.1.5
 packaging==26.0
 Pillow==12.1.1
 pluggy==1.6.0
-pyasn1==0.6.2
+pyasn1==0.6.3
 pycodestyle==2.14.0
 pycparser==3.0
 pycryptodome==3.23.0
