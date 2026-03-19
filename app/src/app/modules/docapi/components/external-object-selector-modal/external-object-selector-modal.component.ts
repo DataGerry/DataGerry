@@ -169,7 +169,7 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
     }
 
     this.insertTemplate.emit(template);
-    this.activeModal.close();
+    this.activeModal.close(template);
   }
 
 

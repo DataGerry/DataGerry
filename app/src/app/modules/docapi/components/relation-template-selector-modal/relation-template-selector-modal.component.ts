@@ -228,7 +228,7 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
       return;
     }
     this.insertTemplate.emit(template);
-    this.activeModal.close();
+    this.activeModal.close(template);
   }
 
   public cancel(): void {
