@@ -255,7 +255,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        target_template = docapi_manager.get_template(public_id)
+        target_template: DocapiTemplate = docapi_manager.get_template(public_id)
 
         if not target_template:
             abort(404, f"Template with ID: {public_id} not found!")

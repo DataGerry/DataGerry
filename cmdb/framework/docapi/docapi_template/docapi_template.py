@@ -44,10 +44,14 @@ class DocapiTemplate(TemplateManagementBase):
         description: str = None,
         active: bool = True,
         author_id: int = None,
-        template_data = None,
-        template_style = None,
+        template_data: str = None,
+        template_style: str = None,
         template_type: DocapiTemplateType = None,
         template_parameters = None,
+        header: dict[str, Any] = None,
+        footer: dict[str, Any] = None,
+        table_of_contents: dict[str, Any] = None,
+        cover_page: dict[str, Any] = None,
         **kwargs
     ) -> None:
         """
@@ -66,11 +70,16 @@ class DocapiTemplate(TemplateManagementBase):
         self.label: str = label
         self.description: str = description
         self.active: bool = active
-        self.author_id = author_id
-        self.template_data = template_data
-        self.template_style = template_style
+        self.author_id: int = author_id
+        self.template_data: str = template_data
+        self.template_style: str = template_style
         self.template_type: DocapiTemplateType = template_type or DocapiTemplateType.OBJECT
         self.template_parameters = template_parameters
+        self.header: dict[str, Any] = header or {}
+        self.footer: dict[str, Any] = footer or {}
+        self.table_of_contents: dict[str, Any] = table_of_contents or {}
+        self.cover_page: dict[str, Any] = cover_page or {}
+
         super().__init__(**kwargs)
 
 
@@ -96,6 +105,10 @@ class DocapiTemplate(TemplateManagementBase):
             template_style = data.get('template_style', None),
             template_type = data.get('template_type', None),
             template_parameters = data.get('template_parameters', None),
+            header = data.get('header', {}),
+            footer = data.get('footer', {}),
+            table_of_contents = data.get('table_of_contents', {}),
+            cover_page = data.get('cover_page', {}),
         )
 
 
@@ -120,7 +133,11 @@ class DocapiTemplate(TemplateManagementBase):
             'template_data': instance.template_data,
             'template_style': instance.template_style,
             'template_type': instance.template_type,
-            'template_parameters': instance.template_parameters
+            'template_parameters': instance.template_parameters,
+            'header': instance.header,
+            'footer': instance.footer,
+            'table_of_contents': instance.table_of_contents,
+            'cover_page': instance.cover_page
         }
 
 
@@ -193,17 +210,17 @@ class DocapiTemplate(TemplateManagementBase):
         return self.author_id
 
 
-    def get_template_data(self):
+    def get_template_data(self) -> str:
         """
         Get the template data
         
         Returns:
-            Template data or None if not set
+            str: Template data or None if not set
         """
         return self.template_data
 
 
-    def get_template_style(self):
+    def get_template_style(self) -> str:
         """
         Get the style of this template
         
@@ -211,3 +228,43 @@ class DocapiTemplate(TemplateManagementBase):
             Template style if set else None
         """
         return self.template_style
+
+
+    def get_footer(self) -> dict[str, Any]:
+        """
+        Get the footer of the template
+        
+        Returns:
+            dict[str, Any]: The footer data of the template
+        """
+        return self.footer
+
+
+    def get_header(self) -> dict[str, Any]:
+        """
+        Get the header of the template
+        
+        Returns:
+            dict[str, Any]: The header data of the template
+        """
+        return self.header
+
+
+    def get_table_of_contents(self) -> dict[str, Any]:
+        """
+        Get the toc of the template
+        
+        Returns:
+            dict[str, Any]: The toc data of the template
+        """
+        return self.table_of_contents
+
+
+    def get_cover_page(self) -> dict[str, Any]:
+        """
+        Get the cover page data of the template
+        
+        Returns:
+            dict[str, Any]: The cover page data of the template
+        """
+        return self.cover_page
