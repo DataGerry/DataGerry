@@ -112,7 +112,6 @@ class TableOfContents:
         if not self.activated:
             return ""
 
-        # 👉 Decide source ONCE
         if not self.config:
             source_config = DEFAULT_TOC_CONFIG
         else:
