@@ -78,7 +78,7 @@ export class ReportTemplateSelectorModalComponent implements OnInit, OnDestroy {
     }
 
     this.insertTemplate.emit(this.previewTemplate);
-    this.activeModal.close();
+    this.activeModal.close(this.previewTemplate);
   }
 
   public cancel(): void {

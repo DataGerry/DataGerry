@@ -152,8 +152,8 @@
         No connections available
       </span>
     </div>
-    <button type="button" class="btn btn-secondary" (click)="close()">
-      Close
-    </button>
+    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+    (clicked)="close()">
+  </app-button>
   </div>
 </div>

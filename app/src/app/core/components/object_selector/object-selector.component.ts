@@ -57,7 +57,7 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
   private hasMoreData: boolean = true;
   private isSearching: boolean = false;
   private searchTerm: string = '';
-  private searchSubject = new Subject<string>();
+  public searchSubject = new Subject<string>();
   private isLoading: boolean = false;
 
   // Unique identifier for infinite scroll

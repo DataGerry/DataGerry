@@ -43,7 +43,6 @@ export class DocapiPreviewObjectModalComponent implements OnInit {
     }
 
     public ngOnInit(): void {
-        console.log('templateTypeId', this.templateTypeId);
         if (this.templateTypeId !== null && this.templateTypeId !== undefined) {
             this.typeIds = [this.templateTypeId];
         }

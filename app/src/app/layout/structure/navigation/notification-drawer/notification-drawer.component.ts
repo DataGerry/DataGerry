@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { trigger, state, style, transition, animate } from '@angular/animations';
 import { BehaviorSubject, Observable, combineLatest, map } from 'rxjs';
 import { Notification, NotificationType } from 'src/app/core/state/notification/notification.model';
@@ -50,19 +50,43 @@ export class NotificationDrawerComponent {
     );
   }
 
+
   public onClose(): void {
     this.close.emit();
   }
+
 
   public clearNotifications(): void {
     this.notificationService.clear();
   }
 
+
   public setFilter(filter: NotificationFilterType): void {
     this.selectedFilterSubject.next(filter);
   }
 
+
   public trackById(_index: number, notification: Notification): string {
     return notification.id;
+  }
+
+
+  @HostListener('document:click', ['$event'])
+  public onDocumentClick(event: MouseEvent): void {
+    if (!this.open) {
+      return;
+    }
+
+    const target = event.target as Element | null;
+    if (!target) {
+      return;
+    }
+
+    const clickedInsideDrawer = !!target.closest('.notification-drawer');
+    const clickedNotificationToggle = !!target.closest('.notification-toggle-btn');
+
+    if (!clickedInsideDrawer && !clickedNotificationToggle) {
+      this.onClose();
+    }
   }
 }
