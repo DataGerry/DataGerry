@@ -17,11 +17,16 @@
 Represents an ObjectDocumentGenerator in DataGerry
 """
 from logging import Logger, getLogger
+from typing import Any
 from io import BytesIO
+from datetime import datetime
 
 from cmdb.manager import ObjectsManager
 
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.framework.docapi.docapi_template.docgen_cover_page import CoverPage
+from cmdb.framework.docapi.docapi_template.docgen_toc import TableOfContents
+from cmdb.framework.docapi.docapi_template.docgen_header_footer import PageHeaderFooter
 from cmdb.models.docapi_model.template_engine import TemplateEngine
 from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
@@ -40,7 +45,7 @@ class ObjectDocumentGenerator:
     A generator for creating document files from templates
     """
     # Default CSS to ensure consistent document styling in TinyMCE and the final PDF
-    default_css = """
+    default_css: str = """
         img {
             zoom: 70%;
         }
@@ -103,33 +108,87 @@ class ObjectDocumentGenerator:
         Returns:
             BytesIO: A file-like object containing the generated PDF document
         """
-        template_str = self.template.get_template_data()
+        template_str: str = self.template.get_template_data()
 
         if self.template.template_type == "DEFAULT":
-            template_data = DefaultTemplateData(
+            template_data: dict[str, Any] = DefaultTemplateData(
                 self.cmdb_render_object,
                 template_str,
                 self.request_user,
                 self.template.template_type,
             ).get_template_data()
         else:
-            template_data = ObjectTemplateData(
+            template_data: dict[str, Any] = ObjectTemplateData(
                 self.cmdb_render_object,
                 self.objects_manager,
                 self.request_user,
                 self.template.template_type
             ).get_template_data()
 
-        rendered_template = TemplateEngine().render_template_string(self.template.get_template_data(), template_data)
+
+        author: str | None = None
+        author_data: dict[str, Any] = self.objects_manager.get_one_from_other_collection(
+            CmdbUser.COLLECTION,
+            self.template.get_author_id()
+        )
+
+        if author_data:
+            author_instance: CmdbUser = CmdbUser.from_data(author_data)
+            author = author_instance.get_display_name()
+
+        # Set additional Keys
+        template_data['author'] = author or "unknown"
+        template_data['template_label'] = self.template.get_label()
+        template_data['user_display_name'] = self.request_user.get_display_name()
+        template_data['current_time'] = datetime.now().strftime("%d.%m.%Y %H:%M")
+        template_data['new_page'] = "<pdf:nextpage />"
+        template_data['current_page_count'] = "<pdf:pagenumber />"
+        template_data['total_page_count'] = "<pdf:pagecount />"
+
+        cover_page: CoverPage = CoverPage(self.template.get_cover_page())
+        toc: TableOfContents = TableOfContents(self.template.get_table_of_contents())
+        page_header_footer: PageHeaderFooter = PageHeaderFooter(
+            self.template.get_header(),
+            self.template.get_footer(),
+            self.template.get_page_config()
+        )
+
+        final_css: str = (
+            self.default_css
+            + page_header_footer.get_css()
+            + cover_page.get_css()
+            + toc.get_css()
+        )
+
+        LOGGER.debug(f"[css]")
+        LOGGER.debug(f"{final_css}")
+
+        # Add the footer div as part of the template string
+        improved_template_str: str = (
+            cover_page.get_html()
+            + page_header_footer.get_html()
+            + toc.get_html()
+            + self.template.get_template_data()
+        )
+
+        rendered_template: str = TemplateEngine().render_template_string(
+            improved_template_str,
+            template_data
+        )
 
         # Construct the full HTML document
-        html = (
-            f"<html><head>"
+        html: str = (
+            f"<html>"
+            f"<head>"
             f'<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />'
             f'<meta charset="UTF-8" />'
             f'<title>{self.template.get_label()}</title>'
-            f'<style>{self.default_css}{self.template.get_template_style()}</style>'
-            f"</head><body>{rendered_template}</body></html>"
+            f'<style>{final_css}{self.template.get_template_style()}</style>'
+            f"</head>"
+            f"<body>"
+            f"{rendered_template}"
+            f"</body>"
+            f"</html>"
         )
 
         # Generate and return the final document

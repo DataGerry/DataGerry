@@ -271,27 +271,6 @@ class DefaultTemplateData:
                 if rel["relation_parent_id"] == start_object_id and rel["relation_child_id"] in matches:
                     scoped_relations.append(rel)
 
-        # LOGGER.debug("[_relation_traversal] MATCHES => %s", matches)
-
-        # LOGGER.debug(
-        #     "[_relation_traversal] matches=%s scoped=%s global=%s",
-        #     matches,
-        #     [(r["relation_parent_id"], r["relation_child_id"]) for r in scoped_relations],
-        #     [(r["relation_parent_id"], r["relation_child_id"]) for r in self.all_object_relations],
-        # )
-
-        # LOGGER.debug(
-        #     "[_relation_traversal] SCOPED RELATIONS => %s",
-        #     [
-        #         {
-        #             "parent": r["relation_parent_id"],
-        #             "child": r["relation_child_id"],
-        #             "fields": r.get("field_values")
-        #         }
-        #         for r in scoped_relations
-        #     ]
-        # )
-
         return RelationResult(
             matches,
             self.object_cache,
