@@ -45,6 +45,7 @@ import { GraphNavigationService } from './services/graph-navigation.service';
 import { GraphRootNodeService } from './services/graph-root-node.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.service';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 
 @Component({
   selector: 'app-graph-editor',
@@ -158,7 +159,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     private loaderService: LoaderService, private profileService: GraphProfileService, private modalService: NgbModal,
     private connectionTracker: ConnectionTrackerService, private exportService: CiExplorerExportService, private graphInteractionService: GraphInteractionService,
     private graphKeyboardService: GraphKeyboardService, private graphNavigationService: GraphNavigationService, private graphRootNodeService: GraphRootNodeService,
-    private toastService: ToastService
+    private toastService: ToastService, private fullscreenModalService: FullscreenModalService
   ) {
     this.filterForm = this.fb?.group({
       types: [[]],
@@ -1192,7 +1193,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * Open the node details modal with the given node.
     */
   private openNodeDetailsModal(node: GraphNode): void {
-    const modalRef = this.modalService.open(NodeDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, NodeDetailsModalComponent, {
       size: 'xl',
       backdrop: 'static',
       scrollable: true,
@@ -1318,7 +1319,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     toNode: GraphNode,
     conn: Connection
   ): void {
-    const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
@@ -1377,7 +1378,7 @@ modalRef.componentInstance.connections = [{
     toNode: any,   // GraphNode from nodeInstanceMap (passed from UI)  
     trackedConnections: any[]
   ): void {
-    const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
@@ -1441,7 +1442,7 @@ modalRef.componentInstance.connections = [{
     toNode: GraphNode,
     indexedConnections: CIEdge[]
   ): void {
-    const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
