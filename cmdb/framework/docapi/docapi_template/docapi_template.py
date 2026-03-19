@@ -52,6 +52,7 @@ class DocapiTemplate(TemplateManagementBase):
         footer: dict[str, Any] = None,
         table_of_contents: dict[str, Any] = None,
         cover_page: dict[str, Any] = None,
+        page_config: dict[str, Any] = None,
         **kwargs
     ) -> None:
         """
@@ -79,6 +80,7 @@ class DocapiTemplate(TemplateManagementBase):
         self.footer: dict[str, Any] = footer or {}
         self.table_of_contents: dict[str, Any] = table_of_contents or {}
         self.cover_page: dict[str, Any] = cover_page or {}
+        self.page_config: dict[str, Any] = page_config or {}
 
         super().__init__(**kwargs)
 
@@ -109,6 +111,7 @@ class DocapiTemplate(TemplateManagementBase):
             footer = data.get('footer', {}),
             table_of_contents = data.get('table_of_contents', {}),
             cover_page = data.get('cover_page', {}),
+            page_config = data.get('page_config', {}),
         )
 
 
@@ -137,7 +140,8 @@ class DocapiTemplate(TemplateManagementBase):
             'header': instance.header,
             'footer': instance.footer,
             'table_of_contents': instance.table_of_contents,
-            'cover_page': instance.cover_page
+            'cover_page': instance.cover_page,
+            'page_config': instance.page_config,
         }
 
 
@@ -266,5 +270,15 @@ class DocapiTemplate(TemplateManagementBase):
         
         Returns:
             dict[str, Any]: The cover page data of the template
+        """
+        return self.cover_page
+
+
+    def get_page_config(self) -> dict[str, Any]:
+        """
+        Get the page config data of the template
+        
+        Returns:
+            dict[str, Any]: The page config data of the template
         """
         return self.cover_page

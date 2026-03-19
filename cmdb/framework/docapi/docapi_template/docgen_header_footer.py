@@ -17,6 +17,7 @@
 Implementation of template header and footer component
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.framework.docapi.docapi_template.docgen_constants import PAGE_HEIGHT, PAGE_WIDTH
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -28,19 +29,26 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class PageHeaderFooter:
     """TODO: document"""
-    def __init__(self, header: dict = None, footer: dict = None) -> None:
+    def __init__(
+        self,
+        header: dict[str, Any] = None,
+        footer: dict[str, Any] = None,
+        page_config: dict[str, Any] = None
+    ) -> None:
         """TODO: document"""
-        self.header = header or {
-            "activated": True,
+        self.header: dict[str, Any] = header or {
+            "activated": False,
             "config": {},
             "content": ""
         }
-        self.footer = footer or {
-            "activated": True,
+
+        self.footer: dict[str, Any] = footer or {
+            "activated": False,
             "config": {},
             "content": ""
         }
-        self.page_config = {}
+
+        self.page_config: dict[str, Any] = page_config or {}
 
 
     def get_css(self) -> str:
@@ -69,25 +77,31 @@ class PageHeaderFooter:
         )
 
         # ---- Content calculation ----
-        spacing = 10
+        # spacing = 10
 
-        content_top = header_top + header_height + spacing
-        content_bottom = footer_bottom + footer_height + spacing
+        # content_top = header_top + header_height + spacing
+        # content_bottom = footer_bottom + footer_height + spacing
 
-        content_height = PAGE_HEIGHT - content_top - content_bottom
+        # content_height = PAGE_HEIGHT - content_top - content_bottom
 
-        content_left = margin
-        content_width = PAGE_WIDTH - (2 * margin)
+        # content_left = margin
+        # content_width = PAGE_WIDTH - (2 * margin)
+
+        content_top = 40
+        content_height = 790
+
+        content_left = 40
+        content_width = 512
 
         # ---- Build CSS ----
         page_css = [
             "@page {",
-            f"  size: A4;",
+            "  size: A4;",
             f"  margin: {margin}pt;",
         ]
 
         # ---- Header ----
-        if self.header.get("activated", True):
+        if self.header.get("activated", False):
             page_css.append(
                 f"  @frame header_frame {{ "
                 f"-pdf-frame-content: header_content; "
@@ -105,7 +119,7 @@ class PageHeaderFooter:
         )
 
         # ---- Footer ----
-        if self.footer.get("activated", True):
+        if self.footer.get("activated", False):
             footer_top = PAGE_HEIGHT - footer_bottom - footer_height
 
             page_css.append(
@@ -125,14 +139,14 @@ class PageHeaderFooter:
         """TODO: document"""
         html_parts = []
 
-        if self.header.get("activated", True):
+        if self.header.get("activated", False):
             html_parts.append(
                 "<div id='header_content'>"
                 f"{self.header.get('content', '')}"
                 "</div>"
             )
 
-        if self.footer.get("activated", True):
+        if self.footer.get("activated", False):
             html_parts.append(
                 "<div id='footer_content'>"
                 f"{self.footer.get('content', '')}"

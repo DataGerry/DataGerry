@@ -115,6 +115,9 @@ class CoverPage:
 
     def get_css(self) -> str:
         """TODO: document"""
+        if not self.activated:
+            return ""
+
         config: dict[str, Any] = self.config or DEFAULT_COVER_CONFIG
         css_blocks = []
 

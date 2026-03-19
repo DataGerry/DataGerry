@@ -25,6 +25,8 @@ from cmdb.manager import ObjectsManager
 
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.docapi.docapi_template.docgen_cover_page import CoverPage
+from cmdb.framework.docapi.docapi_template.docgen_toc import TableOfContents
+from cmdb.framework.docapi.docapi_template.docgen_header_footer import PageHeaderFooter
 from cmdb.models.docapi_model.template_engine import TemplateEngine
 from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
@@ -44,92 +46,6 @@ class ObjectDocumentGenerator:
     """
     # Default CSS to ensure consistent document styling in TinyMCE and the final PDF
     default_css: str = """
-        @page {
-            size: A4; /* width_max = 595pt, height_max = 842pt*/
-
-            /* general page margin */
-            margin: 40pt; 
-
-            @frame header_frame {
-                -pdf-frame-content: header_content;
-                left: 0pt;
-                width: 595pt; /* full A4 width */
-                top: 20pt;
-                height: 20pt;
-            }
-
-            @frame content_frame {
-                left: 40pt;
-                width: 512pt;
-                top: 40pt; /* below header */
-                height: 790pt; /* space for footer */
-            }
-
-            @frame footer_frame {
-                -pdf-frame-content: footer_content;
-                left: 40pt;
-                width: 512pt;
-                top: 810pt;
-                height: 25pt;
-            }
-        }
-
-        pdftoc {
-            font-size: 10pt;
-            line-height: 1.4;
-        }
-
-        /* Level 0 (h1) */
-        pdftoc.pdftoclevel0 {
-            font-weight: bold;
-            font-size: 12pt;
-            margin-top: 10px;
-            margin-bottom: 4px;
-            padding-bottom: 2px;
-        }
-
-        /* Level 1 (h2) */
-        pdftoc.pdftoclevel1 {
-            margin-left: 12px;
-            font-size: 10pt;
-            margin-top: 3px;
-        }
-
-        /* Level 2 (h3) */
-        pdftoc.pdftoclevel2 {
-            margin-left: 24px;
-            font-size: 9pt;
-            font-style: italic;
-            color: #444;
-        }
-
-        /* Level 3 (h4) */
-        pdftoc.pdftoclevel3 {
-            margin-left: 36px;
-            font-size: 9pt;
-            color: #555;
-        }
-
-        /* Level 4 (h5) */
-        pdftoc.pdftoclevel4 {
-            margin-left: 48px;
-            font-size: 8pt;
-            color: #666;
-        }
-
-        /* Level 5 (h6) */
-        pdftoc.pdftoclevel5 {
-            margin-left: 60px;
-            font-size: 8pt;
-            color: #777;
-            font-style: italic;
-        }
-
-        /* spacing between entries */
-        pdftoc + pdftoc {
-            margin-top: 2px;
-        }
-
         img {
             zoom: 70%;
         }
@@ -192,17 +108,17 @@ class ObjectDocumentGenerator:
         Returns:
             BytesIO: A file-like object containing the generated PDF document
         """
-        template_str = self.template.get_template_data()
+        template_str: str = self.template.get_template_data()
 
         if self.template.template_type == "DEFAULT":
-            template_data = DefaultTemplateData(
+            template_data: dict[str, Any] = DefaultTemplateData(
                 self.cmdb_render_object,
                 template_str,
                 self.request_user,
                 self.template.template_type,
             ).get_template_data()
         else:
-            template_data = ObjectTemplateData(
+            template_data: dict[str, Any] = ObjectTemplateData(
                 self.cmdb_render_object,
                 self.objects_manager,
                 self.request_user,
@@ -229,17 +145,29 @@ class ObjectDocumentGenerator:
         template_data['current_page_count'] = "<pdf:pagenumber />"
         template_data['total_page_count'] = "<pdf:pagecount />"
 
-        cover_page = CoverPage(self.template.cover_page)
-
+        cover_page: CoverPage = CoverPage(self.template.get_cover_page())
+        toc: TableOfContents = TableOfContents(self.template.get_table_of_contents())
+        page_header_footer: PageHeaderFooter = PageHeaderFooter(
+            self.template.get_header(),
+            self.template.get_footer(),
+            self.template.get_page_config()
+        )
 
         final_css: str = (
             self.default_css
+            + page_header_footer.get_css()
             + cover_page.get_css()
+            + toc.get_css()
         )
 
+        LOGGER.debug(f"[css]")
+        LOGGER.debug(f"{final_css}")
+
         # Add the footer div as part of the template string
-        improved_template_str = (
+        improved_template_str: str = (
             cover_page.get_html()
+            + page_header_footer.get_html()
+            + toc.get_html()
             + self.template.get_template_data()
         )
 
