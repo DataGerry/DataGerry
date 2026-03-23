@@ -160,10 +160,10 @@ class ObjectDocumentGenerator:
             + toc.get_css()
         )
 
-        LOGGER.debug(f"[css]")
-        LOGGER.debug(f"{final_css}")
+        # LOGGER.debug(f"[css]")
+        # LOGGER.debug(f"{final_css}")
 
-        # Add the footer div as part of the template string
+        # Add cover page, header, footer and toc to html if they are activated
         improved_template_str: str = (
             cover_page.get_html()
             + page_header_footer.get_html()
