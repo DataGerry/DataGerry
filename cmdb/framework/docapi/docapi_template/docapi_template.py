@@ -281,4 +281,4 @@ class DocapiTemplate(TemplateManagementBase):
         Returns:
             dict[str, Any]: The page config data of the template
         """
-        return self.cover_page
+        return self.page_config

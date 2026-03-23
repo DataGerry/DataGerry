@@ -23,70 +23,6 @@ from typing import Any
 
 LOGGER: Logger = getLogger(__name__)
 
-ALLOWED_COVER_STYLES: dict[str, list[str]] = {
-    "container": [
-        "text-align",
-        "margin-top",
-        "margin-bottom",
-        "margin-left",
-        "margin-right",
-    ],
-    "h1": [
-        "font-size",
-        "font-weight",
-        "color",
-        "margin-bottom",
-        "text-align",
-    ],
-    "h2": [
-        "font-size",
-        "font-weight",
-        "color",
-        "margin-bottom",
-        "text-align",
-    ],
-    "h3": [
-        "font-size",
-        "font-weight",
-        "color",
-        "margin-bottom",
-        "text-align",
-    ],
-    "p": [
-        "font-size",
-        "color",
-        "margin-top",
-        "margin-bottom",
-        "text-align",
-    ],
-    "img": [
-        "width",
-        "height",
-        "margin-top",
-        "margin-bottom",
-        "margin-left",
-        "margin-right",
-        "text-align",
-    ]
-}
-
-DEFAULT_COVER_CONFIG: dict[str, dict[str, str]] = {
-    "container": {
-        "text-align": "center",
-        "margin-top": "250pt",
-    },
-    "h1": {
-        "font-size": "24pt",
-        "margin-bottom": "20pt",
-        "font-weight": "bold",
-    },
-    "p": {
-        "font-size": "12pt",
-        "margin-top": "5pt",
-        "margin-bottom": "5pt",
-    },
-}
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CoverPage - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -118,29 +54,4 @@ class CoverPage:
         if not self.activated:
             return ""
 
-        config: dict[str, Any] = self.config or DEFAULT_COVER_CONFIG
-        css_blocks = []
-
-        mapping: dict[str, str] = {
-            "container": ".cover-page",
-            "h1": ".cover-page h1",
-            "h2": ".cover-page h2",
-            "h3": ".cover-page h3",
-            "p": ".cover-page p",
-            "img": ".cover-page img",
-        }
-
-        for key, allowed_props in ALLOWED_COVER_STYLES.items():
-            props = config.get(key, {})
-            filtered = {k: v for k, v in props.items() if k in allowed_props}
-            if not filtered:
-                continue
-
-            selector: str = mapping[key]
-            css = f"{selector} {{\n"
-            for prop, val in filtered.items():
-                css += f"    {prop}: {val};\n"
-            css += "}"
-            css_blocks.append(css)
-
-        return "\n\n".join(css_blocks)
+        return ""

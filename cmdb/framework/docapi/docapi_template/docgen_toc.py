@@ -19,6 +19,7 @@ Implementation of template Table of Contents component
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.framework.docapi.docapi_template.docgen_helpers import format_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -50,45 +51,45 @@ DEFAULT_TOC_CONFIG: dict[str, dict[str, str]] = {
     "level0": {
         "font-weight": "bold",
         "font-size": "12pt",
-        "margin-top": "10px",
-        "margin-bottom": "4px",
-        "padding-bottom": "2px",
+        "margin-top": "10pt",
+        "margin-bottom": "4pt",
+        "padding-bottom": "2pt",
     },
 
     "level1": {
-        "margin-left": "12px",
+        "margin-left": "12pt",
         "font-size": "10pt",
-        "margin-top": "3px",
+        "margin-top": "3pt",
     },
 
     "level2": {
-        "margin-left": "24px",
+        "margin-left": "24pt",
         "font-size": "9pt",
         "font-style": "italic",
         "color": "#444",
     },
 
     "level3": {
-        "margin-left": "36px",
+        "margin-left": "36pt",
         "font-size": "9pt",
         "color": "#555",
     },
 
     "level4": {
-        "margin-left": "48px",
+        "margin-left": "48pt",
         "font-size": "8pt",
         "color": "#666",
     },
 
     "level5": {
-        "margin-left": "60px",
+        "margin-left": "60pt",
         "font-size": "8pt",
         "color": "#777",
         "font-style": "italic",
     },
 
     "spacing": {
-        "margin-top": "2px"
+        "margin-top": "2pt"
     }
 }
 
@@ -100,7 +101,9 @@ class TableOfContents:
     TODO: document
     """
     def __init__(self, data: dict[str, Any] | None) -> None:
-        """TODO: document"""
+        """
+        TODO: document
+        """
         data = data or {}
 
         self.activated: bool = data.get("activated", False)
@@ -143,9 +146,9 @@ class TableOfContents:
             else:
                 continue
 
-            css = f"{selector} {{\n"
+            css: str = f"{selector} {{\n"
             for prop, val in filtered_props.items():
-                css += f"    {prop}: {val};\n"
+                css += f"    {prop}: {format_value(prop, val)};\n"
             css += "}"
 
             css_blocks.append(css)

@@ -14,18 +14,28 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All constants for Document Generator
+All general helper methods for Document Generator
 """
-PAGE_HEIGHT = 842 # A4 maximum page height in pt
+from typing import Any
+# -------------------------------------------------------------------------------------------------------------------- #
 
-PAGE_WIDTH = 595 # A4 maximum page width in pt
+def mm_to_pt(value: float, default: float) -> int:
+    """Convert mm to pt (rounded)"""
+    try:
+        if not value:
+            return default
 
-MIN_MARGIN = 40 # Minimal margin for an A4 page in pt
+        return int(float(value) * 2.83465)
+    except (TypeError, ValueError):
+        return default
 
-DEFAULT_HEADER_TOP = 20 # Header spacing from top in pt
 
-DEFAULT_HEADER_HEIGHT = 20 # Default header height in pt
+def format_value(prop: str, value: Any) -> str:
+    """TODO: document"""
+    if prop == "line-height":
+        return str(value)  # unitless
 
-DEFAULT_FOOTER_BOTTOM = 20 # Footer spacing from bottom in pt
+    if isinstance(value, (int, float)):
+        return f"{value}pt"
 
-DEFAULT_FOOTER_HEIGHT = 20 # Default footer height in pt
+    return str(value)
