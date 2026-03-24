@@ -169,16 +169,20 @@ class RelationsManager(BaseManager):
 
 
     def remove_type_from_relations(self, type_id: int) -> None:
-        """Removes a type_id from all relation parent/child lists."""
-
-        criteria = {
+        """
+        Removes a type_id from all relation parent/child lists
+        
+        Args:
+            type_id (int): public_id of the CmdbType which should be removed from all relations
+        """
+        criteria: dict[str, list[dict[str, int]]] = {
             '$or': [
                 {'parent_type_ids': type_id},
                 {'child_type_ids': type_id}
             ]
         }
 
-        update = {
+        update: dict[str, dict[str, int]] = {
             '$pull': {
                 'parent_type_ids': type_id,
                 'child_type_ids': type_id

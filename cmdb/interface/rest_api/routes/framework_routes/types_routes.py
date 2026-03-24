@@ -26,18 +26,11 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import (
-    TypesManager,
-    ObjectsManager,
-    RelationsManager,
-    UsersManager,
-    ObjectGroupsManager,
-)
+from cmdb.manager import TypesManager, ObjectsManager, UsersManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -49,6 +42,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_changes_to_locations,
     apply_type_changes_to_mds,
     verify_type_deletable,
+    type_deletion_followup,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
@@ -404,8 +398,6 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
-        object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
 
         to_delete_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
@@ -415,12 +407,8 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         # Delete the CmdbType
         types_manager.delete_type(public_id)
 
-        # Delete this type_id from all relations parent and child ids
-        relations_manager.remove_type_from_relations(public_id)
-
-        # Delete the type from all dynamic groups
-        object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)
-
+        # All the followup actions where the public_id need to be removed
+        type_deletion_followup(request_user, public_id)
         return DeleteSingleResponse(to_delete_type).make_response()
     except HTTPException as http_err:
         raise http_err

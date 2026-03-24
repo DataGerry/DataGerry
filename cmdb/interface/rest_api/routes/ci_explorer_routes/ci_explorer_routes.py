@@ -634,7 +634,6 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict, request_user: Cm
         if not to_update_explorer_profile:
             abort(404, f"The CiExplorer Profile with ID:{public_id} was not found!")
 
-
         ci_explorer_profile_manager.update_item(public_id, CmdbCiExplorerProfile.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
