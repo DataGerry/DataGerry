@@ -23,8 +23,17 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import TypesManager, LocationsManager, ObjectsManager, ReportsManager
+from cmdb.manager import (
+    TypesManager,
+    LocationsManager,
+    ObjectsManager,
+    ReportsManager,
+    RelationsManager,
+    CiExplorerProfileManager,
+    ObjectGroupsManager,
+)
 
+from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
@@ -197,3 +206,21 @@ def verify_type_deletable(
 
     if reports_count > 0:
         abort(403, "Delete not possible if Reports exist which are using this Type!")
+
+
+def type_deletion_followup(request_user: CmdbUser, public_id: int) -> None:
+    """TODO: document"""
+    relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
+    object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
+    ci_explorer_profile_manager: CiExplorerProfileManager = ManagerProvider.get_manager(
+        ManagerType.CI_EXPLORER_PROFILE,
+        request_user
+    )
+    # Delete this type_id from all relations parent and child ids
+    relations_manager.remove_type_from_relations(public_id)
+
+    # Delete this type_id from all CiExplorerProfiles
+    ci_explorer_profile_manager.remove_type_from_profiles(public_id)
+
+    # Delete the type from all dynamic groups
+    object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)

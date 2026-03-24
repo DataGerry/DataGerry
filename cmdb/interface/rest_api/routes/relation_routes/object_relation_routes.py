@@ -44,6 +44,7 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
     UpdateSingleResponse,
     DeleteSingleResponse,
+    DefaultResponse,
 )
 
 from cmdb.errors.manager.object_relations_manager import (
@@ -348,22 +349,22 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Respo
 
         to_delete_object_relation = object_relations_manager.get_object_relation(public_id)
 
-        if to_delete_object_relation:
-            object_relations_manager.delete_object_relation(public_id)
+        if not to_delete_object_relation:
+            abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
 
-            try:
-                object_relation_logs_manager.build_object_relation_log(
-                                                LogInteraction.DELETE,
-                                                request_user,
-                                                to_delete_object_relation,
-                                                None
-                                            )
-            except (ObjectRelationLogsManagerBuildError, ObjectRelationLogsManagerInsertError) as error:
-                LOGGER.error("[insert_cmdb_object_relation] Failed to create an ObjectRelationLog: %s",error,
-                                                                                                       exc_info=True)
+        object_relations_manager.delete_object_relation(public_id)
 
-            return DeleteSingleResponse(to_delete_object_relation).make_response()
-        abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
+        try:
+            object_relation_logs_manager.build_object_relation_log(
+                                            LogInteraction.DELETE,
+                                            request_user,
+                                            to_delete_object_relation,
+                                            None
+                                        )
+        except Exception as error:
+            LOGGER.error("[delete_cmdb_object_relation] Failed to create ObjectRelationLog: %s",error, exc_info=True)
+
+        return DeleteSingleResponse(to_delete_object_relation).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectRelationsManagerDeleteError as err:
@@ -375,3 +376,95 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Respo
     except Exception as err:
         LOGGER.error("[delete_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the ObjectRelation with ID:{public_id}!")
+
+
+@object_relations_blueprint.route('/delete/many', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.delete')
+def delete_many_object_relations(data: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route to delete multiple CmdbObjectRelations
+
+    Args:
+        request_user (CmdbUser): CmdbUser which is using this route
+
+    Returns:
+        DeleteSingleResponse: The deleted CmdbObjectRelation data
+    """
+    try:
+        target_ids: list[Any] | None = data.get('target_ids')
+
+        if not target_ids:
+            abort(400, "No public_ids provided of ObjectRelations which should be deleted!")
+
+        # Normalize the provided IDs
+        normalized_ids: list[int] = []
+
+        for tid in target_ids:
+            if isinstance(tid, int):
+                normalized_ids.append(tid)
+            elif isinstance(tid, str) and tid.isdigit():
+                normalized_ids.append(int(tid))
+            else:
+                abort(400, f"Invalid public_id for ObjectRelation deletion: {tid}")
+
+        object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_RELATIONS,
+            request_user
+        )
+        object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_RELATION_LOGS,
+            request_user
+        )
+
+        # Retrieve all ObjectRelations which should be deleted
+        to_delete_object_relations: list[dict[str, Any]] = object_relations_manager.find(
+            criteria={'public_id': {"$in": normalized_ids}}
+        )
+
+        if not to_delete_object_relations:
+            abort(400, "No ObjectRelations exist with these IDs!")
+
+        # Delete all ObjectRelations with the provided target_ids
+        object_relations_manager.delete_many({'public_id': {"$in": normalized_ids}})
+
+        try:
+            # Prepare all the deletetion logs and create them
+            logs_to_create: list[dict[str, Any]] = []
+
+            for object_relation in to_delete_object_relations:
+                log_entry: dict[str, Any] = object_relation_logs_manager.format_object_relation_log_data(
+                    LogInteraction.DELETE,
+                    request_user,
+                    object_relation,
+                    None,
+                )
+
+                logs_to_create.append(log_entry)
+
+            if logs_to_create:
+                reserved_log_ids: list[int] = object_relation_logs_manager.reserve_public_ids(len(logs_to_create))
+
+                for log_doc, new_id in zip(logs_to_create, reserved_log_ids):
+                    log_doc["public_id"] = new_id
+
+                # Create all Logs
+                object_relation_logs_manager.insert_many(logs_to_create, skip_public=True)
+        except Exception as error:
+            LOGGER.error(
+                "[delete_many_object_relations] Failed to create deletion Logs: %s",error, exc_info=True
+            )
+
+        return DefaultResponse(True).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectRelationsManagerDeleteError as err:
+        LOGGER.error("[delete_many_object_relations] %s", err, exc_info=True)
+        abort(500, "Failed to delete the ObjectRelations!")
+    except ObjectRelationsManagerGetError as err:
+        LOGGER.error("[delete_many_object_relations] %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the ObjectRelations from the database!")
+    except Exception as err:
+        LOGGER.error("[delete_many_object_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while deleting the ObjectRelations!")
