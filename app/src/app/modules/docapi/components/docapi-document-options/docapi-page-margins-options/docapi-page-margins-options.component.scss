@@ -1,21 +1,8 @@
-:host {
-  display: block;
-}
-
-.modal-body {
-  padding: 1.25rem 1.5rem;
-}
-
 .margin-layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 1.5rem;
   align-items: start;
-}
-
-.modal-header {
-  background-color: #e95f33;
-  color: #ffffff;
 }
 
 .preview-pane {
@@ -90,12 +77,6 @@
 
 .controls-pane .form-label {
   margin-bottom: 0.35rem;
-}
-
-.validation-error {
-  margin-top: 1rem;
-  color: #c92a2a;
-  font-size: 0.9rem;
 }
 
 @media (max-width: 991.98px) {

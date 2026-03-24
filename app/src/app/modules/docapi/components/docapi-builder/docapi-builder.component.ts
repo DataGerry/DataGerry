@@ -34,6 +34,7 @@ import { firstValueFrom, startWith, Subscription } from 'rxjs';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 import { DocapiPreviewObjectModalComponent } from '../docapi-preview-object-modal/docapi-preview-object-modal.component';
 import { PageMargins, upsertPageMarginsStyleBlock } from '../../utils/page-margins.util';
+import { normalizeCoverPage } from '../../utils/cover-page.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -198,6 +199,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.docInstance.template_type = typeForm?.get('template_type')?.value;
         this.docInstance.template_parameters = typeParamComponent?.typeParamForm?.value;
         this.docInstance.template_data = contentForm?.get('template_data')?.value;
+        this.docInstance.cover_page = normalizeCoverPage(contentForm?.get('cover_page')?.value);
         this.docInstance.template_style = styleForm?.get('template_style')?.value;
     }
 
@@ -256,8 +258,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         }
 
         const contentControl = this.contentStep?.contentForm?.get('template_data');
+        const coverContentControl = this.contentStep?.contentForm?.get('cover_page.content');
         const contentValue = contentControl?.value ?? this.docInstance?.template_data;
-        const hasContent = this.hasMeaningfulContent(contentValue);
+        const coverContentValue = coverContentControl?.value ?? this.docInstance?.cover_page?.content;
+        const hasContent = this.hasMeaningfulContent(contentValue) || this.hasMeaningfulContent(coverContentValue);
         if (!hasContent) {
             this.previousTypeState = currentState;
             return;
@@ -279,7 +283,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         modalRef.componentInstance.title = 'Confirm change';
         modalRef.componentInstance.message =
-            'Changing the template or object type will clear the current document content. Do you want to continue?';
+            'Changing the template or object type will clear the current document and cover content. Do you want to continue?';
         modalRef.componentInstance.confirmLabel = 'Yes, clear content';
         modalRef.componentInstance.cancelLabel = 'Cancel';
         modalRef.componentInstance.warningTitle = 'Warning:';
@@ -289,6 +293,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
             .then((result: string) => {
                 if (result === 'confirmed') {
                     this.contentStep?.contentForm?.get('template_data')?.setValue('');
+                    this.contentStep?.contentForm?.get('cover_page.content')?.setValue('');
                     this.previousTypeState = nextState;
                 } else {
                     this.revertTypeChange();
@@ -457,7 +462,6 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         return null;
     }
-
 
     /**
      * Handles the creation of a new document by making an API call.

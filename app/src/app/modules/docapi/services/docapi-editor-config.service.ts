@@ -28,9 +28,9 @@ interface DocapiEditorConfigContext {
     onPreviewRequested: () => void;
     onPageMarginsRequested: () => void;
     onAiAssistantRequested?: (editor: any) => void;
-    onExternalObjectsRequested: (editor: any) => void;
-    onRelationTemplateRequested: (editor: any) => void;
-    onReportTemplateRequested: (editor: any) => void;
+    onExternalObjectsRequested?: (editor: any) => void;
+    onRelationTemplateRequested?: (editor: any) => void;
+    onReportTemplateRequested?: (editor: any) => void;
 }
 
 @Injectable({
@@ -125,8 +125,8 @@ export class DocapiEditorConfigService {
         });
 
         editor?.ui?.registry?.addButton('pagemargins', {
-            text: 'Page Options',
-            tooltip: 'Set page margins for all pages',
+            text: 'Document Options',
+            tooltip: 'Configure document-level options',
             onAction: () => context.onPageMarginsRequested()
         });
 
@@ -151,20 +151,23 @@ export class DocapiEditorConfigService {
         ];
 
         if (context.getTemplateType() === 'DEFAULT') {
-            items.push(
-                {
+            if (context.onExternalObjectsRequested) {
+                items.push({
                     type: 'menuitem',
                     text: 'External objects',
                     icon: 'link',
                     onAction: () => context.onExternalObjectsRequested(editor)
-                },
-                {
+                });
+            }
+
+            if (context.onReportTemplateRequested) {
+                items.push({
                     type: 'menuitem',
                     text: 'Report',
                     icon: 'table',
                     onAction: () => context.onReportTemplateRequested(editor)
-                }
-            );
+                });
+            }
         }
 
         return items;
@@ -228,7 +231,7 @@ export class DocapiEditorConfigService {
             });
         }
 
-        if (isRoot && context.getTemplateType() === 'DEFAULT') {
+        if (isRoot && context.getTemplateType() === 'DEFAULT' && context.onRelationTemplateRequested) {
             items.push({
                 type: 'menuitem',
                 text: 'Relations',

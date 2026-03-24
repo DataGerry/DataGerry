@@ -45,8 +45,10 @@ import { ReportTemplateSelectorModalComponent } from './components/report-templa
 import { CoreModule } from 'src/app/core/core.module';
 import { RunReportModule } from 'src/app/toolbox/reporting/report/run-report.module';
 import { DocapiPreviewObjectModalComponent } from './components/docapi-preview-object-modal/docapi-preview-object-modal.component';
-import { DocapiPageMarginsModalComponent } from './components/docapi-page-margins-modal/docapi-page-margins-modal.component';
+import { DocapiDocumentOptionsModalComponent } from './components/docapi-document-options/docapi-document-options-modal/docapi-document-options-modal.component';
 import { DocapiAiAssistantModalComponent } from './components/docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
+import { DocapiPageCoverOptionsComponent } from './components/docapi-document-options/docapi-page-cover-options/docapi-page-cover-options.component';
+import { DocapiPageMarginsOptionsComponent } from './components/docapi-document-options/docapi-page-margins-options/docapi-page-margins-options.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [
@@ -64,8 +66,10 @@ import { DocapiAiAssistantModalComponent } from './components/docapi-ai-assistan
         RelationTemplateSelectorModalComponent,
         ReportTemplateSelectorModalComponent,
         DocapiPreviewObjectModalComponent,
-        DocapiPageMarginsModalComponent,
-        DocapiAiAssistantModalComponent
+        DocapiDocumentOptionsModalComponent,
+        DocapiAiAssistantModalComponent,
+        DocapiPageCoverOptionsComponent,
+        DocapiPageMarginsOptionsComponent
     ],
     imports: [
         CommonModule,

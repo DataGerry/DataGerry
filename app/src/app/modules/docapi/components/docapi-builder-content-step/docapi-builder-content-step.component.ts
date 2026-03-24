@@ -25,10 +25,14 @@ import { ExternalObjectSelectorModalComponent } from '../external-object-selecto
 import { RelationTemplateSelectorModalComponent } from '../relation-template-selector-modal/relation-template-selector-modal.component';
 import { ReportTemplateSelectorModalComponent } from '../report-template-selector-modal/report-template-selector-modal.component';
 import { DEFAULT_PAGE_MARGINS, PageMargins, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
-import { DocapiPageMarginsModalComponent } from '../docapi-page-margins-modal/docapi-page-margins-modal.component';
+import {
+    DocapiDocumentOptionsModalComponent,
+    DocumentOptionsModalResult
+} from '../docapi-document-options/docapi-document-options-modal/docapi-document-options-modal.component';
 import { DocapiAiAssistantModalComponent } from '../docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 import { DocapiEditorConfigService } from '../../services/docapi-editor-config.service';
 import { environment } from '../../../../../environments/environment';
+import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -43,7 +47,10 @@ export class DocapiBuilderContentStepComponent {
     @Input()
     set preData(data: any) {
         if (data !== undefined) {
-            this.contentForm?.patchValue(data);
+            this.contentForm?.patchValue({
+                template_data: data?.template_data ?? '',
+                cover_page: normalizeCoverPage(data?.cover_page)
+            });
             this.pageMargins = parsePageMarginsFromStyle(data?.template_style, this.defaultPageMargins);
         }
     }
@@ -84,7 +91,12 @@ export class DocapiBuilderContentStepComponent {
         private editorConfigService: DocapiEditorConfigService
     ) {
         this.contentForm = new UntypedFormGroup({
-            template_data: new UntypedFormControl('', [Validators.required, Validators.max(15 * 1024 * 1024)])
+            template_data: new UntypedFormControl('', [Validators.required, Validators.max(15 * 1024 * 1024)]),
+            cover_page: new UntypedFormGroup({
+                activated: new UntypedFormControl(DEFAULT_COVER_PAGE.activated),
+                content: new UntypedFormControl(DEFAULT_COVER_PAGE.content, [Validators.max(15 * 1024 * 1024)]),
+                config: new UntypedFormControl(DEFAULT_COVER_PAGE.config)
+            })
         });
 
         this.editorConfig = this.editorConfigService.createConfig({
@@ -154,21 +166,26 @@ export class DocapiBuilderContentStepComponent {
     }
 
     private openPageMarginsDialog(): void {
-        const modalRef = this.modalService.open(DocapiPageMarginsModalComponent, {
+        const modalRef = this.modalService.open(DocapiDocumentOptionsModalComponent, {
             size: 'lg',
             backdrop: 'static'
         });
 
         modalRef.componentInstance.initialMargins = { ...this.pageMargins };
+        modalRef.componentInstance.initialCoverPage = normalizeCoverPage(this.contentForm?.get('cover_page')?.value);
+        modalRef.componentInstance.templateType = this.templateType;
+        modalRef.componentInstance.templateTypeId = this.templateTypeId;
+        modalRef.componentInstance.templateHelperData = this.templateHelperData;
 
         modalRef.result
-            .then((margins: PageMargins) => {
-                if (!margins) {
+            .then((result: DocumentOptionsModalResult) => {
+                if (!result) {
                     return;
                 }
 
-                this.pageMargins = margins;
-                this.pageMarginsChanged.emit(margins);
+                this.pageMargins = result.margins;
+                this.pageMarginsChanged.emit(result.margins);
+                this.contentForm?.get('cover_page')?.patchValue(normalizeCoverPage(result.coverPage));
             })
             .catch(() => undefined);
     }
