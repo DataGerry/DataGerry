@@ -1,0 +1,42 @@
+<div class="margin-layout" *ngIf="marginsForm" [formGroup]="marginsForm">
+    <section class="preview-pane" aria-label="Margin preview">
+        <div class="a4-page">
+            <div class="a4-content-area" [style.top.%]="previewTopPercent" [style.bottom.%]="previewBottomPercent"
+                [style.left.%]="previewLeftPercent" [style.right.%]="previewRightPercent">
+                <div class="preview-header">
+                    <span class="brand-mark">DG</span>
+                    <span class="brand-text">DATAGERRY</span>
+                </div>
+                <div class="preview-title">Document Preview</div>
+                <div class="preview-subtitle">Live margin placeholder</div>
+                <div class="preview-footer">
+                    <span>https://datagerry.com</span>
+                    <span>Page 1 / 1</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="controls-pane">
+        <div class="mb-3">
+            <label class="form-label" for="pageMarginTop">Margin: top (mm)</label>
+            <input id="pageMarginTop" type="number" step="0.1" min="0" formControlName="top"
+                class="form-control">
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pageMarginBottom">Margin: bottom (mm)</label>
+            <input id="pageMarginBottom" type="number" step="0.1" min="0" formControlName="bottom"
+                class="form-control">
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pageMarginLeft">Margin: left (mm)</label>
+            <input id="pageMarginLeft" type="number" step="0.1" min="0" formControlName="left"
+                class="form-control">
+        </div>
+        <div class="mb-0">
+            <label class="form-label" for="pageMarginRight">Margin: right (mm)</label>
+            <input id="pageMarginRight" type="number" step="0.1" min="0" formControlName="right"
+                class="form-control">
+        </div>
+    </section>
+</div>

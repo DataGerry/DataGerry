@@ -11,33 +11,20 @@
 * but WITHOUT ANY WARRANTY; without even the implied warranty of
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU Affero General Public License for more details.
+*
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-export class DocTemplate {
-    public public_id: number;
-    public name: string;
-    public label: string;
-    public author_id: number;
-    public active: boolean;
-    public description: string;
-    public template_data: string;
-    public template_style: string;
-    public template_type: string;
-    public template_parameters: object;
-    public cover_page: DocTemplateCoverPage;
-}
+import { Component, Input } from '@angular/core';
+import { UntypedFormGroup } from '@angular/forms';
 
-export interface DocTemplateCoverPage {
-    activated: boolean;
-    content: string;
-    config: Record<string, unknown>;
-}
-
-export interface DocTemplateUpdateResponse {
-    body: DocTemplate;
-    status: number;
-    statusText: string;
-    url: string;
-    ok: boolean;
+@Component({
+    selector: 'cmdb-docapi-page-cover-options',
+    templateUrl: './docapi-page-cover-options.component.html',
+    styleUrls: ['./docapi-page-cover-options.component.scss'],
+    standalone: false
+})
+export class DocapiPageCoverOptionsComponent {
+    @Input() public coverForm: UntypedFormGroup;
+    @Input() public editorConfig: Record<string, unknown> = {};
 }

@@ -1,0 +1,19 @@
+<div class="cover-pane" *ngIf="coverForm" [formGroup]="coverForm">
+    <div class="form-check mb-3">
+        <input class="form-check-input" id="coverActivatedInput" type="checkbox" formControlName="cover_activated">
+        <label class="form-check-label" for="coverActivatedInput">
+            Activate cover page
+        </label>
+    </div>
+
+    <label class="form-label" for="coverContentInput">Cover Content</label>
+    <editor
+        id="coverContentInput"
+        formControlName="cover_content"
+        [init]="editorConfig"
+        aria-describedby="coverContentHelp"
+    ></editor>
+    <small id="coverContentHelp" class="form-text text-muted">
+        Design the dedicated cover page content.
+    </small>
+</div>
