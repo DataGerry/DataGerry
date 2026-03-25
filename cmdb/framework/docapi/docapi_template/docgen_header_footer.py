@@ -24,9 +24,7 @@ from cmdb.framework.docapi.docapi_template.docgen_constants import (
     PAGE_HEIGHT,
     PAGE_WIDTH,
     MIN_MARGIN,
-    DEFAULT_HEADER_TOP,
     DEFAULT_HEADER_HEIGHT,
-    DEFAULT_FOOTER_BOTTOM,
     DEFAULT_FOOTER_HEIGHT,
 )
 from cmdb.framework.docapi.docapi_template.docgen_helpers import mm_to_pt
@@ -45,14 +43,10 @@ class PageValue(str, Enum):
 class HeaderValue(str, Enum):
     """TODO: document"""
     HEIGHT = "height"
-    TOP = "top"
-    TOTAL_SIZE = "total_size"
 
 class FooterValue(str, Enum):
     """TODO: document"""
     HEIGHT = "height"
-    BOTTOM = "bottom"
-    TOTAL_SIZE = "total_size"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               PageHeaderFooter - CLASS                                               #
@@ -87,30 +81,26 @@ class PageHeaderFooter:
         """
         # ---- Page ----
         page_margin_top: int = self.get_page_value(PageValue.MARGIN_TOP)
-        page_margin_left = self.get_page_value(PageValue.MARGIN_LEFT)
-        page_content_width = self.get_page_value(PageValue.MAX_WIDTH)
+        page_margin_bottom: int = self.get_page_value(PageValue.MARGIN_BOTTOM)
+        page_margin_left: int = self.get_page_value(PageValue.MARGIN_LEFT)
+        page_content_width: int = self.get_page_value(PageValue.MAX_WIDTH)
 
         # ---- Header ----
-        header_top: int = self.get_header_value(HeaderValue.TOP)
         header_height: int = self.get_header_value(HeaderValue.HEIGHT)
-        header_size: int = self.get_header_value(HeaderValue.TOTAL_SIZE)
 
         # ---- Footer ----
-        footer_bottom: int = self.get_footer_value(FooterValue.BOTTOM)
         footer_height: int = self.get_footer_value(FooterValue.HEIGHT)
-        footer_size: int = self.get_footer_value(FooterValue.TOTAL_SIZE)
 
         # ---- Content ----
-        content_top = header_size if header_size > 0 else page_margin_top
-        content_height = PAGE_HEIGHT - header_size - footer_size
-
+        content_top: int = page_margin_top + header_height
+        content_height: int = PAGE_HEIGHT - header_height - footer_height - page_margin_top - page_margin_bottom
 
         # ---- Build CSS ----
         page_css: list[str] = [
             "@page {",
             "  size: A4;",
-            f"  margin-top: {self.get_page_value(PageValue.MARGIN_TOP)}pt;",
-            f"  margin-bottom: {self.get_page_value(PageValue.MARGIN_BOTTOM)}pt;",
+            f"  margin-top: {page_margin_top}pt;",
+            f"  margin-bottom: {page_margin_bottom}pt;",
             f"  margin-left: {page_margin_left}pt;",
             f"  margin-right: {self.get_page_value(PageValue.MARGIN_RIGHT)}pt;",
         ]
@@ -121,7 +111,7 @@ class PageHeaderFooter:
                 f"  @frame header_frame {{ "
                 f"    -pdf-frame-content: header_content; "
                 f"    left: {page_margin_left}pt; width: {page_content_width}pt; "
-                f"    top: {header_top}pt; height: {header_height}pt; "
+                f"    top: {page_margin_top}pt; height: {header_height}pt; "
                 f"}}"
             )
 
@@ -135,7 +125,7 @@ class PageHeaderFooter:
 
         # ---- Footer ----
         if self.footer.get("activated", False):
-            footer_top: int = PAGE_HEIGHT - footer_bottom - footer_height
+            footer_top: int = PAGE_HEIGHT - page_margin_top - footer_height
 
             page_css.append(
                 f"  @frame footer_frame {{ "
@@ -200,16 +190,8 @@ class PageHeaderFooter:
         if not self.header.get('config', {}).get('activated', False):
             return 0
 
-        if header_value == HeaderValue.TOP:
-            return self.header.get("config", {}).get(HeaderValue.TOP, DEFAULT_HEADER_TOP)
-
         if header_value == HeaderValue.HEIGHT:
             return self.header.get("config", {}).get(HeaderValue.HEIGHT, DEFAULT_HEADER_HEIGHT)
-
-        if header_value == HeaderValue.TOTAL_SIZE:
-            top = self.header.get("config", {}).get(HeaderValue.TOP, DEFAULT_HEADER_TOP)
-            height = self.header.get("config", {}).get(HeaderValue.HEIGHT, DEFAULT_HEADER_HEIGHT)
-            return top + height
 
         raise ValueError("[get_header_value] Unknown HeaderValue")
 
@@ -220,15 +202,7 @@ class PageHeaderFooter:
         if not self.footer.get('config', {}).get('activated', False):
             return 0
 
-        if footer_value == FooterValue.BOTTOM:
-            return self.header.get("config", {}).get(FooterValue.BOTTOM, DEFAULT_FOOTER_BOTTOM)
-
         if footer_value == FooterValue.HEIGHT:
             return self.header.get("config", {}).get(FooterValue.HEIGHT, DEFAULT_FOOTER_HEIGHT)
-
-        if footer_value == FooterValue.TOTAL_SIZE:
-            bottom = self.header.get("config", {}).get(FooterValue.BOTTOM, DEFAULT_FOOTER_BOTTOM)
-            height = self.header.get("config", {}).get(FooterValue.HEIGHT, DEFAULT_FOOTER_HEIGHT)
-            return bottom + height
 
         raise ValueError("[get_footer_value] Unknown FooterValue")
