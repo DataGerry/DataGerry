@@ -30,9 +30,10 @@ export interface RelationGroup {
   tabColor: string;
   tabIcon: string;
   instances: ExtendedObjectRelationInstance[];
+  selectedInstances?: ExtendedObjectRelationInstance[];
+  selectedInstanceIDs?: number[];
   total: number;    // total number of items for this group
   page?: number;     // current page for this group
   pageSize?: number; // items per page for this group
   definition: CmdbRelation;
 }
-
