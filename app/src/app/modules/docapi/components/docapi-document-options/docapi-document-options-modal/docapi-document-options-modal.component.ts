@@ -20,12 +20,21 @@ import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { DEFAULT_PAGE_MARGINS, PageMargins, parseMarginValue } from '../../../utils/page-margins.util';
-import { DocTemplateCoverPage } from '../../../models/cmdb-doctemplate';
+import { DocTemplateCoverPage, DocTemplatePageSection } from '../../../models/cmdb-doctemplate';
 import { DocapiEditorConfigService } from '../../../services/docapi-editor-config.service';
 import { environment } from '../../../../../../environments/environment';
 import { ExternalObjectSelectorModalComponent } from '../../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../../relation-template-selector-modal/relation-template-selector-modal.component';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-page.util';
+import { DEFAULT_HEADER, MAX_PAGE_SECTION_HEIGHT_PT, normalizeHeader } from '../../../utils/page-section.util';
+
+type DocumentOptionsTab = 'margins' | 'cover' | 'header';
+
+export interface DocumentOptionsModalResult {
+    margins: PageMargins;
+    coverPage: DocTemplateCoverPage;
+    header: DocTemplatePageSection;
+}
 
 @Component({
     selector: 'cmdb-docapi-document-options-modal',
@@ -36,12 +45,14 @@ import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-pag
 export class DocapiDocumentOptionsModalComponent implements OnInit {
     @Input() public initialMargins: PageMargins = { ...DEFAULT_PAGE_MARGINS };
     @Input() public initialCoverPage: DocTemplateCoverPage = { ...DEFAULT_COVER_PAGE };
+    @Input() public initialHeader: DocTemplatePageSection = { ...DEFAULT_HEADER };
     @Input() public templateType: string = 'OBJECT';
     @Input() public templateTypeId: number | null = null;
     @Input() public templateHelperData: any[] = [];
 
     public activeTab: DocumentOptionsTab = 'margins';
-    public editorConfig: Record<string, unknown> = {};
+    public coverEditorConfig: Record<string, unknown> = {};
+    public headerEditorConfig: Record<string, unknown> = {};
 
     public readonly form = new UntypedFormGroup({
         top: new UntypedFormControl(''),
@@ -49,7 +60,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         left: new UntypedFormControl(''),
         right: new UntypedFormControl(''),
         cover_activated: new UntypedFormControl(false),
-        cover_content: new UntypedFormControl('')
+        cover_content: new UntypedFormControl(''),
+        header_activated: new UntypedFormControl(false),
+        header_content: new UntypedFormControl('')
     });
     public validationError = '';
 
@@ -62,6 +75,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
     public ngOnInit(): void {
         const normalizedCoverPage = normalizeCoverPage(this.initialCoverPage);
+        const normalizedHeader = normalizeHeader(this.initialHeader);
 
         this.form.patchValue({
             top: this.initialMargins.top.toString(),
@@ -69,7 +83,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             left: this.initialMargins.left.toString(),
             right: this.initialMargins.right.toString(),
             cover_activated: normalizedCoverPage.activated,
-            cover_content: normalizedCoverPage.content
+            cover_content: normalizedCoverPage.content,
+            header_activated: normalizedHeader.activated,
+            header_content: normalizedHeader.content
         });
 
         this.initializeEditorConfig();
@@ -80,6 +96,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         this.activeModal.dismiss();
     }
 
+    
     public selectTab(tab: DocumentOptionsTab): void {
         this.activeTab = tab;
     }
@@ -103,9 +120,17 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
                 activated: !!this.form.get('cover_activated')?.value,
                 content: this.form.get('cover_content')?.value ?? '',
                 config: {}
-            } as DocTemplateCoverPage
+            } as DocTemplateCoverPage,
+            header: {
+                activated: !!this.form.get('header_activated')?.value,
+                content: this.form.get('header_content')?.value ?? '',
+                config: {
+                    height: MAX_PAGE_SECTION_HEIGHT_PT
+                }
+            } as DocTemplatePageSection
         } as DocumentOptionsModalResult);
     }
+
 
     private initializeEditorConfig(): void {
         const baseConfig = this.editorConfigService.createConfig({
@@ -128,14 +153,123 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             ? (baseConfig['plugins'] as string[]).filter((plugin: string) => plugin !== 'pagebreak')
             : baseConfig['plugins'];
 
-        this.editorConfig = {
+        const sharedEditorConfig = {
             ...baseConfig,
             height: 420,
             toolbar1,
             toolbar2,
             plugins
         };
+
+        this.coverEditorConfig = sharedEditorConfig;
+        this.headerEditorConfig = this.createHeaderEditorConfig(sharedEditorConfig);
     }
+
+
+    private createHeaderEditorConfig(baseConfig: Record<string, unknown>): Record<string, unknown> {
+        const maxHeaderHeightPx = this.pointsToPixels(MAX_PAGE_SECTION_HEIGHT_PT);
+        const existingContentStyle = typeof baseConfig['content_style'] === 'string'
+            ? baseConfig['content_style']
+            : '';
+        const baseSetup = typeof baseConfig['setup'] === 'function' ? baseConfig['setup'] as (editor: any) => void : null;
+
+        return {
+            ...baseConfig,
+            content_style: `${existingContentStyle} body { max-height: ${MAX_PAGE_SECTION_HEIGHT_PT}pt; overflow: hidden; }`,
+            setup: (editor: any) => {
+                baseSetup?.(editor);
+                this.setupHeaderHeightGuard(editor, maxHeaderHeightPx);
+            }
+        };
+    }
+
+
+    private setupHeaderHeightGuard(editor: any, maxHeaderHeightPx: number): void {
+        let lastValidContent = '';
+        let isReverting = false;
+        let lastWarningAt = 0;
+
+        const isOverflowing = (): boolean => {
+            const body = editor?.getBody?.();
+            return !!body && body.scrollHeight > maxHeaderHeightPx;
+        };
+
+        const isAtOrOverLimit = (): boolean => {
+            const body = editor?.getBody?.();
+            return !!body && body.scrollHeight >= maxHeaderHeightPx;
+        };
+
+        const showWarning = (): void => {
+            const now = Date.now();
+            if (now - lastWarningAt < 1200) {
+                return;
+            }
+
+            lastWarningAt = now;
+            editor.notificationManager?.open({
+                text: `Header content is limited to ${MAX_PAGE_SECTION_HEIGHT_PT}pt.`,
+                type: 'warning',
+                timeout: 2200
+            });
+        };
+
+        const enforceLimit = (): void => {
+            if (isReverting || !editor?.getBody) {
+                return;
+            }
+
+            if (!isOverflowing()) {
+                lastValidContent = editor.getContent({ format: 'raw' });
+                return;
+            }
+
+            const selectionBookmark = editor.selection?.getBookmark?.(2, true);
+
+            isReverting = true;
+            editor.setContent(lastValidContent || '', { format: 'raw' });
+            if (selectionBookmark) {
+                try {
+                    editor.selection?.moveToBookmark?.(selectionBookmark);
+                } catch {
+                    editor.selection?.select?.(editor.getBody(), true);
+                    editor.selection?.collapse?.(false);
+                }
+            }
+            isReverting = false;
+            showWarning();
+        };
+
+        editor.on('init', () => {
+            lastValidContent = editor.getContent({ format: 'raw' });
+            enforceLimit();
+        });
+        editor.on('input', enforceLimit);
+        editor.on('keyup', enforceLimit);
+        editor.on('change', enforceLimit);
+        editor.on('SetContent', enforceLimit);
+        editor.on('Undo', enforceLimit);
+        editor.on('Redo', enforceLimit);
+        editor.on('paste', () => setTimeout(enforceLimit, 0));
+        editor.on('keydown', (event: KeyboardEvent) => {
+            if (event.key !== 'Enter') {
+                return;
+            }
+
+            if (!isAtOrOverLimit()) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            showWarning();
+        });
+    }
+
+
+    private pointsToPixels(points: number): number {
+        return Math.floor((points * 96) / 72);
+    }
+
 
     private openExternalObjectsModal(editor: any): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
@@ -172,11 +306,4 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             })
             .catch(() => undefined);
     }
-}
-
-type DocumentOptionsTab = 'margins' | 'cover';
-
-export interface DocumentOptionsModalResult {
-    margins: PageMargins;
-    coverPage: DocTemplateCoverPage;
 }

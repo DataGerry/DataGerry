@@ -25,6 +25,8 @@ export class DocTemplate {
     public template_style: string;
     public template_type: string;
     public template_parameters: object;
+    public header: DocTemplatePageSection;
+    public footer: DocTemplatePageSection;
     public cover_page: DocTemplateCoverPage;
 }
 
@@ -32,6 +34,16 @@ export interface DocTemplateCoverPage {
     activated: boolean;
     content: string;
     config: Record<string, unknown>;
+}
+
+export interface DocTemplatePageSectionConfig {
+    height: number;
+}
+
+export interface DocTemplatePageSection {
+    activated: boolean;
+    content: string;
+    config: DocTemplatePageSectionConfig;
 }
 
 export interface DocTemplateUpdateResponse {
