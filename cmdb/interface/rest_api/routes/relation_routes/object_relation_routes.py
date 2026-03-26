@@ -382,7 +382,7 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Respo
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right='base.framework.objectRelation.delete')
-def delete_many_object_relations(data: dict[str, Any], request_user: CmdbUser) -> Response:
+def delete_many_object_relations(request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete multiple CmdbObjectRelations
 
@@ -393,6 +393,7 @@ def delete_many_object_relations(data: dict[str, Any], request_user: CmdbUser) -
         DeleteSingleResponse: The deleted CmdbObjectRelation data
     """
     try:
+        data: dict = request.get_json()
         target_ids: list[Any] | None = data.get('target_ids')
 
         if not target_ids:
