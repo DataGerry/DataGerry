@@ -116,4 +116,18 @@ export class ObjectRelationService implements ApiServicePrefix {
       )
     );
   }
+
+  // Delete multiple object relations by IDs
+  public deleteManyObjectRelations(targetIDs: number[]): Observable<boolean> {
+    const options = { ...this.options };
+    const payload = { target_ids: targetIDs };
+
+    return this.api.callPost<any>(
+      `${this.servicePrefix}/delete/many`,
+      payload,
+      options
+    ).pipe(
+      map((apiResponse: HttpResponse<any>) => Boolean(apiResponse?.body?.success))
+    );
+  }
 }

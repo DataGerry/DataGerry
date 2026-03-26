@@ -360,6 +360,58 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
     );
   }
 
+  
+  public onGroupRelationSelectionChange(
+    group: RelationGroup,
+    selectedItems: ExtendedObjectRelationInstance[]
+  ): void {
+    group.selectedInstances = selectedItems || [];
+    group.selectedInstanceIDs = (selectedItems || []).map((item) => item.public_id);
+    this.changesRef.markForCheck();
+  }
+
+
+  public deleteSelectedRelationInstances(group: RelationGroup): void {
+    const targetIDs = group?.selectedInstanceIDs || [];
+    if (!targetIDs.length) {
+      return;
+    }
+
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    modalRef.componentInstance.title = 'Delete Object Relations';
+    modalRef.componentInstance.item = group;
+    modalRef.componentInstance.itemType = 'Object Relations';
+    modalRef.componentInstance.itemName = `${targetIDs.length} selected relation${targetIDs.length > 1 ? 's' : ''}`;
+
+    modalRef.result.then(
+      (result) => {
+        if (result !== 'confirmed') {
+          return;
+        }
+
+        this.loadingRelations = true;
+        this.objectRelationService
+          .deleteManyObjectRelations(targetIDs)
+          .pipe(takeUntil(this.unsubscribe))
+          .subscribe({
+            next: () => {
+              this.toastService.success(`${targetIDs.length} relation instance(s) deleted successfully`);
+              this.currentActiveRelationTabIndex = this.activeRelationTabIndex;
+              this.shouldPreserveTabState = true;
+              this.loadObjectRelationInstances(this.currentObjectID);
+              this.loadRelationsForNewRelation();
+            },
+            error: (err) => {
+              this.toastService.error(err?.error?.message);
+              this.loadingRelations = false;
+              this.changesRef.markForCheck();
+            }
+          });
+      },
+      () => { }
+    );
+  }
+
 
   /**
    * Opens the relation selection modal 
@@ -571,7 +623,10 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
                     tabColor: definition?.relation_color_parent,
                     tabIcon: definition?.relation_icon_parent,
                     instances: parentInstances,
+                    selectedInstances: [],
+                    selectedInstanceIDs: [],
                     total: parentInstances?.length,
+                    pageSize: this.relationPageSize,
                     // TODO: remove definition from here because it's hiding the inactive relations
                     definition
                   });
@@ -585,7 +640,10 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
                     tabColor: definition?.relation_color_child,
                     tabIcon: definition?.relation_icon_child,
                     instances: childInstances,
+                    selectedInstances: [],
+                    selectedInstanceIDs: [],
                     total: childInstances.length,
+                    pageSize: this.relationPageSize,
                     // TODO: remove definition from here because it's hiding the inactive relations
                     definition
                   });
@@ -686,6 +744,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
             type: isParent ? definition?.relation_name_parent : definition?.relation_name_child,
             definition // Attach the definition to each instance
           }));
+          group.selectedInstances = [];
+          group.selectedInstanceIDs = [];
           group.total = response?.total;
           group.pageSize = pageSize;
         }
