@@ -1,0 +1,19 @@
+<div class="header-pane" *ngIf="headerForm" [formGroup]="headerForm">
+    <div class="form-check mb-3">
+        <input class="form-check-input" id="headerActivatedInput" type="checkbox" formControlName="header_activated">
+        <label class="form-check-label" for="headerActivatedInput">
+            Activate header
+        </label>
+    </div>
+
+    <label class="form-label" for="headerContentInput">Header Content</label>
+    <editor
+        id="headerContentInput"
+        formControlName="header_content"
+        [init]="editorConfig"
+        aria-describedby="headerContentHelp"
+    ></editor>
+    <small id="headerContentHelp" class="form-text text-muted">
+        Design the content that appears in the document header.
+    </small>
+</div>

@@ -49,6 +49,7 @@ import { DocapiDocumentOptionsModalComponent } from './components/docapi-documen
 import { DocapiAiAssistantModalComponent } from './components/docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 import { DocapiPageCoverOptionsComponent } from './components/docapi-document-options/docapi-page-cover-options/docapi-page-cover-options.component';
 import { DocapiPageMarginsOptionsComponent } from './components/docapi-document-options/docapi-page-margins-options/docapi-page-margins-options.component';
+import { DocapiPageHeaderOptionsComponent } from './components/docapi-document-options/docapi-page-header-options/docapi-page-header-options.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [
@@ -69,7 +70,8 @@ import { DocapiPageMarginsOptionsComponent } from './components/docapi-document-
         DocapiDocumentOptionsModalComponent,
         DocapiAiAssistantModalComponent,
         DocapiPageCoverOptionsComponent,
-        DocapiPageMarginsOptionsComponent
+        DocapiPageMarginsOptionsComponent,
+        DocapiPageHeaderOptionsComponent
     ],
     imports: [
         CommonModule,
