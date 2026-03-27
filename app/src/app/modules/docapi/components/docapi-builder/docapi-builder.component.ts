@@ -35,7 +35,7 @@ import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-w
 import { DocapiPreviewObjectModalComponent } from '../docapi-preview-object-modal/docapi-preview-object-modal.component';
 import { PageMargins, upsertPageMarginsStyleBlock } from '../../utils/page-margins.util';
 import { normalizeCoverPage } from '../../utils/cover-page.util';
-import { normalizeHeader } from '../../utils/page-section.util';
+import { normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -202,6 +202,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.docInstance.template_data = contentForm?.get('template_data')?.value;
         this.docInstance.cover_page = normalizeCoverPage(contentForm?.get('cover_page')?.value);
         this.docInstance.header = normalizeHeader(contentForm?.get('header')?.value);
+        this.docInstance.footer = normalizeFooter(contentForm?.get('footer')?.value);
         this.docInstance.template_style = styleForm?.get('template_style')?.value;
     }
 
@@ -262,13 +263,16 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         const contentControl = this.contentStep?.contentForm?.get('template_data');
         const coverContentControl = this.contentStep?.contentForm?.get('cover_page.content');
         const headerContentControl = this.contentStep?.contentForm?.get('header.content');
+        const footerContentControl = this.contentStep?.contentForm?.get('footer.content');
         const contentValue = contentControl?.value ?? this.docInstance?.template_data;
         const coverContentValue = coverContentControl?.value ?? this.docInstance?.cover_page?.content;
         const headerContentValue = headerContentControl?.value ?? this.docInstance?.header?.content;
+        const footerContentValue = footerContentControl?.value ?? this.docInstance?.footer?.content;
         const hasContent =
             this.hasMeaningfulContent(contentValue)
             || this.hasMeaningfulContent(coverContentValue)
-            || this.hasMeaningfulContent(headerContentValue);
+            || this.hasMeaningfulContent(headerContentValue)
+            || this.hasMeaningfulContent(footerContentValue);
         if (!hasContent) {
             this.previousTypeState = currentState;
             return;
@@ -290,7 +294,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         modalRef.componentInstance.title = 'Confirm change';
         modalRef.componentInstance.message =
-            'Changing the template or object type will clear the current document, cover, and header content. Do you want to continue?';
+            'Changing the template or object type will clear the current document, cover, header, and footer content. Do you want to continue?';
         modalRef.componentInstance.confirmLabel = 'Yes, clear content';
         modalRef.componentInstance.cancelLabel = 'Cancel';
         modalRef.componentInstance.warningTitle = 'Warning:';
@@ -302,6 +306,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
                     this.contentStep?.contentForm?.get('template_data')?.setValue('');
                     this.contentStep?.contentForm?.get('cover_page.content')?.setValue('');
                     this.contentStep?.contentForm?.get('header.content')?.setValue('');
+                    this.contentStep?.contentForm?.get('footer.content')?.setValue('');
                     this.previousTypeState = nextState;
                 } else {
                     this.revertTypeChange();

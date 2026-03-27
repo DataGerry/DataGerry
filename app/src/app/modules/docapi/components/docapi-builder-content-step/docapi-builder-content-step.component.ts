@@ -33,7 +33,7 @@ import { DocapiAiAssistantModalComponent } from '../docapi-ai-assistant-modal/do
 import { DocapiEditorConfigService } from '../../services/docapi-editor-config.service';
 import { environment } from '../../../../../environments/environment';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
-import { DEFAULT_HEADER, normalizeHeader } from '../../utils/page-section.util';
+import { DEFAULT_FOOTER, DEFAULT_HEADER, normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -51,7 +51,8 @@ export class DocapiBuilderContentStepComponent {
             this.contentForm?.patchValue({
                 template_data: data?.template_data ?? '',
                 cover_page: normalizeCoverPage(data?.cover_page),
-                header: normalizeHeader(data?.header)
+                header: normalizeHeader(data?.header),
+                footer: normalizeFooter(data?.footer)
             });
             this.pageMargins = parsePageMarginsFromStyle(data?.template_style, this.defaultPageMargins);
         }
@@ -103,6 +104,11 @@ export class DocapiBuilderContentStepComponent {
                 activated: new UntypedFormControl(DEFAULT_HEADER.activated),
                 content: new UntypedFormControl(DEFAULT_HEADER.content, [Validators.max(15 * 1024 * 1024)]),
                 config: new UntypedFormControl(DEFAULT_HEADER.config)
+            }),
+            footer: new UntypedFormGroup({
+                activated: new UntypedFormControl(DEFAULT_FOOTER.activated),
+                content: new UntypedFormControl(DEFAULT_FOOTER.content, [Validators.max(15 * 1024 * 1024)]),
+                config: new UntypedFormControl(DEFAULT_FOOTER.config)
             })
         });
 
@@ -181,6 +187,7 @@ export class DocapiBuilderContentStepComponent {
         modalRef.componentInstance.initialMargins = { ...this.pageMargins };
         modalRef.componentInstance.initialCoverPage = normalizeCoverPage(this.contentForm?.get('cover_page')?.value);
         modalRef.componentInstance.initialHeader = normalizeHeader(this.contentForm?.get('header')?.value);
+        modalRef.componentInstance.initialFooter = normalizeFooter(this.contentForm?.get('footer')?.value);
         modalRef.componentInstance.templateType = this.templateType;
         modalRef.componentInstance.templateTypeId = this.templateTypeId;
         modalRef.componentInstance.templateHelperData = this.templateHelperData;
@@ -195,6 +202,7 @@ export class DocapiBuilderContentStepComponent {
                 this.pageMarginsChanged.emit(result.margins);
                 this.contentForm?.get('cover_page')?.patchValue(normalizeCoverPage(result.coverPage));
                 this.contentForm?.get('header')?.patchValue(normalizeHeader(result.header));
+                this.contentForm?.get('footer')?.patchValue(normalizeFooter(result.footer));
             })
             .catch(() => undefined);
     }

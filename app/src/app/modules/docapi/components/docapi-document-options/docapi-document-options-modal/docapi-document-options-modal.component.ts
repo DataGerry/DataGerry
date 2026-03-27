@@ -26,14 +26,21 @@ import { environment } from '../../../../../../environments/environment';
 import { ExternalObjectSelectorModalComponent } from '../../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../../relation-template-selector-modal/relation-template-selector-modal.component';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-page.util';
-import { DEFAULT_HEADER, MAX_PAGE_SECTION_HEIGHT_PT, normalizeHeader } from '../../../utils/page-section.util';
+import {
+    DEFAULT_FOOTER,
+    DEFAULT_HEADER,
+    MAX_PAGE_SECTION_HEIGHT_PT,
+    normalizeFooter,
+    normalizeHeader
+} from '../../../utils/page-section.util';
 
-type DocumentOptionsTab = 'margins' | 'cover' | 'header';
+type DocumentOptionsTab = 'margins' | 'cover' | 'header' | 'footer';
 
 export interface DocumentOptionsModalResult {
     margins: PageMargins;
     coverPage: DocTemplateCoverPage;
     header: DocTemplatePageSection;
+    footer: DocTemplatePageSection;
 }
 
 @Component({
@@ -46,6 +53,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     @Input() public initialMargins: PageMargins = { ...DEFAULT_PAGE_MARGINS };
     @Input() public initialCoverPage: DocTemplateCoverPage = { ...DEFAULT_COVER_PAGE };
     @Input() public initialHeader: DocTemplatePageSection = { ...DEFAULT_HEADER };
+    @Input() public initialFooter: DocTemplatePageSection = { ...DEFAULT_FOOTER };
     @Input() public templateType: string = 'OBJECT';
     @Input() public templateTypeId: number | null = null;
     @Input() public templateHelperData: any[] = [];
@@ -53,6 +61,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     public activeTab: DocumentOptionsTab = 'margins';
     public coverEditorConfig: Record<string, unknown> = {};
     public headerEditorConfig: Record<string, unknown> = {};
+    public footerEditorConfig: Record<string, unknown> = {};
 
     public readonly form = new UntypedFormGroup({
         top: new UntypedFormControl(''),
@@ -62,7 +71,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         cover_activated: new UntypedFormControl(false),
         cover_content: new UntypedFormControl(''),
         header_activated: new UntypedFormControl(false),
-        header_content: new UntypedFormControl('')
+        header_content: new UntypedFormControl(''),
+        footer_activated: new UntypedFormControl(false),
+        footer_content: new UntypedFormControl('')
     });
     public validationError = '';
 
@@ -76,6 +87,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     public ngOnInit(): void {
         const normalizedCoverPage = normalizeCoverPage(this.initialCoverPage);
         const normalizedHeader = normalizeHeader(this.initialHeader);
+        const normalizedFooter = normalizeFooter(this.initialFooter);
 
         this.form.patchValue({
             top: this.initialMargins.top.toString(),
@@ -85,7 +97,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             cover_activated: normalizedCoverPage.activated,
             cover_content: normalizedCoverPage.content,
             header_activated: normalizedHeader.activated,
-            header_content: normalizedHeader.content
+            header_content: normalizedHeader.content,
+            footer_activated: normalizedFooter.activated,
+            footer_content: normalizedFooter.content
         });
 
         this.initializeEditorConfig();
@@ -127,6 +141,13 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
                 config: {
                     height: MAX_PAGE_SECTION_HEIGHT_PT
                 }
+            } as DocTemplatePageSection,
+            footer: {
+                activated: !!this.form.get('footer_activated')?.value,
+                content: this.form.get('footer_content')?.value ?? '',
+                config: {
+                    height: MAX_PAGE_SECTION_HEIGHT_PT
+                }
             } as DocTemplatePageSection
         } as DocumentOptionsModalResult);
     }
@@ -162,12 +183,13 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         };
 
         this.coverEditorConfig = sharedEditorConfig;
-        this.headerEditorConfig = this.createHeaderEditorConfig(sharedEditorConfig);
+        this.headerEditorConfig = this.createPageSectionEditorConfig(sharedEditorConfig, 'Header');
+        this.footerEditorConfig = this.createPageSectionEditorConfig(sharedEditorConfig, 'Footer');
     }
 
 
-    private createHeaderEditorConfig(baseConfig: Record<string, unknown>): Record<string, unknown> {
-        const maxHeaderHeightPx = this.pointsToPixels(MAX_PAGE_SECTION_HEIGHT_PT);
+    private createPageSectionEditorConfig(baseConfig: Record<string, unknown>, sectionLabel: string): Record<string, unknown> {
+        const maxSectionHeightPx = this.pointsToPixels(MAX_PAGE_SECTION_HEIGHT_PT);
         const existingContentStyle = typeof baseConfig['content_style'] === 'string'
             ? baseConfig['content_style']
             : '';
@@ -178,25 +200,25 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             content_style: `${existingContentStyle} body { max-height: ${MAX_PAGE_SECTION_HEIGHT_PT}pt; overflow: hidden; }`,
             setup: (editor: any) => {
                 baseSetup?.(editor);
-                this.setupHeaderHeightGuard(editor, maxHeaderHeightPx);
+                this.setupPageSectionHeightGuard(editor, maxSectionHeightPx, sectionLabel);
             }
         };
     }
 
 
-    private setupHeaderHeightGuard(editor: any, maxHeaderHeightPx: number): void {
+    private setupPageSectionHeightGuard(editor: any, maxPageSectionHeightPx: number, sectionLabel: string): void {
         let lastValidContent = '';
         let isReverting = false;
         let lastWarningAt = 0;
 
         const isOverflowing = (): boolean => {
             const body = editor?.getBody?.();
-            return !!body && body.scrollHeight > maxHeaderHeightPx;
+            return !!body && body.scrollHeight > maxPageSectionHeightPx;
         };
 
         const isAtOrOverLimit = (): boolean => {
             const body = editor?.getBody?.();
-            return !!body && body.scrollHeight >= maxHeaderHeightPx;
+            return !!body && body.scrollHeight >= maxPageSectionHeightPx;
         };
 
         const showWarning = (): void => {
@@ -207,7 +229,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
             lastWarningAt = now;
             editor.notificationManager?.open({
-                text: `Header content is limited to ${MAX_PAGE_SECTION_HEIGHT_PT}pt.`,
+                text: `${sectionLabel} content is limited to ${MAX_PAGE_SECTION_HEIGHT_PT}pt.`,
                 type: 'warning',
                 timeout: 2200
             });

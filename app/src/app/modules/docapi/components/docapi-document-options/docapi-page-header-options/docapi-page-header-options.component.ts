@@ -27,4 +27,10 @@ import { UntypedFormGroup } from '@angular/forms';
 export class DocapiPageHeaderOptionsComponent {
     @Input() public headerForm: UntypedFormGroup;
     @Input() public editorConfig: Record<string, unknown> = {};
+    @Input() public activatedControlName = 'header_activated';
+    @Input() public contentControlName = 'header_content';
+    @Input() public activationLabel = 'Activate header';
+    @Input() public contentLabel = 'Header Content';
+    @Input() public contentHelpText = 'Design the content that appears in the document header.';
+    @Input() public paginationHint = '';
 }
