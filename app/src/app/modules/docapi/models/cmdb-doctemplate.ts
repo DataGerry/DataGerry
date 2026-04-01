@@ -27,6 +27,7 @@ export class DocTemplate {
     public template_parameters: object;
     public header: DocTemplatePageSection;
     public footer: DocTemplatePageSection;
+    public table_of_contents: DocTemplateTableOfContents;
     public cover_page: DocTemplateCoverPage;
 }
 
@@ -44,6 +45,37 @@ export interface DocTemplatePageSection {
     activated: boolean;
     content: string;
     config: DocTemplatePageSectionConfig;
+}
+
+export type DocTemplateTocFontStyle = 'normal' | 'italic';
+export type DocTemplateTocFontWeight = 'normal' | 'bold';
+
+export interface DocTemplateTocBaseStyle {
+    'font-size'?: number;
+    'line-height'?: number;
+    'margin-left'?: number;
+    'margin-top'?: number;
+    'margin-bottom'?: number;
+    'padding-bottom'?: number;
+    color?: string;
+    'font-style'?: DocTemplateTocFontStyle;
+    'font-weight'?: DocTemplateTocFontWeight;
+}
+
+export interface DocTemplateTableOfContentsConfig {
+    pdftoc: Required<Pick<DocTemplateTocBaseStyle, 'font-size' | 'line-height'>>;
+    level0: DocTemplateTocBaseStyle;
+    level1: DocTemplateTocBaseStyle;
+    level2: DocTemplateTocBaseStyle;
+    level3: DocTemplateTocBaseStyle;
+    level4: DocTemplateTocBaseStyle;
+    level5: DocTemplateTocBaseStyle;
+    spacing: Required<Pick<DocTemplateTocBaseStyle, 'margin-top'>>;
+}
+
+export interface DocTemplateTableOfContents {
+    activated: boolean;
+    config: DocTemplateTableOfContentsConfig;
 }
 
 export interface DocTemplateUpdateResponse {
