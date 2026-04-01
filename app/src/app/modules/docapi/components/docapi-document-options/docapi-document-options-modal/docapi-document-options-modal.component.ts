@@ -20,7 +20,12 @@ import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { DEFAULT_PAGE_MARGINS, PageMargins, parseMarginValue } from '../../../utils/page-margins.util';
-import { DocTemplateCoverPage, DocTemplatePageSection } from '../../../models/cmdb-doctemplate';
+import {
+    DocTemplateCoverPage,
+    DocTemplatePageSection,
+    DocTemplateTableOfContents,
+    DocTemplateTocBaseStyle
+} from '../../../models/cmdb-doctemplate';
 import { DocapiEditorConfigService } from '../../../services/docapi-editor-config.service';
 import { environment } from '../../../../../../environments/environment';
 import { ExternalObjectSelectorModalComponent } from '../../external-object-selector-modal/external-object-selector-modal.component';
@@ -33,14 +38,21 @@ import {
     normalizeFooter,
     normalizeHeader
 } from '../../../utils/page-section.util';
+import {
+    DEFAULT_TABLE_OF_CONTENTS,
+    DEFAULT_TABLE_OF_CONTENTS_CONFIG,
+    normalizeTableOfContents,
+    normalizeTableOfContentsConfig
+} from '../../../utils/table-of-contents.util';
 
-type DocumentOptionsTab = 'margins' | 'cover' | 'header' | 'footer';
+type DocumentOptionsTab = 'margins' | 'cover' | 'header' | 'footer' | 'toc';
 
 export interface DocumentOptionsModalResult {
     margins: PageMargins;
     coverPage: DocTemplateCoverPage;
     header: DocTemplatePageSection;
     footer: DocTemplatePageSection;
+    tableOfContents: DocTemplateTableOfContents;
 }
 
 @Component({
@@ -54,6 +66,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     @Input() public initialCoverPage: DocTemplateCoverPage = { ...DEFAULT_COVER_PAGE };
     @Input() public initialHeader: DocTemplatePageSection = { ...DEFAULT_HEADER };
     @Input() public initialFooter: DocTemplatePageSection = { ...DEFAULT_FOOTER };
+    @Input() public initialTableOfContents: DocTemplateTableOfContents = normalizeTableOfContents(DEFAULT_TABLE_OF_CONTENTS);
     @Input() public templateType: string = 'OBJECT';
     @Input() public templateTypeId: number | null = null;
     @Input() public templateHelperData: any[] = [];
@@ -73,7 +86,23 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         header_activated: new UntypedFormControl(false),
         header_content: new UntypedFormControl(''),
         footer_activated: new UntypedFormControl(false),
-        footer_content: new UntypedFormControl('')
+        footer_content: new UntypedFormControl(''),
+        table_of_contents_activated: new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS.activated),
+        table_of_contents_config: new UntypedFormGroup({
+            pdftoc: new UntypedFormGroup({
+                'font-size': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.pdftoc['font-size']),
+                'line-height': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.pdftoc['line-height'])
+            }),
+            level0: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level0),
+            level1: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level1),
+            level2: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level2),
+            level3: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level3),
+            level4: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level4),
+            level5: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level5),
+            spacing: new UntypedFormGroup({
+                'margin-top': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.spacing['margin-top'])
+            })
+        })
     });
     public validationError = '';
 
@@ -88,6 +117,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         const normalizedCoverPage = normalizeCoverPage(this.initialCoverPage);
         const normalizedHeader = normalizeHeader(this.initialHeader);
         const normalizedFooter = normalizeFooter(this.initialFooter);
+        const normalizedTableOfContents = normalizeTableOfContents(this.initialTableOfContents);
 
         this.form.patchValue({
             top: this.initialMargins.top.toString(),
@@ -99,7 +129,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             header_activated: normalizedHeader.activated,
             header_content: normalizedHeader.content,
             footer_activated: normalizedFooter.activated,
-            footer_content: normalizedFooter.content
+            footer_content: normalizedFooter.content,
+            table_of_contents_activated: normalizedTableOfContents.activated,
+            table_of_contents_config: normalizeTableOfContentsConfig(normalizedTableOfContents.config)
         });
 
         this.initializeEditorConfig();
@@ -110,7 +142,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         this.activeModal.dismiss();
     }
 
-    
+
     public selectTab(tab: DocumentOptionsTab): void {
         this.activeTab = tab;
     }
@@ -148,7 +180,11 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
                 config: {
                     height: MAX_PAGE_SECTION_HEIGHT_PT
                 }
-            } as DocTemplatePageSection
+            } as DocTemplatePageSection,
+            tableOfContents: {
+                activated: !!this.form.get('table_of_contents_activated')?.value,
+                config: normalizeTableOfContentsConfig(this.form.get('table_of_contents_config')?.value)
+            } as DocTemplateTableOfContents
         } as DocumentOptionsModalResult);
     }
 
@@ -290,6 +326,19 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
     private pointsToPixels(points: number): number {
         return Math.floor((points * 96) / 72);
+    }
+
+    private createTocLevelGroup(initial: Partial<DocTemplateTocBaseStyle>): UntypedFormGroup {
+        return new UntypedFormGroup({
+            'font-size': new UntypedFormControl(initial['font-size']),
+            'margin-left': new UntypedFormControl(initial['margin-left']),
+            'margin-top': new UntypedFormControl(initial['margin-top']),
+            'margin-bottom': new UntypedFormControl(initial['margin-bottom']),
+            'padding-bottom': new UntypedFormControl(initial['padding-bottom']),
+            color: new UntypedFormControl(initial['color']),
+            'font-style': new UntypedFormControl(initial['font-style']),
+            'font-weight': new UntypedFormControl(initial['font-weight'])
+        });
     }
 
 

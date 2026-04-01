@@ -34,6 +34,10 @@ import { DocapiEditorConfigService } from '../../services/docapi-editor-config.s
 import { environment } from '../../../../../environments/environment';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
 import { DEFAULT_FOOTER, DEFAULT_HEADER, normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
+import {
+    DEFAULT_TABLE_OF_CONTENTS,
+    normalizeTableOfContents
+} from '../../utils/table-of-contents.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -52,7 +56,8 @@ export class DocapiBuilderContentStepComponent {
                 template_data: data?.template_data ?? '',
                 cover_page: normalizeCoverPage(data?.cover_page),
                 header: normalizeHeader(data?.header),
-                footer: normalizeFooter(data?.footer)
+                footer: normalizeFooter(data?.footer),
+                table_of_contents: normalizeTableOfContents(data?.table_of_contents)
             });
             this.pageMargins = parsePageMarginsFromStyle(data?.template_style, this.defaultPageMargins);
         }
@@ -109,6 +114,10 @@ export class DocapiBuilderContentStepComponent {
                 activated: new UntypedFormControl(DEFAULT_FOOTER.activated),
                 content: new UntypedFormControl(DEFAULT_FOOTER.content, [Validators.max(15 * 1024 * 1024)]),
                 config: new UntypedFormControl(DEFAULT_FOOTER.config)
+            }),
+            table_of_contents: new UntypedFormGroup({
+                activated: new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS.activated),
+                config: new UntypedFormControl(normalizeTableOfContents(DEFAULT_TABLE_OF_CONTENTS).config)
             })
         });
 
@@ -181,13 +190,17 @@ export class DocapiBuilderContentStepComponent {
     private openPageMarginsDialog(): void {
         const modalRef = this.modalService.open(DocapiDocumentOptionsModalComponent, {
             size: 'xl',
-            backdrop: 'static'
+            backdrop: 'static',
+            scrollable: true
         });
 
         modalRef.componentInstance.initialMargins = { ...this.pageMargins };
         modalRef.componentInstance.initialCoverPage = normalizeCoverPage(this.contentForm?.get('cover_page')?.value);
         modalRef.componentInstance.initialHeader = normalizeHeader(this.contentForm?.get('header')?.value);
         modalRef.componentInstance.initialFooter = normalizeFooter(this.contentForm?.get('footer')?.value);
+        modalRef.componentInstance.initialTableOfContents = normalizeTableOfContents(
+            this.contentForm?.get('table_of_contents')?.value
+        );
         modalRef.componentInstance.templateType = this.templateType;
         modalRef.componentInstance.templateTypeId = this.templateTypeId;
         modalRef.componentInstance.templateHelperData = this.templateHelperData;
@@ -203,6 +216,7 @@ export class DocapiBuilderContentStepComponent {
                 this.contentForm?.get('cover_page')?.patchValue(normalizeCoverPage(result.coverPage));
                 this.contentForm?.get('header')?.patchValue(normalizeHeader(result.header));
                 this.contentForm?.get('footer')?.patchValue(normalizeFooter(result.footer));
+                this.contentForm?.get('table_of_contents')?.patchValue(normalizeTableOfContents(result.tableOfContents));
             })
             .catch(() => undefined);
     }

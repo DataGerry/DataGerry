@@ -36,6 +36,7 @@ import { DocapiPreviewObjectModalComponent } from '../docapi-preview-object-moda
 import { PageMargins, upsertPageMarginsStyleBlock } from '../../utils/page-margins.util';
 import { normalizeCoverPage } from '../../utils/cover-page.util';
 import { normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
+import { normalizeTableOfContents } from '../../utils/table-of-contents.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -203,6 +204,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.docInstance.cover_page = normalizeCoverPage(contentForm?.get('cover_page')?.value);
         this.docInstance.header = normalizeHeader(contentForm?.get('header')?.value);
         this.docInstance.footer = normalizeFooter(contentForm?.get('footer')?.value);
+        this.docInstance.table_of_contents = normalizeTableOfContents(contentForm?.get('table_of_contents')?.value);
         this.docInstance.template_style = styleForm?.get('template_style')?.value;
     }
 
