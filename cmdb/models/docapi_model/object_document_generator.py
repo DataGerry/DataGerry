@@ -160,13 +160,10 @@ class ObjectDocumentGenerator:
             + toc.get_css()
         )
 
-        # LOGGER.debug(f"[css]")
-        # LOGGER.debug(f"{final_css}")
-
         # Add cover page, header, footer and toc to html if they are activated
         improved_template_str: str = (
-            cover_page.get_html()
-            + page_header_footer.get_html()
+            page_header_footer.get_html()
+            + cover_page.get_html()
             + toc.get_html()
             + self.template.get_template_data()
         )

@@ -136,8 +136,9 @@ class PageHeaderFooter:
             )
 
         page_css.append("}")
+        result: str = "\n".join(page_css)
 
-        return "\n".join(page_css)
+        return result
 
 
     def get_html(self) -> str:
@@ -158,7 +159,10 @@ class PageHeaderFooter:
                 "</div>"
             )
 
-        return "\n".join(html_parts)
+        # return "\n".join(html_parts)
+        result = "\n".join(html_parts)
+        # LOGGER.debug(f"[get_html] html: {result}")
+        return result
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -181,28 +185,28 @@ class PageHeaderFooter:
             page_right = self.get_page_value(PageValue.MARGIN_RIGHT)
             return PAGE_WIDTH - page_left - page_right
 
-        raise ValueError("[get_header_value] Unknown PageValue")
+        raise ValueError("Unknown PageValue")
 
 
     def get_header_value(self, header_value: HeaderValue) -> int:
         """TODO: document"""
         # If header is not activeated all values are 0
-        if not self.header.get('config', {}).get('activated', False):
+        if not self.header.get('activated', False):
             return 0
 
         if header_value == HeaderValue.HEIGHT:
             return self.header.get("config", {}).get(HeaderValue.HEIGHT, DEFAULT_HEADER_HEIGHT)
 
-        raise ValueError("[get_header_value] Unknown HeaderValue")
+        raise ValueError("Unknown HeaderValue")
 
 
     def get_footer_value(self, footer_value: FooterValue) -> int:
         """TODO: document"""
         # If footer is not activeated all values are 0
-        if not self.footer.get('config', {}).get('activated', False):
+        if not self.footer.get('activated', False):
             return 0
 
         if footer_value == FooterValue.HEIGHT:
             return self.header.get("config", {}).get(FooterValue.HEIGHT, DEFAULT_FOOTER_HEIGHT)
 
-        raise ValueError("[get_footer_value] Unknown FooterValue")
+        raise ValueError("Unknown FooterValue")
