@@ -42,7 +42,7 @@ export class DocapiPageTocOptionsComponent {
     public readonly levels = [0, 1, 2, 3, 4, 5];
 
     private static readonly LEVEL_DEFAULTS: Record<number, Record<string, string | number>> = {
-        0: { 'font-size': 13.6, 'margin-left': 0, 'margin-top': 10, 'margin-bottom': 4, 'padding-bottom': 2, 'color': '#111827', 'font-style': 'normal', 'font-weight': 'bold' },
+        0: { 'font-size': 12, 'margin-left': 0, 'margin-top': 10, 'margin-bottom': 4, 'padding-bottom': 2, 'color': '#111827', 'font-style': 'normal', 'font-weight': 'bold' },
         1: { 'font-size': 12, 'margin-left': 10, 'margin-top': 6, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#111827', 'font-style': 'normal', 'font-weight': 'bold' },
         2: { 'font-size': 11, 'margin-left': 20, 'margin-top': 4, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#374151', 'font-style': 'normal', 'font-weight': 'normal' },
         3: { 'font-size': 10.5, 'margin-left': 30, 'margin-top': 3, 'margin-bottom': 1, 'padding-bottom': 1, 'color': '#374151', 'font-style': 'italic', 'font-weight': 'normal' },

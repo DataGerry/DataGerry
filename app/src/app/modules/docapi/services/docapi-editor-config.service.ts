@@ -27,6 +27,8 @@ interface DocapiEditorConfigContext {
     getTemplateHelperData: () => any[];
     onPreviewRequested: () => void;
     onPageMarginsRequested: () => void;
+    onEditorInitialized?: (editor: any) => void;
+    onEditorContentChanged?: (editor: any) => void;
     onAiAssistantRequested?: (editor: any) => void;
     onExternalObjectsRequested?: (editor: any) => void;
     onRelationTemplateRequested?: (editor: any) => void;
@@ -95,6 +97,9 @@ export class DocapiEditorConfigService {
     }
 
     private setupEditor(editor: any, context: DocapiEditorConfigContext): void {
+        editor?.on('init', () => context.onEditorInitialized?.(editor));
+        editor?.on('SetContent Change KeyUp Undo Redo', () => context.onEditorContentChanged?.(editor));
+
         if (context.isCloudMode) {
             const [faWidth, faHeight, , , faSvgPathData] = faWandMagicSparkles.icon;
             const aiAssistantPath = Array.isArray(faSvgPathData) ? faSvgPathData[0] : faSvgPathData;
