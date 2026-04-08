@@ -72,6 +72,9 @@
           class="outline-nav-btn"
           [class.is-active]="activeHeadingId === item.id"
           (click)="jumpToHeading(item)"
+          (contextmenu)="openOutlineContextMenu($event, item)"
+          (keydown)="onOutlineItemKeydown($event, item)"
+          aria-haspopup="menu"
         >
           <span class="outline-level-dot"></span>
           <span class="outline-nav-text">{{ item.text }}</span>
@@ -82,3 +85,21 @@
       </li>
     </ul>
   </ng-template>
+
+  <div
+    *ngIf="outlineContextMenu.visible"
+    class="outline-context-menu"
+    role="menu"
+    [style.left.px]="outlineContextMenu.x"
+    [style.top.px]="outlineContextMenu.y"
+    (click)="onContextMenuContainerClick($event)"
+  >
+    <button
+      type="button"
+      class="outline-context-menu__item"
+      role="menuitem"
+      (click)="duplicateFromContextMenu()"
+    >
+      Duplicate section
+    </button>
+  </div>

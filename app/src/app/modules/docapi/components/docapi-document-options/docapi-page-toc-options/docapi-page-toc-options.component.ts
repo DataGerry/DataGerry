@@ -65,6 +65,9 @@ export class DocapiPageTocOptionsComponent {
     ];
 
 
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+
     public get selectedLevelForm(): UntypedFormGroup | null {
         const group = this.tocForm?.get(`table_of_contents_config.level${this.selectedLevel}`);
         return group instanceof UntypedFormGroup ? group : null;
@@ -179,6 +182,9 @@ export class DocapiPageTocOptionsComponent {
         this.pdftocGroup?.markAsDirty();
         this.spacingGroup?.markAsDirty();
     }
+
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
 
     private asNumber(value: unknown, fallback: number): number {

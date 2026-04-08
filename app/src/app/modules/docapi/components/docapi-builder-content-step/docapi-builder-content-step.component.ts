@@ -20,6 +20,7 @@ import {
     ChangeDetectorRef,
     Component,
     EventEmitter,
+    HostListener,
     Input,
     OnDestroy,
     Output
@@ -32,7 +33,15 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 import { ExternalObjectSelectorModalComponent } from '../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../relation-template-selector-modal/relation-template-selector-modal.component';
 import { ReportTemplateSelectorModalComponent } from '../report-template-selector-modal/report-template-selector-modal.component';
-import { DEFAULT_PAGE_MARGINS, PageMargins, parsePageMarginsFromStyle } from '../../utils/page-margins.util';
+import {
+    createPageConfigFromMargins,
+    DEFAULT_PAGE_MARGINS,
+    PageConfig,
+    PageMargins,
+    parseMarginValue,
+    parsePageMarginsFromPageConfig,
+    parsePageMarginsFromStyle
+} from '../../utils/page-margins.util';
 import {
     DocapiDocumentOptionsModalComponent,
     DocumentOptionsModalResult
@@ -43,16 +52,15 @@ import { environment } from '../../../../../environments/environment';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
 import { DEFAULT_FOOTER, DEFAULT_HEADER, normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { DEFAULT_TABLE_OF_CONTENTS, normalizeTableOfContents } from '../../utils/table-of-contents.util';
-
-export interface HeadingNavItem {
-    id: string;
-    level: number;
-    text: string;
-    children: HeadingNavItem[];
-}
+import { OutlineContextMenuState, OutlineNavItem } from '../../models/docapi-outline.model';
+import { buildOutlineTree } from '../../utils/docapi-outline-tree.util';
+import { duplicateSectionById } from '../../utils/docapi-outline-duplicate.util';
+import { DocapiOutlineContextMenuService } from '../../services/docapi-outline-context-menu.service';
 
 interface EditorInstance {
     getBody: () => HTMLElement;
+    getContent: (args?: { format: 'html' }) => string;
+    setContent: (content: string) => void;
     focus: () => void;
     selection: {
         select: (node: HTMLElement) => void;
@@ -67,6 +75,7 @@ interface TemplateInputData {
     header?: unknown;
     footer?: unknown;
     table_of_contents?: unknown;
+    page_config?: unknown;
     template_style?: string;
 }
 
@@ -89,14 +98,19 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     set preData(data: TemplateInputData | undefined) {
         if (!data) return;
 
+        const pageConfigMargins = parsePageMarginsFromPageConfig(data.page_config, this.defaultPageMargins);
+        const styleMargins = parsePageMarginsFromStyle(data.template_style, this.defaultPageMargins);
+        const hasPageConfigMargins = this.hasPersistedPageConfigMargins(data.page_config);
+        this.pageMargins = hasPageConfigMargins ? pageConfigMargins : styleMargins;
+
         this.contentForm.patchValue({
             template_data: data.template_data ?? '',
             cover_page: normalizeCoverPage(data.cover_page),
             header: normalizeHeader(data.header),
             footer: normalizeFooter(data.footer),
-            table_of_contents: normalizeTableOfContents(data.table_of_contents)
+            table_of_contents: normalizeTableOfContents(data.table_of_contents),
+            page_config: createPageConfigFromMargins(this.pageMargins)
         });
-        this.pageMargins = parsePageMarginsFromStyle(data.template_style, this.defaultPageMargins);
     }
 
     @Input()
@@ -117,7 +131,6 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     }
 
     @Output() public readonly previewRequested = new EventEmitter<void>();
-    @Output() public readonly pageMarginsChanged = new EventEmitter<PageMargins>();
 
     public readonly modes = CmdbMode;
     public contentForm: FormGroup;
@@ -127,9 +140,15 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     public templateType = 'OBJECT';
     public templateTypeId: number | null = null;
 
-    public headingNavigation: HeadingNavItem[] = [];
+    public headingNavigation: OutlineNavItem[] = [];
     public activeHeadingId: string | null = null;
     public outlineCollapsed = true;
+    public outlineContextMenu: OutlineContextMenuState = {
+        visible: false,
+        x: 0,
+        y: 0,
+        headingId: null
+    };
 
     private readonly headingSyncDebounceMs = 160;
     private readonly defaultPageMargins: PageMargins = { ...DEFAULT_PAGE_MARGINS };
@@ -139,10 +158,14 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     private headingSyncTimeout?: number;
     private editorInstance?: EditorInstance;
 
+
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
     constructor(
         private readonly templateHelperService: TemplateHelperService,
         private readonly modalService: NgbModal,
         private readonly editorConfigService: DocapiEditorConfigService,
+        private readonly outlineContextMenuService: DocapiOutlineContextMenuService,
         private readonly cdr: ChangeDetectorRef
     ) {
         this.initForm();
@@ -154,11 +177,29 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         this.headingElementMap.clear();
     }
 
+
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    @HostListener('document:click')
+    public onDocumentClick(): void {
+        this.closeOutlineContextMenu();
+    }
+
+    @HostListener('document:keydown.escape')
+    public onEscapePressed(): void {
+        this.closeOutlineContextMenu();
+    }
+
+
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
     public get content(): FormControl<string> | null {
         return this.contentForm.get('template_data') as FormControl<string>;
     }
 
-    public jumpToHeading(item: HeadingNavItem): void {
+    public jumpToHeading(item: OutlineNavItem): void {
+        this.closeOutlineContextMenu();
+
         const target = this.headingElementMap.get(item.id);
         if (!target || !this.editorInstance) return;
 
@@ -171,9 +212,62 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         this.cdr.markForCheck();
     }
 
-    public trackByHeadingId(_index: number, item: HeadingNavItem): string {
+    public openOutlineContextMenu(event: MouseEvent, item: OutlineNavItem): void {
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.outlineContextMenu = this.outlineContextMenuService.createOpenedStateFromPointer(event.clientX, event.clientY, item.id);
+        this.cdr.markForCheck();
+    }
+
+    public onOutlineItemKeydown(event: KeyboardEvent, item: OutlineNavItem): void {
+        const nextState = this.outlineContextMenuService.tryCreateOpenedStateFromKeyboard(event, item.id);
+        if (!nextState) {
+            return;
+        }
+
+        this.outlineContextMenu = nextState;
+        this.cdr.markForCheck();
+    }
+
+    public onContextMenuContainerClick(event: MouseEvent): void {
+        event.stopPropagation();
+    }
+
+    public duplicateFromContextMenu(): void {
+        const headingId = this.outlineContextMenu.headingId;
+        this.closeOutlineContextMenu();
+
+        if (!headingId || !this.editorInstance) {
+            return;
+        }
+
+        const htmlContent = this.editorInstance.getContent({ format: 'html' }) ?? '';
+        const duplicatedContent = duplicateSectionById(htmlContent, headingId);
+        if (duplicatedContent === htmlContent) {
+            return;
+        }
+
+        this.editorInstance.setContent(duplicatedContent);
+        this.scheduleHeadingSync(0);
+    }
+
+    public closeOutlineContextMenu(): void {
+        const nextState = this.outlineContextMenuService.closeIfOpen(this.outlineContextMenu);
+        if (nextState === this.outlineContextMenu) {
+            return;
+        }
+
+        this.outlineContextMenu = nextState;
+        this.cdr.markForCheck();
+    }
+
+    public trackByHeadingId(_index: number, item: OutlineNavItem): string {
         return item.id;
     }
+
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private initForm(): void {
         this.contentForm = new FormGroup({
@@ -196,7 +290,8 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
             table_of_contents: new FormGroup({
                 activated: new FormControl(DEFAULT_TABLE_OF_CONTENTS.activated),
                 config: new FormControl(normalizeTableOfContents(DEFAULT_TABLE_OF_CONTENTS).config)
-            })
+            }),
+            page_config: new FormControl<PageConfig>(createPageConfigFromMargins(this.defaultPageMargins))
         });
     }
 
@@ -243,37 +338,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
             return;
         }
 
-        const headingNodes = Array.from(body.querySelectorAll('h1, h2, h3')) as HTMLElement[];
-        const tree: HeadingNavItem[] = [];
-        const stack: HeadingNavItem[] = [];
-
+        const outlineTree = buildOutlineTree(body);
         this.headingElementMap.clear();
-
-        headingNodes.forEach((node, index) => {
-            const level = Number(node.tagName.replace('H', ''));
-            if (![1, 2, 3].includes(level)) return;
-
-            const text = (node.innerText || node.textContent || '').trim() || 'Untitled heading';
-            const headingId = `heading-${index}`;
-            const headingItem: HeadingNavItem = { id: headingId, level, text, children: [] };
-
-            this.headingElementMap.set(headingId, node);
-
-            // Resolve hierarchy
-            while (stack.length > 0 && stack[stack.length - 1].level >= level) {
-                stack.pop();
-            }
-
-            if (stack.length === 0) {
-                tree.push(headingItem);
-            } else {
-                stack[stack.length - 1].children.push(headingItem);
-            }
-
-            stack.push(headingItem);
-        });
-
-        this.headingNavigation = tree;
+        outlineTree.elementMap.forEach((element, id) => this.headingElementMap.set(id, element));
+        this.headingNavigation = outlineTree.tree;
     }
 
     private openModalAndInsertContent<T>(
@@ -319,17 +387,35 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
                 if (!result) return;
 
                 this.pageMargins = result.margins;
-                this.pageMarginsChanged.emit(result.margins);
 
                 this.contentForm.patchValue({
                     cover_page: normalizeCoverPage(result.coverPage),
                     header: normalizeHeader(result.header),
                     footer: normalizeFooter(result.footer),
-                    table_of_contents: normalizeTableOfContents(result.tableOfContents)
+                    table_of_contents: normalizeTableOfContents(result.tableOfContents),
+                    page_config: createPageConfigFromMargins(result.margins)
                 });
 
                 this.cdr.markForCheck();
             })
             .catch(() => undefined);
+    }
+
+    private hasPersistedPageConfigMargins(pageConfig: unknown): boolean {
+        if (!pageConfig || typeof pageConfig !== 'object') {
+            return false;
+        }
+
+        const margin = (pageConfig as PageConfig).margin;
+        if (!margin || typeof margin !== 'object') {
+            return false;
+        }
+
+        return (
+            parseMarginValue(margin['margin-top']) !== null
+            && parseMarginValue(margin['margin-bottom']) !== null
+            && parseMarginValue(margin['margin-left']) !== null
+            && parseMarginValue(margin['margin-right']) !== null
+        );
     }
 }
