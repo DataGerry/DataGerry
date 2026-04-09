@@ -210,7 +210,7 @@ class TypesManager(BaseManager):
             raise TypesManagerGetError(str(err)) from err
 
 
-    def get_types_as_map(self, public_ids: list[int]) -> dict[int, CmdbType]:
+    def get_types_lookup(self, public_ids: list[int]) -> dict[int, CmdbType]:
         """TODO: document"""
         all_types: list[CmdbType] = self.find_types(criteria={"public_id": {"$in": public_ids}})
 

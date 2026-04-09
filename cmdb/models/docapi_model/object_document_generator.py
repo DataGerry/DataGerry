@@ -165,8 +165,14 @@ class ObjectDocumentGenerator:
             page_header_footer.get_html()
             + cover_page.get_html()
             + toc.get_html()
+            + "<div>"
             + self.template.get_template_data()
+            + "</div>"
         )
+
+        # LOGGER.debug(f"template style: {self.template.get_template_style()}")
+        # LOGGER.debug(f"css:\n {final_css}")
+        # LOGGER.debug(f"html:\n {improved_template_str}")
 
         rendered_template: str = TemplateEngine().render_template_string(
             improved_template_str,

@@ -84,8 +84,8 @@ class MongoDatabaseManager:
             'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
-            'minPoolSize': 5,
-            'maxPoolSize': 100,  # Maximum number of connections in the connection pool
+            'minPoolSize': 1,
+            'maxPoolSize': 25,  # Maximum number of connections in the connection pool
             'wtimeoutMS': 2500,  # Timeout for waiting for write acknowledgment
             'readPreference': 'primaryPreferred',  # Read from the primary node by default
         }
