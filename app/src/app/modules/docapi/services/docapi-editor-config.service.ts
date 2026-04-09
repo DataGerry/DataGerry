@@ -180,7 +180,8 @@ export class DocapiEditorConfigService {
                 {
                     type: 'custom',
                     name: DocapiEditorConfigService.CSS_SUPPORT_BUTTON_NAME,
-                    text: 'Show CSS compatibility details'
+                    text: 'Show CSS compatibility details',
+                    align: 'start'
                 },
                 {
                     type: 'cancel',
