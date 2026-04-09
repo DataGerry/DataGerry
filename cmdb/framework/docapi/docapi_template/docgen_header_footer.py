@@ -24,8 +24,11 @@ from cmdb.framework.docapi.docapi_template.docgen_constants import (
     PAGE_HEIGHT,
     PAGE_WIDTH,
     MIN_MARGIN,
-    DEFAULT_HEADER_HEIGHT,
-    DEFAULT_FOOTER_HEIGHT,
+    MIN_HEADER_HEIGHT,
+    MAX_HEADER_HEIGHT,
+    MIN_FOOTER_HEIGHT,
+    MAX_FOOTER_HEIGHT,
+    DEFAULT_SPACING,
 )
 from cmdb.framework.docapi.docapi_template.docgen_helpers import mm_to_pt
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -79,23 +82,14 @@ class PageHeaderFooter:
         """
         Build dynamic @page CSS with header, content and footer
         """
-        # ---- Page ----
-        page_margin_top: int = self.get_page_value(PageValue.MARGIN_TOP)
-        page_margin_bottom: int = self.get_page_value(PageValue.MARGIN_BOTTOM)
+        header_height: int = self.get_header_value(HeaderValue.HEIGHT)
+        footer_height: int = self.get_footer_value(FooterValue.HEIGHT)
+
+        page_margin_top: int = self.get_page_value(PageValue.MARGIN_TOP) + header_height + DEFAULT_SPACING
+        page_margin_bottom: int = self.get_page_value(PageValue.MARGIN_BOTTOM) + footer_height + DEFAULT_SPACING
         page_margin_left: int = self.get_page_value(PageValue.MARGIN_LEFT)
         page_content_width: int = self.get_page_value(PageValue.MAX_WIDTH)
 
-        # ---- Header ----
-        header_height: int = self.get_header_value(HeaderValue.HEIGHT)
-
-        # ---- Footer ----
-        footer_height: int = self.get_footer_value(FooterValue.HEIGHT)
-
-        # ---- Content ----
-        content_top: int = page_margin_top + header_height
-        content_height: int = PAGE_HEIGHT - header_height - footer_height - page_margin_top - page_margin_bottom
-
-        # ---- Build CSS ----
         page_css: list[str] = [
             "@page {",
             "  size: A4;",
@@ -107,29 +101,23 @@ class PageHeaderFooter:
 
         # ---- Header ----
         if self.header.get("activated", False):
+            header_top = page_margin_top - header_height - DEFAULT_SPACING
             page_css.append(
                 f"  @frame header_frame {{ "
                 f"    -pdf-frame-content: header_content; "
+                # f"    -pdf-frame-border: 1;"
                 f"    left: {page_margin_left}pt; width: {page_content_width}pt; "
-                f"    top: {page_margin_top}pt; height: {header_height}pt; "
+                f"    top: {header_top}pt; height: {header_height}pt; "
                 f"}}"
             )
 
-        # ---- Content ----
-        page_css.append(
-            f"  @frame content_frame {{ "
-            f"    left: {page_margin_left}pt; width: {page_content_width}pt; "
-            f"    top: {content_top}pt; height: {content_height}pt; "
-            f"}}"
-        )
-
         # ---- Footer ----
         if self.footer.get("activated", False):
-            footer_top: int = PAGE_HEIGHT - page_margin_top - footer_height
-
+            footer_top: int = PAGE_HEIGHT - page_margin_bottom + DEFAULT_SPACING
             page_css.append(
                 f"  @frame footer_frame {{ "
                 f"    -pdf-frame-content: footer_content; "
+                # f"    -pdf-frame-border: 1;"
                 f"    left: {page_margin_left}pt; width: {page_content_width}pt; "
                 f"    top: {footer_top}pt; height: {footer_height}pt; "
                 f"}}"
@@ -195,7 +183,12 @@ class PageHeaderFooter:
             return 0
 
         if header_value == HeaderValue.HEIGHT:
-            return self.header.get("config", {}).get(HeaderValue.HEIGHT, DEFAULT_HEADER_HEIGHT)
+            header_height: int = self.header.get("config", {}).get(HeaderValue.HEIGHT, MIN_HEADER_HEIGHT)
+
+            # Enforce height is in the allowed scope
+            header_height = min(max(header_height, MIN_HEADER_HEIGHT), MAX_HEADER_HEIGHT)
+
+            return header_height
 
         raise ValueError("Unknown HeaderValue")
 
@@ -207,6 +200,11 @@ class PageHeaderFooter:
             return 0
 
         if footer_value == FooterValue.HEIGHT:
-            return self.header.get("config", {}).get(FooterValue.HEIGHT, DEFAULT_FOOTER_HEIGHT)
+            footer_height = self.header.get("config", {}).get(FooterValue.HEIGHT, MIN_FOOTER_HEIGHT)
+
+            # Enforce height is in the allowed scope
+            footer_height = min(max(footer_height, MIN_FOOTER_HEIGHT), MAX_FOOTER_HEIGHT)
+
+            return footer_height
 
         raise ValueError("Unknown FooterValue")

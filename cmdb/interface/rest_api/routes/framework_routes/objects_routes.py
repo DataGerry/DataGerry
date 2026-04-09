@@ -1293,7 +1293,7 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
                 if obj.get("type_id") is not None
             ]
 
-            type_map: dict[int, CmdbType] = types_manager.get_types_as_map(object_type_ids)
+            type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
 
             for child_object in children_objects:
                 child_object_id = child_object["public_id"]
@@ -1398,7 +1398,7 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
             if obj.get("type_id") is not None
         ]
 
-        type_map: dict[int, CmdbType] = types_manager.get_types_as_map(object_type_ids)
+        type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
 
         ack: list[int] = []
 

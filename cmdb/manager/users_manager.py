@@ -207,6 +207,7 @@ class UsersManager(BaseManager):
         }
 
         return user_lookup
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_user(self, public_id: int, user_data: CmdbUser | dict) -> None:
