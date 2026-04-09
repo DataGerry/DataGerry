@@ -75,14 +75,13 @@ export interface DocTemplateTocBaseStyle {
 }
 
 export interface DocTemplateTableOfContentsConfig {
-    pdftoc: Required<Pick<DocTemplateTocBaseStyle, 'font-size' | 'line-height'>>;
+    pdftoc: Required<Pick<DocTemplateTocBaseStyle, 'line-height'>>;
     level0: DocTemplateTocBaseStyle;
     level1: DocTemplateTocBaseStyle;
     level2: DocTemplateTocBaseStyle;
     level3: DocTemplateTocBaseStyle;
     level4: DocTemplateTocBaseStyle;
     level5: DocTemplateTocBaseStyle;
-    spacing: Required<Pick<DocTemplateTocBaseStyle, 'margin-top'>>;
 }
 
 export interface DocTemplateTableOfContents {

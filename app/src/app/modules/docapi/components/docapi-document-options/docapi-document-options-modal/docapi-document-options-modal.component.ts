@@ -90,7 +90,6 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         table_of_contents_activated: new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS.activated),
         table_of_contents_config: new UntypedFormGroup({
             pdftoc: new UntypedFormGroup({
-                'font-size': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.pdftoc['font-size']),
                 'line-height': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.pdftoc['line-height'])
             }),
             level0: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level0),
@@ -98,10 +97,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             level2: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level2),
             level3: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level3),
             level4: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level4),
-            level5: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level5),
-            spacing: new UntypedFormGroup({
-                'margin-top': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.spacing['margin-top'])
-            })
+            level5: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level5)
         })
     });
     public validationError = '';

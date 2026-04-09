@@ -50,18 +50,6 @@
 
                 <div class="basic-grid">
                     <div class="field" formGroupName="pdftoc">
-                        <label class="field-label" for="tocFontSizeInput">Text size (pt)</label>
-                        <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepValue('font-size', -0.5, pdftocGroup)">−</button>
-                            <input id="tocFontSizeInput" type="number" class="stepper-input" min="1" max="64" step="0.5"
-                                formControlName="font-size">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepValue('font-size', 0.5, pdftocGroup)">+</button>
-                        </div>
-                    </div>
-
-                    <div class="field" formGroupName="pdftoc">
                         <label class="field-label" for="tocLineHeightInput">Line spacing</label>
                         <div class="stepper">
                             <button type="button" class="stepper-btn"
@@ -70,18 +58,6 @@
                                 step="0.1" formControlName="line-height">
                             <button type="button" class="stepper-btn"
                                 (click)="stepValue('line-height', 0.1, pdftocGroup)">+</button>
-                        </div>
-                    </div>
-
-                    <div class="field" formGroupName="spacing">
-                        <label class="field-label" for="tocSpacingMarginTopInput">Space between entries</label>
-                        <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepValue('margin-top', -0.5, spacingGroup)">−</button>
-                            <input id="tocSpacingMarginTopInput" type="number" class="stepper-input" min="0" max="60"
-                                step="0.5" formControlName="margin-top">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepValue('margin-top', 0.5, spacingGroup)">+</button>
                         </div>
                     </div>
                 </div>
@@ -152,7 +128,8 @@
                         <div class="color-control">
                             <input [id]="'tocLevel' + selectedLevel + 'Color'" type="color" class="color-swatch"
                                 formControlName="color">
-                            <input type="text" class="color-hex" formControlName="color" maxlength="7">
+                            <input type="text" class="color-hex" maxlength="7" [value]="selectedColorHex"
+                                (input)="onColorHexInput($event)" (blur)="onColorHexBlur($event)">
                         </div>
                     </div>
 
@@ -205,18 +182,6 @@
                         </div>
                     </div>
 
-                    <div class="field">
-                        <label class="field-label" [for]="'tocLevel' + selectedLevel + 'PaddingBottom'">Extra bottom
-                            padding</label>
-                        <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('padding-bottom', -0.5)">−</button>
-                            <input [id]="'tocLevel' + selectedLevel + 'PaddingBottom'" type="number"
-                                class="stepper-input" min="0" max="120" step="0.5" formControlName="padding-bottom">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('padding-bottom', 0.5)">+</button>
-                        </div>
-                    </div>
                 </div>
 
             </div>
