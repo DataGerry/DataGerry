@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 This module contains the implementation of ProfileTypeConstructor
 """
-import logging
+from logging import Logger, getLogger
 import random
 from datetime import datetime, timezone
 
@@ -27,7 +27,7 @@ from cmdb.models.section_template_model.cmdb_section_template import CmdbSection
 from cmdb.framework.results import IterationResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ProfileTypeConstructor - CLASS                                            #

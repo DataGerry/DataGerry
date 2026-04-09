@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -52,7 +52,7 @@ class GroupDeletionParameters(APIParameters):
             group_id (int, optional): The public ID of another group to which users must be moved
             **kwargs: Additional optional parameters
         """
-        self.action = action
+        self.action: GroupDeleteMode | None = action
         self.group_id: int = group_id
         super().__init__(query_string = query_string, **kwargs)
 

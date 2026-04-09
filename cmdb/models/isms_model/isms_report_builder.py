@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of IsmsReportBuilder
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 from cmdb.manager.isms_manager.risk_matrix_manager import RiskMatrixManager
@@ -25,7 +25,7 @@ from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentMana
 from cmdb.models.extendable_option_model import OptionType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               IsmsReportBuilder - CLASS                                              #

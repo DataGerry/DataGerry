@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for the IsmsThreats
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
@@ -52,7 +52,7 @@ from cmdb.errors.manager.threat_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 threat_blueprint = APIBlueprint('threat', __name__)
 

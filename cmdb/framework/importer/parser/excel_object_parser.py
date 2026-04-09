@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of ExcelObjectParser
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from openpyxl import load_workbook
 
@@ -27,7 +27,7 @@ from cmdb.framework.importer.responses.excel_object_parser_response import Excel
 from cmdb.errors.importer import ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ExcelObjectParser - CLASS                                              #

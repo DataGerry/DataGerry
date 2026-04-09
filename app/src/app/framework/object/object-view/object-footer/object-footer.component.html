@@ -14,9 +14,6 @@
         <a class="nav-link" data-bs-toggle="tab" href="#object-tab-relation-logs">Relation Logs</a>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-links" role="tabpanel">Links</a>
-      </li>
-      <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#object-tab-summaries" role="tabpanel">Summaries</a>
       </li>
       <li class="nav-item">
@@ -40,10 +37,6 @@
     </div>
     <div class="tab-pane fade" id="object-tab-relation-logs" role="tabpanel">
       <relation-log-list [publicID]="objectID"></relation-log-list>
-    </div>
-    <div class="tab-pane fade" id="object-tab-links" role="tabpanel">
-      <cmdb-object-links-table [object]="renderResult" [acl]="renderResult.type_information.acl">
-      </cmdb-object-links-table>
     </div>
     <div class="tab-pane fade" id="object-tab-summaries" role="tabpanel">
       <cmdb-object-summary [renderResult]="renderResult" [summaries]="renderResult?.summaries"></cmdb-object-summary>

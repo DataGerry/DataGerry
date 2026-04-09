@@ -1,0 +1,22 @@
+<div class="header-pane" *ngIf="headerForm" [formGroup]="headerForm">
+    <div class="form-check mb-3">
+        <input class="form-check-input" id="sectionActivatedInput" type="checkbox" [formControlName]="activatedControlName">
+        <label class="form-check-label" for="sectionActivatedInput">
+            {{ activationLabel }}
+        </label>
+    </div>
+
+    <label class="form-label" for="sectionContentInput">{{ contentLabel }}</label>
+    <editor
+        id="sectionContentInput"
+        [formControlName]="contentControlName"
+        [init]="editorConfig"
+        aria-describedby="sectionContentHelp"
+    ></editor>
+    <small id="sectionContentHelp" class="form-text text-muted">
+        {{ contentHelpText }}
+    </small>
+    <small *ngIf="paginationHint" class="form-text text-muted d-block mt-1">
+        {{ paginationHint }}
+    </small>
+</div>

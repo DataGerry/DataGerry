@@ -21,10 +21,6 @@ import {  Observable } from 'rxjs';
 import { ApiCallService, resp } from 'src/app/services/api-call.service';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
 import { ReportRiskMatrix } from '../models/risk-matrix-report.model';
-import { CollectionParameters } from 'src/app/services/models/api-parameter';
-import { APIGetMultiResponse } from 'src/app/services/models/api-response';
-import { CmdbPerson } from '../models/person.model';
-import { HttpHeaders } from '@angular/common/http';
 
 @Injectable({ providedIn: 'root' })
 export class RiskMatrixReportService extends BaseApiService<ReportRiskMatrix> {

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,9 @@
 """
 This module contains the implementation of the CiExplorerProfileManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
@@ -27,7 +26,7 @@ from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 from cmdb.errors.manager.ci_explorer_profile_manager import CI_EXPLORER_PROFILE_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            CiExplorerProfileManager - CLASS                                          #
@@ -38,5 +37,42 @@ class CiExplorerProfileManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str = None) -> None:
         super().__init__(dbm, CmdbCiExplorerProfile, CI_EXPLORER_PROFILE_MANAGER_ERRORS, database)
+
+# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
+
+    def remove_type_from_profiles(self, type_id: int) -> None:
+        """
+        Removes a type_id from all CiExplorerProfiles
+
+        Args:
+            type_id(int): public_id of the CmdbType which should be removed from all CiExplorerProfiles
+        """
+        criteria: dict[str, int] = {'types_filter': type_id}
+
+        update: dict[str, dict[str, int]] = {
+            '$pull': {
+                'types_filter': type_id
+            }
+        }
+
+        self.update_many(criteria=criteria, update=update, plain=True)
+
+
+    def remove_relation_from_profiles(self, relation_id: int) -> None:
+        """
+        Removes a relation_id from all CiExplorerProfiles
+
+        Args:
+            relation_id(int): public_id of the CmdbRelation which should be removed from all CiExplorerProfiles
+        """
+        criteria: dict[str, int] = {'relations_filter': relation_id}
+
+        update: dict[str, dict[str, int]] = {
+            '$pull': {
+                'relations_filter': relation_id
+            }
+        }
+
+        self.update_many(criteria=criteria, update=update, plain=True)

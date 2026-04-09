@@ -65,6 +65,7 @@
 <li class="toctree-l1"><a class="reference internal" href="usage/reports.html">Reports</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage/document_generator.html">Document generator</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage/isms.html">ISMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage/automations.html">Automations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage/webhooks.html">Webhooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage/imports.html">Imports</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage/exports.html">Exports</a></li>
@@ -86,7 +87,7 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Sources</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages" rel="noreferrer" target="_blank">Download Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sources/packages.html">Download Packages</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
 <li class="toctree-l1"><a class="reference internal" href="sources/changelog.html">Changelogs</a></li>
@@ -150,7 +151,7 @@ and manage any type of asset or configuration data.</p>
 <li class="toctree-l2"><a class="reference internal" href="getting_started/dg_installation.html#configuration">Configuration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="getting_started/dg_installation.html#setup-via-docker-image">Setup via Docker Image</a></li>
 <li class="toctree-l2"><a class="reference internal" href="getting_started/dg_installation.html#setup-via-rpm">Setup via RPM</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting_started/dg_installation.html#setup-via-tar-gz-zip-archive">Setup via tar.gz / zip Archive</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started/dg_installation.html#setup-via-zip-archive">Setup via zip Archive</a></li>
 <li class="toctree-l2"><a class="reference internal" href="getting_started/dg_installation.html#setup-via-deb-package">Setup via DEB Package</a></li>
 </ul>
 </li>
@@ -243,6 +244,14 @@ and manage any type of asset or configuration data.</p>
 <li class="toctree-l2"><a class="reference internal" href="usage/isms.html#isms-reporting">ISMS Reporting</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="usage/automations.html">Automations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="usage/automations.html#generell">Generell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage/automations.html#automation-overview">Automation Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage/automations.html#manage-connectors">Manage Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage/automations.html#license-overview">License Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage/automations.html#documentation-and-further-help">Documentation and Further Help</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="usage/webhooks.html">Webhooks</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="usage/webhooks.html#manage-webhooks">Manage Webhooks</a></li>
 </ul>
@@ -307,10 +316,16 @@ and manage any type of asset or configuration data.</p>
 <div class="toctree-wrapper compound">
 <p class="caption" role="heading"><span class="caption-text">Sources</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages" rel="noreferrer" target="_blank">Download Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sources/packages.html">Download Packages</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="sources/packages.html#deb">DEB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="sources/packages.html#rpm">RPM</a></li>
+<li class="toctree-l2"><a class="reference internal" href="sources/packages.html#zip">ZIP</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
 <li class="toctree-l1"><a class="reference internal" href="sources/changelog.html">Changelogs</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="sources/changelog.html#version-3-1-0">Version 3.1.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="sources/changelog.html#version-3-0-0">Version 3.0.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="sources/changelog.html#version-2-2-0">Version 2.2.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="sources/changelog.html#version-2-1-0">Version 2.1.0</a></li>
@@ -339,13 +354,13 @@ and manage any type of asset or configuration data.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="getting_started/welcome.html" class="btn btn-neutral float-end" title="Introduction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="getting_started/welcome.html" class="btn btn-neutral float-right" title="Introduction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2025, becon GmbH.</p>
+    <p>&#169; Copyright 2026, becon GmbH.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

@@ -1,0 +1,24 @@
+:host {
+  display: block;
+}
+
+.modal-body {
+  padding: 1.25rem 1.5rem;
+}
+
+.options-tabs {
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  row-gap: 0.35rem;
+}
+
+.modal-header {
+  background-color: #e95f33;
+  color: #ffffff;
+}
+
+.validation-error {
+  margin-top: 1rem;
+  color: #c92a2a;
+  font-size: 0.9rem;
+}

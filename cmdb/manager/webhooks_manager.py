@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 This module contains the implementation of the WebhooksManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 import json
 from datetime import datetime, timezone
 import requests
@@ -34,7 +35,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.errors.manager import BaseManagerInsertError, BaseManagerGetError, BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                WebhooksManager - CLASS                                               #
@@ -45,7 +46,7 @@ class WebhooksManager(BaseManager):
     Extends: BaseManager
     """
 
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database:str = None) -> None:
         """
         Set the database connection and the queue for sending events
 
@@ -98,7 +99,7 @@ class WebhooksManager(BaseManager):
             raise BaseManagerGetError(f"Webhook with ID: {public_id}! 'GET' Error: {err}") from err
 
         if requested_webhook:
-            requested_webhook = CmdbWebhook.from_data(requested_webhook)
+            requested_webhook: CmdbWebhook = CmdbWebhook.from_data(requested_webhook)
 
             return requested_webhook
 
@@ -138,7 +139,8 @@ class WebhooksManager(BaseManager):
             operation: WebhookEventType = None,
             object_before: dict = None,
             object_after: dict = None,
-            changes: dict = None) -> None:
+            changes: dict = None
+        ) -> None:
         """
         Sends a webhook event to all configured webhook endpoints that are subscribed 
         to the specified operation type.
@@ -157,9 +159,11 @@ class WebhooksManager(BaseManager):
             if not webhooks:
                 return
 
-            # Check all webhooks
             webhook: CmdbWebhook
             for webhook in webhooks:
+                if not webhook.active:
+                    continue
+
                 # Check if operation is registered in the webhook
                 if operation not in webhook.event_types:
                     continue
@@ -182,7 +186,7 @@ class WebhooksManager(BaseManager):
 
                 self.webhooks_event_manager.insert_webhook_event(payload)
         except Exception as err:
-            LOGGER.debug("[send_webhook_event] Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[send_webhook_event] Exception: %s, Type: %s", str(err), type(err))
 
 
     def build_payload(
@@ -190,7 +194,8 @@ class WebhooksManager(BaseManager):
             operation: WebhookEventType,
             object_before: dict,
             object_after:dict,
-            changes: dict = None) -> dict:
+            changes: dict = None
+        ) -> dict[str, Any]:
         """
         Constructs the payload dictionary for a webhook event
 
@@ -201,7 +206,7 @@ class WebhooksManager(BaseManager):
             changes (dict, optional): A dictionary summarizing the changes made to the object
 
         Returns:
-            dict: A dictionary containing event metadata and object data to be sent to webhook endpoints
+            dict[str, Any]: A dictionary containing event metadata and object data to be sent to webhook endpoints
         """
         return {
             'event_time': datetime.now(timezone.utc),

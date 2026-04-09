@@ -28,7 +28,6 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     DocapiTemplatesManager,
     ObjectsManager,
-    TypesManager,
 )
 
 from cmdb.models.user_model import CmdbUser
@@ -95,7 +94,7 @@ def create_template(request_user: CmdbUser) -> Response:
         LOGGER.error("[create_template] %s", err, exc_info=True)
         abort(400, "Could not insert the new template in the database!")
     except Exception as err:
-        LOGGER.error("[create_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[create_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to insert the template!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -137,7 +136,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
         LOGGER.error("[get_templates] %s", err, exc_info=True)
         abort(400, "Could not retrieve templates from database!")
     except Exception as err:
-        LOGGER.error("[get_templates] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[get_templates] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to retrieve the templates!")
 
 
@@ -170,7 +169,7 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
         LOGGER.error("[get_template_list_filtered] %s", err, exc_info=True)
         abort(404, f"Could not retrieve template list for filter: {searchfilter}")
     except Exception as err:
-        LOGGER.error("[get_template_list_filtered] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[get_template_list_filtered] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to retrieve the templates!")
 
 
@@ -178,7 +177,7 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.view')
-def get_template(public_id: int, request_user: CmdbUser):
+def get_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single DocapiTemplate with the given public_id
 
@@ -201,7 +200,7 @@ def get_template(public_id: int, request_user: CmdbUser):
         LOGGER.error("[get_template] %s", err, exc_info=True)
         abort(404, "Could not retrieve the  requested template!")
     except Exception as err:
-        LOGGER.error("[get_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[get_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to retrieve the template!")
 
 
@@ -209,7 +208,7 @@ def get_template(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.view')
-def get_template_by_name(name: str, request_user: CmdbUser):
+def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single DocapiTemplate with the given name
 
@@ -231,14 +230,14 @@ def get_template_by_name(name: str, request_user: CmdbUser):
         LOGGER.error("[get_template_by_name] %s", err, exc_info=True)
         abort(404, f"Could not retrieve the template with name:{name}!")
     except Exception as err:
-        LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, f"An internal server error occured when trying to retrieve the Template with name:{name}!")
 
 
 @docapi_blueprint.route('/template/<int:public_id>/render/<int:object_id>', methods=['GET'])
 @insert_request_user
 @right_required('base.framework.object.view')
-def render_object_template(public_id: int, object_id: int, request_user: CmdbUser):
+def render_object_template(public_id: int, object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single rendered DocapiTemplate
 
@@ -255,9 +254,8 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
                                                                                 request_user)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        target_template = docapi_manager.get_template(public_id)
+        target_template: DocapiTemplate = docapi_manager.get_template(public_id)
 
         if not target_template:
             abort(404, f"Template with ID: {public_id} not found!")
@@ -270,8 +268,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         docapi_renderer = DocApiRenderer(
             objects_manager,
             target_template,
-            CmdbObject.from_data(target_object),
-            types_manager
+            CmdbObject.from_data(target_object)
         )
 
         output = docapi_renderer.render_object_template(request_user)
@@ -286,11 +283,11 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
-        LOGGER.error("[render_object_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[render_object_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500,
-              f"An unexpected error occured while trying to render the Template with ID: {public_id} "
-              f"for Object with ID: {object_id}!"
-            )
+            f"An unexpected error occured while trying to render the Template with ID: {public_id} "
+            f"for Object with ID: {object_id}!"
+        )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -300,7 +297,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.edit')
-def update_template(request_user: CmdbUser):
+def update_template(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route for updating a single DocapiTemplate
 
@@ -322,14 +319,12 @@ def update_template(request_user: CmdbUser):
 
         docapi_manager.update_template(update_tpl_instance)
 
-        api_response = DefaultResponse(update_tpl_instance)
-
-        return api_response.make_response()
+        return DefaultResponse(update_tpl_instance).make_response()
     except DocapiTemplatesManagerUpdateError as err:
         LOGGER.error("[update_template] %s", err, exc_info=True)
         abort(400, "Could not update the template!")
     except Exception as err:
-        LOGGER.error("[update_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[update_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to update the template!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -360,5 +355,5 @@ def delete_template(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[delete_template] %s", err, exc_info=True)
         abort(400, "Could not delete the template!")
     except Exception as err:
-        LOGGER.error("[delete_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[delete_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to delete the template!")

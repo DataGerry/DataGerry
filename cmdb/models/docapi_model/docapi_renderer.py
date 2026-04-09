@@ -16,10 +16,10 @@
 """
 Implementation of the DocApiRenderer in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 from io import BytesIO
 
-from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager import ObjectsManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
@@ -30,7 +30,7 @@ from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                DocApiRenderer - CLASS                                                #
@@ -41,12 +41,11 @@ class DocApiRenderer:
     """
 
     def __init__(
-            self,
-            objects_manager: ObjectsManager,
-            target_template: DocapiTemplate,
-            target_object: CmdbObject,
-            types_manager: TypesManager = None
-        ) -> None:
+        self,
+        objects_manager: ObjectsManager,
+        target_template: DocapiTemplate,
+        target_object: CmdbObject,
+    ) -> None:
         """
         Initializes the DocApiRenderer
 
@@ -54,10 +53,9 @@ class DocApiRenderer:
             objects_manager (ObjectsManager): The manager responsible for CmdbObjects
             template (DocapiTemplate): Target template
         """
-        self.target_template = target_template
-        self.target_object = target_object
-        self.objects_manager = objects_manager
-        self.types_manager = types_manager
+        self.target_template: DocapiTemplate = target_template
+        self.target_object: CmdbObject = target_object
+        self.objects_manager: ObjectsManager = objects_manager
 
 
     def render_object_template(self, request_user: CmdbUser = None) -> BytesIO:
@@ -89,7 +87,6 @@ class DocApiRenderer:
                                             cmdb_render_object.result(),
                                             PdfDocumentType(),
                                             self.objects_manager,
-                                            self.types_manager,
                                             request_user)
 
         return generator.generate_doc()

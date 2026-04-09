@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,15 +16,15 @@
 """
 This module contains the implementation of the RelationsManager
 """
-import logging
+from logging import Logger, getLogger
+
+from pymongo import UpdateOne
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.relation_model import CmdbRelation
-
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
@@ -46,7 +46,7 @@ from cmdb.errors.manager.relations_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               RelationsManager - CLASS                                               #
@@ -166,6 +166,30 @@ class RelationsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[update_relation] Exception: %s. Type: %s", err, type(err))
             raise RelationsManagerUpdateError(err) from err
+
+
+    def remove_type_from_relations(self, type_id: int) -> None:
+        """
+        Removes a type_id from all relation parent/child lists
+        
+        Args:
+            type_id (int): public_id of the CmdbType which should be removed from all relations
+        """
+        criteria: dict[str, list[dict[str, int]]] = {
+            '$or': [
+                {'parent_type_ids': type_id},
+                {'child_type_ids': type_id}
+            ]
+        }
+
+        update: dict[str, dict[str, int]] = {
+            '$pull': {
+                'parent_type_ids': type_id,
+                'child_type_ids': type_id
+            }
+        }
+
+        self.update_many(criteria=criteria, update=update, plain=True)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

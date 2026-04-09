@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,10 @@
 """
 Implementation of all API routes for CmdbWebhooks
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from ast import literal_eval
+
 from flask import abort, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -46,7 +47,7 @@ from cmdb.errors.manager import (
 from cmdb.errors.database import NoDocumentFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 webhook_blueprint = APIBlueprint('webhooks', __name__)
 

@@ -22,32 +22,33 @@ import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationFormComponent } from './components/automation-form/automation-form.component';
 import { AuthGuard } from 'src/app/modules/auth/guards/auth.guard';
-import { ConnectorFormComponent } from '../connectors/components/connector-form/connector-form.component';
+import { ConnectorFormComponent } from './connectors/components/connector-form/connector-form.component';
+import { PermissionGuard } from 'src/app/modules/auth/guards/permission.guard';
 
 const routes: Routes = [
   {
     path: '',
     component: AutomationsComponent,
-    canActivate: [AuthGuard],
+    canActivate: [AuthGuard, PermissionGuard],
     data: {
-      right: 'automation.view'
+      right: 'base.openCelium.connection.view'
     },
     children: [
       {
         path: '',
         component: AutomationsListComponent,
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
         data: {
-          right: 'automation.view',
+          right: 'base.openCelium.connection.view',
           breadcrumb: 'Automations'
         }
       },
       {
         path: 'add',
         component: AutomationFormComponent,
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
         data: {
-          right: 'automation.create',
+          right: 'base.openCelium.connection.add',
           breadcrumb: 'Create Automation',
           mode: 'create'
         }
@@ -55,9 +56,9 @@ const routes: Routes = [
       {
         path: 'edit/:schedulerId',
         component: AutomationFormComponent,
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
         data: {
-          right: 'automation.edit',
+          right: 'base.openCelium.connection.edit',
           breadcrumb: 'Edit Automation',
           mode: 'edit'
         }
@@ -65,12 +66,22 @@ const routes: Routes = [
       {
         path: 'internal',
         component: ConnectorFormComponent,
-        data: { mode: 'internal', breadcrumb: 'DataGerry API Credentials' }
+        canActivate: [AuthGuard, PermissionGuard],
+        data: {
+          right: 'base.openCelium.connector.*',
+          mode: 'internal',
+          breadcrumb: 'DataGerry API Credentials'
+        }
       },
       {
         path: 'connectors/internal',
         component: ConnectorFormComponent,
-        data: { mode: 'internal', breadcrumb: 'DataGerry API Credentials' }
+        canActivate: [AuthGuard, PermissionGuard],
+        data: {
+          right: 'base.openCelium.connector.*',
+          mode: 'internal',
+          breadcrumb: 'DataGerry API Credentials'
+        }
       }
     ]
   }

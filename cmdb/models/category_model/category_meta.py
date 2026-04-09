@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,10 @@
 """
 Represents a CategoryMeta of a CmdbCategory in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CategoryMeta - CLASS                                                 #
@@ -51,16 +51,6 @@ class CategoryMeta:
             str: The icon, which may be a string or a Unicode symbol
         """
         return self.icon
-
-
-    def has_order(self) -> bool:
-        """
-        Checks whether an order value is set for the CmdbCategory
-
-        Returns:
-            bool: True if the order is set, otherwise False
-        """
-        return bool(self.order)
 
 
     def get_order(self) -> int:

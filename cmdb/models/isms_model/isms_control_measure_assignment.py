@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Implementation of IsmsControlMeasureAssignment in DataGerry - ISMS
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
@@ -31,7 +32,7 @@ from cmdb.errors.models.isms_control_measure_assignment import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         IsmsControlMeasureAssignment - CLASS                                         #
@@ -44,6 +45,21 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     """
     COLLECTION = "isms.controlMeasureAssignment"
     MODEL = 'ControlMeasureAssignment'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('control_measure_id', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_id', 'unique': False},
+        {'keys': [('risk_assessment_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_assessment_id', 'unique': False},
+        {
+            'keys': [('responsible_for_implementation_id_ref_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_for_implementation_id_ref_type',
+            'unique': False
+        },
+        {
+            'keys': [('responsible_for_implementation_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_for_implementation_id',
+            'unique': False
+        }
+    ]
 
     SCHEMA: dict = {
         'public_id': { # public_id of the IsmsControlMeasureAssignment

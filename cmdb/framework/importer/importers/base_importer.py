@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,13 @@
 """
 Module of basic importers
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.configs.base_importer_config import BaseImporterConfig
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 BaseImporter - CLASS                                                 #

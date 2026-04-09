@@ -17,8 +17,12 @@
   </div>
 </ng-template>
 
-<ng-template #userTemplate let-data="data">
-  <cmdb-user-compact *ngIf="data" [userID]="data"></cmdb-user-compact>
+<ng-template #userTemplate let-data="data" let-item="item" let-column="column">
+  <cmdb-user-compact
+    *ngIf="data"
+    [userID]="data"
+    [prefetchedUser]="resolveTypeListUser(item, column?.name)"
+  ></cmdb-user-compact>
 </ng-template>
 
 <ng-template #typeNameTemplate let-item="item">
@@ -34,7 +38,7 @@
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
 <ng-template #cleanTemplate let-item="item">
-  <cmdb-clean-button [type]="item"></cmdb-clean-button>
+  <cmdb-clean-button [type]="item" [cleanStatus]="item.clean_status"></cmdb-clean-button>
 </ng-template>
 
 <ng-template #exportTemplate>

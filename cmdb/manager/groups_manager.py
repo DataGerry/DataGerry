@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 This module contains the implementation of the GroupsManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -42,9 +42,10 @@ from cmdb.errors.manager.groups_manager import (
 from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupToJsonError,
 )
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 GroupsManager - CLASS                                                #
@@ -55,7 +56,7 @@ class GroupsManager(BaseManager):
 
     Extends: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager = None, database :str = None):
+    def __init__(self, dbm: MongoDatabaseManager = None, database :str = None) -> None:
         """
         Set the database connection for the GroupsManager
 
@@ -67,7 +68,7 @@ class GroupsManager(BaseManager):
             GroupsManagerInitError: If the GroupsManager could not be initialised
         """
         try:
-            self.rights = flat_rights_tree(ALL_RIGHTS)
+            self.rights: list[BaseRight] = flat_rights_tree(ALL_RIGHTS)
 
             super().__init__(CmdbUserGroup.COLLECTION, dbm, database)
         except Exception as err:

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -53,12 +53,10 @@ class CmdbType(CmdbDAO):
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
-    INDEX_KEYS: list[dict[str, Any]] = [{
-        'keys': [('name', CmdbDAO.DAO_ASCENDING)],
-        'name': 'name',
-        'unique': True
-    }]
-
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
+        {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
+    ]
 
     #pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
     def __init__(
@@ -492,3 +490,8 @@ class CmdbType(CmdbDAO):
         field_names = [field["name"] for field in self.fields if field["type"] == field_type]
 
         return field_names
+
+
+    def get_fields_with_type(self, field_type: str) -> dict[str, dict[str, Any]]:
+        """TODO: document"""
+        return {f["name"]: f for f in self.fields if f["type"] == field_type}

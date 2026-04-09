@@ -18,7 +18,7 @@ This module provides the `MongoConnector` class to establish and manage a connec
 to a MongoDB database
 """
 import os
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from pymongo import MongoClient
 from pymongo.database import Database
@@ -29,7 +29,7 @@ from cmdb.database.database_utils import retry_operation
 from cmdb.errors.database import DatabaseConnectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                MongoConnector - CLASS                                                #

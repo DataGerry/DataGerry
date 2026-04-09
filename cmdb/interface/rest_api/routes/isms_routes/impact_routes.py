@@ -1,5 +1,5 @@
 # DataGerrys - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for IsmsImpacts
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
@@ -52,7 +52,7 @@ from cmdb.errors.manager.impact_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 impact_blueprint = APIBlueprint('impacts', __name__)
 
@@ -79,7 +79,7 @@ def insert_isms_impact(data: dict, request_user: CmdbUser) -> Response:
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
         # There is a Limit of 6 Impact classes
-        impact_count = impact_manager.count_items()
+        impact_count = impact_manager.count_documents()
 
         if impact_count >= 6:
             abort(403, "Only a maximum of 6 Impacts can be created!")

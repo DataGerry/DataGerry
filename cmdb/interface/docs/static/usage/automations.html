@@ -1,0 +1,444 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automations &mdash; DataGerry latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=f76a5f1d" />
+
+  
+    <link rel="shortcut icon" href="../_static/datagerry_favicon.png"/>
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Webhooks" href="webhooks.html" />
+    <link rel="prev" title="ISMS" href="isms.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            DataGerry
+              <img src="../_static/datagerry_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/welcome.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/cloud_vs_on_premises.html">Cloud vs. On-Premises</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/service_portal.html">Cloud version</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/dg_installation.html">On-Premises Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/updates.html">Updating DataGerry</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/administration.html">Administration</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Usage</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="cmdb_concepts.html">CMDB Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="datagerry_assistant.html">DataGerry Assistant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="section_templates.html">Section Templates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="multi_data_sections.html">Multi Data Sections (MDS)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="n_m_relations.html">n:m Relations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ci_explorer.html">CI Explorer</a></li>
+<li class="toctree-l1"><a class="reference internal" href="locations.html">Locations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reports.html">Reports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="document_generator.html">Document generator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="isms.html">ISMS</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Automations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#generell">Generell</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#terminology">Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cloud-vs-on-premises">Cloud vs. On-Premises</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#automation-overview">Automation Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#accessing-automations">Accessing Automations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#automation-refresh">Automation Refresh</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#managing-connectors">Managing Connectors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#add-automation">Add Automation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#manage-connectors">Manage Connectors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#built-in-connector">Built-in Connector</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#add-connectors">Add Connectors</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#left-side-meta-information">Left Side – Meta Information</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#right-side-authentication-configuration">Right Side – Authentication Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#testing-the-connector">Testing the Connector</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#license-overview">License Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#accessing-license-overview">Accessing License Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#license-information">License Information</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cloud-version">Cloud Version</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#documentation-and-further-help">Documentation and Further Help</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="webhooks.html">Webhooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="imports.html">Imports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="exports.html">Exports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_explorer.html">File Explorer</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Management</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../management/user.html">Users</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../management/user_group.html">User Groups</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../management/authentication.html">Authentication</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../management/access_control_list.html">Access Control List (ACL)</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Media</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html">Website</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html#service-portal">Service Portal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html#community-forum">Community Forum</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html#contact-us">Contact us</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Sources</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../sources/packages.html">Download Packages</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sources/changelog.html">Changelogs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">REST API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../rest_api/overview.html">API Docs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">License</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/license.html">License</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">DataGerry</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Automations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/usage/automations.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="automations">
+<h1>Automations<a class="headerlink" href="#automations" title="Link to this heading"></a></h1>
+<nav class="contents local" id="table-of-contents">
+<span id="automations-anchor"></span><p class="topic-title">Table of Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#generell" id="id6">Generell</a></p>
+<ul>
+<li><p><a class="reference internal" href="#terminology" id="id7">Terminology</a></p></li>
+<li><p><a class="reference internal" href="#cloud-vs-on-premises" id="id8">Cloud vs. On-Premises</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#automation-overview" id="id9">Automation Overview</a></p>
+<ul>
+<li><p><a class="reference internal" href="#accessing-automations" id="id10">Accessing Automations</a></p></li>
+<li><p><a class="reference internal" href="#automation-refresh" id="id11">Automation Refresh</a></p></li>
+<li><p><a class="reference internal" href="#managing-connectors" id="id12">Managing Connectors</a></p></li>
+<li><p><a class="reference internal" href="#add-automation" id="id13">Add Automation</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#manage-connectors" id="id14">Manage Connectors</a></p>
+<ul>
+<li><p><a class="reference internal" href="#built-in-connector" id="id15">Built-in Connector</a></p></li>
+<li><p><a class="reference internal" href="#add-connectors" id="id16">Add Connectors</a></p>
+<ul>
+<li><p><a class="reference internal" href="#left-side-meta-information" id="id17">Left Side – Meta Information</a></p></li>
+<li><p><a class="reference internal" href="#right-side-authentication-configuration" id="id18">Right Side – Authentication Configuration</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#testing-the-connector" id="id19">Testing the Connector</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#license-overview" id="id20">License Overview</a></p>
+<ul>
+<li><p><a class="reference internal" href="#accessing-license-overview" id="id21">Accessing License Overview</a></p></li>
+<li><p><a class="reference internal" href="#license-information" id="id22">License Information</a></p></li>
+<li><p><a class="reference internal" href="#cloud-version" id="id23">Cloud Version</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#documentation-and-further-help" id="id24">Documentation and Further Help</a></p></li>
+</ul>
+</nav>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<section id="generell">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Generell</a><a class="headerlink" href="#generell" title="Link to this heading"></a></h2>
+<p>The <strong>Automations</strong> feature in DataGerry allows you to create and manage interfaces directly through the user interface. In the background, <a class="reference external" href="https://opencelium.io" rel="noreferrer" target="_blank">OpenCelium</a> is used to handle the connections to external systems, making it easy to automate tasks and manage integrations.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<section id="terminology">
+<h3><a class="toc-backref" href="#id7" role="doc-backlink">Terminology</a><a class="headerlink" href="#terminology" title="Link to this heading"></a></h3>
+<p><strong>Automation</strong></p>
+<p>An <strong>Automation</strong> in Datagerry is a combination of a <em>Connection</em> and a <em>Scheduler entry</em>.
+It defines a task that runs according to a defined schedule and interacts with a data source via a connection.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p><strong>Automation-IDE</strong></p>
+<p>The <strong>Automation-IDE</strong> (in OpenCelium called <em>Connection Editor</em>) is the interface where Automations are created, edited, and managed.
+Templates can be loaded within the Automation-IDE as starting points for new Automations.
+After loading, templates can be modified and saved.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<section id="cloud-vs-on-premises">
+<h3><a class="toc-backref" href="#id8" role="doc-backlink">Cloud vs. On-Premises</a><a class="headerlink" href="#cloud-vs-on-premises" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Cloud</strong>: In the Cloud version of DataGerry, licenses are automatically assigned to users when they use DataGerry in the cloud. Therefore, the license overview is not relevant in this version.</p></li>
+<li><p><strong>On-Premises</strong>: In the On-Premises version of DataGerry, you can access the <a class="reference external" href="https://opencelium.io" rel="noreferrer" target="_blank">OpenCelium</a> license overview. This allows you to manage and monitor the licenses being used.</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+</section>
+<section id="automation-overview">
+<h2><a class="toc-backref" href="#id9" role="doc-backlink">Automation Overview</a><a class="headerlink" href="#automation-overview" title="Link to this heading"></a></h2>
+<figure class="align-default" id="id4">
+<a class="reference internal image-reference" href="../_images/automation_overview.png"><img alt="../_images/automation_overview.png" src="../_images/automation_overview.png" style="width: 600px;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Picture: Automation overview</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<section id="accessing-automations">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">Accessing Automations</a><a class="headerlink" href="#accessing-automations" title="Link to this heading"></a></h3>
+<p>To access <strong>Automations</strong>, navigate to the <strong>Toolbox</strong> menu in the DataGerry dashboard, and select the <strong>Automations</strong> sub-menu. You will be presented with a table displaying all created automations, which includes the following key information:</p>
+<ul class="simple">
+<li><p><strong>Name</strong>: The name of the automation.</p></li>
+<li><p><strong>Direction (Data Flow Direction)</strong>: Defines the direction of the interface—either <strong>Incoming</strong>, <strong>Outgoing</strong>, or <strong>Internal</strong>.</p></li>
+<li><p><strong>Cron Expression</strong>: The time-based configuration that defines how frequently the automation will run.</p></li>
+<li><p><strong>Last Success</strong>: The last successful execution time of the automation.</p></li>
+<li><p><strong>Last Failure</strong>: The last time the automation failed.</p></li>
+<li><p><strong>Last Duration</strong>: The duration of the last automation run.</p></li>
+<li><p><strong>Logs</strong>: Logs that can be toggled on or off for monitoring the automation’s activity.</p></li>
+<li><p><strong>Status</strong>: The current status of the automation (active, inactive, etc.).</p></li>
+<li><p><strong>Action List</strong>: Here, you can start, edit, adjust the cron expression, or delete the automation.</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="automation-refresh">
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Automation Refresh</a><a class="headerlink" href="#automation-refresh" title="Link to this heading"></a></h3>
+<p>You can enable <strong>auto-refresh</strong> for the Automations page, which ensures that you are always seeing the most up-to-date status and data related to your automations.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="managing-connectors">
+<h3><a class="toc-backref" href="#id12" role="doc-backlink">Managing Connectors</a><a class="headerlink" href="#managing-connectors" title="Link to this heading"></a></h3>
+<p>In the <strong>Automations</strong> section, you can manage and configure <strong>connectors</strong>. You can modify existing connections or create new ones to send or receive data from various sources.</p>
+<figure class="align-default" id="id5">
+<a class="reference internal image-reference" href="../_images/manage_connectors.png"><img alt="../_images/manage_connectors.png" src="../_images/manage_connectors.png" style="width: 600px;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Picture: Automation overview</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="add-automation">
+<h3><a class="toc-backref" href="#id13" role="doc-backlink">Add Automation</a><a class="headerlink" href="#add-automation" title="Link to this heading"></a></h3>
+<p><strong>Steps to create a new automation:</strong></p>
+<ol class="arabic simple">
+<li><p>Click on <strong>Create New Automation</strong>.</p></li>
+<li><p>A form will open asking for the following details:
+- <strong>Name</strong> of the automation.
+- <strong>Description</strong> (optional).
+- <strong>Direction of Data Flow</strong>: Choose the desired data flow direction (<strong>incoming</strong>, <strong>outgoing</strong>, or <strong>internal</strong>).
+- <strong>Get/Send data from/to Connector:</strong>: Select the connector through which you want to send or receive data.
+- <strong>Use a predefined interface template:</strong>: The available predifined templates are loaded based on the selection of the connector and the direction of the data flow. A template is a predefined interface blueprint that can be loaded in the Automation-IDE. It serves as a starting point to quickly display an interface. After loading, the template can be modified and customized, and then saved.</p></li>
+<li><p>Start creating Automation. Please refer to the <a class="reference external" href="https://docs.opencelium.io/en/prod/usage/connections.html#create-connection" rel="noreferrer" target="_blank">OpenCelium Documentation</a> to know how to start. The first to pictures looks different to DataGery UI. Please skip them. Its important to know, how to use operators oder api methods.</p></li>
+</ol>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+</section>
+<hr class="docutils" />
+<section id="manage-connectors">
+<h2><a class="toc-backref" href="#id14" role="doc-backlink">Manage Connectors</a><a class="headerlink" href="#manage-connectors" title="Link to this heading"></a></h2>
+<p>The <strong>Manage Connectors</strong> section allows you to configure and maintain connectors that are used within Automations. Connectors define how DataGerry communicates with internal or external systems.</p>
+<section id="built-in-connector">
+<h3><a class="toc-backref" href="#id15" role="doc-backlink">Built-in Connector</a><a class="headerlink" href="#built-in-connector" title="Link to this heading"></a></h3>
+<p>The <strong>Built-in Connector</strong> represents the DataGerry system itself. It is used when Automations interact directly with the local DataGerry instance.</p>
+<p>To configure the Built-in Connector, the following information must be provided:</p>
+<ul class="simple">
+<li><p><strong>URL</strong> of the DataGerry instance</p></li>
+<li><p><strong>Username</strong></p></li>
+<li><p><strong>Password</strong></p></li>
+</ul>
+<p>In the <strong>DataGerry Cloud</strong> version, an additional field is required:</p>
+<ul class="simple">
+<li><p><strong>x-api-key</strong></p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">x-api-key</span></code> can be obtained from the <a class="reference external" href="https://service.datagerry.com" rel="noreferrer" target="_blank">DataGerry Service Portal</a>.</p>
+</section>
+<section id="add-connectors">
+<h3><a class="toc-backref" href="#id16" role="doc-backlink">Add Connectors</a><a class="headerlink" href="#add-connectors" title="Link to this heading"></a></h3>
+<p>You can also create connectors for third-party applications.</p>
+<p>To create a new connector, click on <strong>Add Connector</strong>.</p>
+<p>This opens the <strong>Add Connector</strong> form, which is divided into two sections.</p>
+<section id="left-side-meta-information">
+<h4><a class="toc-backref" href="#id17" role="doc-backlink">Left Side – Meta Information</a><a class="headerlink" href="#left-side-meta-information" title="Link to this heading"></a></h4>
+<p>On the left side, general connector settings are defined:</p>
+<ul class="simple">
+<li><p><strong>Name</strong> of the connector</p></li>
+<li><p><strong>Description</strong> (optional)</p></li>
+<li><p><strong>Invoker</strong></p></li>
+<li><p><strong>SSL Verification</strong> (enable/disable)</p></li>
+<li><p><strong>Timeout</strong></p></li>
+</ul>
+<p>The <strong>Invoker</strong> represents the API definition of the third-party application.
+It is a core component of a connector and ensures that:</p>
+<ul class="simple">
+<li><p>The authentication mechanism of the third-party API is understood</p></li>
+<li><p>The available API methods can be accessed within the Automation IDE</p></li>
+</ul>
+</section>
+<section id="right-side-authentication-configuration">
+<h4><a class="toc-backref" href="#id18" role="doc-backlink">Right Side – Authentication Configuration</a><a class="headerlink" href="#right-side-authentication-configuration" title="Link to this heading"></a></h4>
+<p>On the right side, the required authentication fields are displayed dynamically, depending on the selected <strong>Invoker</strong>.</p>
+<p>Typical authentication fields include:</p>
+<ul class="simple">
+<li><p><strong>API URL</strong></p></li>
+<li><p><strong>Username / Password</strong></p></li>
+<li><p><strong>API Token</strong></p></li>
+</ul>
+<p>The exact fields depend on the authentication mechanism required by the third-party system.</p>
+</section>
+</section>
+<section id="testing-the-connector">
+<h3><a class="toc-backref" href="#id19" role="doc-backlink">Testing the Connector</a><a class="headerlink" href="#testing-the-connector" title="Link to this heading"></a></h3>
+<p>Before a connector can be created and saved, a <strong>Test Call</strong> must be performed.</p>
+<p>To validate the configuration:</p>
+<ol class="arabic simple">
+<li><p>Fill in all required fields.</p></li>
+<li><p>Click the <strong>Test</strong> button.</p></li>
+<li><p>Ensure the connection test is successful.</p></li>
+</ol>
+<p>Only after a successful test can the connector be saved and used in Automations.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+</section>
+<hr class="docutils" />
+<section id="license-overview">
+<h2><a class="toc-backref" href="#id20" role="doc-backlink">License Overview</a><a class="headerlink" href="#license-overview" title="Link to this heading"></a></h2>
+<p>In the <strong>On-Premises</strong> version of DataGerry, you can manage the OpenCelium license directly from the user interface. This is done via the <strong>License Overview</strong> page, which provides important information about the current license status.</p>
+<section id="accessing-license-overview">
+<h3><a class="toc-backref" href="#id21" role="doc-backlink">Accessing License Overview</a><a class="headerlink" href="#accessing-license-overview" title="Link to this heading"></a></h3>
+<p>The <strong>License Overview</strong> page is available from the <strong>Automations</strong> section in the UI (On-Premises only). It allows administrators to view and manage licensing details for OpenCelium.</p>
+</section>
+<section id="license-information">
+<h3><a class="toc-backref" href="#id22" role="doc-backlink">License Information</a><a class="headerlink" href="#license-information" title="Link to this heading"></a></h3>
+<p>On this page, the following information is displayed:</p>
+<ul class="simple">
+<li><p><strong>API Request Usage</strong>: Shows how many API requests have been executed in the current month.</p></li>
+<li><p><strong>License Validity</strong>: Indicates whether the currently installed license is valid or expired.</p></li>
+</ul>
+<p>This information is useful to:</p>
+<ul class="simple">
+<li><p>Monitor API consumption</p></li>
+<li><p>Ensure that the license is active</p></li>
+<li><p>Plan for license renewal if needed</p></li>
+</ul>
+</section>
+<section id="cloud-version">
+<h3><a class="toc-backref" href="#id23" role="doc-backlink">Cloud Version</a><a class="headerlink" href="#cloud-version" title="Link to this heading"></a></h3>
+<p>In the <strong>DataGerry Cloud</strong> version, this page is not required because licenses are automatically assigned to users when they use the platform. Therefore, license management is handled entirely by the service.
+|</p>
+</section>
+</section>
+<hr class="docutils" />
+<section id="documentation-and-further-help">
+<h2><a class="toc-backref" href="#id24" role="doc-backlink">Documentation and Further Help</a><a class="headerlink" href="#documentation-and-further-help" title="Link to this heading"></a></h2>
+<p>For more detailed information on the <strong>Automations</strong> feature in DataGerry and the <a class="reference external" href="https://opencelium.io" rel="noreferrer" target="_blank">OpenCelium</a> integration, please refer to the <a class="reference external" href="https://docs.opencelium.io" rel="noreferrer" target="_blank">OpenCelium Documentation</a>.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="isms.html" class="btn btn-neutral float-left" title="ISMS" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="webhooks.html" class="btn btn-neutral float-right" title="Webhooks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, becon GmbH.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

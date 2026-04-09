@@ -18,7 +18,7 @@ List of useful functions for the database
 """
 import re
 import uuid
-import logging
+from logging import Logger, getLogger
 import calendar
 import time
 import datetime
@@ -40,7 +40,7 @@ from cmdb.framework.search.search_result_map import SearchResultMap
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 RE_TYPE = type(re.compile("re.Pattern"))
 

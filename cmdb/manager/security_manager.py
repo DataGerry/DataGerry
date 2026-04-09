@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,10 +18,11 @@ Implementation of SecurityManager
 """
 import os
 import base64
-import logging
+from logging import Logger, getLogger
 import hashlib
 import hmac
 import json
+
 from Crypto import Random
 from Crypto.Cipher import AES
 from bson import json_util
@@ -32,7 +33,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                SecurityManager - CLASS                                               #

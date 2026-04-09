@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for IsmsLikelihoods
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
@@ -52,7 +52,7 @@ from cmdb.errors.manager.likelihood_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 likelihood_blueprint = APIBlueprint('likelihoods', __name__)
 
@@ -78,7 +78,7 @@ def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Resp
         likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
         # There is a Limit of 6 Likelihood classes
-        likelihood_count = likelihood_manager.count_items()
+        likelihood_count = likelihood_manager.count_documents()
 
         if likelihood_count >= 6:
             abort(403, "Only a maximum of 6 Likelihoods can be created!")

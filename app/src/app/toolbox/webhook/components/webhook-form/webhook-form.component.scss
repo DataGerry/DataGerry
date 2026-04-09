@@ -1,0 +1,30 @@
+/* Validation Styles */
+.is-valid {
+    border-color: #28a745;
+  }
+  
+  .is-invalid {
+    border-color: #dc3545;
+  }
+  
+  .invalid-feedback {
+    color: #dc3545;
+    font-size: 0.875rem;
+  }
+  
+  /* Button Styles */
+  .btn-back {
+    background-color: #e94d18;
+    color: white;
+  }
+  
+  /* Icon Spacing */
+  .icon-spacing {
+    margin-right: 5px;
+  }
+  
+  /* Form Actions Margin */
+  .form-actions-margin {
+    margin-top: 20px;
+  }
+  

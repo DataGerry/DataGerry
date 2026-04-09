@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,13 @@
 """
 Implementation of all API routes for CmdbRelations
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import RelationsManager, ObjectRelationsManager
+from cmdb.manager import RelationsManager, ObjectRelationsManager, CiExplorerProfileManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -51,7 +51,7 @@ from cmdb.errors.manager.relations_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 relations_blueprint = APIBlueprint('relations', __name__)
 
@@ -68,7 +68,7 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
 
     Args:
         data (CmdbRelation.SCHEMA): Data of the CmdbRelation which should be inserted
-        request_user (CmdbUser): User requesting this data
+        request_user (CmdbUser): CmdbUser which wants to create this CmdbRelation
 
     Returns:
         InsertSingleResponse: The new CmdbRelation and its public_id
@@ -247,8 +247,11 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
         DeleteSingleResponse: The deleted CmdbRelation data
     """
     try:
-        relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS,
-                                                                           request_user)
+        relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
+        ci_explorer_profile_manager: CiExplorerProfileManager = ManagerProvider.get_manager(
+            ManagerType.CI_EXPLORER_PROFILE,
+            request_user
+        )
 
         to_delete_relation = relations_manager.get_relation(public_id)
 
@@ -260,6 +263,9 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
             abort(403, f"The Relation with ID:{public_id} is currently in use and cannot be deleted!")
 
         relations_manager.delete_relation(public_id)
+
+        # Delete this relation from all CiExplorerProfiles
+        ci_explorer_profile_manager.remove_relation_from_profiles(public_id)
 
         return DeleteSingleResponse(raw=to_delete_relation).make_response()
     except HTTPException as http_err:

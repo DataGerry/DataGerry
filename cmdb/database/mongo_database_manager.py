@@ -32,7 +32,7 @@ from pymongo.errors import (
     ServerSelectionTimeoutError,
     ExecutionTimeout,
 )
-from pymongo import IndexModel
+from pymongo import IndexModel, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.results import DeleteResult, UpdateResult
@@ -84,8 +84,8 @@ class MongoDatabaseManager:
             'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
-            'minPoolSize': 5,
-            'maxPoolSize': 100,  # Maximum number of connections in the connection pool
+            'minPoolSize': 1,
+            'maxPoolSize': 25,  # Maximum number of connections in the connection pool
             'wtimeoutMS': 2500,  # Timeout for waiting for write acknowledgment
             'readPreference': 'primaryPreferred',  # Read from the primary node by default
         }
@@ -421,6 +421,49 @@ class MongoDatabaseManager:
         ) from err
 
 
+    def insert_many(
+        self,
+        collection: str,
+        db_name: str,
+        data: list[dict[str, Any]],
+        skip_public: bool = False
+    ) -> list[int]:
+        """
+        Inserts multiple documents into a collection.
+
+        Args:
+            collection (str): Name of the collection.
+            data (list[dict]): Documents to insert.
+            skip_public (bool): If True, assumes public_id is already assigned.
+
+        Returns:
+            list[int]: List of inserted public_ids
+        """
+        try:
+            if not data:
+                return []
+
+            if not skip_public:
+                # Assign public_ids individually (slow but safe fallback)
+                for doc in data:
+                    if "public_id" not in doc:
+                        doc["public_id"] = self.get_next_public_id(collection, db_name, inc_id=True)
+
+            self.get_collection(collection, db_name).insert_many(data, ordered=False)
+
+            return [doc["public_id"] for doc in data]
+
+        except DuplicateKeyError as err:
+            raise DocumentInsertError(f"Duplicate public_id detected in insert_many: {err}") from err
+
+        except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure) as net_err:
+            raise DocumentNetworkError(f"Network/timeout error while inserting documents: {net_err}") from net_err
+
+        except Exception as err:
+            raise DocumentInsertError(
+                f"Failed to insert many documents into collection '{collection}': {err}"
+            ) from err
+
 
     @retry_operation
     def bulk_write(self, collection: str,  db_name: str, operations: list) -> None:
@@ -465,6 +508,50 @@ class MongoDatabaseManager:
         except Exception as err:
             raise PublicIdCounterInitError(
                 f"Failed to initialize public ID counter for collection '{collection}': {err}"
+            ) from err
+
+
+    @retry_operation
+    def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
+        """TODO: document"""
+        try:
+            if not inc_id:
+                cur_count = self.get_collection(
+                    PUBLIC_ID_COUNTER_COLLECTION,
+                    db_name
+                ).find_one({'_id': collection})
+
+                return (cur_count['counter'] + 1) if cur_count else 1
+
+            ids: list[int] = self.reserve_public_ids(collection, db_name, 1)
+
+            return ids[0]
+
+        except Exception as err:
+            raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
+
+
+    @retry_operation
+    def reserve_public_ids(self, collection: str, db_name: str, amount: int) -> list[int]:
+        """
+        Atomically reserves a block of public_ids for bulk inserts
+        """
+        try:
+            doc = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one_and_update(
+                {"_id": collection},
+                {"$inc": {"counter": amount}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER
+            )
+
+            new_max = doc["counter"]
+            start = new_max - amount + 1
+
+            return list(range(start, new_max + 1))
+
+        except Exception as err:
+            raise DocumentGetError(
+                f"Failed to reserve public_ids for collection '{collection}': {err}"
             ) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -663,6 +750,30 @@ class MongoDatabaseManager:
             raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
 
 
+    def update_many_raw(
+        self,
+        collection: str,
+        db_name: str,
+        filter_query: dict,
+        update: dict,
+        array_filters: list[dict] | None = None,
+    ) -> UpdateResult:
+        """TODO: document"""
+        try:
+            kwargs = {}
+            if array_filters:
+                kwargs["array_filters"] = array_filters
+
+            return self.get_collection(collection, db_name).update_many(
+                filter_query,
+                update,
+                **kwargs,
+            )
+        except Exception as err:
+            raise DocumentUpdateError(
+                f"Error updating documents in collection '{collection}': {err}"
+            ) from err
+
     @retry_operation
     def update_public_id_counter(
         self,
@@ -830,15 +941,13 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def count(self, collection: str, db_name: str, *args: Any, criteria: dict | None = None, **kwargs: Any) -> int:
+    def count(self, collection: str, db_name: str, criteria: dict | None = None) -> int:
         """
         Count documents based on criteria parameters
 
         Args:
             collection (str): Name of database collection
-            *args: Additional arguments for the count operation
             criteria (dict): Document count requirements (default is empty criteria)
-            **kwargs: Additional keyword arguments for the count operation
 
         Raises:
             DocumentGetError: When the count operation fails
@@ -850,7 +959,7 @@ class MongoDatabaseManager:
         criteria = criteria or {}
 
         try:
-            return self.get_collection(collection, db_name).count_documents(criteria, *args, **kwargs)
+            return self.get_collection(collection, db_name).count_documents(criteria)
         except Exception as err:
             raise DocumentGetError(
                 f"Failed to count documents in collection '{collection}': {err}"
@@ -909,35 +1018,6 @@ class MongoDatabaseManager:
                 f"Failed to retrieve the highest public_id from collection '{collection}': {err}"
             ) from err
 
-
-    @retry_operation
-    def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
-        """
-        Retrieves the next public_id for the specified collection
-
-        Args:
-            collection (str): Name of the database collection
-
-        Raises:
-            DocumentGetError: If there was an error getting or updating the counter document
-
-        Returns:
-            int: The next available public_id for the collection
-        """
-        try:
-            cur_count = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
-            if cur_count:
-                new_id = cur_count['counter'] + 1
-            else:
-                docs_count: int = self.init_public_id_counter(collection, db_name)
-                new_id: int = docs_count + 1
-
-            self.update_public_id_counter(collection, db_name, increment=inc_id)
-
-            return new_id
-        except Exception as err:
-            raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
-
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     @retry_operation
@@ -980,5 +1060,14 @@ class MongoDatabaseManager:
         """
         try:
             return self.get_collection(collection, db_name).delete_many(requirements)
+        except Exception as err:
+            raise DocumentDeleteError(f"Error deleting documents from collection '{collection}': {err}") from err
+
+
+    @retry_operation
+    def delete_many_raw(self, collection: str, db_name: str, filter_query: dict) -> DeleteResult:
+        """TODO: document"""
+        try:
+            return self.get_collection(collection, db_name).delete_many(filter_query)
         except Exception as err:
             raise DocumentDeleteError(f"Error deleting documents from collection '{collection}': {err}") from err

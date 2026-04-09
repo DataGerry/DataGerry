@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of helper functions for the docs server
 """
-import logging
+from logging import Logger, getLogger
 
 import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
@@ -24,7 +24,7 @@ from cmdb.interface.config import app_config
 from cmdb.interface.docs.doc_routes import doc_pages
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 
 def create_docs_server():

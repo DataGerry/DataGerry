@@ -23,7 +23,7 @@ import { Observable, timer, switchMap, map, catchError } from 'rxjs';
 
 import { ApiCallService, ApiServicePrefix, httpFileOptions, httpObserveOptions } from '../../../services/api-call.service';
 
-import { DocTemplate } from '../models/cmdb-doctemplate';
+import { DocTemplate, DocTemplateUpdateResponse } from '../models/cmdb-doctemplate';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -152,10 +152,10 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
 
 /* -------------------------------------------------- CRUD - UPDATE ------------------------------------------------- */
 
-    public putDocTemplate(docInstance: DocTemplate): Observable<any> {
+    public putDocTemplate(docInstance: DocTemplate): Observable<DocTemplateUpdateResponse> {
         const options = this.getBaseOptions();
 
-        return this.api?.callPut(this.servicePrefix + '/', docInstance, options);
+        return this.api?.callPut<DocTemplateUpdateResponse>(this.servicePrefix + '/', docInstance, options);
     }
 
 /* -------------------------------------------------- CRUD - DELETE ------------------------------------------------- */

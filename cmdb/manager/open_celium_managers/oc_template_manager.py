@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -122,20 +122,7 @@ class OcTemplateManager(OcBaseManager):
             if all_templates_response.text:
                 templates = json.loads(all_templates_response.text)
 
-                # Filter DataGerry templates
-                datagerry_templates: list[dict[str, Any]] = [
-                    t for t in templates
-                    if isinstance(t, dict)
-                    and (
-                        t.get("connection", {}).get("fromConnector", {})
-                        .get("invoker", {}).get("name") == "DataGerry"
-                        or
-                        t.get("connection", {}).get("toConnector", {})
-                        .get("invoker", {}).get("name") == "DataGerry"
-                    )
-                ]
-
-                return datagerry_templates
+                return templates
 
             return None
 

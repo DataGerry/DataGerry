@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -49,6 +49,16 @@ class CmdbObject(CmdbDAO):
     DEFAULT_VERSION = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['type_id', 'creation_time', 'author_id', 'active', 'fields', 'version']
     SCHEMA: dict[str, Any] = get_cmdb_object_schema()
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False},
+        {"keys": [("fields.value", CmdbDAO.DAO_ASCENDING)], "name": "fields_value", "unique": False},
+        {
+            "keys": [("multi_data_sections.values.data.value", CmdbDAO.DAO_ASCENDING)],
+            "name": "multi_data_sections_values_data_value",
+            "unique": False
+        }
+    ]
 
     #pylint: disable=R0913, R0917
     def __init__(
@@ -239,3 +249,20 @@ class CmdbObject(CmdbDAO):
                 return f.get('value')
 
         raise ValueError(field)
+
+
+    def has_fields_of_type(self, field_type: str) -> bool:
+        """TODO: document"""
+        # check normal fields
+        for field in self.fields or []:
+            if field.get("type") == field_type:
+                return True
+
+        # check multi-data sections
+        for section in self.multi_data_sections or []:
+            for row in section.get("values", []):
+                for field in row.get("data", []):
+                    if field.get("type") == field_type:
+                        return True
+
+        return False

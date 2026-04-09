@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of BaseExportWriter
 """
-import logging
+from logging import Logger, getLogger
 import datetime
 from flask import Response
 
@@ -33,7 +33,7 @@ from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseExportWriter - CLASS                                               #

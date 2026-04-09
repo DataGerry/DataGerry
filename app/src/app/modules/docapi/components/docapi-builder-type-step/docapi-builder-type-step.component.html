@@ -21,7 +21,7 @@
                 </div>
             </form>
 
-            <ng-container [ngSwitch]="typeForm.get('template_type').value">
+            <ng-container [ngSwitch]="typeForm.get('template_type')?.value">
                 <cmdb-docapi-builder-type-step-object
                     *ngSwitchCase="'OBJECT'"
                     [preData]="typeParamPreData"

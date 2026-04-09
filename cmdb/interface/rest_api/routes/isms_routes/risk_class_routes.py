@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for IsmsRiskClasses
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 from flask import request, abort
@@ -54,7 +54,7 @@ from cmdb.errors.manager.risk_class_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 risk_class_blueprint = APIBlueprint('risk_classes', __name__)
 
@@ -80,7 +80,7 @@ def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Resp
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
         # There is a Limit of 10 Risk classes
-        risk_class_count: int = risk_class_manager.count_items()
+        risk_class_count: int = risk_class_manager.count_documents()
 
         if risk_class_count >= 10:
             abort(403, "Only a maximum of 10 RiskClasses can be created!")

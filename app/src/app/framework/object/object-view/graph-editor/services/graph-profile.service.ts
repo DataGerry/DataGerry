@@ -25,10 +25,19 @@ import { RelationService } from 'src/app/framework/services/relaion.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { ProfileManagerModalComponent } from '../modals/profile-manager/profile-manager-modal.component';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
+import { ApiCallService } from 'src/app/services/api-call.service';
 
 @Injectable({ providedIn: 'root' })
 export class GraphProfileService extends BaseApiService<FilterProfile> {
   public servicePrefix = 'ci_explorer/profile';
+
+  constructor(
+    api: ApiCallService,
+    private fullscreenModalService: FullscreenModalService
+  ) {
+    super(api);
+  }
 
   getProfiles(): Observable<FilterProfile[]> {
     return this.handleGetRequest<any>(`${this.servicePrefix}`)
@@ -120,7 +129,7 @@ export class GraphProfileService extends BaseApiService<FilterProfile> {
       return;
     }
 
-    const modalRef = modalService.open(ProfileManagerModalComponent, {
+    const modalRef = this.fullscreenModalService.open(modalService, ProfileManagerModalComponent, {
       size: 'xl',
       backdrop: 'static'
     });
@@ -165,7 +174,7 @@ export class GraphProfileService extends BaseApiService<FilterProfile> {
     relationOptionList: any[],
     loadProfiles: () => void
   ): void {
-    const modalRef = modalService.open(ProfileManagerModalComponent, {
+    const modalRef = this.fullscreenModalService.open(modalService, ProfileManagerModalComponent, {
       size: 'xl',
       backdrop: 'static',
       scrollable: true

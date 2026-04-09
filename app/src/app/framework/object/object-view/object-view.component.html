@@ -133,16 +133,30 @@
               <div *ngIf="activeRelationTabIndex === (i + 1)">
                 <div class="d-flex justify-content-between align-items-center">
                   <h1>{{ group.tabLabel }}</h1>
-                  <button type="button" class="btn btn-sm btn-success" (click)="createNewRelationForGroup(group)">
-                    <i class="fas fa-plus"></i> Add {{ group.tabLabel }}
-                  </button>
+                  <div class="d-flex align-items-center gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-danger btn-sm me-1"
+                      *permissionLink="'base.framework.objectRelation.delete'"
+                      [ngbTooltip]="group.selectedInstanceIDs?.length ? null : 'No object relations selected for deletion'"
+                      [disabled]="!group.selectedInstanceIDs?.length"
+                      (click)="deleteSelectedRelationInstances(group)">
+                      <i class="far fa-trash-alt"></i> Delete Selected
+                      <span class="badge bg-secondary bg-pill">{{group.selectedInstanceIDs?.length || 0}}</span>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success" (click)="createNewRelationForGroup(group)">
+                      <i class="fas fa-plus"></i> Add {{ group.tabLabel }}
+                    </button>
+                  </div>
                 </div>
                 <hr />
 
                 <cmdb-table [items]="group.instances" [columns]="getColumns(group)" [loading]="loadingRelations"
-                  [totalItems]="group.total" [pageSize]="group.pageSize" [page]="group.page"
-                  (pageChange)="loadGroupInstances(group.relationId, group.isParent, $event, group.pageSize)"
+                  [totalItems]="group.total" [pageSize]="group.pageSize || relationPageSize" [page]="group.page"
+                  [selectEnabled]="true"
+                  (pageChange)="loadGroupInstances(group.relationId, group.isParent, $event, group.pageSize || relationPageSize)"
                   (pageSizeChange)="loadGroupInstances(group.relationId, group.isParent, 1, $event)"
+                  (selectedChange)="onGroupRelationSelectionChange(group, $event)"
                   [searchEnabled]="false">
                 </cmdb-table>
               </div>

@@ -2175,6 +2175,20 @@ defs {
   background: white;
 }
 
+.ci-explorer-container:fullscreen,
+.ci-explorer-container.is-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  background: linear-gradient(135deg, $gray-50 0%, $gray-100 100%);
+}
+
+.ci-explorer-container:fullscreen .graph-viewport,
+.ci-explorer-container.is-fullscreen .graph-viewport {
+  min-height: 0;
+}
+
 // Filter mode toggle - clean style with orange accent
 .filter-mode-toggle {
   display: flex;

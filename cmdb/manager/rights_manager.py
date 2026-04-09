@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,12 @@
 """
 Implementation of RightsManager
 """
-import logging
+from logging import Logger, getLogger
 from multiprocessing.managers import BaseManager
 
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.framework.results import IterationResult
-
 from cmdb.models.right_model.all_rights import ALL_RIGHTS
+from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.rights_manager import (
     RightsManagerInitError,
@@ -31,7 +30,7 @@ from cmdb.errors.manager.rights_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RightsManager - CLASS                                                #

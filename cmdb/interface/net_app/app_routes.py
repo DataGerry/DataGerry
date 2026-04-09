@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,11 +17,11 @@
 Blueprint for handling routes in the datagerry-app.
 This module defines a Flask Blueprint for serving static files and handling 404 errors
 """
-import logging
+from logging import Logger, getLogger
 from flask import Blueprint, Response
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 app_pages = Blueprint("app_pages", __name__, static_folder="datagerry-app", static_url_path="")
 

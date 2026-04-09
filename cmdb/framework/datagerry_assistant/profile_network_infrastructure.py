@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 This module manages the 'Network Infrastructure'-Profile for the DataGerry assistant
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
@@ -24,9 +24,11 @@ from cmdb.manager.section_templates_manager import SectionTemplatesManager
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
-
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         NetworkInfrastructureProfile - CLASS                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
 class NetworkInfrastructureProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'Network Infrastructure'-Profile

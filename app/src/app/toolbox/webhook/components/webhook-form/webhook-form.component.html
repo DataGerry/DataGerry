@@ -1,0 +1,94 @@
+<div class="container mt-3">
+  <h1>{{ publicId ? 'Edit Webhook' : 'Add Webhook' }}</h1>
+  <form [formGroup]="webhookForm" (ngSubmit)="saveWebhook()" novalidate>
+    <!-- Name Field -->
+    <div class="mb-3">
+      <label for="name">Name <span class="required">*</span></label>
+      <input
+        id="name"
+        type="text"
+        class="form-control"
+        formControlName="name"
+        [ngClass]="{
+          'is-valid': name.valid && (name.dirty || name.touched),
+          'is-invalid': name.invalid && (name.dirty || name.touched)
+        }"
+        placeholder="Enter webhook name"
+      />
+      <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
+        Name is required.
+      </div>
+    </div>
+    <!-- URL Field -->
+    <div class="mb-3">
+      <label for="url">URL <span class="required">*</span></label>
+      <input
+        id="url"
+        type="text"
+        class="form-control"
+        formControlName="url"
+        [ngClass]="{
+          'is-valid': url.valid && (url.dirty || url.touched),
+          'is-invalid': url.invalid && (url.dirty || url.touched)
+        }"
+        placeholder="Enter webhook URL"
+      />
+      <div *ngIf="url.invalid && (url.dirty || url.touched)" class="invalid-feedback">
+        <div *ngIf="url.errors.required">URL is required.</div>
+        <div *ngIf="url.errors.pattern">Enter a valid URL (e.g., https://example.com).</div>
+      </div>
+    </div>
+    <!-- Event Types -->
+    <div class="mb-3">
+      <label for="event_types">Event Types <span class="required">*</span>:</label>
+      <ng-select
+        [items]="eventOptions"
+        bindLabel="label"
+        bindValue="value"
+        formControlName="event_types"
+        placeholder="Select event types"
+        [multiple]="true"
+        [closeOnSelect]="false"
+        [ngClass]="{
+          'is-valid': eventTypes.valid && (eventTypes.dirty || eventTypes.touched),
+          'is-invalid': eventTypes.invalid && (eventTypes.dirty || eventTypes.touched)
+        }"
+      ></ng-select>
+      <div *ngIf="eventTypes.invalid && (eventTypes.dirty || eventTypes.touched)" class="invalid-feedback">
+        Please select at least one event type.
+      </div>
+    </div>
+    <!-- Active Checkbox -->
+    <div class="form-check">
+      <input
+        id="active"
+        type="checkbox"
+        class="form-check-input"
+        formControlName="active"
+      />
+      <label for="active" class="form-check-label">Active</label>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center form-actions-margin">
+      <div class="btn-group">
+        <button class="btn btn-secondary btn-sm btn-back" type="button" (click)="goBack()">
+          <i class="fas fa-arrow-left icon-spacing"></i> Go Back
+        </button>                       
+      </div>
+    
+      <div class="btn-group">
+        <button type="submit" 
+                class="btn btn-success btn-sm submit-report d-flex align-items-center" 
+                [disabled]="webhookForm.invalid">
+          <i class="fas fa-plus me-2 icon-spacing"></i> Save
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+
+<app-loading-popup 
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

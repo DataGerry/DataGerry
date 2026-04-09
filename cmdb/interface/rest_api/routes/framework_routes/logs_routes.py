@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Definition of all routes for Logs
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
@@ -38,7 +38,7 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.errors.manager import BaseManagerIterationError, BaseManagerGetError, BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 logs_blueprint = APIBlueprint('logs', __name__)
 
@@ -54,13 +54,14 @@ def get_log(public_id: int, request_user: CmdbUser) -> Response:
 
     Args:
         public_id (int): public_id of the requested log
+
     Returns:
-        CmdbObjectLog: The log with the given public_id
+        dict[str, Any]: The log with the given public_id
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        requested_log: CmdbObjectLog = logs_manager.get_one(public_id)
+        requested_log: dict[str, Any] = logs_manager.get_one(public_id)
 
         if not requested_log:
             abort(404, f"The Log with ID:{public_id} was not found!")

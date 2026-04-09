@@ -16,11 +16,11 @@
 """
 Implementation of ProcessController
 """
-import logging
+from logging import Logger, getLogger
 from threading import Thread, Event
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ProcessController - CLASS                                              #
