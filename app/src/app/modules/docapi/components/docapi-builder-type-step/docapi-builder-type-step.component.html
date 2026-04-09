@@ -12,7 +12,7 @@
                         formControlName="template_type"
                     >
                         <ng-template ng-option-tmp let-item="item" let-index="index">
-                            {{item.label}} : {{item.description}}
+                            {{ item.label }}{{ item.description ? ' : ' + item.description : '' }}
                         </ng-template>
                     </ng-select>
                     <small id="docTypeInputHelp" class="form-text text-muted">
