@@ -17,8 +17,9 @@
 */
 import { DocTemplatePageSection } from '../models/cmdb-doctemplate';
 
-export const MAX_PAGE_SECTION_HEIGHT_PT = 100;
-const DEFAULT_PAGE_SECTION_HEIGHT_PT = 20;
+export const MIN_PAGE_SECTION_HEIGHT_PT = 20;
+export const MAX_PAGE_SECTION_HEIGHT_PT = 80;
+const DEFAULT_PAGE_SECTION_HEIGHT_PT = MIN_PAGE_SECTION_HEIGHT_PT;
 
 export const DEFAULT_HEADER: DocTemplatePageSection = {
     activated: false,
@@ -43,8 +44,8 @@ const normalizeSectionHeight = (rawValue: unknown): number => {
     }
 
     const value = Math.trunc(parsed);
-    if (value < 0) {
-        return 0;
+    if (value < MIN_PAGE_SECTION_HEIGHT_PT) {
+        return MIN_PAGE_SECTION_HEIGHT_PT;
     }
 
     if (value > MAX_PAGE_SECTION_HEIGHT_PT) {
