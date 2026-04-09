@@ -686,11 +686,12 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
 
 
   cancel(): void {
-    this.router.navigate(['/automations/connectors']);
+    this.router.navigate(['../'], { relativeTo: this.route });
   }
 
 
   private getInternalUrlFromEnvironment(): string {
+    return `${environment.protocol}://${environment.apiUrl}`;
     if (environment.cloudMode) {
       return `${environment.protocol}://${environment.apiUrl}`;
     }
