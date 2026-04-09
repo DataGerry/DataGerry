@@ -22,6 +22,12 @@ PAGE_WIDTH = 595 # A4 maximum page width in pt
 
 MIN_MARGIN = 40 # Minimal margin for an A4 page in pt
 
-DEFAULT_HEADER_HEIGHT = 20 # Default header height in pt
+MIN_HEADER_HEIGHT = 20 # Minimum header height in pt
 
-DEFAULT_FOOTER_HEIGHT = 20 # Default footer height in pt
+MAX_HEADER_HEIGHT = 80 # Maximum header height in pt
+
+MIN_FOOTER_HEIGHT = 20 # Minimum footer height in pt
+
+MAX_FOOTER_HEIGHT = 80 # Maximum footer height in pt
+
+DEFAULT_SPACING = 10 # Default spacing in pt

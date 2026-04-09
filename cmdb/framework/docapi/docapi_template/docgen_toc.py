@@ -25,7 +25,7 @@ from cmdb.framework.docapi.docapi_template.docgen_helpers import format_value
 LOGGER: Logger = getLogger(__name__)
 
 ALLOWED_TOC_STYLES: dict[str, list[str]] = {
-    "pdftoc": ["font-size", "line-height"],
+    "pdftoc": ["line-height"],
     **{
         f"level{i}": [
             "font-size",
@@ -39,12 +39,10 @@ ALLOWED_TOC_STYLES: dict[str, list[str]] = {
         ]
         for i in range(6)
     },
-    "spacing": ["margin-top"]
 }
 
 DEFAULT_TOC_CONFIG: dict[str, dict[str, str]] = {
     "pdftoc": {
-        "font-size": "10pt",
         "line-height": "1.4",
     },
 
@@ -86,10 +84,6 @@ DEFAULT_TOC_CONFIG: dict[str, dict[str, str]] = {
         "font-size": "8pt",
         "color": "#777",
         "font-style": "italic",
-    },
-
-    "spacing": {
-        "margin-top": "2pt"
     }
 }
 
@@ -141,8 +135,6 @@ class TableOfContents:
                 selector = "pdftoc"
             elif key.startswith("level"):
                 selector = f"pdftoc.pdftoc{key}"
-            elif key == "spacing":
-                selector = "pdftoc + pdftoc"
             else:
                 continue
 
