@@ -8,7 +8,7 @@
         <li class="nav-item">
             <button class="nav-link" type="button" [class.active]="activeTab === 'margins'"
                 (click)="selectTab('margins')">
-                Margins
+                General
             </button>
         </li>
         <li class="nav-item">
@@ -42,13 +42,13 @@
             [editorConfig]="coverEditorConfig" />
 
         <cmdb-docapi-page-header-options *ngIf="activeTab === 'header'" [headerForm]="form"
-            [editorConfig]="headerEditorConfig" />
+            [editorConfig]="headerEditorConfig" [contentHelpText]="pageSectionHeightConstraintHint" />
 
         <cmdb-docapi-page-header-options *ngIf="activeTab === 'footer'" [headerForm]="form"
             [editorConfig]="footerEditorConfig" [activatedControlName]="'footer_activated'"
             [contentControlName]="'footer_content'" [activationLabel]="'Activate footer'"
             [contentLabel]="'Footer Content'"
-            [contentHelpText]="'Design the content that appears in the document footer.'" />
+            [contentHelpText]="pageSectionHeightConstraintHint" />
 
         <cmdb-docapi-page-toc-options *ngIf="activeTab === 'toc'" [tocForm]="form" />
 
@@ -63,6 +63,6 @@
     <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
     </app-button>
 
-    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" (clicked)="apply()">
+    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled" (clicked)="apply()">
     </app-button>
 </div>

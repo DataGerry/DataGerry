@@ -25,7 +25,6 @@ import {
 
 export const DEFAULT_TABLE_OF_CONTENTS_CONFIG: DocTemplateTableOfContentsConfig = {
     pdftoc: {
-        'font-size': 10,
         'line-height': 1.4
     },
     level0: {
@@ -81,9 +80,6 @@ export const DEFAULT_TABLE_OF_CONTENTS_CONFIG: DocTemplateTableOfContentsConfig 
         'padding-bottom': 1,
         color: '#777777',
         'font-style': 'italic'
-    },
-    spacing: {
-        'margin-top': 2
     }
 };
 
@@ -150,13 +146,9 @@ export const normalizeTableOfContentsConfig = (rawConfig: unknown): DocTemplateT
     const rawPdftoc = config['pdftoc'] && typeof config['pdftoc'] === 'object'
         ? config['pdftoc'] as Record<string, unknown>
         : {};
-    const rawSpacing = config['spacing'] && typeof config['spacing'] === 'object'
-        ? config['spacing'] as Record<string, unknown>
-        : {};
 
     return {
         pdftoc: {
-            'font-size': parseNumber(rawPdftoc['font-size'], defaults.pdftoc['font-size'], 1, 64),
             'line-height': parseNumber(rawPdftoc['line-height'], defaults.pdftoc['line-height'], 0.6, 4)
         },
         level0: normalizeLevelStyle(config['level0'], defaults.level0),
@@ -164,10 +156,7 @@ export const normalizeTableOfContentsConfig = (rawConfig: unknown): DocTemplateT
         level2: normalizeLevelStyle(config['level2'], defaults.level2),
         level3: normalizeLevelStyle(config['level3'], defaults.level3),
         level4: normalizeLevelStyle(config['level4'], defaults.level4),
-        level5: normalizeLevelStyle(config['level5'], defaults.level5),
-        spacing: {
-            'margin-top': parseNumber(rawSpacing['margin-top'], defaults.spacing['margin-top'], 0, 60)
-        }
+        level5: normalizeLevelStyle(config['level5'], defaults.level5)
     };
 };
 

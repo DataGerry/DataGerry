@@ -42,17 +42,16 @@ export class DocapiPageTocOptionsComponent {
     public readonly levels = [0, 1, 2, 3, 4, 5];
 
     private static readonly LEVEL_DEFAULTS: Record<number, Record<string, string | number>> = {
-        0: { 'font-size': 13.6, 'margin-left': 0, 'margin-top': 10, 'margin-bottom': 4, 'padding-bottom': 2, 'color': '#111827', 'font-style': 'normal', 'font-weight': 'bold' },
-        1: { 'font-size': 12, 'margin-left': 10, 'margin-top': 6, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#111827', 'font-style': 'normal', 'font-weight': 'bold' },
-        2: { 'font-size': 11, 'margin-left': 20, 'margin-top': 4, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#374151', 'font-style': 'normal', 'font-weight': 'normal' },
-        3: { 'font-size': 10.5, 'margin-left': 30, 'margin-top': 3, 'margin-bottom': 1, 'padding-bottom': 1, 'color': '#374151', 'font-style': 'italic', 'font-weight': 'normal' },
-        4: { 'font-size': 10, 'margin-left': 40, 'margin-top': 2, 'margin-bottom': 1, 'padding-bottom': 0, 'color': '#4b5563', 'font-style': 'italic', 'font-weight': 'normal' },
-        5: { 'font-size': 9.5, 'margin-left': 50, 'margin-top': 2, 'margin-bottom': 1, 'padding-bottom': 0, 'color': '#6b7280', 'font-style': 'normal', 'font-weight': 'normal' },
+        0: { 'font-size': 12, 'margin-left': 0, 'margin-top': 10, 'margin-bottom': 4, 'padding-bottom': 2, 'color': '#000000', 'font-style': 'normal', 'font-weight': 'bold' },
+        1: { 'font-size': 10, 'margin-left': 12, 'margin-top': 3, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#222222', 'font-style': 'normal', 'font-weight': 'normal' },
+        2: { 'font-size': 9, 'margin-left': 24, 'margin-top': 2, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#444444', 'font-style': 'italic', 'font-weight': 'normal' },
+        3: { 'font-size': 9, 'margin-left': 36, 'margin-top': 2, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#555555', 'font-style': 'normal', 'font-weight': 'normal' },
+        4: { 'font-size': 8, 'margin-left': 48, 'margin-top': 2, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#666666', 'font-style': 'normal', 'font-weight': 'normal' },
+        5: { 'font-size': 8, 'margin-left': 60, 'margin-top': 2, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#777777', 'font-style': 'italic', 'font-weight': 'normal' },
     };
 
     private static readonly GENERAL_DEFAULTS = {
-        pdftoc: { 'font-size': 12, 'line-height': 1.9 },
-        spacing: { 'margin-top': 2 },
+        pdftoc: { 'line-height': 1.4 },
     };
 
     public readonly previewItems: TocPreviewItem[] = [
@@ -63,6 +62,9 @@ export class DocapiPageTocOptionsComponent {
         { level: 4, title: 'H5 Notes', page: 6 },
         { level: 5, title: 'H6 Appendix', page: 7 },
     ];
+
+
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
 
     public get selectedLevelForm(): UntypedFormGroup | null {
@@ -77,12 +79,6 @@ export class DocapiPageTocOptionsComponent {
     }
 
 
-    public get spacingGroup(): UntypedFormGroup | null {
-        const group = this.tocForm?.get('table_of_contents_config.spacing');
-        return group instanceof UntypedFormGroup ? group : null;
-    }
-
-
     public get indentValue(): number {
         return this.asNumber(this.selectedLevelForm?.get('margin-left')?.value, 0);
     }
@@ -90,6 +86,11 @@ export class DocapiPageTocOptionsComponent {
 
     public get indentPercent(): number {
         return Math.min((this.indentValue / 60) * 100, 100);
+    }
+
+    public get selectedColorHex(): string {
+        const value = this.selectedLevelForm?.get('color')?.value;
+        return this.normalizeValidColor(value);
     }
 
 
@@ -143,17 +144,36 @@ export class DocapiPageTocOptionsComponent {
         this.selectedLevelForm?.get('margin-left')?.markAsDirty();
     }
 
+    public onColorHexInput(event: Event): void {
+        const input = event.target as HTMLInputElement;
+        const sanitized = this.sanitizeColorInput(input.value);
+        input.value = sanitized;
+
+        if (sanitized.length !== 7) {
+            return;
+        }
+
+        this.selectedLevelForm?.get('color')?.setValue(sanitized);
+        this.selectedLevelForm?.get('color')?.markAsDirty();
+    }
+
+    public onColorHexBlur(event: Event): void {
+        const input = event.target as HTMLInputElement;
+        const sanitized = this.sanitizeColorInput(input.value);
+        const next = sanitized.length === 7 ? sanitized : this.selectedColorHex;
+        input.value = next;
+        this.selectedLevelForm?.get('color')?.setValue(next);
+        this.selectedLevelForm?.get('color')?.markAsDirty();
+    }
+
 
     public getPreviewStyle(item: TocPreviewItem): Record<string, string> {
         const levelGroup = this.tocForm?.get(`table_of_contents_config.level${item.level}`);
-        const spacing = this.asNumber(
-            this.tocForm?.get('table_of_contents_config.spacing.margin-top')?.value, 0
-        );
 
         return {
             'font-size': `${this.asNumber(levelGroup?.get('font-size')?.value, 10)}pt`,
             'margin-left': `${this.asNumber(levelGroup?.get('margin-left')?.value, 0)}pt`,
-            'margin-top': `${this.asNumber(levelGroup?.get('margin-top')?.value, 0) + spacing}pt`,
+            'margin-top': `${this.asNumber(levelGroup?.get('margin-top')?.value, 0)}pt`,
             'margin-bottom': `${this.asNumber(levelGroup?.get('margin-bottom')?.value, 0)}pt`,
             'padding-bottom': `${this.asNumber(levelGroup?.get('padding-bottom')?.value, 0)}pt`,
             'line-height': `${this.asNumber(this.tocForm?.get('table_of_contents_config.pdftoc.line-height')?.value, 1.4)}`,
@@ -173,16 +193,31 @@ export class DocapiPageTocOptionsComponent {
 
 
     public resetGeneralSettings(): void {
-        const { pdftoc, spacing } = DocapiPageTocOptionsComponent.GENERAL_DEFAULTS;
+        const { pdftoc } = DocapiPageTocOptionsComponent.GENERAL_DEFAULTS;
         this.pdftocGroup?.patchValue(pdftoc);
-        this.spacingGroup?.patchValue(spacing);
         this.pdftocGroup?.markAsDirty();
-        this.spacingGroup?.markAsDirty();
     }
+
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
 
     private asNumber(value: unknown, fallback: number): number {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    private sanitizeColorInput(value: string): string {
+        const hex = value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6).toLowerCase();
+        return `#${hex}`;
+    }
+
+    private normalizeValidColor(value: unknown): string {
+        if (typeof value !== 'string') {
+            return '#000000';
+        }
+
+        const sanitized = this.sanitizeColorInput(value);
+        return sanitized.length === 7 ? sanitized : '#000000';
     }
 }

@@ -29,6 +29,18 @@ export class DocTemplate {
     public footer: DocTemplatePageSection;
     public table_of_contents: DocTemplateTableOfContents;
     public cover_page: DocTemplateCoverPage;
+    public page_config?: DocTemplatePageConfig;
+}
+
+export interface DocTemplatePageConfigMargin {
+    'margin-top': number;
+    'margin-bottom': number;
+    'margin-left': number;
+    'margin-right': number;
+}
+
+export interface DocTemplatePageConfig {
+    margin?: Partial<DocTemplatePageConfigMargin>;
 }
 
 export interface DocTemplateCoverPage {
@@ -63,14 +75,13 @@ export interface DocTemplateTocBaseStyle {
 }
 
 export interface DocTemplateTableOfContentsConfig {
-    pdftoc: Required<Pick<DocTemplateTocBaseStyle, 'font-size' | 'line-height'>>;
+    pdftoc: Required<Pick<DocTemplateTocBaseStyle, 'line-height'>>;
     level0: DocTemplateTocBaseStyle;
     level1: DocTemplateTocBaseStyle;
     level2: DocTemplateTocBaseStyle;
     level3: DocTemplateTocBaseStyle;
     level4: DocTemplateTocBaseStyle;
     level5: DocTemplateTocBaseStyle;
-    spacing: Required<Pick<DocTemplateTocBaseStyle, 'margin-top'>>;
 }
 
 export interface DocTemplateTableOfContents {

@@ -18,6 +18,7 @@
 import { Component, Input, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import type { Editor as TinyMceEditor } from 'tinymce';
 
 import { DEFAULT_PAGE_MARGINS, PageMargins, parseMarginValue } from '../../../utils/page-margins.util';
 import {
@@ -34,6 +35,7 @@ import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-pag
 import {
     DEFAULT_FOOTER,
     DEFAULT_HEADER,
+    MIN_PAGE_SECTION_HEIGHT_PT,
     MAX_PAGE_SECTION_HEIGHT_PT,
     normalizeFooter,
     normalizeHeader
@@ -69,12 +71,18 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     @Input() public initialTableOfContents: DocTemplateTableOfContents = normalizeTableOfContents(DEFAULT_TABLE_OF_CONTENTS);
     @Input() public templateType: string = 'OBJECT';
     @Input() public templateTypeId: number | null = null;
-    @Input() public templateHelperData: any[] = [];
+    @Input() public templateHelperData: unknown[] = [];
 
     public activeTab: DocumentOptionsTab = 'margins';
     public coverEditorConfig: Record<string, unknown> = {};
     public headerEditorConfig: Record<string, unknown> = {};
     public footerEditorConfig: Record<string, unknown> = {};
+    public readonly pageSectionHeightConstraintHint =
+        `Design the content that appears in this section. Allowed content height: ${MIN_PAGE_SECTION_HEIGHT_PT}pt to ${MAX_PAGE_SECTION_HEIGHT_PT}pt.`;
+    private sectionHeights: Record<'header' | 'footer', number> = {
+        header: MIN_PAGE_SECTION_HEIGHT_PT,
+        footer: MIN_PAGE_SECTION_HEIGHT_PT
+    };
 
     public readonly form = new UntypedFormGroup({
         top: new UntypedFormControl(''),
@@ -90,7 +98,6 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         table_of_contents_activated: new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS.activated),
         table_of_contents_config: new UntypedFormGroup({
             pdftoc: new UntypedFormGroup({
-                'font-size': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.pdftoc['font-size']),
                 'line-height': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.pdftoc['line-height'])
             }),
             level0: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level0),
@@ -98,10 +105,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             level2: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level2),
             level3: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level3),
             level4: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level4),
-            level5: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level5),
-            spacing: new UntypedFormGroup({
-                'margin-top': new UntypedFormControl(DEFAULT_TABLE_OF_CONTENTS_CONFIG.spacing['margin-top'])
-            })
+            level5: this.createTocLevelGroup(DEFAULT_TABLE_OF_CONTENTS_CONFIG.level5)
         })
     });
     public validationError = '';
@@ -118,6 +122,8 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         const normalizedHeader = normalizeHeader(this.initialHeader);
         const normalizedFooter = normalizeFooter(this.initialFooter);
         const normalizedTableOfContents = normalizeTableOfContents(this.initialTableOfContents);
+        this.sectionHeights.header = this.normalizePageSectionHeight(normalizedHeader?.config?.height);
+        this.sectionHeights.footer = this.normalizePageSectionHeight(normalizedFooter?.config?.height);
 
         this.form.patchValue({
             top: this.initialMargins.top.toString(),
@@ -147,15 +153,48 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         this.activeTab = tab;
     }
 
+    public get isApplyDisabled(): boolean {
+        const isHeaderActivated = !!this.form.get('header_activated')?.value;
+        const isFooterActivated = !!this.form.get('footer_activated')?.value;
+        const headerContent = this.form.get('header_content')?.value;
+        const footerContent = this.form.get('footer_content')?.value;
+
+        if (isHeaderActivated && !this.hasMeaningfulContent(headerContent)) {
+            return true;
+        }
+
+        if (isFooterActivated && !this.hasMeaningfulContent(footerContent)) {
+            return true;
+        }
+
+        return false;
+    }
+
 
     public apply(): void {
         const top = parseMarginValue(this.form.get('top')?.value);
         const bottom = parseMarginValue(this.form.get('bottom')?.value);
         const left = parseMarginValue(this.form.get('left')?.value);
         const right = parseMarginValue(this.form.get('right')?.value);
+        const isHeaderActivated = !!this.form.get('header_activated')?.value;
+        const isFooterActivated = !!this.form.get('footer_activated')?.value;
+        const headerContent = this.form.get('header_content')?.value;
+        const footerContent = this.form.get('footer_content')?.value;
 
         if (top === null || bottom === null || left === null || right === null) {
             this.validationError = 'Please enter valid margin values (numbers >= 0).';
+            return;
+        }
+
+        if (isHeaderActivated && !this.hasMeaningfulContent(headerContent)) {
+            this.activeTab = 'header';
+            this.validationError = `Header content cannot be empty. Minimum content height is ${MIN_PAGE_SECTION_HEIGHT_PT}pt.`;
+            return;
+        }
+
+        if (isFooterActivated && !this.hasMeaningfulContent(footerContent)) {
+            this.activeTab = 'footer';
+            this.validationError = `Footer content cannot be empty. Minimum content height is ${MIN_PAGE_SECTION_HEIGHT_PT}pt.`;
             return;
         }
 
@@ -171,14 +210,14 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
                 activated: !!this.form.get('header_activated')?.value,
                 content: this.form.get('header_content')?.value ?? '',
                 config: {
-                    height: MAX_PAGE_SECTION_HEIGHT_PT
+                    height: this.sectionHeights.header
                 }
             } as DocTemplatePageSection,
             footer: {
                 activated: !!this.form.get('footer_activated')?.value,
                 content: this.form.get('footer_content')?.value ?? '',
                 config: {
-                    height: MAX_PAGE_SECTION_HEIGHT_PT
+                    height: this.sectionHeights.footer
                 }
             } as DocTemplatePageSection,
             tableOfContents: {
@@ -197,8 +236,8 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             onPreviewRequested: () => undefined,
             onPageMarginsRequested: () => undefined,
             onAiAssistantRequested: () => undefined,
-            onExternalObjectsRequested: (editor: any) => this.openExternalObjectsModal(editor),
-            onRelationTemplateRequested: (editor: any) => this.openRelationTemplateModal(editor)
+            onExternalObjectsRequested: (editor: TinyMceEditor) => this.openExternalObjectsModal(editor),
+            onRelationTemplateRequested: (editor: TinyMceEditor) => this.openRelationTemplateModal(editor)
         });
 
         const toolbar2 = 'cmdbdata placeholders';
@@ -219,30 +258,43 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         };
 
         this.coverEditorConfig = sharedEditorConfig;
-        this.headerEditorConfig = this.createPageSectionEditorConfig(sharedEditorConfig, 'Header');
-        this.footerEditorConfig = this.createPageSectionEditorConfig(sharedEditorConfig, 'Footer');
+        this.headerEditorConfig = this.createPageSectionEditorConfig(sharedEditorConfig, 'header', 'Header');
+        this.footerEditorConfig = this.createPageSectionEditorConfig(sharedEditorConfig, 'footer', 'Footer');
     }
 
 
-    private createPageSectionEditorConfig(baseConfig: Record<string, unknown>, sectionLabel: string): Record<string, unknown> {
+    private createPageSectionEditorConfig(
+        baseConfig: Record<string, unknown>,
+        sectionType: 'header' | 'footer',
+        sectionLabel: string
+    ): Record<string, unknown> {
         const maxSectionHeightPx = this.pointsToPixels(MAX_PAGE_SECTION_HEIGHT_PT);
+        const minSectionHeightPx = this.pointsToPixels(MIN_PAGE_SECTION_HEIGHT_PT);
         const existingContentStyle = typeof baseConfig['content_style'] === 'string'
             ? baseConfig['content_style']
             : '';
-        const baseSetup = typeof baseConfig['setup'] === 'function' ? baseConfig['setup'] as (editor: any) => void : null;
+        const baseSetup = typeof baseConfig['setup'] === 'function'
+            ? baseConfig['setup'] as (editor: TinyMceEditor) => void
+            : null;
 
         return {
             ...baseConfig,
-            content_style: `${existingContentStyle} body { max-height: ${MAX_PAGE_SECTION_HEIGHT_PT}pt; overflow: hidden; }`,
-            setup: (editor: any) => {
+            content_style: `${existingContentStyle} body { min-height: ${MIN_PAGE_SECTION_HEIGHT_PT}pt; max-height: ${MAX_PAGE_SECTION_HEIGHT_PT}pt; overflow: hidden; }`,
+            setup: (editor: TinyMceEditor) => {
                 baseSetup?.(editor);
-                this.setupPageSectionHeightGuard(editor, maxSectionHeightPx, sectionLabel);
+                this.setupPageSectionHeightGuard(editor, minSectionHeightPx, maxSectionHeightPx, sectionType, sectionLabel);
             }
         };
     }
 
 
-    private setupPageSectionHeightGuard(editor: any, maxPageSectionHeightPx: number, sectionLabel: string): void {
+    private setupPageSectionHeightGuard(
+        editor: TinyMceEditor,
+        minPageSectionHeightPx: number,
+        maxPageSectionHeightPx: number,
+        sectionType: 'header' | 'footer',
+        sectionLabel: string
+    ): void {
         let lastValidContent = '';
         let isReverting = false;
         let lastWarningAt = 0;
@@ -265,10 +317,19 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
             lastWarningAt = now;
             editor.notificationManager?.open({
-                text: `${sectionLabel} content is limited to ${MAX_PAGE_SECTION_HEIGHT_PT}pt.`,
+                text: `${sectionLabel} content height must stay between ${MIN_PAGE_SECTION_HEIGHT_PT}pt and ${MAX_PAGE_SECTION_HEIGHT_PT}pt.`,
                 type: 'warning',
                 timeout: 2200
             });
+        };
+
+        const updateSectionHeight = (): void => {
+            const body = editor?.getBody?.();
+            if (!body) {
+                return;
+            }
+
+            this.sectionHeights[sectionType] = this.normalizePageSectionHeight(this.pixelsToPoints(body.scrollHeight));
         };
 
         const enforceLimit = (): void => {
@@ -278,6 +339,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
             if (!isOverflowing()) {
                 lastValidContent = editor.getContent({ format: 'raw' });
+                updateSectionHeight();
                 return;
             }
 
@@ -294,11 +356,17 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
                 }
             }
             isReverting = false;
+            updateSectionHeight();
             showWarning();
         };
 
         editor.on('init', () => {
             lastValidContent = editor.getContent({ format: 'raw' });
+            const body = editor?.getBody?.();
+            if (body && body.scrollHeight < minPageSectionHeightPx) {
+                body.style.minHeight = `${MIN_PAGE_SECTION_HEIGHT_PT}pt`;
+            }
+            updateSectionHeight();
             enforceLimit();
         });
         editor.on('input', enforceLimit);
@@ -328,6 +396,20 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         return Math.floor((points * 96) / 72);
     }
 
+    private pixelsToPoints(pixels: number): number {
+        return Math.round((pixels * 72) / 96);
+    }
+
+    private normalizePageSectionHeight(height: unknown): number {
+        const parsed = Number(height);
+        const normalized = Number.isFinite(parsed) ? Math.trunc(parsed) : MIN_PAGE_SECTION_HEIGHT_PT;
+        return this.clampPageSectionHeight(normalized);
+    }
+
+    private clampPageSectionHeight(height: number): number {
+        return Math.min(MAX_PAGE_SECTION_HEIGHT_PT, Math.max(MIN_PAGE_SECTION_HEIGHT_PT, height));
+    }
+
     private createTocLevelGroup(initial: Partial<DocTemplateTocBaseStyle>): UntypedFormGroup {
         return new UntypedFormGroup({
             'font-size': new UntypedFormControl(initial['font-size']),
@@ -341,8 +423,27 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         });
     }
 
+    private hasMeaningfulContent(value: unknown): boolean {
+        if (value === null || value === undefined) {
+            return false;
+        }
 
-    private openExternalObjectsModal(editor: any): void {
+        const raw = value.toString();
+        if (!raw.trim()) {
+            return false;
+        }
+
+        const container = document.createElement('div');
+        container.innerHTML = raw;
+        const text = (container.textContent || container.innerText || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        return text.length > 0;
+    }
+
+
+    private openExternalObjectsModal(editor: TinyMceEditor): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
             size: 'xl',
             backdrop: 'static'
@@ -359,7 +460,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             .catch(() => undefined);
     }
 
-    private openRelationTemplateModal(editor: any): void {
+    private openRelationTemplateModal(editor: TinyMceEditor): void {
         const modalRef = this.modalService.open(RelationTemplateSelectorModalComponent, {
             size: 'lg',
             backdrop: 'static'

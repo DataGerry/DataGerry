@@ -23,7 +23,6 @@ from typing import Any
 from cmdb.framework.docapi.docapi_template.docgen_constants import (
     PAGE_HEIGHT,
     PAGE_WIDTH,
-    MIN_MARGIN,
     MIN_HEADER_HEIGHT,
     MAX_HEADER_HEIGHT,
     MIN_FOOTER_HEIGHT,
@@ -157,16 +156,16 @@ class PageHeaderFooter:
     def get_page_value(self, page_value: PageValue) -> int:
         """TODO: document"""
         if page_value == PageValue.MARGIN_TOP:
-            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_TOP), MIN_MARGIN)
+            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_TOP), 0)
 
         if page_value == PageValue.MARGIN_BOTTOM:
-            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_BOTTOM), MIN_MARGIN)
+            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_BOTTOM), 0)
 
         if page_value == PageValue.MARGIN_LEFT:
-            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_LEFT), MIN_MARGIN)
+            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_LEFT), 0)
 
         if page_value == PageValue.MARGIN_RIGHT:
-            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_RIGHT), MIN_MARGIN)
+            return mm_to_pt(self.page_config.get('margin', {}).get(PageValue.MARGIN_RIGHT), 0)
 
         if page_value == PageValue.MAX_WIDTH:
             page_left = self.get_page_value(PageValue.MARGIN_LEFT)
