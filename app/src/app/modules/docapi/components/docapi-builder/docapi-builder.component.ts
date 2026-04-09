@@ -33,7 +33,6 @@ import { DocTemplate, DocTemplateUpdateResponse } from '../../models/cmdb-doctem
 import { firstValueFrom, startWith, Subscription } from 'rxjs';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 import { DocapiPreviewObjectModalComponent } from '../docapi-preview-object-modal/docapi-preview-object-modal.component';
-import { PageMargins, upsertPageMarginsStyleBlock } from '../../utils/page-margins.util';
 import { normalizeCoverPage } from '../../utils/cover-page.util';
 import { normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { normalizeTableOfContents } from '../../utils/table-of-contents.util';
@@ -142,18 +141,6 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         }
     }
 
-    public onPageMarginsChanged(margins: PageMargins): void {
-        const styleControl = this.styleStep?.styleForm?.get('template_style');
-        if (!styleControl) {
-            return;
-        }
-
-        const currentStyle = styleControl.value ?? '';
-        const nextStyle = upsertPageMarginsStyleBlock(currentStyle, margins);
-        styleControl.setValue(nextStyle);
-    }
-
-
     public openPreviewObjectModal(): void {
         const modalRef = this.modalService.open(DocapiPreviewObjectModalComponent, {
             size: 'lg',
@@ -205,6 +192,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.docInstance.header = normalizeHeader(contentForm?.get('header')?.value);
         this.docInstance.footer = normalizeFooter(contentForm?.get('footer')?.value);
         this.docInstance.table_of_contents = normalizeTableOfContents(contentForm?.get('table_of_contents')?.value);
+        this.docInstance.page_config = contentForm?.get('page_config')?.value;
         this.docInstance.template_style = styleForm?.get('template_style')?.value;
     }
 

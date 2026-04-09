@@ -22,6 +22,17 @@ export interface PageMargins {
     right: number;
 }
 
+export interface PageConfigMargin {
+    'margin-top': number;
+    'margin-bottom': number;
+    'margin-left': number;
+    'margin-right': number;
+}
+
+export interface PageConfig {
+    margin?: Partial<PageConfigMargin>;
+}
+
 export const DEFAULT_PAGE_MARGINS: Readonly<PageMargins> = {
     top: 20,
     bottom: 20,
@@ -57,6 +68,40 @@ export function parsePageMarginsFromStyle(styleValue?: string, defaults: PageMar
         bottom: bottom ?? defaults.bottom,
         left: left ?? defaults.left,
         right: right ?? defaults.right
+    };
+}
+
+export function parsePageMarginsFromPageConfig(pageConfig: unknown, defaults: PageMargins = DEFAULT_PAGE_MARGINS): PageMargins {
+    if (!pageConfig || typeof pageConfig !== 'object') {
+        return { ...defaults };
+    }
+
+    const margin = (pageConfig as PageConfig).margin;
+    if (!margin || typeof margin !== 'object') {
+        return { ...defaults };
+    }
+
+    const top = parseMarginValue(margin['margin-top']);
+    const bottom = parseMarginValue(margin['margin-bottom']);
+    const left = parseMarginValue(margin['margin-left']);
+    const right = parseMarginValue(margin['margin-right']);
+
+    return {
+        top: top ?? defaults.top,
+        bottom: bottom ?? defaults.bottom,
+        left: left ?? defaults.left,
+        right: right ?? defaults.right
+    };
+}
+
+export function createPageConfigFromMargins(margins: PageMargins): PageConfig {
+    return {
+        margin: {
+            'margin-top': margins.top,
+            'margin-bottom': margins.bottom,
+            'margin-left': margins.left,
+            'margin-right': margins.right
+        }
     };
 }
 

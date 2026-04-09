@@ -17,6 +17,10 @@
 */
 import { Injectable } from '@angular/core';
 import { faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons';
+import {
+    DOCAPI_SUPPORTED_CSS_PROPERTIES,
+    DOCAPI_UNSUPPORTED_CSS_PROPERTIES
+} from '../constants/docapi-css-support.constants';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare var tinymce;
@@ -39,6 +43,8 @@ interface DocapiEditorConfigContext {
     providedIn: 'root'
 })
 export class DocapiEditorConfigService {
+    private static readonly CSS_SUPPORT_BUTTON_NAME = 'docapiCssSupport';
+
     public createConfig(context: DocapiEditorConfigContext): Record<string, unknown> {
         const toolbar2 = context.isCloudMode
             ? 'cmdbdata placeholders pagemargins aiassistant | previewdoc'
@@ -97,7 +103,10 @@ export class DocapiEditorConfigService {
     }
 
     private setupEditor(editor: any, context: DocapiEditorConfigContext): void {
-        editor?.on('init', () => context.onEditorInitialized?.(editor));
+        editor?.on('init', () => {
+            this.installSourceCodeCommand(editor);
+            context.onEditorInitialized?.(editor);
+        });
         editor?.on('SetContent Change KeyUp Undo Redo', () => context.onEditorContentChanged?.(editor));
 
         if (context.isCloudMode) {
@@ -142,6 +151,115 @@ export class DocapiEditorConfigService {
                 onAction: () => context.onAiAssistantRequested?.(editor)
             });
         }
+    }
+
+    private installSourceCodeCommand(editor: any): void {
+        if (!editor || editor.__docapiSourceCodeCommandInstalled) {
+            return;
+        }
+
+        editor.addCommand('mceCodeEditor', () => this.openSourceCodeDialog(editor));
+        editor.__docapiSourceCodeCommandInstalled = true;
+    }
+
+    private openSourceCodeDialog(editor: any): void {
+        const editorContent = editor.getContent({ source_view: true });
+        editor.windowManager.open({
+            title: 'Source Code',
+            size: 'large',
+            body: {
+                type: 'panel',
+                items: [
+                    {
+                        type: 'textarea',
+                        name: 'code'
+                    }
+                ]
+            },
+            buttons: [
+                {
+                    type: 'custom',
+                    name: DocapiEditorConfigService.CSS_SUPPORT_BUTTON_NAME,
+                    text: 'Show CSS compatibility details'
+                },
+                {
+                    type: 'cancel',
+                    name: 'cancel',
+                    text: 'Cancel'
+                },
+                {
+                    type: 'submit',
+                    name: 'save',
+                    text: 'Save',
+                    primary: true
+                }
+            ],
+            initialData: {
+                code: editorContent
+            },
+            onAction: (_dialogApi: any, details: any) => {
+                if (details?.name === DocapiEditorConfigService.CSS_SUPPORT_BUTTON_NAME) {
+                    this.openCssCompatibilityDialog(editor);
+                }
+            },
+            onSubmit: (dialogApi: any) => {
+                const html = dialogApi.getData()?.code ?? '';
+                editor.focus();
+                editor.undoManager.transact(() => {
+                    editor.setContent(html);
+                });
+                editor.selection.setCursorLocation();
+                editor.nodeChanged();
+                dialogApi.close();
+            }
+        });
+    }
+
+    private openCssCompatibilityDialog(editor: any): void {
+        editor?.windowManager?.open({
+            title: 'CSS compatibility for PDF rendering',
+            body: {
+                type: 'panel',
+                items: [
+                    {
+                        type: 'htmlpanel',
+                        html: this.buildCssCompatibilityHtml()
+                    }
+                ]
+            },
+            buttons: [
+                {
+                    type: 'cancel',
+                    text: 'Close',
+                    primary: true
+                }
+            ]
+        });
+    }
+
+    private buildCssCompatibilityHtml(): string {
+        const supported = DOCAPI_SUPPORTED_CSS_PROPERTIES
+            .map((property) => `<li>${property}</li>`)
+            .join('');
+        const unsupported = DOCAPI_UNSUPPORTED_CSS_PROPERTIES
+            .map((property) => `<li>${property}</li>`)
+            .join('');
+
+        return `
+            <div style="line-height:1.45;">
+                <p style="margin:0 0 10px 0;">Only a limited CSS subset is supported by PDF rendering.</p>
+                <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;">
+                    <div style="min-width:260px;flex:1;">
+                        <p style="margin:0 0 6px 0;font-weight:600;">Supported properties</p>
+                        <ul style="margin:0;padding-left:18px;">${supported}</ul>
+                    </div>
+                    <div style="min-width:260px;flex:1;">
+                        <p style="margin:0 0 6px 0;font-weight:600;">Not supported</p>
+                        <ul style="margin:0;padding-left:18px;">${unsupported}</ul>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     private getCmdbDataMenuItems(editor: any, context: DocapiEditorConfigContext): any[] {

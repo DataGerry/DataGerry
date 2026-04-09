@@ -29,6 +29,18 @@ export class DocTemplate {
     public footer: DocTemplatePageSection;
     public table_of_contents: DocTemplateTableOfContents;
     public cover_page: DocTemplateCoverPage;
+    public page_config?: DocTemplatePageConfig;
+}
+
+export interface DocTemplatePageConfigMargin {
+    'margin-top': number;
+    'margin-bottom': number;
+    'margin-left': number;
+    'margin-right': number;
+}
+
+export interface DocTemplatePageConfig {
+    margin?: Partial<DocTemplatePageConfigMargin>;
 }
 
 export interface DocTemplateCoverPage {
