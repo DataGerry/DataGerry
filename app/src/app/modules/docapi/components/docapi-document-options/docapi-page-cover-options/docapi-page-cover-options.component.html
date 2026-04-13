@@ -1,9 +1,7 @@
 <div class="cover-pane" *ngIf="coverForm" [formGroup]="coverForm">
-    <div class="form-check mb-3">
-        <input class="form-check-input" id="coverActivatedInput" type="checkbox" formControlName="cover_activated">
-        <label class="form-check-label" for="coverActivatedInput">
-            Activate cover page
-        </label>
+    <div class="mb-3">
+        <app-toggle [id]="'coverActivatedInput'" [formControlName]="'cover_activated'"
+            [label]="'Activate cover page'" />
     </div>
 
     <label class="form-label" for="coverContentInput">Cover Content</label>

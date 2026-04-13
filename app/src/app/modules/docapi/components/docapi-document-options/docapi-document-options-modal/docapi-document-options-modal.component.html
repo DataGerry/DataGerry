@@ -42,10 +42,12 @@
             [editorConfig]="coverEditorConfig" />
 
         <cmdb-docapi-page-header-options *ngIf="activeTab === 'header'" [headerForm]="form"
-            [editorConfig]="headerEditorConfig" [contentHelpText]="pageSectionHeightConstraintHint" />
+            [editorConfig]="headerEditorConfig" [activationToggleId]="'headerActivatedInput'"
+            [contentHelpText]="pageSectionHeightConstraintHint" />
 
         <cmdb-docapi-page-header-options *ngIf="activeTab === 'footer'" [headerForm]="form"
             [editorConfig]="footerEditorConfig" [activatedControlName]="'footer_activated'"
+            [activationToggleId]="'footerActivatedInput'"
             [contentControlName]="'footer_content'" [activationLabel]="'Activate footer'"
             [contentLabel]="'Footer Content'"
             [contentHelpText]="pageSectionHeightConstraintHint" />

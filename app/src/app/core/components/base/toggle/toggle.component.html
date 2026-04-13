@@ -1,0 +1,13 @@
+<label class="app-toggle" [for]="resolvedId">
+    <input
+        class="app-toggle__input"
+        [id]="resolvedId"
+        type="checkbox"
+        [formControlName]="formControlName"
+        [attr.aria-label]="resolvedAriaLabel"
+    >
+    <span class="app-toggle__track">
+        <span class="app-toggle__thumb"></span>
+    </span>
+    <span class="app-toggle__label">{{ label }}</span>
+</label>
