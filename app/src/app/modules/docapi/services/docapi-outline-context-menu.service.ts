@@ -25,7 +25,7 @@ import { OutlineContextMenuState } from '../models/docapi-outline.model';
 })
 export class DocapiOutlineContextMenuService {
     private readonly menuWidthPx = 180;
-    private readonly menuHeightPx = 52;
+    private readonly menuHeightPx = 88;
     private readonly viewportPaddingPx = 8;
     private readonly keyboardOffsetXPx = 160;
     private readonly keyboardOffsetYPx = 8;

@@ -18,40 +18,7 @@
 
 import { OUTLINE_HEADING_SELECTOR, OUTLINE_ID_ATTRIBUTE } from './docapi-outline-tree.util';
 import { createOutlineId } from './docapi-outline-id.util';
-
-const SUPPORTED_HEADING_LEVELS = new Set([1, 2, 3]);
-
-const getHeadingLevel = (heading: HTMLElement): number => Number(heading.tagName.slice(1));
-
-const ensureHeadingId = (heading: HTMLElement): string => {
-    const existingId = heading.getAttribute(OUTLINE_ID_ATTRIBUTE);
-    if (existingId) {
-        return existingId;
-    }
-
-    const nextId = createOutlineId();
-    heading.setAttribute(OUTLINE_ID_ATTRIBUTE, nextId);
-    return nextId;
-};
-
-const ensureHeadingIds = (body: HTMLElement): void => {
-    const headings = Array.from(body.querySelectorAll(OUTLINE_HEADING_SELECTOR)) as HTMLElement[];
-    headings.forEach((heading) => ensureHeadingId(heading));
-};
-
-const resolveTopLevelBodyNode = (body: HTMLElement, node: Node): Node | null => {
-    let currentNode: Node | null = node;
-
-    while (currentNode && currentNode.parentNode && currentNode.parentNode !== body) {
-        currentNode = currentNode.parentNode;
-    }
-
-    if (!currentNode || currentNode.parentNode !== body) {
-        return null;
-    }
-
-    return currentNode;
-};
+import { resolveSectionRangeByHeadingId } from './docapi-outline-section-range.util';
 
 const assignFreshIdsToClonedHeadings = (clonedNodes: Node[]): void => {
     clonedNodes.forEach((clonedNode) => {
@@ -79,56 +46,12 @@ const assignFreshIdsToClonedHeadings = (clonedNodes: Node[]): void => {
  * Section range = heading block until next heading of same/higher level.
  */
 export const duplicateSectionById = (htmlContent: string, headingId: string): string => {
-    if (!htmlContent || !headingId) {
+    const sectionRange = resolveSectionRangeByHeadingId(htmlContent, headingId);
+    if (!sectionRange) {
         return htmlContent;
     }
 
-    const parser = new DOMParser();
-    const parsedDocument = parser.parseFromString(htmlContent, 'text/html');
-    const body = parsedDocument.body;
-
-    ensureHeadingIds(body);
-
-    const headings = Array.from(body.querySelectorAll(OUTLINE_HEADING_SELECTOR)) as HTMLElement[];
-    const sourceHeadingIndex = headings.findIndex((heading) => heading.getAttribute(OUTLINE_ID_ATTRIBUTE) === headingId);
-    if (sourceHeadingIndex < 0) {
-        return htmlContent;
-    }
-
-    const sourceHeading = headings[sourceHeadingIndex];
-    const sourceHeadingLevel = getHeadingLevel(sourceHeading);
-    if (!SUPPORTED_HEADING_LEVELS.has(sourceHeadingLevel)) {
-        return htmlContent;
-    }
-
-    const bodyNodes: Node[] = Array.from(body.childNodes);
-    const sourceHeadingBodyNode = resolveTopLevelBodyNode(body, sourceHeading);
-    if (!sourceHeadingBodyNode) {
-        return htmlContent;
-    }
-
-    const startIndex = bodyNodes.indexOf(sourceHeadingBodyNode);
-    if (startIndex < 0) {
-        return htmlContent;
-    }
-
-    let endIndex = bodyNodes.length - 1;
-
-    for (let index = sourceHeadingIndex + 1; index < headings.length; index += 1) {
-        const candidateHeading = headings[index];
-        const candidateHeadingLevel = getHeadingLevel(candidateHeading);
-
-        if (candidateHeadingLevel > sourceHeadingLevel) {
-            continue;
-        }
-
-        const candidateBodyNode = resolveTopLevelBodyNode(body, candidateHeading);
-        const candidateIndex = candidateBodyNode ? bodyNodes.indexOf(candidateBodyNode) : -1;
-        if (candidateIndex > startIndex) {
-            endIndex = candidateIndex - 1;
-            break;
-        }
-    }
+    const { body, bodyNodes, startIndex, endIndex } = sectionRange;
 
     const nodesToDuplicate = bodyNodes.slice(startIndex, endIndex + 1);
     if (nodesToDuplicate.length === 0) {
