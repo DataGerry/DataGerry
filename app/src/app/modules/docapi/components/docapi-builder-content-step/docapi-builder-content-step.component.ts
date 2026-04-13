@@ -20,7 +20,7 @@ import {
     ChangeDetectorRef,
     Component,
     EventEmitter,
-    HostListener,
+    inject,
     Input,
     OnDestroy,
     Output
@@ -55,6 +55,7 @@ import { DEFAULT_TABLE_OF_CONTENTS, normalizeTableOfContents } from '../../utils
 import { OutlineContextMenuState, OutlineNavItem } from '../../models/docapi-outline.model';
 import { buildOutlineTree } from '../../utils/docapi-outline-tree.util';
 import { duplicateSectionById } from '../../utils/docapi-outline-duplicate.util';
+import { deleteSectionById } from '../../utils/docapi-outline-delete.util';
 import { DocapiOutlineContextMenuService } from '../../services/docapi-outline-context-menu.service';
 
 interface EditorInstance {
@@ -89,6 +90,10 @@ interface TypeParamData {
     templateUrl: './docapi-builder-content-step.component.html',
     styleUrls: ['./docapi-builder-content-step.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
+    host: {
+        '(document:click)': 'onDocumentClick()',
+        '(document:keydown.escape)': 'onEscapePressed()'
+    },
     standalone: false
 })
 export class DocapiBuilderContentStepComponent implements OnDestroy {
@@ -142,7 +147,7 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     public headingNavigation: OutlineNavItem[] = [];
     public activeHeadingId: string | null = null;
-    public outlineCollapsed = true;
+    public outlineCollapsed = false;
     public outlineContextMenu: OutlineContextMenuState = {
         visible: false,
         x: 0,
@@ -153,6 +158,11 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     private readonly headingSyncDebounceMs = 160;
     private readonly defaultPageMargins: PageMargins = { ...DEFAULT_PAGE_MARGINS };
     private readonly headingElementMap = new Map<string, HTMLElement>();
+    private readonly templateHelperService = inject(TemplateHelperService);
+    private readonly modalService = inject(NgbModal);
+    private readonly editorConfigService = inject(DocapiEditorConfigService);
+    private readonly outlineContextMenuService = inject(DocapiOutlineContextMenuService);
+    private readonly cdr = inject(ChangeDetectorRef);
 
     private pageMargins: PageMargins = { ...this.defaultPageMargins };
     private headingSyncTimeout?: number;
@@ -161,13 +171,7 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(
-        private readonly templateHelperService: TemplateHelperService,
-        private readonly modalService: NgbModal,
-        private readonly editorConfigService: DocapiEditorConfigService,
-        private readonly outlineContextMenuService: DocapiOutlineContextMenuService,
-        private readonly cdr: ChangeDetectorRef
-    ) {
+    constructor() {
         this.initForm();
         this.initEditorConfig();
     }
@@ -180,12 +184,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    @HostListener('document:click')
     public onDocumentClick(): void {
         this.closeOutlineContextMenu();
     }
 
-    @HostListener('document:keydown.escape')
     public onEscapePressed(): void {
         this.closeOutlineContextMenu();
     }
@@ -249,6 +251,25 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         }
 
         this.editorInstance.setContent(duplicatedContent);
+        this.scheduleHeadingSync(0);
+    }
+
+    public deleteFromContextMenu(): void {
+        const headingId = this.outlineContextMenu.headingId;
+        this.closeOutlineContextMenu();
+
+        if (!headingId || !this.editorInstance) {
+            return;
+        }
+
+        const htmlContent = this.editorInstance.getContent({ format: 'html' }) ?? '';
+        const contentAfterDelete = deleteSectionById(htmlContent, headingId);
+        if (contentAfterDelete === htmlContent) {
+            return;
+        }
+
+        this.editorInstance.setContent(contentAfterDelete);
+        this.activeHeadingId = null;
         this.scheduleHeadingSync(0);
     }
 

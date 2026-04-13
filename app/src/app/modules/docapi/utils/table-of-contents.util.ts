@@ -84,7 +84,7 @@ export const DEFAULT_TABLE_OF_CONTENTS_CONFIG: DocTemplateTableOfContentsConfig 
 };
 
 export const DEFAULT_TABLE_OF_CONTENTS: DocTemplateTableOfContents = {
-    activated: true,
+    activated: false,
     config: DEFAULT_TABLE_OF_CONTENTS_CONFIG
 };
 
