@@ -15,23 +15,30 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+
 import { Component, Input } from '@angular/core';
-import { UntypedFormGroup } from '@angular/forms';
+import { ControlContainer, FormGroupDirective } from '@angular/forms';
 
 @Component({
-    selector: 'cmdb-docapi-page-header-options',
-    templateUrl: './docapi-page-header-options.component.html',
-    styleUrls: ['./docapi-page-header-options.component.scss'],
+    selector: 'app-toggle',
+    templateUrl: './toggle.component.html',
+    styleUrls: ['./toggle.component.scss'],
+    viewProviders: [{ provide: ControlContainer, useExisting: FormGroupDirective }],
     standalone: false
 })
-export class DocapiPageHeaderOptionsComponent {
-    @Input() public headerForm: UntypedFormGroup;
-    @Input() public editorConfig: Record<string, unknown> = {};
-    @Input() public activatedControlName = 'header_activated';
-    @Input() public activationToggleId = 'sectionActivatedInput';
-    @Input() public contentControlName = 'header_content';
-    @Input() public activationLabel = 'Activate header';
-    @Input() public contentLabel = 'Header Content';
-    @Input() public contentHelpText = 'Design the content that appears in the document header.';
-    @Input() public paginationHint = '';
+export class ToggleComponent {
+    @Input() public label = '';
+    @Input() public formControlName = '';
+    @Input() public id = '';
+    @Input() public ariaLabel = '';
+
+
+    public get resolvedId(): string {
+        return this.id || this.formControlName || 'app-toggle-input';
+    }
+
+
+    public get resolvedAriaLabel(): string {
+        return this.ariaLabel || this.label;
+    }
 }
