@@ -34,7 +34,7 @@ mccabe==0.7.0
 openai==2.26.0
 openpyxl==3.1.5
 packaging==26.0
-Pillow==12.1.1
+Pillow==12.2.0
 pluggy==1.6.0
 pyasn1==0.6.2
 pycodestyle==2.14.0
