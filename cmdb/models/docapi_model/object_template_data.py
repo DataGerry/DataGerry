@@ -87,7 +87,7 @@ class ObjectTemplateData:
             related_render = CmdbRender(
                 related_object,
                 object_type,
-                None,
+                self.request_user,
                 False
             )
 
