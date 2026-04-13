@@ -1,13 +1,9 @@
 <div class="toc-pane" *ngIf="tocForm" [formGroup]="tocForm">
 
-    <label class="toc-toggle mb-3" for="tocActivatedInput">
-        <input class="toc-toggle__input" id="tocActivatedInput" type="checkbox"
-            formControlName="table_of_contents_activated">
-        <span class="toc-toggle__track">
-            <span class="toc-toggle__thumb"></span>
-        </span>
-        <span class="toc-toggle__label">Activate table of contents</span>
-    </label>
+    <div class="mb-3">
+        <app-toggle [id]="'tocActivatedInput'" [formControlName]="'table_of_contents_activated'"
+            [label]="'Activate table of contents'" />
+    </div>
 
     <div class="toc-layout" formGroupName="table_of_contents_config">
 
