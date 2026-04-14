@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,11 @@
 """
 Bulk change objects - Tests
 """
-import logging
+from logging import Logger, getLogger
 import copy
 from datetime import datetime, timezone
 from http import HTTPStatus
+
 from pymongo.mongo_client import MongoClient
 from pymongo.collection import Collection
 from pytest import fixture
@@ -36,7 +37,7 @@ from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.group_acl import GroupACL
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -90,10 +91,12 @@ def fixture_example_object():
         active=True,
         fields=[
             {
+                "type": "text",
                 "name": "dummy-field-1",
                 "value": 'dummy-value'
             },
             {
+                "type": "text",
                 "name": "dummy-field-2",
                 "value": ''
             }
@@ -114,6 +117,7 @@ def fixture_change_object() -> dict:
         "author_id": 1,
         "fields": [
             {
+                "type": "text",
                 "name": "dummy-field-2",
                 "value": "dummy-change"
             }

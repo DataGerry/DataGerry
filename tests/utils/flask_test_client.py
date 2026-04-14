@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,13 @@
 """
 This module provides a test suite and custom Flask test client for REST API testing
 """
-import logging
+from logging import Logger, getLogger
 from flask.testing import FlaskClient
 
 from cmdb.security.token.generator import TokenGenerator
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 class RestAPITestSuite:
