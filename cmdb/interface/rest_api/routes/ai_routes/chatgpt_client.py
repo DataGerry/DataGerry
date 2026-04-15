@@ -55,12 +55,17 @@ class ChatGptClient:
         """
         TODO: document
         """
+        prompt: str = self.get_document_generator_promt()
+
+        if not prompt:
+            raise ValueError("No prompt provided for ChatGPT document generator prompt!")
+
         response = self.client.responses.create(
             model="gpt-5-mini",
             input=[
                 {
                     "role": "system",
-                    "content": self.get_document_generator_promt()
+                    "content": prompt
                 },
                 {
                     "role": "user",
@@ -76,6 +81,9 @@ class ChatGptClient:
         """
         TODO: document
         """
+        if current_app.cloud_mode and not current_app.local_mode:
+            return os.getenv('CHATGPT_DOCGEN_TEMPLATE_PROMPT')
+
         return """
 
             You are an expert assistant for DATAGerry, a CMDB and IT documentation platform.
