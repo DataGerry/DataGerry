@@ -20,7 +20,7 @@ import time
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __title__ = 'DataGerry'
-__version__ = '3.1.0'
+__version__ = '3.1.1'
 __author__ = 'becon GmbH'
 __license__ = 'AGPLv3'
 __copyright__ = 'Copyright 2026 becon GmbH'
