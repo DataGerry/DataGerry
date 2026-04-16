@@ -126,6 +126,7 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
         this.templateType = data.templateType;
         this.templateTypeId = data.parameters?.type ?? null;
+        this.initEditorConfig();
 
         if (this.templateTypeId) {
             this.templateHelperService
@@ -141,10 +142,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     public readonly modes = CmdbMode;
     public contentForm: FormGroup;
-    public editorConfig: Record<string, unknown>;
+    public editorConfig: Record<string, unknown> | null = null;
 
     public templateHelperData: any[] = [];
-    public templateType = 'OBJECT';
+    public templateType = 'DEFAULT';
     public templateTypeId: number | null = null;
 
     public headingNavigation: OutlineNavItem[] = [];
@@ -175,7 +176,6 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     constructor() {
         this.initForm();
-        this.initEditorConfig();
     }
 
     public ngOnDestroy(): void {

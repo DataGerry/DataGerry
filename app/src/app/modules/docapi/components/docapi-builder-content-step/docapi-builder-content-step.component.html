@@ -50,7 +50,12 @@
 
         <div class="doc-editor-area">
             <form [formGroup]="contentForm" id="contentForm" novalidate autocomplete="off">
-                <editor formControlName="template_data" id="docContentInput" [init]="editorConfig"></editor>
+                <editor
+                    *ngIf="editorConfig"
+                    formControlName="template_data"
+                    id="docContentInput"
+                    [init]="editorConfig"
+                ></editor>
             </form>
         </div>
 
