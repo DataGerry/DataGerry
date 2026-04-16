@@ -16,6 +16,9 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
+/* ---------------------------------------------------- MODELS ------------------------------------------------------ */
+
 export interface OutlineNavItem {
     id: string;
     level: number;
@@ -33,4 +36,13 @@ export interface OutlineContextMenuState {
     x: number;
     y: number;
     headingId: string | null;
+}
+
+
+/* ----------------------------------------------------- DND -------------------------------------------------------- */
+
+export interface OutlineDropListData {
+    items: OutlineNavItem[];
+    parentHeadingId: string | null;
+    parentLevel: number;
 }

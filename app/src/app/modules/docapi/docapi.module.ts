@@ -23,6 +23,7 @@ import { EditorModule, TINYMCE_SCRIPT_SRC } from '@tinymce/tinymce-angular';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { ArchwizardModule } from '@rg-software/angular-archwizard';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
+import { DragDropModule } from '@angular/cdk/drag-drop';
 
 import { AuthModule } from '../auth/auth.module';
 import { DocapiRoutingModule } from './docapi-routing.module';
@@ -86,6 +87,7 @@ import { DocapiPageTocOptionsComponent } from './components/docapi-document-opti
         LayoutModule,
         TableModule,
         FontAwesomeModule,
+        DragDropModule,
         FormsModule,
         CoreModule,
         RunReportModule

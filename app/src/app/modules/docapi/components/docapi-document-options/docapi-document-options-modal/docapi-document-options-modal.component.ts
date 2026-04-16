@@ -69,7 +69,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     @Input() public initialHeader: DocTemplatePageSection = { ...DEFAULT_HEADER };
     @Input() public initialFooter: DocTemplatePageSection = { ...DEFAULT_FOOTER };
     @Input() public initialTableOfContents: DocTemplateTableOfContents = normalizeTableOfContents(DEFAULT_TABLE_OF_CONTENTS);
-    @Input() public templateType: string = 'OBJECT';
+    @Input() public templateType: string = 'DEFAULT';
     @Input() public templateTypeId: number | null = null;
     @Input() public templateHelperData: unknown[] = [];
 

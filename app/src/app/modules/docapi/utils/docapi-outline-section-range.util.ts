@@ -16,10 +16,20 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { OUTLINE_HEADING_SELECTOR, OUTLINE_ID_ATTRIBUTE } from './docapi-outline-tree.util';
+import {
+    OUTLINE_HEADING_SELECTOR,
+    OUTLINE_ID_ATTRIBUTE,
+    OUTLINE_MAX_HEADING_LEVEL,
+    OUTLINE_MIN_HEADING_LEVEL
+} from './docapi-outline-tree.util';
 import { createOutlineId } from './docapi-outline-id.util';
 
-const SUPPORTED_HEADING_LEVELS = new Set([1, 2, 3]);
+const SUPPORTED_HEADING_LEVELS = new Set(
+    Array.from(
+        { length: OUTLINE_MAX_HEADING_LEVEL - OUTLINE_MIN_HEADING_LEVEL + 1 },
+        (_unused, index) => OUTLINE_MIN_HEADING_LEVEL + index
+    )
+);
 
 export interface OutlineSectionRange {
     body: HTMLElement;
@@ -61,18 +71,10 @@ const resolveTopLevelBodyNode = (body: HTMLElement, node: Node): Node | null => 
 };
 
 /**
- * Resolve section range by heading id.
+ * Resolve section range inside an already parsed editor body.
  * Section range = selected heading block until next heading of same/higher level.
  */
-export const resolveSectionRangeByHeadingId = (htmlContent: string, headingId: string): OutlineSectionRange | null => {
-    if (!htmlContent || !headingId) {
-        return null;
-    }
-
-    const parser = new DOMParser();
-    const parsedDocument = parser.parseFromString(htmlContent, 'text/html');
-    const body = parsedDocument.body;
-
+export const resolveSectionRangeInBodyByHeadingId = (body: HTMLElement, headingId: string): OutlineSectionRange | null => {
     ensureHeadingIds(body);
 
     const headings = Array.from(body.querySelectorAll(OUTLINE_HEADING_SELECTOR)) as HTMLElement[];
@@ -122,4 +124,25 @@ export const resolveSectionRangeByHeadingId = (htmlContent: string, headingId: s
         startIndex,
         endIndex
     };
+};
+
+export const parseEditorBodyWithOutlineIds = (htmlContent: string): HTMLElement => {
+    const parser = new DOMParser();
+    const parsedDocument = parser.parseFromString(htmlContent, 'text/html');
+    const body = parsedDocument.body;
+    ensureHeadingIds(body);
+    return body;
+};
+
+/**
+ * Resolve section range by heading id.
+ * Section range = selected heading block until next heading of same/higher level.
+ */
+export const resolveSectionRangeByHeadingId = (htmlContent: string, headingId: string): OutlineSectionRange | null => {
+    if (!htmlContent || !headingId) {
+        return null;
+    }
+
+    const body = parseEditorBodyWithOutlineIds(htmlContent);
+    return resolveSectionRangeInBodyByHeadingId(body, headingId);
 };
