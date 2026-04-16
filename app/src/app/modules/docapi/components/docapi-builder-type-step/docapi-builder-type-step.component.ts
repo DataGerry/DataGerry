@@ -57,6 +57,7 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
     @ViewChild('typeparam')
     set typeParamComponent(component: DocapiBuilderTypeStepBaseComponent) {
         this._typeParamComponent = component;
+        this.checkTypeChildValid();
         if (component) {
             this.typeParamReady.emit(component);
         }
@@ -70,14 +71,23 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
     public typeValid: boolean = false;
     public typeChildValid: boolean = false;
 
+    public get isStepValid(): boolean {
+        if (!this.typeForm?.valid) {
+            return false;
+        }
+
+        return !!this.typeParamComponent?.typeParamForm?.valid;
+    }
+
     @Output() public formValidEmitter: EventEmitter<boolean>;
 
     /**
     * Updates the validity of the child components based on the type parameter
     */
     private checkTypeChildValid() {
-        this.typeChildValid = this.typeParamComponent ? this.typeParamComponent?.formValid : true;
-        this.formValidEmitter?.emit(this.typeValid && this.typeChildValid);
+        this.typeValid = this.typeForm?.valid;
+        this.typeChildValid = !!this.typeParamComponent?.typeParamForm?.valid;
+        this.formValidEmitter?.emit(this.isStepValid);
     }
 
 
@@ -96,10 +106,15 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
 
     public ngOnInit(): void {
         this.buildTemplateTypeOptions();
+        this.checkTypeChildValid();
         this.typeForm?.valueChanges?.subscribe(() => {
-            this.typeValid = this.typeForm?.valid;
-            this.formValidEmitter?.emit(this.typeValid && this.typeChildValid);
+            this.checkTypeChildValid();
         });
+    }
+
+    public onTypeParamValidationChange(isValid: boolean): void {
+        this.typeChildValid = isValid;
+        this.formValidEmitter?.emit(this.isStepValid);
     }
 
     private buildTemplateTypeOptions(): void {
