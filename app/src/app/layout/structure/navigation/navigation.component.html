@@ -32,20 +32,19 @@
           <cmdb-search-bar></cmdb-search-bar>
         </div>
         <div *ngIf="isCloudMode" class="col-5 col-md-2 d-flex align-items-center justify-content-center">
-          <div class="progress-container">
+          <div class="progress-container w-100 px-2">
             <div class="progress-label">
-              Objects {{ usedObjects }} / {{ totalObjects }}
+              <span class="label-text">Objects 66 / 1000</span>
+              <span class="label-percent" [style.color]="getTextColor()">{{ percentage | number: '1.1-1' }}%</span>
             </div>
-            <div class="progress">
-              <!-- Used Area with Dynamic Color -->
-              <div class="progress-bar" role="progressbar" [style.width.%]="percentage"
+        
+            <div class="progress track-modern">
+              <div class="progress-bar fill-modern" role="progressbar" [style.width.%]="percentage"
                 [style.backgroundColor]="getProgressBarColor()" [attr.aria-valuenow]="usedObjects" aria-valuemin="0"
-                [attr.aria-valuemax]="totalObjects"></div>
-              <!-- Centered Percentage with Dynamic Text Color -->
-              <span class="progress-percentage" [style.color]="getTextColor()">
-                {{ percentage | number: '1.1-1' }}%
-              </span>
+                [attr.aria-valuemax]="totalObjects">
+              </div>
             </div>
+        
           </div>
         </div>
 
@@ -195,6 +194,25 @@
             </div>
 
             <!-- nav System -->
+      
+            <div class="nav-notification">
+              <li class="nav-item notification-nav-item">
+                <button
+                  type="button"
+                  class="nav-link notification-toggle-btn hover-trigger"
+                  aria-label="Open notifications"
+                  [attr.aria-expanded]="isNotificationDrawerOpen"
+                  (click)="toggleNotificationDrawer()">
+                  <i class="fas fa-bell hover-trigger"></i>
+                  <span class="notification-badge" *ngIf="(notificationCount$ | async) as count">
+                    {{ formatNotificationCount(count) }}
+                  </span>
+                </button>
+              </li>
+              <p class="hover-trigger">Notifications</p>
+            </div>
+
+
             <div class="nav-3">
               <li class="nav-item dropdown">
                 <a class="nav-link" href="#" role="button" data-bs-toggle="dropdown" aria-haspopup="true"
@@ -268,22 +286,6 @@
                 </div>
               </li>
               <p class="hover-trigger">Settings</p>
-            </div>
-            <div class="nav-notification">
-              <li class="nav-item notification-nav-item">
-                <button
-                  type="button"
-                  class="nav-link notification-toggle-btn hover-trigger"
-                  aria-label="Open notifications"
-                  [attr.aria-expanded]="isNotificationDrawerOpen"
-                  (click)="toggleNotificationDrawer()">
-                  <i class="fas fa-bell hover-trigger"></i>
-                  <span class="notification-badge" *ngIf="(notificationCount$ | async) as count">
-                    {{ formatNotificationCount(count) }}
-                  </span>
-                </button>
-              </li>
-              <p class="hover-trigger">Notifications</p>
             </div>
 
             <!-- nav user -->
