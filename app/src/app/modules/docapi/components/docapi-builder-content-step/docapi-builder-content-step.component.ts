@@ -23,8 +23,9 @@ import {
     inject,
     Input,
     OnDestroy,
-    Output
+    Output,
 } from '@angular/core';
+import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 
@@ -52,10 +53,11 @@ import { environment } from '../../../../../environments/environment';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
 import { DEFAULT_FOOTER, DEFAULT_HEADER, normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { DEFAULT_TABLE_OF_CONTENTS, normalizeTableOfContents } from '../../utils/table-of-contents.util';
-import { OutlineContextMenuState, OutlineNavItem } from '../../models/docapi-outline.model';
+import { OutlineContextMenuState, OutlineDropListData, OutlineNavItem } from '../../models/docapi-outline.model';
 import { buildOutlineTree } from '../../utils/docapi-outline-tree.util';
 import { duplicateSectionById } from '../../utils/docapi-outline-duplicate.util';
 import { deleteSectionById } from '../../utils/docapi-outline-delete.util';
+import { moveItemInTree, serializeTreeToHtml } from '../../utils/docapi-outline-tree-move.util';
 import { DocapiOutlineContextMenuService } from '../../services/docapi-outline-context-menu.service';
 
 interface EditorInstance {
@@ -124,6 +126,7 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
         this.templateType = data.templateType;
         this.templateTypeId = data.parameters?.type ?? null;
+        this.initEditorConfig();
 
         if (this.templateTypeId) {
             this.templateHelperService
@@ -139,10 +142,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     public readonly modes = CmdbMode;
     public contentForm: FormGroup;
-    public editorConfig: Record<string, unknown>;
+    public editorConfig: Record<string, unknown> | null = null;
 
     public templateHelperData: any[] = [];
-    public templateType = 'OBJECT';
+    public templateType = 'DEFAULT';
     public templateTypeId: number | null = null;
 
     public headingNavigation: OutlineNavItem[] = [];
@@ -173,7 +176,6 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     constructor() {
         this.initForm();
-        this.initEditorConfig();
     }
 
     public ngOnDestroy(): void {
@@ -244,14 +246,13 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
             return;
         }
 
-        const htmlContent = this.editorInstance.getContent({ format: 'html' }) ?? '';
+        const htmlContent = this.getEditorHtmlContent();
         const duplicatedContent = duplicateSectionById(htmlContent, headingId);
         if (duplicatedContent === htmlContent) {
             return;
         }
 
-        this.editorInstance.setContent(duplicatedContent);
-        this.scheduleHeadingSync(0);
+        this.applyEditorHtmlContent(duplicatedContent);
     }
 
     public deleteFromContextMenu(): void {
@@ -262,15 +263,14 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
             return;
         }
 
-        const htmlContent = this.editorInstance.getContent({ format: 'html' }) ?? '';
+        const htmlContent = this.getEditorHtmlContent();
         const contentAfterDelete = deleteSectionById(htmlContent, headingId);
         if (contentAfterDelete === htmlContent) {
             return;
         }
 
-        this.editorInstance.setContent(contentAfterDelete);
+        this.applyEditorHtmlContent(contentAfterDelete);
         this.activeHeadingId = null;
-        this.scheduleHeadingSync(0);
     }
 
     public closeOutlineContextMenu(): void {
@@ -285,6 +285,47 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     public trackByHeadingId(_index: number, item: OutlineNavItem): string {
         return item.id;
+    }
+
+    public createDropListData(
+        items: OutlineNavItem[],
+        parentHeadingId: string | null,
+        parentLevel: number
+    ): OutlineDropListData {
+        return { items, parentHeadingId, parentLevel };
+    }
+
+    public onOutlineDrop(event: CdkDragDrop<OutlineDropListData>): void {
+        if (!this.editorInstance) {
+            return;
+        }
+
+        const currentList = event.container.data;
+        if (!currentList) {
+            return;
+        }
+
+        const movedItem = event.item.data as OutlineNavItem;
+        if (!movedItem) {
+            return;
+        }
+
+        const htmlContent = this.getEditorHtmlContent();
+        const nextTree = moveItemInTree(
+            this.headingNavigation,
+            movedItem.id,
+            currentList.parentHeadingId,
+            event.currentIndex
+        );
+        const contentAfterMove = serializeTreeToHtml(nextTree, htmlContent);
+
+        if (contentAfterMove === htmlContent) {
+            return;
+        }
+
+        this.applyEditorHtmlContent(contentAfterMove);
+        this.headingNavigation = nextTree;
+        this.activeHeadingId = movedItem.id;
     }
 
 
@@ -364,6 +405,23 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         outlineTree.elementMap.forEach((element, id) => this.headingElementMap.set(id, element));
         this.headingNavigation = outlineTree.tree;
     }
+
+    private getEditorHtmlContent(): string {
+        const body = this.editorInstance?.getBody();
+        return body?.innerHTML ?? '';
+    }
+
+    private applyEditorHtmlContent(content: string): void {
+        if (!this.editorInstance) {
+            return;
+        }
+
+        this.editorInstance.setContent(content);
+        this.scheduleHeadingSync(0);
+    }
+
+
+    /* ----------------------------------------------------- MODALS ---------------------------------------------------- */
 
     private openModalAndInsertContent<T>(
         component: any,

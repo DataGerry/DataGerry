@@ -15,12 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit } from '@angular/core';
-
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 import { ReplaySubject, takeUntil } from 'rxjs';
 
 import { ConnectionService } from '../../../modules/connect/services/connection.service';
 import { SessionTimeoutService } from '../../../modules/auth/services/session-timeout.service';
+import { SystemService } from 'src/app/settings/system/system.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -32,24 +32,32 @@ import { SessionTimeoutService } from '../../../modules/auth/services/session-ti
 export class FooterComponent implements OnInit, OnDestroy {
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
+    private readonly systemService = inject(SystemService);
 
     public today: number = Date.now();
     public docUrl: string = 'localhost';
     public timeout: string = '';
+    public versionNumber: string = '';
 
-/* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                     LIFE CYCLE                                                     */
-/* ------------------------------------------------------------------------------------------------------------------ */
+    /* ------------------------------------------------------------------------------------------------------------------ */
+    /*                                                     LIFE CYCLE                                                     */
+    /* ------------------------------------------------------------------------------------------------------------------ */
 
     public constructor(private connectionService: ConnectionService, private timeoutService: SessionTimeoutService) {
-        this.docUrl = `${ connectionService.getApiBaseUrl() }/docs`;
+        this.docUrl = `${connectionService.getApiBaseUrl()}/docs`;
     }
 
 
     public ngOnInit(): void {
         this.timeoutService.sessionTimeoutRemaining.asObservable().pipe(takeUntil(this.subscriber))
-        .subscribe((timeout: string) => {
-            this.timeout = timeout;
+            .subscribe((timeout: string) => {
+                this.timeout = timeout;
+            });
+
+        this.systemService.getDatagerryInformation().subscribe({
+            next: (infos: any) => {
+                this.versionNumber = infos.version
+            }
         });
     }
 

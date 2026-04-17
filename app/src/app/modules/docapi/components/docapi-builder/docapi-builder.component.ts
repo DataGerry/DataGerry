@@ -147,7 +147,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
             backdrop: 'static'
         });
 
-        modalRef.componentInstance.templateType = this.typeStep?.typeForm?.get('template_type')?.value ?? 'OBJECT';
+        modalRef.componentInstance.templateType = this.typeStep?.typeForm?.get('template_type')?.value ?? 'DEFAULT';
         modalRef.componentInstance.templateTypeId = this.getSelectedObjectTypePublicId();
 
         modalRef.result

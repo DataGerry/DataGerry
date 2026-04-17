@@ -46,9 +46,8 @@ export class DocapiEditorConfigService {
     private static readonly CSS_SUPPORT_BUTTON_NAME = 'docapiCssSupport';
 
     public createConfig(context: DocapiEditorConfigContext): Record<string, unknown> {
-        const toolbar2 = context.isCloudMode
-            ? 'cmdbdata placeholders pagemargins aiassistant | previewdoc'
-            : 'cmdbdata placeholders pagemargins | previewdoc';
+        const objectTemplate = this.isObjectTemplate(context);
+        const toolbar2 = this.resolveSecondaryToolbar(context.isCloudMode, objectTemplate);
 
         return {
             base_url: '/tinymce',
@@ -103,6 +102,8 @@ export class DocapiEditorConfigService {
     }
 
     private setupEditor(editor: any, context: DocapiEditorConfigContext): void {
+        const objectTemplate = this.isObjectTemplate(context);
+
         editor?.on('init', () => {
             this.installSourceCodeCommand(editor);
             context.onEditorInitialized?.(editor);
@@ -126,10 +127,12 @@ export class DocapiEditorConfigService {
             fetch: (callback) => callback(this.getCmdbDataMenuItems(editor, context))
         });
 
-        editor?.ui?.registry?.addMenuButton('placeholders', {
-            text: 'Template Context',
-            fetch: (callback) => callback(this.getPlaceholderMenuItems(editor))
-        });
+        if (!objectTemplate) {
+            editor?.ui?.registry?.addMenuButton('placeholders', {
+                text: 'Template Context',
+                fetch: (callback) => callback(this.getPlaceholderMenuItems(editor))
+            });
+        }
 
         editor?.ui?.registry?.addButton('previewdoc', {
             text: 'Preview',
@@ -138,19 +141,35 @@ export class DocapiEditorConfigService {
             onAction: () => context.onPreviewRequested()
         });
 
-        editor?.ui?.registry?.addButton('pagemargins', {
-            text: 'Document Options',
-            tooltip: 'Configure document-level options',
-            onAction: () => context.onPageMarginsRequested()
-        });
+        if (!objectTemplate) {
+            editor?.ui?.registry?.addButton('pagemargins', {
+                text: 'Document Options',
+                tooltip: 'Configure document-level options',
+                onAction: () => context.onPageMarginsRequested()
+            });
+        }
 
-        if (context.isCloudMode) {
+        if (context.isCloudMode && !objectTemplate) {
             editor?.ui?.registry?.addButton('aiassistant', {
                 icon: 'aiassistant',
                 tooltip: 'AI Assistant (using OpenAI API)',
                 onAction: () => context.onAiAssistantRequested?.(editor)
             });
         }
+    }
+
+    private resolveSecondaryToolbar(isCloudMode: boolean, objectTemplate: boolean): string {
+        if (objectTemplate) {
+            return 'cmdbdata | previewdoc';
+        }
+
+        return isCloudMode
+            ? 'cmdbdata placeholders pagemargins aiassistant | previewdoc'
+            : 'cmdbdata placeholders pagemargins | previewdoc';
+    }
+
+    private isObjectTemplate(context: DocapiEditorConfigContext): boolean {
+        return (context.getTemplateType?.() ?? '').toUpperCase() === 'OBJECT';
     }
 
     private installSourceCodeCommand(editor: any): void {

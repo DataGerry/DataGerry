@@ -28,7 +28,7 @@ import { RenderResult } from 'src/app/framework/models/cmdb-render';
 })
 export class DocapiPreviewObjectModalComponent implements OnInit {
 
-    @Input() templateType: string = 'OBJECT';
+    @Input() templateType: string = 'DEFAULT';
     @Input() templateTypeId: number | null = null;
 
     public typeIds: number[] = [];

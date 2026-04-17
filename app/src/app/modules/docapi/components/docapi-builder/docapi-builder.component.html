@@ -42,7 +42,7 @@
             label="Next"
             [type]="'button'"
             bootstrapClass="btn-success next"
-            [disabled]="!typeStep.typeValid || !typeStep.typeChildValid"
+            [disabled]="!typeStep.isStepValid"
             (clicked)="nextStep()"
         ></app-button>
     </aw-wizard-step>

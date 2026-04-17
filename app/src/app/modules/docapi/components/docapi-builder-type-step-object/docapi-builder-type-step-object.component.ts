@@ -48,6 +48,9 @@ export class DocapiBuilderTypeStepObjectComponent extends DocapiBuilderTypeStepB
             this.formValidationEmitter?.emit(this.formValid);
         });
 
+        this.formValid = this.typeParamForm?.valid;
+        this.formValidationEmitter?.emit(this.formValid);
+
         this.typeService?.getTypeList()?.subscribe((value: CmdbType[]) => this.objectTypeList = value);
     }
 }

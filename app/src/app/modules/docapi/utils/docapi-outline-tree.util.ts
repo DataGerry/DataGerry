@@ -19,10 +19,17 @@
 import { OutlineNavItem, OutlineTreeBuildResult } from '../models/docapi-outline.model';
 import { createOutlineId } from './docapi-outline-id.util';
 
-export const OUTLINE_HEADING_SELECTOR = 'h1, h2, h3';
+export const OUTLINE_MIN_HEADING_LEVEL = 1;
+export const OUTLINE_MAX_HEADING_LEVEL = 6;
+export const OUTLINE_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6';
 export const OUTLINE_ID_ATTRIBUTE = 'data-outline-id';
 
-const SUPPORTED_HEADING_LEVELS = new Set([1, 2, 3]);
+const SUPPORTED_HEADING_LEVELS = new Set(
+    Array.from(
+        { length: OUTLINE_MAX_HEADING_LEVEL - OUTLINE_MIN_HEADING_LEVEL + 1 },
+        (_unused, index) => OUTLINE_MIN_HEADING_LEVEL + index
+    )
+);
 
 const getHeadingLevel = (heading: HTMLElement): number => Number(heading.tagName.slice(1));
 

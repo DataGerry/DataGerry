@@ -8,8 +8,13 @@
                 </div>
                 <div class="outline-body">
                     <ng-container *ngIf="headingNavigation.length > 0; else noHeadings">
-                        <ng-container
-                            *ngTemplateOutlet="headingTree; context: { $implicit: headingNavigation }"></ng-container>
+                        <div cdkDropListGroup>
+                            <ng-container *ngTemplateOutlet="headingTree; context: {
+                                $implicit: headingNavigation,
+                                parentHeadingId: null,
+                                parentLevel: 0
+                            }"></ng-container>
+                        </div>
                     </ng-container>
                     <ng-template #noHeadings>
                         <div class="outline-empty-state">
@@ -45,7 +50,12 @@
 
         <div class="doc-editor-area">
             <form [formGroup]="contentForm" id="contentForm" novalidate autocomplete="off">
-                <editor formControlName="template_data" id="docContentInput" [init]="editorConfig"></editor>
+                <editor
+                    *ngIf="editorConfig"
+                    formControlName="template_data"
+                    id="docContentInput"
+                    [init]="editorConfig"
+                ></editor>
             </form>
         </div>
 
@@ -56,19 +66,28 @@
     </small>
 </div>
 
-<ng-template #headingTree let-items>
-    <ul class="outline-nav-list">
+<ng-template #headingTree let-items let-parentHeadingId="parentHeadingId" let-parentLevel="parentLevel">
+    <ul class="outline-nav-list" cdkDropList [cdkDropListData]="createDropListData(items, parentHeadingId, parentLevel)"
+        (cdkDropListDropped)="onOutlineDrop($event)"
+        [style.minHeight.px]="items.length === 0 && parentHeadingId ? 10 : null">
         <li *ngFor="let item of items; trackBy: trackByHeadingId" class="outline-nav-item"
             [attr.data-level]="item.level">
-            <button type="button" class="outline-nav-btn" [class.is-active]="activeHeadingId === item.id"
-                (click)="jumpToHeading(item)" (contextmenu)="openOutlineContextMenu($event, item)"
-                (keydown)="onOutlineItemKeydown($event, item)" aria-haspopup="menu">
-                <span class="outline-level-dot"></span>
-                <span class="outline-nav-text">{{ item.text }}</span>
-            </button>
-            <ng-container *ngIf="item.children.length > 0">
-                <ng-container *ngTemplateOutlet="headingTree; context: { $implicit: item.children }"></ng-container>
-            </ng-container>
+            <div class="outline-nav-row" cdkDrag [cdkDragData]="item">
+                <span class="outline-drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
+                    <i class="fas fa-grip-vertical"></i>
+                </span>
+                <button type="button" class="outline-nav-btn" [class.is-active]="activeHeadingId === item.id"
+                    (click)="jumpToHeading(item)" (contextmenu)="openOutlineContextMenu($event, item)"
+                    (keydown)="onOutlineItemKeydown($event, item)" aria-haspopup="menu">
+                    <span class="outline-level-dot"></span>
+                    <span class="outline-nav-text">{{ item.text }}</span>
+                </button>
+            </div>
+            <ng-container *ngTemplateOutlet="headingTree; context: {
+                $implicit: item.children,
+                parentHeadingId: item.id,
+                parentLevel: item.level
+            }"></ng-container>
         </li>
     </ul>
 </ng-template>
