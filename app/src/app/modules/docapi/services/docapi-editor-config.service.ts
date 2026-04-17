@@ -44,6 +44,8 @@ interface DocapiEditorConfigContext {
 })
 export class DocapiEditorConfigService {
     private static readonly CSS_SUPPORT_BUTTON_NAME = 'docapiCssSupport';
+    private static readonly PERSISTED_BARCODE_TAG = 'pdf:barcode';
+    private static readonly EDITOR_BARCODE_TAG = 'pdf-barcode';
 
     public createConfig(context: DocapiEditorConfigContext): Record<string, unknown> {
         const objectTemplate = this.isObjectTemplate(context);
@@ -66,6 +68,9 @@ export class DocapiEditorConfigService {
                 alignleft aligncenter alignright alignjustify | \
                 bullist numlist outdent indent | image table hr pagebreak | code ',
             toolbar2,
+            block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Heading 4=h4; Heading 5=h5; Heading 6=h6; Preformatted=pre',
+            quickbars_selection_toolbar: 'bold italic underline | blocks | forecolor backcolor | quicklink blockquote',
+            quickbars_insert_toolbar: 'quickimage quicktable',
             noneditable_noneditable_class: 'mceNonEditable',
             paste_data_images: true,
             automatic_uploads: true,
@@ -93,9 +98,9 @@ export class DocapiEditorConfigService {
                 input.click();
             },
             pagebreak_separator: '<pdf:nextpage />',
-            extended_valid_elements: 'pdf:barcode[*]',
-            custom_elements: 'pdf:barcode',
-            valid_children: '-pdf:barcode[*]',
+            extended_valid_elements: 'pdf-barcode[*]',
+            custom_elements: 'pdf-barcode',
+            valid_children: '-pdf-barcode[*]',
             content_css: '/assets/css/tinymce_custom.css',
             setup: (editor) => this.setupEditor(editor, context)
         };
@@ -103,6 +108,7 @@ export class DocapiEditorConfigService {
 
     private setupEditor(editor: any, context: DocapiEditorConfigContext): void {
         const objectTemplate = this.isObjectTemplate(context);
+        this.installBarcodeTagTransforms(editor);
 
         editor?.on('init', () => {
             this.installSourceCodeCommand(editor);
@@ -179,6 +185,46 @@ export class DocapiEditorConfigService {
 
         editor.addCommand('mceCodeEditor', () => this.openSourceCodeDialog(editor));
         editor.__docapiSourceCodeCommandInstalled = true;
+    }
+
+    private installBarcodeTagTransforms(editor: any): void {
+        if (!editor || editor.__docapiBarcodeTagTransformsInstalled) {
+            return;
+        }
+
+        editor.on('BeforeSetContent', (event: any) => {
+            if (typeof event?.content === 'string') {
+                event.content = this.toEditorBarcodeTag(event.content);
+            }
+        });
+        editor.on('GetContent', (event: any) => {
+            if (typeof event?.content === 'string') {
+                event.content = this.toPersistedBarcodeTag(event.content);
+            }
+        });
+        editor.__docapiBarcodeTagTransformsInstalled = true;
+    }
+
+    private toEditorBarcodeTag(content: string): string {
+        if (!content) {
+            return content;
+        }
+
+        return content.replace(
+            /<\/?\s*pdf:barcode\b/gi,
+            (tag) => tag.replace(/pdf:barcode/gi, DocapiEditorConfigService.EDITOR_BARCODE_TAG)
+        );
+    }
+
+    private toPersistedBarcodeTag(content: string): string {
+        if (!content) {
+            return content;
+        }
+
+        return content.replace(
+            /<\/?\s*pdf-barcode\b/gi,
+            (tag) => tag.replace(/pdf-barcode/gi, DocapiEditorConfigService.PERSISTED_BARCODE_TAG)
+        );
     }
 
     private openSourceCodeDialog(editor: any): void {
@@ -394,7 +440,8 @@ export class DocapiEditorConfigService {
             onAction: () => {
                 const selection = editor.selection.getNode();
                 const preData = {};
-                if (selection?.tagName === 'PDF:BARCODE') {
+                const selectedTagName = String(selection?.tagName ?? '').toUpperCase();
+                if (selectedTagName === 'PDF:BARCODE' || selectedTagName === 'PDF-BARCODE') {
                     preData['type'] = selection?.attributes?.getNamedItem('type')?.value;
                     preData['content'] = selection?.attributes?.getNamedItem('value')?.value;
                 }
@@ -440,7 +487,7 @@ export class DocapiEditorConfigService {
                             barcodeElementAttr['barheight'] = '3cm';
                         }
 
-                        const barcodeElement = editor?.dom?.create('pdf:barcode', barcodeElementAttr);
+                        const barcodeElement = editor?.dom?.create(DocapiEditorConfigService.EDITOR_BARCODE_TAG, barcodeElementAttr);
                         if (preData['content']) {
                             const selectionNext = editor?.selection?.getNode()?.nextSibling;
                             editor?.dom?.remove(selection);
