@@ -1,0 +1,202 @@
+@use "sass:color";
+
+.connections-svg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+
+  // arrow markers
+  defs {
+    marker#arrow-valid {
+      markerWidth: 8;
+      markerHeight: 8;
+      refX: 7;
+      refY: 3;
+      orient: auto;
+      markerUnits: strokeWidth;
+      
+      path {
+        fill: $primary;
+        d: "M0,0 L0,6 L7,3 z";
+      }
+    }
+
+    marker#arrow-invalid {
+      markerWidth: 8;
+      markerHeight: 8;
+      refX: 7;
+      refY: 3;
+      orient: auto;
+      markerUnits: strokeWidth;
+      
+      path {
+        fill: $danger;
+        d: "M0,0 L0,6 L7,3 z";
+      }
+    }
+
+    marker#arrow-data-flow {
+      markerWidth: 8;
+      markerHeight: 8;
+      refX: 7;
+      refY: 3;
+      orient: auto;
+      markerUnits: strokeWidth;
+      
+      path {
+        fill: $info;
+        d: "M0,0 L0,6 L7,3 z";
+      }
+    }
+  }
+
+
+.connection-path {
+  transition: all 0.1s ease;
+  fill: none;
+  stroke-width: 2;
+  pointer-events: stroke;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+
+  &.hovered {
+    stroke-width: 4px !important;
+    opacity: 1 !important;
+    
+    &.valid {
+      stroke: #2196F3 !important;
+    }
+    
+    &.invalid {
+      stroke: #ef4444 !important;
+    }
+  }
+  
+  //  invisible wider stroke for easier clicking
+  &::before {
+    content: '';
+    stroke-width: 20px; // Much wider invisible area
+    stroke: transparent;
+    pointer-events: stroke;
+  }
+
+  &.valid {
+    stroke: #90A4AE;
+    marker-end: url(#arrow-valid);
+    opacity: 0.8;
+    
+    &:hover {
+      stroke: #2196F3; // Blue on hover
+      stroke-width: 5px;
+      opacity: 1;
+    }
+
+    // Selected/clicked state
+    &.clicked {
+      stroke: #e94d18 !important; // Orange when clicked
+      stroke-width: 4px !important;
+      opacity: 1 !important;
+      filter: drop-shadow(0 2px 4px rgba(233, 77, 24, 0.3));
+    }
+  }
+
+  &.invalid {
+    stroke: rgba(239, 68, 68, 0.4); 
+    marker-end: url(#arrow-invalid);
+    stroke-dasharray: 8, 4;
+    opacity: 0.5;
+    
+    &:hover {
+      stroke: #ef4444;
+      stroke-width: 3px;
+      opacity: 0.8;
+    }
+
+    &.clicked {
+      stroke: #e94d18 !important;
+      stroke-width: 4px !important;
+      opacity: 1 !important;
+    }
+  }
+}
+
+.connections-group {
+  cursor: pointer;
+  stroke-width: 32px;
+  .connection-click-area {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 30px; // Wide invisible stroke for easier clicking
+    pointer-events: stroke;
+    cursor: pointer;
+  }
+}
+
+defs {
+  marker#arrow-valid {
+    path {
+      fill: #90A4AE; 
+    }
+  }
+
+  marker#arrow-invalid {
+    path {
+      fill: rgba(239, 68, 68, 0.7); 
+    }
+  }
+
+  marker#arrow-data-flow {
+    path {
+      fill: #90A4AE; 
+    }
+  }
+}
+
+  .connection-label-group {
+    pointer-events: all;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+
+    &.visible {
+      opacity: 1;
+    }
+
+    .connection-label-bg {
+      fill: rgba(255, 255, 255, 0.95);
+      stroke: rgba($gray-300, 0.5);
+      stroke-width: 1;
+      rx: 4;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    }
+
+    .connection-label {
+      fill: $gray-700;
+      font-size: 11px;
+      font-weight: 600;
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+
+    &:hover {
+      .connection-label-bg {
+        fill: $primary;
+        stroke: color.scale($primary, $lightness: -10%);
+      }
+
+      .connection-label {
+        fill: $light;
+      }
+    }
+  }
+}
+
+// Keep the existing animation
+@keyframes flowData {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -15; }
+}
