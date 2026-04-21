@@ -12,8 +12,8 @@ import { FileExportService } from 'src/app/core/services/file-export.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 import { getTextColorBasedOnBackground, hexToRgb } from 'src/app/core/utils/color-utils';
 import { getCurrentDate } from 'src/app/core/utils/date.utils';
 import { IsmsValidationService } from '../../services/isms-validation.service';
