@@ -27,6 +27,7 @@ from cmdb.models.type_model.type_summary import TypeSummary
 from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.class_schema.cmdb_type_schema import get_cmdb_type_schema
 
 from cmdb.errors.models.cmdb_type import (
@@ -69,6 +70,7 @@ class CmdbType(CmdbDAO):
         last_edit_time: datetime | None = None,
         editor_id: int | None = None,
         active: bool = True,
+        special_type: SpecialType |None = None,
         selectable_as_parent: bool = True,
         global_template_ids: list[int] | None = None,
         fields: list[dict[str, Any]] | None = None,
@@ -113,6 +115,7 @@ class CmdbType(CmdbDAO):
             self.selectable_as_parent: bool = selectable_as_parent
             self.global_template_ids: list[int] = global_template_ids or []
             self.active: bool = active
+            self.special_type: SpecialType | None = special_type
             self.author_id: int = author_id
             self.creation_time: datetime = creation_time or datetime.now(timezone.utc)
             self.editor_id: int | None = editor_id
@@ -160,6 +163,7 @@ class CmdbType(CmdbDAO):
                 selectable_as_parent = data.get('selectable_as_parent', True),
                 global_template_ids = data.get('global_template_ids', []),
                 active = data.get('active', True),
+                special_type = data.get('special_type'),
                 author_id = int(data["author_id"]),
                 creation_time = creation_time,
                 editor_id = int(raw_editor_id) if raw_editor_id is not None else None,
@@ -198,6 +202,7 @@ class CmdbType(CmdbDAO):
                 'selectable_as_parent': instance.selectable_as_parent,
                 'global_template_ids': instance.global_template_ids,
                 'active': instance.active,
+                'special_type': instance.special_type,
                 'author_id': instance.author_id,
                 'creation_time': instance.creation_time,
                 'editor_id': instance.editor_id,

@@ -58,7 +58,8 @@ def get_cmdb_object_schema() -> dict[str, Any]:
         },
         'special_type': { # The assigned SpecialType of this CmdbObjects CmdbType if any
             'type': 'string',
-            'required': False
+            'required': False,
+            'nullable': True,
         },
         'fields': { # Stores the values for the fields of the CmdbObject
             'type': 'list',

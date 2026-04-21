@@ -28,6 +28,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
 from cmdb.models.type_model import CmdbType, TypeFieldSection
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.object_model import CmdbObject
 
 from cmdb.framework.results import IterationResult
@@ -340,6 +341,13 @@ class TypesManager(BaseManager):
             raise TypesManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def check_special_type_exists(self, special_type: SpecialType) -> bool:
+        """TODO: document"""
+        matching_type: dict[str, Any] | None = self.get_one_by({'special_type': special_type})
+
+        return bool(matching_type)
+
 
     def update_multi_data_fields(
         self,
