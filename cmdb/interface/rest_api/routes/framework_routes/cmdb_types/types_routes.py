@@ -43,6 +43,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_changes_to_mds,
     verify_type_deletable,
     type_deletion_followup,
+    special_type_is_unchanged,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
@@ -96,7 +97,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         data.setdefault('creation_time', datetime.now(timezone.utc))
         data['author_id'] = request_user.public_id
 
-        verify_type_is_unique(types_manager, data.get('name'), data.get('public_id'))
+        verify_type_is_unique(types_manager, data.get('name'), data.get('public_id'), data.get('special_type'))
 
         result_id: int = types_manager.insert_type(data)
         created_type: dict[str, Any] | None = types_manager.get_type(result_id)
@@ -346,6 +347,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         data['editor_id'] = request_user.public_id
         new_type: CmdbType = CmdbType.from_data(data)
 
+        if not special_type_is_unchanged(old_type.special_type, data.get('special_type')):
+            abort(400, "It is not possible to change the SpecialType property of Types!")
+
         # Update the target CmdbType
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
@@ -425,5 +429,5 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         LOGGER.error("[delete_cmdb_type] TypesManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Type with ID: {public_id}!")
     except Exception as err:
-        LOGGER.error("[delete_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[delete_cmdb_type] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, f"An internal server error occured while deleting Type with ID: {public_id}!")

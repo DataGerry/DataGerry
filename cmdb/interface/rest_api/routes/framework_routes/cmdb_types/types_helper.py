@@ -44,7 +44,12 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def verify_type_is_unique(types_manager: TypesManager, name: str, public_id: int | None = None) -> None:
+def verify_type_is_unique(
+    types_manager: TypesManager,
+    name: str,
+    public_id: int | None = None,
+    special_type: str | None = None
+) -> None:
     """
     Checks the possible public_id and name of the CmdbType for Validity
 
@@ -68,6 +73,17 @@ def verify_type_is_unique(types_manager: TypesManager, name: str, public_id: int
             abort(400, f"Type with name:{name} already exists!")
     else:
         abort(400, "Type data does not contain 'name' of the Type!")
+
+    if special_type:
+        special_type_exists: bool = types_manager.check_special_type_exists(special_type)
+
+        if special_type_exists:
+            abort(400, f"SpecialType: {special_type} already exists!")
+
+
+def special_type_is_unchanged(old_st: str, new_st: str) -> bool:
+    """TODO: document"""
+    return old_st == new_st
 
 
 def prepare_builder_parameters(type_params: TypeIterationParameters) -> BuilderParameters:

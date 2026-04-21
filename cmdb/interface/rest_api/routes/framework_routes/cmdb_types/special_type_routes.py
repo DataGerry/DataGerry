@@ -66,9 +66,9 @@ def check_special_type_exist(request_user: CmdbUser) -> Response:
 
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        matching_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': special_type})
+        special_type_exists: bool = types_manager.check_special_type_exists(special_type)
 
-        return DefaultResponse(bool(matching_type)).make_response()
+        return DefaultResponse(special_type_exists).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:

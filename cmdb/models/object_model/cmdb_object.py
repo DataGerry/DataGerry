@@ -24,6 +24,7 @@ from dateutil.parser import parse
 
 from cmdb.class_schema.cmdb_object_schema import get_cmdb_object_schema
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 
 from cmdb.errors.models.cmdb_object import (
     CmdbObjectInitError,
@@ -68,6 +69,7 @@ class CmdbObject(CmdbDAO):
         author_id: int,
         active: bool,
         fields: list[dict[str, Any]],
+        special_type: SpecialType |None = None,
         multi_data_sections: list | None = None,
         last_edit_time: datetime | None = None,
         editor_id: int | None = None,
@@ -102,6 +104,7 @@ class CmdbObject(CmdbDAO):
             self.last_edit_time: datetime | None = last_edit_time
             self.editor_id: int | None = editor_id
             self.active: bool = active
+            self.special_type: SpecialType | None = special_type
             self.fields: list[dict[str, Any]] = fields
             self.ci_explorer_tooltip: str | None = ci_explorer_tooltip
             self.multi_data_sections = multi_data_sections or []
@@ -160,17 +163,18 @@ class CmdbObject(CmdbDAO):
                 last_edit_time = parse(last_edit_time, fuzzy=True)
 
             return cls(
-                public_id=data.get('public_id'),
-                type_id=int(data["type_id"]),
-                version=data.get("version", "1.0.0"),
-                creation_time=creation_time or datetime.now(timezone.utc),
-                author_id=int(data["author_id"]),
-                last_edit_time=last_edit_time,
-                editor_id=data.get('editor_id'),
-                active=data.get("active", True),
-                fields=data.get('fields', []),
-                ci_explorer_tooltip=data.get('ci_explorer_tooltip'),
-                multi_data_sections=data.get('multi_data_sections', []),
+                public_id = data.get('public_id'),
+                type_id = int(data["type_id"]),
+                version = data.get("version", "1.0.0"),
+                creation_time = creation_time or datetime.now(timezone.utc),
+                author_id = int(data["author_id"]),
+                special_type = data.get('special_type'),
+                last_edit_time = last_edit_time,
+                editor_id = data.get('editor_id'),
+                active = data.get("active", True),
+                fields = data.get('fields', []),
+                ci_explorer_tooltip = data.get('ci_explorer_tooltip'),
+                multi_data_sections = data.get('multi_data_sections', []),
             )
         except Exception as err:
             raise CmdbObjectInitFromDataError(str(err)) from err
@@ -200,6 +204,7 @@ class CmdbObject(CmdbDAO):
                 'last_edit_time': instance.last_edit_time,
                 'editor_id': instance.editor_id,
                 'active': instance.active,
+                'special_type': instance.special_type,
                 'fields': instance.fields,
                 'ci_explorer_tooltip': instance.ci_explorer_tooltip,
                 'multi_data_sections': instance.multi_data_sections,
