@@ -47,7 +47,7 @@
     "html-to-image": "^1.11.11",
     "html2canvas": "^1.4.1",
     "jquery": "^3.7.1",
-    "jspdf": "^3.0.3",
+    "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.2",
     "jszip": "^3.10.1",
     "moment-timezone": "^0.5.45",
