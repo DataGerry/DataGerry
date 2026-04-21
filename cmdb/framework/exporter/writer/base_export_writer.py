@@ -84,12 +84,7 @@ class  BaseExportWriter:
         objects: list[CmdbObject] = objects_manager.iterate(builder_params, user, permission).results
 
         # Process and store exportable data
-        self.data = RenderList(
-            objects,
-            user,
-            True,
-            objects_manager
-        ).render_result_list(raw=False)
+        self.data = RenderList(objects, user, True).render_result_list(raw=False)
 
 
     def export(self) -> Response:

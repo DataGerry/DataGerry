@@ -52,7 +52,8 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.framework.results import IterationResult
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+# from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
@@ -178,7 +179,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
             handle_sync_config_item_count(request_user, objects_count)
 
         # Generate new insert log
-        handle_creat_object_log(request_user, current_object, object_type, LogAction.CREATE)
+        handle_creat_object_log(request_user, current_object, LogAction.CREATE)
 
         return DefaultResponse(new_object_id).make_response()
     except HTTPException as http_err:
@@ -228,11 +229,17 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(500, "The Type of the requested Object could not be retrieved from the database!")
 
         try:
-            render_result = CmdbRender(requested_object,
-                                       type_instance,
-                                       request_user,
-                                       True
-                                       ).result()
+            # render_result = CmdbRender(requested_object,
+            #                            type_instance,
+            #                            request_user,
+            #                            True
+            #                            ).result()
+
+            render_result = CmdbMultiRender(
+                [requested_object],
+                request_user,
+                True
+            ).result(single_object=True)
         except Exception as err:
             LOGGER.error("[get_cmdb_object] Error: %s , Type: %s", err, type(err), exc_info=True)
             abort(500, f"Object with ID: {public_id} could not be rendered!")
@@ -289,10 +296,11 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
         if view == 'native':
             result_data: list[dict] = [object_.__dict__ for object_ in iteration_result.results]
         elif view == 'render':
-            result_data = RenderList(object_list=iteration_result.results,
-                                       request_user=request_user,
-                                       ref_render=True,
-                                       objects_manager=objects_manager).render_result_list(raw=True)
+            result_data = RenderList(
+                iteration_result.results,
+                request_user,
+                True
+            ).render_result_list(raw=True)
         else:
             abort(400, "Invalid or unprovided 'view' parameter!")
 
@@ -495,10 +503,12 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
         if not referenced_type:
             abort(500, f"The Type of the Object with ID:{public_id} was not found in the database!")
 
-        mds_reference = CmdbRender(referenced_object,
-                                   referenced_type,
-                                   request_user,
-                                   True).get_mds_reference(public_id)
+        # mds_reference = CmdbRender(referenced_object,
+        #                            referenced_type,
+        #                            request_user,
+        #                            True).get_mds_reference(public_id)
+
+        mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(public_id)
 
         return DefaultResponse(mds_reference).make_response()
     except HTTPException as http_err:
@@ -552,12 +562,14 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
             referenced_type = objects_manager.get_object_type(referenced_object.get_type_id())
 
             if not referenced_type:
-                abort(500, f"The Type of the Object with ID:{public_id} was not found in the database!")
+                abort(404, f"The Type of the Object with ID:{public_id} was not found in the database!")
 
-            mds_reference = CmdbRender(referenced_object,
-                                        referenced_type,
-                                        request_user,
-                                        True).get_mds_reference(object_id)
+            # mds_reference = CmdbRender(referenced_object,
+            #                             referenced_type,
+            #                             request_user,
+            #                             True).get_mds_reference(object_id)
+
+            mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(object_id)
 
             summary_lines[object_id] = mds_reference
 
@@ -625,10 +637,11 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
         if view == 'native':
             request_data: list[dict] = [object_.__dict__ for object_ in iteration_result.results]
         elif view == 'render':
-            request_data = RenderList(object_list=iteration_result.results,
-                                      request_user=request_user,
-                                      ref_render=True,
-                                      objects_manager=objects_manager).render_result_list(raw=True)
+            request_data = RenderList(
+                iteration_result.results,
+                request_user,
+                True
+            ).render_result_list(raw=True)
         else:
             abort(400, "Invalid or unprovided 'view' parameter!")
 
@@ -786,10 +799,15 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
             if not current_type_instance:
                 abort(500, "Type of Object not found in database!")
 
-            current_object_render_result = CmdbRender(current_object_instance,
-                                                    current_type_instance,
-                                                    request_user,
-                                                    False).result()
+            # current_object_render_result = CmdbRender(current_object_instance,
+            #                                         current_type_instance,
+            #                                         request_user,
+            #                                         False).result()
+
+            current_object_render_result = CmdbMultiRender(
+                [current_object_instance],
+                request_user
+            ).result(single_object=True)
 
             new_data.update({
                 'public_id': obj_id,
@@ -943,10 +961,15 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         if not current_type_instance:
             abort(500, "Type of Object not found in database!")
 
-        current_object_render_result = CmdbRender(found_object,
-                                                  current_type_instance,
-                                                  request_user,
-                                                  False).result()
+        # current_object_render_result = CmdbRender(found_object,
+        #                                           current_type_instance,
+        #                                           request_user,
+        #                                           False).result()
+
+        current_object_render_result = CmdbMultiRender(
+            [found_object],
+            request_user
+        ).result(single_object=True)
 
         object_after = objects_manager.get_object(public_id, request_user, AccessControlPermission.READ)
 
@@ -1159,7 +1182,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         objects_manager.delete_all_object_references(public_id)
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, to_delete_object_type, objects_manager, LogAction.DELETE)
+        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
@@ -1220,7 +1243,7 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
         objects_manager.delete_all_object_references(public_id)
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, to_delete_object_type, objects_manager, LogAction.DELETE)
+        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
@@ -1315,12 +1338,7 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
                 handle_notify_webhooks(request_user, CmdbObject.from_data(child_object), WebhookEventType.DELETE)
 
                 # Create object deletion log entry
-                handle_creat_object_log(
-                    request_user,
-                    CmdbObject.from_data(child_object),
-                    child_object_type,
-                    LogAction.DELETE
-                )
+                handle_creat_object_log(request_user, CmdbObject.from_data(child_object), LogAction.DELETE)
 
             # Remove all child objects from static object groups
             handle_delete_from_object_groups(request_user, children_object_ids)
@@ -1333,7 +1351,7 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
         objects_manager.delete_all_object_references(public_id)
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, target_object, to_delete_object_type, objects_manager, LogAction.DELETE)
+        delete_one_cascade(request_user, target_object, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
     except HTTPException as http_err:
@@ -1422,7 +1440,7 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
             handle_notify_webhooks(request_user, current_object, WebhookEventType.DELETE)
 
             # Create ObjectLog of the deletion
-            handle_creat_object_log(request_user, current_object, current_object_type, LogAction.DELETE)
+            handle_creat_object_log(request_user, current_object, LogAction.DELETE)
 
             ack.append(current_object.get_public_id())
 

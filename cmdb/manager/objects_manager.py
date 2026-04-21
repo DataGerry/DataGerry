@@ -680,6 +680,13 @@ class ObjectsManager(BaseManager):
             LOGGER.error("[get_grouped_objects_for_types] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerGetError(str(err)) from err
 
+
+    def get_objects_lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
+        """TODO: document"""
+        all_objects: list[CmdbObject] = self.find_objects(criteria={"public_id": {"$in": public_ids}})
+
+        return {obj.public_id: obj for obj in all_objects}
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_object(self,

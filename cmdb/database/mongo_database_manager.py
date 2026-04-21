@@ -774,6 +774,7 @@ class MongoDatabaseManager:
                 f"Error updating documents in collection '{collection}': {err}"
             ) from err
 
+
     @retry_operation
     def update_public_id_counter(
         self,
@@ -829,6 +830,20 @@ class MongoDatabaseManager:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     @retry_operation
+    def get_distinct(self, collection: str, db_name: str, key: str, criteria: dict[str, Any]) -> list[Any]:
+        """TODO: document"""
+        try:
+            result: list[Any] = self.get_collection(collection, db_name).distinct(key, criteria)
+
+            return result if result else []
+        except Exception as err:
+            LOGGER.error("[distinct] Can't retrive distinct documents. Error: %s", err)
+            raise DocumentGetError(
+                f"Failed to retrieve distinct documents from collection '{collection}': {err}"
+            ) from err
+
+
+    @retry_operation
     def find_all(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Retrives documents from the specified collection
@@ -849,7 +864,7 @@ class MongoDatabaseManager:
 
             return list(found_documents)
         except Exception as err:
-            LOGGER.debug("[find_all] Can't retrive documents. Error: %s", err)
+            LOGGER.error("[find_all] Can't retrive documents. Error: %s", err)
             raise DocumentGetError(f"Failed to retrieve documents from '{collection}': {err}") from err
 
 

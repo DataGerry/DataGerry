@@ -37,7 +37,8 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+# from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -378,14 +379,19 @@ def import_objects(request_user: CmdbUser) -> Response:
         for message in import_response.success_imports:
             try:
                 # get object state of every imported object
-                current_type_instance = objects_manager.get_object_type(importer_config_request.get('type_id'))
+                # current_type_instance = objects_manager.get_object_type(importer_config_request.get('type_id'))
                 current_object = objects_manager.get_object(message.public_id)
                 current_object = CmdbObject.from_data(current_object)
 
-                current_object_render_result = CmdbRender(current_object,
-                                                        current_type_instance,
-                                                        request_user,
-                                                        False).result()
+                # current_object_render_result = CmdbRender(current_object,
+                #                                         current_type_instance,
+                #                                         request_user,
+                #                                         False).result()
+
+                current_object_render_result = CmdbMultiRender(
+                    [current_object],
+                    request_user
+                ).result(single_object=True)
 
                 # insert object create log
                 log_params = {

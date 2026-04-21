@@ -117,7 +117,7 @@ class CmdbType(CmdbDAO):
             self.creation_time: datetime = creation_time or datetime.now(timezone.utc)
             self.editor_id: int | None = editor_id
             self.last_edit_time: datetime | None = last_edit_time
-            self.render_meta = render_meta
+            self.render_meta: TypeRenderMeta = render_meta
             self.fields: list[dict[str, Any]] = fields or []
             self.ci_explorer_label: str | None = ci_explorer_label
             self.ci_explorer_color: str | None = ci_explorer_color
@@ -452,7 +452,7 @@ class CmdbType(CmdbDAO):
         if field:
             return field
 
-        raise CmdbTypeFieldNotFoundError(f"Field '{name}' was not found!")
+        raise CmdbTypeFieldNotFoundError(f"Field '{name}' was not found on Type with ID: {self.public_id}!")
 
 
     def get_all_mds_fields(self) -> list[dict[str, Any]]:

@@ -35,8 +35,9 @@ from cmdb.manager import (
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
-from cmdb.models.type_model import CmdbType
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+# from cmdb.models.type_model import CmdbType
+# from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.models.docapi_model.relation_result import RelationResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -295,15 +296,17 @@ class DefaultTemplateData:
             if not obj_type:
                 return None
 
-            render = CmdbRender(
-                cmdb_object,
-                CmdbType.from_data(obj_type),
-                self.request_user,
-                False,
-            )
+            # render = CmdbRender(
+            #     cmdb_object,
+            #     CmdbType.from_data(obj_type),
+            #     self.request_user,
+            #     False,
+            # )
+
+            render = CmdbMultiRender([cmdb_object], self.request_user)
 
             return ObjectTemplateData(
-                render.result(),
+                render.result(single_object=True),
                 self.objects_manager,
                 self.request_user,
                 self.template_type
