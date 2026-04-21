@@ -28,6 +28,7 @@ from cmdb.manager import (
 )
 
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import (
@@ -60,9 +61,6 @@ class CmdbRender:
     """
     Responsible for rendering CMDB object and type data into a specified format
     """
-
-    AUTHOR_ANONYMOUS_NAME = 'unknown'
-
     # pylint: disable=R0917
     def __init__(
         self,
@@ -79,7 +77,6 @@ class CmdbRender:
             type_instance (CmdbType): The CMDB type to render
             render_user (CmdbUser): The user who is requesting the render
             ref_render (bool, optional): Flag to enable reference rendering. Defaults to False
-            dbm (MongoDatabaseManager, optional): Database manager. Defaults to None
         """
         self.object_instance: CmdbObject = object_instance
         self.type_instance: CmdbType = type_instance
@@ -243,9 +240,9 @@ class CmdbRender:
             if author:
                 author_name = author.get_display_name()
             else:
-                author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+                author_name = ANONYMOUS_NAME
         except Exception:
-            author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+            author_name = ANONYMOUS_NAME
 
         editor_name: str | None = None
         if self.object_instance.editor_id:
@@ -289,9 +286,9 @@ class CmdbRender:
             if author:
                 author_name = author = author.get_display_name()
             else:
-                author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+                author_name = ANONYMOUS_NAME
         except UsersManagerGetError:
-            author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+            author_name = ANONYMOUS_NAME
 
         try:
             self.type_instance.render_meta.icon

@@ -144,7 +144,7 @@ def register_converters(app: BaseCmdbApp):
 
 
 #pylint: disable=R0914, R0915
-def register_blueprints(app: BaseCmdbApp):
+def register_blueprints(app: BaseCmdbApp) -> None:
     """
     Registers API routes for the app
 
@@ -156,7 +156,7 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.system_routes.setup_routes import setup_blueprint
     from cmdb.interface.rest_api.routes.settings_routes.date_routes import date_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.objects_routes import objects_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.types_routes import types_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
     from cmdb.interface.rest_api.routes.connection import connection_routes
     from cmdb.interface.rest_api.routes.framework_routes.categories_routes import categories_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.location_routes import location_blueprint
@@ -191,6 +191,7 @@ def register_blueprints(app: BaseCmdbApp):
         extendable_option_blueprint,
         object_group_blueprint,
     )
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes import special_types_blueprint
     from cmdb.interface.rest_api.routes.isms_routes import (
         risk_class_blueprint,
         likelihood_blueprint,
@@ -222,6 +223,7 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(date_blueprint, url_prefix='/date')
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
     app.register_blueprint(types_blueprint, url_prefix='/types')
+    app.register_blueprint(special_types_blueprint, url_prefix='/special_types')
     app.register_blueprint(connection_routes)
     app.register_blueprint(categories_blueprint, url_prefix='/categories')
     app.register_blueprint(location_blueprint, url_prefix='/locations')

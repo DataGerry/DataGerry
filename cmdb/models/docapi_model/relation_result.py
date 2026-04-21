@@ -21,10 +21,12 @@ from logging import Logger, getLogger
 from cmdb.manager import ObjectsManager
 
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
+# from cmdb.models.type_model import CmdbType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+# from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -175,16 +177,18 @@ class RelationResult:
             if not obj_type:
                 continue
 
-            render = CmdbRender(
-                cmdb_object,
-                CmdbType.from_data(obj_type),
-                self.request_user,
-                False,
-            )
+            # render = CmdbRender(
+            #     cmdb_object,
+            #     CmdbType.from_data(obj_type),
+            #     self.request_user,
+            #     False,
+            # )
+
+            render: RenderResult = CmdbMultiRender([cmdb_object], self.request_user).result(single_object=True)
 
             result.append(
                 ObjectTemplateData(
-                    render.result(),
+                    render,
                     self.objects_manager,
                     self.request_user,
                     self.template_type
