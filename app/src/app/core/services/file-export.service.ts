@@ -18,9 +18,8 @@
 import { Injectable } from '@angular/core';
 import * as Papa from 'papaparse';
 import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-// @ts-ignore
-import autoTable from 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 
 type ExportFormat = 'csv' | 'xlsx' | 'pdf';
 
