@@ -53,7 +53,7 @@ class TemplateEngine:
         """
         # Initialize the Jinja2 environment with ChainableUndefined to handle undefined variables gracefully
         environment = Environment(undefined=ChainableUndefined)
-        environment.finalize = lambda x: "" if x is None else x
+        environment.finalize = lambda x: "&nbsp;" if x in (None, "") else x
 
         safe_template_data = self._safe_wrap(template_data)
 
