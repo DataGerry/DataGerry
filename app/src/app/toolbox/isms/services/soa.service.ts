@@ -23,9 +23,8 @@ import { ControlMeasure } from '../models/control-measure.model';
 
 import * as Papa from 'papaparse';
 import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-// @ts-ignore
-import autoTable from 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 
 @Injectable({ providedIn: 'root' })
 export class SoaService extends BaseApiService<ControlMeasure> {
