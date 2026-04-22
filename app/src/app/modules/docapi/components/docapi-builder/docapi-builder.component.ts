@@ -30,13 +30,14 @@ import { DocapiBuilderTypeStepComponent } from '../docapi-builder-type-step/doca
 import { DocapiBuilderStyleStepComponent } from '../docapi-builder-style-step/docapi-builder-style-step.component';
 import { DocapiBuilderContentStepComponent } from '../docapi-builder-content-step/docapi-builder-content-step.component';
 import { DocTemplate, DocTemplateUpdateResponse } from '../../models/cmdb-doctemplate';
-import { firstValueFrom, startWith, Subscription } from 'rxjs';
+import { finalize, firstValueFrom, startWith, Subscription } from 'rxjs';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
 import { DocapiPreviewObjectModalComponent } from '../docapi-preview-object-modal/docapi-preview-object-modal.component';
 import { normalizeCoverPage } from '../../utils/cover-page.util';
 import { normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { normalizeTableOfContents } from '../../utils/table-of-contents.util';
-/* ------------------------------------------------------------------------------------------------------------------ */
+import { LoaderService } from 'src/app/core/services/loader.service';
+
 @Component({
     selector: 'cmdb-docapi-builder',
     templateUrl: './docapi-builder.component.html',
@@ -70,6 +71,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private warningModalOpen = false;
     private previousTypeState: { templateType: string; parameters: any } | null = null;
     public previewInProgress = false;
+    public isLoading$ = this.loaderService.isLoading$;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
@@ -80,7 +82,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         private router: Router,
         private toast: ToastService,
         private modalService: NgbModal,
-        private fileSaverService: FileSaverService
+        private fileSaverService: FileSaverService,
+        private loaderService: LoaderService
     ) {
 
     }
@@ -471,7 +474,13 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
      * On success, navigates to the document list with a success query parameter.
      */
     private handleCreateMode(): void {
-        this.docapiService.postDocTemplate(this.docInstance).subscribe({
+        this.loaderService.show();
+
+        this.docapiService.postDocTemplate(this.docInstance).pipe(
+            finalize(() => {
+                this.loaderService.hide();
+            })
+        ).subscribe({
             next: (publicIdResp: string) => {
                 this.toast.success("Template successfully created!");
                 this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: publicIdResp } });
@@ -488,7 +497,13 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
      * On success, shows a success toast and navigates to the document list with a success query parameter.
      */
     private handleEditMode(): void {
-        this.docapiService.putDocTemplate(this.docInstance).subscribe({
+        this.loaderService.show();
+
+        this.docapiService.putDocTemplate(this.docInstance).pipe(
+            finalize(() => {
+                this.loaderService.hide();
+            })
+        ).subscribe({
             next: (updateResp: DocTemplateUpdateResponse) => {
                 const publicId = updateResp.body?.public_id;
                 const name = updateResp.body?.name;

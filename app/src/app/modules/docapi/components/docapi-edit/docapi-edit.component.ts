@@ -17,11 +17,13 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { finalize } from 'rxjs';
 
 import { DocapiService } from '../../services/docapi.service';
 
 import { DocTemplate } from '../../models/cmdb-doctemplate';
 import { CmdbMode } from '../../../../framework/modes.enum';
+import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -35,15 +37,23 @@ export class DocapiEditComponent implements OnInit {
     public docInstance: DocTemplate;
     public mode: number = CmdbMode.Edit;
     public templateLabel: string = '';
+    public isLoading$ = this.loaderService.isLoading$;
 
 
-    constructor(private docapiService: DocapiService, private route: ActivatedRoute) {
+    constructor(
+        private docapiService: DocapiService,
+        private route: ActivatedRoute,
+        private loaderService: LoaderService
+    ) {
         this.route?.params?.subscribe((id) => this.docId = id?.publicId);
     }
 
 
     public ngOnInit(): void {
-        this.docapiService?.getDocTemplate(this.docId).subscribe((docInstance: DocTemplate) => {
+        this.loaderService.show();
+        this.docapiService?.getDocTemplate(this.docId).pipe(
+            finalize(() => this.loaderService.hide())
+        ).subscribe((docInstance: DocTemplate) => {
             this.docInstance = docInstance;
             this.templateLabel = docInstance?.label?.trim() ?? '';
         });
