@@ -456,27 +456,13 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.typesFilter = this.filterForm?.value?.types || [];
     this.relationsFilter = this.filterForm?.value?.relations || [];
     this.loadInitialGraph(true);
+    this.showFilterBar = false;
   }
 
   // Layout management
   private performHierarchicalLayout(): void {
     this.graphLayout?.updateAnchorCalculations(this.connections, this.graphData?.getNodeInstanceMap());
     this.graphLayout?.performHierarchicalLayout(this.nodes, this.nodeGroups);
-  }
-
-
-  /**
-   * animates the layout of the graph, including data flow animations if enabled.
-   */
-  private animateLayout(): void {
-    if (this.showDataFlow) {
-      this.animateDataFlow();
-    }
-  }
-
-
-  private animateDataFlow(): void {
-    // Implement particle animation along connections
   }
 
 
@@ -604,7 +590,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       this.connections = this.graphPath?.validateConnections(this.connections, this.graphData?.getNodeInstanceMap());
       this.performHierarchicalLayout();
       this.updateNodeStates();
-      this.animateLayout();
     } finally {
       this.loaderService.hide();
       this.cdr.detectChanges();
@@ -1260,6 +1245,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.typesFilter = result.typesFilter;
     this.relationsFilter = result.relationsFilter;
     this.loadInitialGraph(true);
+    this.showFilterBar = false;
   }
 
 
