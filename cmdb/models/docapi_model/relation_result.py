@@ -125,8 +125,7 @@ class RelationResult:
             self.request_user,
             self.objects_manager,
             self.template_type
-    )
-
+        )
 
     # Terminals
     @property

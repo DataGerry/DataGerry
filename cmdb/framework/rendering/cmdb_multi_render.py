@@ -558,8 +558,8 @@ class CmdbMultiRender:
         """
         obj_field: dict[str, Any] = [x for x in object_instance.fields if x['name'] == t_field['name']][0]
 
-        # if obj_field['name'] == t_field['name'] and t_field.get('value'):
-        #     t_field['default'] = t_field['value']
+        if obj_field['name'] == t_field['name'] and t_field.get('value'):
+            t_field['default'] = t_field['value']
 
         t_field['value'] = obj_field['value']
 

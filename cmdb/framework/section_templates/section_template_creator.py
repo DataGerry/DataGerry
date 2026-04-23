@@ -104,11 +104,11 @@ class SectionTemplateCreator:
 
 # --------------------------------------------------- DATA SECTION --------------------------------------------------- #
 
-    def __get_network_template(self) -> dict:
+    def __get_network_template(self) -> dict[str, Any]:
         """Retrieves the 'Network' predefined section template"""
         network_section = self.__get_template_section("dg-network", "Network")
 
-        network_fields: list[dict] = []
+        network_fields: list[dict[str, Any]] = []
 
         ipv4_regex: str = ("(\\b25[0-5]|\\b2[0-4][0-9]|\\b[01]?[0-9][0-9]?)"
                            "(\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}")
@@ -135,11 +135,11 @@ class SectionTemplateCreator:
         return network_section
 
 
-    def __get_rack_mounting_template(self) -> dict:
+    def __get_rack_mounting_template(self) -> dict[str, Any]:
         """Retrieves the 'Rack mounting' predefined section template"""
         rack_section = self.__get_template_section("dg-rackmounting", "Rack mounting")
 
-        rack_fields: list[dict] = []
+        rack_fields: list[dict[str, Any]] = []
 
         positive_integer_regex: str = "^\\d+$"
 
@@ -175,11 +175,11 @@ class SectionTemplateCreator:
         return rack_section
 
 
-    def __get_model_spec_template(self) -> dict:
+    def __get_model_spec_template(self) -> dict[str, Any]:
         """Retrieves the 'Model specifications' predefined section template"""
         model_spec_section = self.__get_template_section("dg-modelspec", "Model specifications")
 
-        model_spec_fields: list[dict] = []
+        model_spec_fields: list[dict[str, Any]] = []
 
         model_spec_fields.append(self.__get_template_section_field("text", "dg-modelspec-manufacturer", "Manufacturer"))
         model_spec_fields.append(self.__get_template_section_field("text", "dg-modelspec-model", "Model name"))
@@ -188,3 +188,75 @@ class SectionTemplateCreator:
         model_spec_section['fields'] = model_spec_fields
 
         return model_spec_section
+
+
+    def get_ipam_interface_template(self, subnet_id: int) -> dict[str, Any]:
+        """TODO: document"""
+        if not subnet_id:
+            raise ValueError("No Subnet-ID provided to IPAM Interface SectionTemplate")
+
+        interface: dict[str, Any] = {
+            "is_global": True,
+            "predefined": True,
+            "name": "dg-ipam-interface",
+            "label": "Interfaces",
+            "type": "multi-data-section",
+            "fields": [
+                {
+                    "type": "checkbox",
+                    "name": "dg-interface-active",
+                    "label": "Active",
+                    "options": [
+                        {
+                            "name": "option-1",
+                            "label": "Option 1",
+                        }
+                    ],
+                    "value": True
+                },
+                {
+                    "type": "select",
+                    "name": "dg-interface-type",
+                    "label": "Type",
+                    "options": [
+                        {
+                            "name": "ipv4",
+                            "label": "IPv4",
+                        },
+                        {
+                            "name": "ipv6",
+                            "label": "IPv6",
+                        }
+                    ],
+                },
+                {
+                    "type": "ref",
+                    "name": "dg-interface-subnet",
+                    "label": "Network",
+                    "ref_types": [subnet_id]
+                },
+                {
+                    "type": "text",
+                    "name": "dg-interface-ip-address",
+                    "label": "IP-Address",
+                },
+                {
+                    "type": "text",
+                    "name": "dg-interface-host",
+                    "label": "Hostname",
+                },
+                {
+                    "type": "text",
+                    "name": "dg-interface-domain",
+                    "label": "Domain",
+                },
+                {
+                    "type": "text",
+                    "name": "dg-interface-mac-address",
+                    "label": "Mac-Address",
+                    "regex": r'^(([0-9A-Fa-f]{2}([:-])){5}[0-9A-Fa-f]{2})$|^(([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4})$',
+                }
+            ]
+        }
+
+        return interface

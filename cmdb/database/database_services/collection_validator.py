@@ -356,6 +356,10 @@ class CollectionValidator:
                     # The template does not exist, create it
                     LOGGER.info("Creating Template: %s", template_name)
                     self.dbm.insert(collection, self.db_name, predefined_template)
+                else:
+                    raise ValueError(
+                        f"Template with name {template_name} exists preventing creation of a required SectionTemplate!"
+                    )
         except Exception as err:
             raise DocumentInsertError(
                 f"Error initializing predefined templates for collection '{collection}': {err}"
