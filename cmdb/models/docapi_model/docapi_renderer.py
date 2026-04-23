@@ -78,13 +78,6 @@ class DocApiRenderer:
         Returns:
             BytesIO: A file-like object containing the generated PDF document
         """
-        # type_instance = self.objects_manager.get_object_type(self.target_object.get_type_id())
-
-        # cmdb_render_object = CmdbRender(self.target_object,
-        #                                 type_instance,
-        #                                 request_user,
-        #                                 False)
-
         cmdb_render_object: RenderResult = CmdbMultiRender(
             [self.target_object],
             request_user
