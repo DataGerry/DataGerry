@@ -179,6 +179,8 @@ class ObjectDocumentGenerator:
             template_data
         )
 
+        # LOGGER.debug(f"rendered_template:\n {rendered_template}")
+
         # Construct the full HTML document
         html: str = (
             f"<html>"

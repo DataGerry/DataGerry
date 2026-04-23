@@ -25,7 +25,6 @@ from cmdb.manager import ObjectsManager, LocationsManager
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.docapi_model.reference_result import RefResult
-# from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 
@@ -81,16 +80,6 @@ class ObjectTemplateData:
     def _resolve_reference(self, public_id, depth):
         try:
             related_object: CmdbObject | None = self.objects_manager.get_object(public_id, as_dict=False)
-            # object_type = self.objects_manager.get_object_type(
-            #     related_object.get_type_id()
-            # )
-
-            # related_render = CmdbRender(
-            #     related_object,
-            #     object_type,
-            #     self.request_user,
-            #     False
-            # )
 
             related_render: RenderResult = CmdbMultiRender(
                 [related_object],
@@ -180,7 +169,7 @@ class ObjectTemplateData:
                 data["fields"][field_name] = self._resolve_field(
                     name=field_name,
                     ftype=field.get("type"),
-                    value=field.get("value"),
+                    value=field.get("value", ""),
                     references=field.get("references"),
                     depth=depth,
                 )
@@ -202,7 +191,7 @@ class ObjectTemplateData:
             for entry in section.get("values", []):
                 for field in entry.get("data", []):
                     name = field.get("name")
-                    value = field.get("value")
+                    value = field.get("value", "")
 
                     if name is None:
                         continue
