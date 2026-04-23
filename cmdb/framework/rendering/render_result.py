@@ -52,3 +52,19 @@ class RenderResult:
         self.summary_line: str = ''
         self.externals: list = []
         self.multi_data_sections: list = []
+
+
+    def __str__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(\n"
+            f"  current_render_time={self.current_render_time.isoformat()},\n"
+            f"  object_information={self.object_information},\n"
+            f"  type_information={self.type_information},\n"
+            f"  fields={len(self.fields)} items,\n"
+            f"  sections={len(self.sections)} items,\n"
+            f"  summaries={len(self.summaries)} items,\n"
+            f"  summary_line='{self.summary_line}',\n"
+            f"  externals={len(self.externals)} items,\n"
+            f"  multi_data_sections={len(self.multi_data_sections)} items\n"
+            f")"
+        )

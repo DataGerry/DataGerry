@@ -18,6 +18,7 @@ Implementation of CmdbMultiRender
 """
 from logging import Logger, getLogger
 from typing import Any
+from copy import deepcopy
 from dateutil.parser import parse
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -77,7 +78,6 @@ class CmdbMultiRender:
         self.ref_render: bool = ref_render
 
         # Caching and result
-        self.render_results: list[RenderResult] = []
         self.objects_cache: dict[int, CmdbObject] = self.get_all_linked_objects()
         self.types_cache: dict[int, CmdbType] = self.get_all_linked_types()
         self.users_cache: dict[int, CmdbUser] = self.get_all_linked_users()
@@ -85,6 +85,8 @@ class CmdbMultiRender:
 
     def result(self, level: int = 3, single_object: bool = False) -> list[RenderResult] | RenderResult:
         """TODO: document"""
+        render_results: list[RenderResult] = []
+
         for obj in self.to_render_objects:
             obj_type: CmdbType | None = self.types_cache.get(obj.get_type_id())
 
@@ -93,20 +95,20 @@ class CmdbMultiRender:
                 continue
 
             result = RenderResult()
-            result.object_information = self.__generate_object_information(obj)
-            result.type_information = self.__generate_type_information(obj_type)
-            result.fields = self.__set_fields(obj, obj_type, level)
-            result.sections = self.__get_type_sections(obj_type)
+            result.object_information = deepcopy(self.__generate_object_information(obj))
+            result.type_information = deepcopy(self.__generate_type_information(obj_type))
+            result.fields = deepcopy(self.__set_fields(obj, obj_type, level))
+            result.sections = deepcopy(self.__get_type_sections(obj_type))
             result: RenderResult = self.__set_summaries(result, obj, obj_type)
-            result.externals = self.__set_externals(obj, obj_type)
-            result.multi_data_sections = obj.multi_data_sections
+            result.externals = deepcopy(self.__set_externals(obj, obj_type))
+            result.multi_data_sections = deepcopy(obj.multi_data_sections)
 
-            self.render_results.append(result)
+            render_results.append(result)
 
         if single_object:
-            return self.render_results[0]
+            return render_results[0]
 
-        return self.render_results
+        return render_results
 
 
     def __generate_object_information(self, obj: CmdbObject) -> dict[str, Any]:
@@ -257,35 +259,58 @@ class CmdbMultiRender:
         Returns:
             RenderResult: Updated render result with summaries and summary line filled
         """
-        summary_list = []
-        summary_line = ''
         default_line = f'{type_instance.label} #{object_instance.public_id}'
 
         if not type_instance.has_summaries():
-            render_result.summaries = summary_list
+            render_result.summaries = []
             render_result.summary_line = default_line
-
             return render_result
 
         try:
-            summary_list = type_instance.get_summary().fields
+            summary_list = [
+                dict(item) for item in type_instance.get_summary().fields
+            ]
+
             render_result.summaries = summary_list
-            first = True
 
-            for line in summary_list:
-                if first:
-                    summary_line += f'{line["value"]}'
-                    first = False
-                else:
-                    summary_line += f' | {line["value"]}'
+            render_result.summary_line = " | ".join(
+                str(line.get("value", "")) for line in summary_list
+            ) or default_line
 
-            render_result.summary_line = summary_line
         except Exception:
-            summary_line = default_line
-        finally:
-            render_result.summary_line = summary_line
+            render_result.summaries = []
+            render_result.summary_line = default_line
 
         return render_result
+        # summary_list = []
+        # summary_line = ''
+        # default_line = f'{type_instance.label} #{object_instance.public_id}'
+
+        # if not type_instance.has_summaries():
+        #     render_result.summaries = summary_list
+        #     render_result.summary_line = default_line
+
+        #     return render_result
+
+        # try:
+        #     summary_list = deepcopy(type_instance.get_summary().fields)
+        #     render_result.summaries = summary_list
+        #     first = True
+
+        #     for line in summary_list:
+        #         if first:
+        #             summary_line += f'{line["value"]}'
+        #             first = False
+        #         else:
+        #             summary_line += f' | {line["value"]}'
+
+        #     render_result.summary_line = summary_line
+        # except Exception:
+        #     summary_line = default_line
+        # finally:
+        #     render_result.summary_line = summary_line
+
+        # return render_result
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
