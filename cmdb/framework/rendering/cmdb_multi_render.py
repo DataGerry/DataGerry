@@ -545,32 +545,32 @@ class CmdbMultiRender:
                 return TypeReference.to_json(reference)
 
 
-    def __merge_field_content_section(self, field: dict[str, Any], object_instance: CmdbObject) -> dict:
+    def __merge_field_content_section(self, t_field: dict[str, Any], object_instance: CmdbObject) -> dict:
         """
         Merge field content with the given CmdbObject data
 
         Args:
-            field (dict[str, Any]): The field to merge
+            t_field (dict[str, Any]): The field to merge
             object_instance (CmdbObject): The object containing the data
 
         Returns:
             dict[str, Any]: The merged field content
         """
-        curr_field: dict[str, Any] = [x for x in object_instance.fields if x['name'] == field['name']][0]
+        obj_field: dict[str, Any] = [x for x in object_instance.fields if x['name'] == t_field['name']][0]
 
-        if curr_field['name'] == field['name'] and field.get('value'):
-            field['default'] = field['value']
+        # if obj_field['name'] == t_field['name'] and t_field.get('value'):
+        #     t_field['default'] = t_field['value']
 
-        field['value'] = curr_field['value']
+        t_field['value'] = obj_field['value']
 
         # handle dates that are stored as strings
-        if field['type'] == 'date' and isinstance(field['value'], str) and field['value']:
-            field['value'] = parse(field['value'], fuzzy=True)
+        if t_field['type'] == 'date' and isinstance(t_field['value'], str) and t_field['value']:
+            t_field['value'] = parse(t_field['value'], fuzzy=True)
 
-        if self.ref_render and (field['type'] == 'ref' or field['type'] == 'location') and field['value']:
-            field['reference'] = self.__merge_references(field)
+        if self.ref_render and (t_field['type'] == 'ref' or t_field['type'] == 'location') and t_field['value']:
+            t_field['reference'] = self.__merge_references(t_field)
 
-        return field
+        return t_field
 
 
     def __merge_fields_value(

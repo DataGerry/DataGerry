@@ -18,12 +18,10 @@ Implementation of RenderList
 """
 from logging import getLogger
 from typing import Any
-# from cmdb.manager import ObjectsManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.rendering.render_result import RenderResult
-# from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -76,26 +74,3 @@ class RenderList:
             return [obj.__dict__ for obj in rendered_objects]
 
         return rendered_objects
-
-    # def render_result_list(self, raw: bool = False) -> list[RenderResult | dict]:
-    #     """
-    #     Renders the list of CmdbObjects and returns the processed results
-
-    #     Args:
-    #         raw (bool, optional): If True, returns raw dictionary representations. Defaults to False
-
-    #     Returns:
-    #         list[RenderResult | dict]: A list of rendered results, either as RenderResult objects or dictionaries
-    #     """
-    #     preparation_objects: list[RenderResult] = []
-
-    #     for passed_object in self.object_list:
-    #         tmp_render = CmdbRender(passed_object,
-    #                                 self.objects_manager.get_object_type(passed_object.type_id),
-    #                                 self.request_user,
-    #                                 self.ref_render)
-
-    #         current_render_result: RenderResult = tmp_render.result()
-    #         preparation_objects.append(current_render_result.__dict__ if raw else current_render_result)
-
-    #     return preparation_objects

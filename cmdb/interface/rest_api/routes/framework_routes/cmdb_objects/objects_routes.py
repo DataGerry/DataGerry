@@ -230,12 +230,6 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(500, "The Type of the requested Object could not be retrieved from the database!")
 
         try:
-            # render_result = CmdbRender(requested_object,
-            #                            type_instance,
-            #                            request_user,
-            #                            True
-            #                            ).result()
-
             render_result = CmdbMultiRender(
                 [requested_object],
                 request_user,
@@ -504,11 +498,6 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
         if not referenced_type:
             abort(500, f"The Type of the Object with ID:{public_id} was not found in the database!")
 
-        # mds_reference = CmdbRender(referenced_object,
-        #                            referenced_type,
-        #                            request_user,
-        #                            True).get_mds_reference(public_id)
-
         mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(public_id)
 
         return DefaultResponse(mds_reference).make_response()
@@ -564,11 +553,6 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
 
             if not referenced_type:
                 abort(404, f"The Type of the Object with ID:{public_id} was not found in the database!")
-
-            # mds_reference = CmdbRender(referenced_object,
-            #                             referenced_type,
-            #                             request_user,
-            #                             True).get_mds_reference(object_id)
 
             mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(object_id)
 
@@ -1053,9 +1037,7 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> 
 
         type_fields: list[dict[str, Any]] = update_type_instance.fields
 
-        builder_params = BuilderParameters({'type_id': public_id})
-
-        objects_by_type: list[CmdbObject] = objects_manager.iterate(builder_params, request_user).results
+        objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=public_id)
         reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
                                                     CmdbReport.COLLECTION,
                                                     type_id=public_id
@@ -1106,12 +1088,13 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> 
                     )
                     abort(500, "An interlal server error occured while cleaning reports!")
 
-        objects_by_type = objects_manager.iterate(builder_params, request_user).results
+        objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=public_id)
 
         try:
             for obj in objects_by_type:
                 for t_field in type_fields:
                     name = t_field["name"]
+                    field_type: str = t_field["type"]
                     value = None
 
                     if [item for item in obj.get_all_fields() if item["name"] == name]:
@@ -1120,9 +1103,17 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> 
                     if "value" in t_field:
                         value = t_field["value"]
 
-                    objects_manager.update_many_objects(query={'public_id': obj.public_id},
-                                                        update={'fields': {"name": name, "value": value}},
-                                                        add_to_set=True)
+                    objects_manager.update_many_objects(
+                        query={'public_id': obj.public_id},
+                        update={
+                            'fields': {
+                                "name": name,
+                                "type": field_type,
+                                "value": value
+                            }
+                        },
+                        add_to_set=True
+                    )
         except Exception as error:
             LOGGER.debug("Clean Update Type Fields: %s, Type: %s", error, type(error))
             abort(500, "Could not clean objects!")
@@ -1284,7 +1275,6 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         # check if object exists
         target_object: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
@@ -1310,12 +1300,6 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
             children_objects: list[dict[str, Any]] = objects_manager.find(
                 criteria={"public_id": {"$in": children_object_ids}}
             )
-
-            object_type_ids: list[int] = [
-                obj["type_id"]
-                for obj in children_objects
-                if obj.get("type_id") is not None
-            ]
 
             for child_object in children_objects:
                 child_object_id = child_object["public_id"]

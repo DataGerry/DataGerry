@@ -21,10 +21,8 @@ from logging import Logger, getLogger
 from cmdb.manager import ObjectsManager
 
 from cmdb.models.object_model import CmdbObject
-# from cmdb.models.type_model import CmdbType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
-# from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -108,26 +106,6 @@ class RelationResult:
                 next_ids.append(rel["relation_child_id"])
                 next_scoped_relations.append(rel)
 
-        # LOGGER.debug(
-        #     "[RelationResult] NEXT STATE => from=%s to=%s next_scoped_edges=%s global_edges=%s",
-        #     self.object_ids,
-        #     next_ids,
-        #     [(r["relation_parent_id"], r["relation_child_id"]) for r in next_scoped_relations],
-        #     len(self.all_object_relations)
-        # )
-
-        # LOGGER.debug(
-        #     "[RelationResult] NEXT SCOPED RELATIONS => %s",
-        #     [
-        #         {
-        #             "parent": r["relation_parent_id"],
-        #             "child": r["relation_child_id"],
-        #             "fields": r.get("field_values")
-        #         }
-        #         for r in next_scoped_relations
-        #     ]
-        # )
-
         # Ensure all new objects are loaded into the object_cache
         # Collect IDs that are missing from cache
         missing_ids = [oid for oid in next_ids if oid not in self.object_cache]
@@ -176,13 +154,6 @@ class RelationResult:
             obj_type = self.type_cache.get(cmdb_object.get_type_id())
             if not obj_type:
                 continue
-
-            # render = CmdbRender(
-            #     cmdb_object,
-            #     CmdbType.from_data(obj_type),
-            #     self.request_user,
-            #     False,
-            # )
 
             render: RenderResult = CmdbMultiRender([cmdb_object], self.request_user).result(single_object=True)
 

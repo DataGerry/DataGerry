@@ -46,7 +46,6 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-# from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 # -------------------------------------------------------------------------------------------------------------------- #
 
