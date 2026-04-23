@@ -27,7 +27,6 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.docapi_model.object_document_generator import ObjectDocumentGenerator
 from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
 
-# from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -71,7 +70,7 @@ class DocApiRenderer:
             1. Fetch the template using the template ID (`doctpl_id`)
             2. Retrieve the CMDB object using the object ID (`object_id`)
             3. Fetch the object type information for the CMDB object
-            4. Create a `CmdbRender` object to prepare the data
+            4. Create a `CmdbMultiRender` object to prepare the data
             5. Use `ObjectDocumentGenerator` to generate a PDF document
             6. Return the generated PDF as a BytesIO object
 
