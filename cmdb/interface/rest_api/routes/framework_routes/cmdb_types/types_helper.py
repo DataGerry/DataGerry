@@ -37,6 +37,7 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -79,6 +80,20 @@ def verify_type_is_unique(
 
         if special_type_exists:
             abort(400, f"SpecialType: {special_type} already exists!")
+
+        # Validate that Supernet exists
+        if special_type == SpecialType.SUBNET:
+            supernet_exists: bool = types_manager.check_special_type_exists(SpecialType.SUPERNET)
+
+            if not supernet_exists:
+                abort(400, "Unable to create SUBNET class, SUPERNET need to be created first!")
+
+        # Validate that Subnet exists
+        if special_type == SpecialType.VLAN:
+            supernet_exists: bool = types_manager.check_special_type_exists(SpecialType.SUBNET)
+
+            if not supernet_exists:
+                abort(400, "Unable to create VLAN class, SUBNET need to be created first!")
 
 
 def special_type_is_unchanged(old_st: str, new_st: str) -> bool:

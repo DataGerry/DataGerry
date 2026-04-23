@@ -21,56 +21,49 @@ from typing import Any
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_subnet_schema() -> dict[str, Any]:
+CIDR_REGEX = r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})/(?:3[0-2]|[12]?\d)$'
+
+# -------------------------------------------------------------------------------------------------------------------- #
+def get_subnet_schema(supernet_id: int) -> dict[str, Any]:
     """TODO: document"""
     return {
         'special_type': SpecialType.SUBNET,
         'sections': [
             {
                 'type': 'section',
-                'name': 'information',
+                'name': 'dg_information',
                 'label': 'Information',
                 'fields': [
-                    'name',
-                    'cidr',
-                    'network',
-                    'prefix'
+                    'dg_name'
                 ]
             },
             {
                 'type': 'section',
-                'name': 'network',
+                'name': 'dg_network_details',
                 'label': 'Network Details',
                 'fields': [
-                    'gateway'
+                    'dg_supernet_ref',
+                    'dg_network_range'
                 ]
             },
         ],
         'fields': [
             {
                 'type': 'text',
-                'name': 'name',
+                'name': 'dg_name',
                 'label': 'Name'
             },
             {
-                'type': 'text',
-                'name': 'cidr',
-                'label': 'CIDR',
-            },
-            {
-                'type': 'number',
-                'name': 'network',
-                'label': 'Network',
-            },
-            {
-                'type': 'number',
-                'name': 'prefix',
-                'label': 'Prefix',
+                'type': 'ref',
+                'name': 'dg_supernet_ref',
+                'label': 'Supernet',
+                'ref_types': [supernet_id]
             },
             {
                 'type': 'text',
-                'name': 'gateway',
-                'label': 'Gateway'
+                'name': 'dg_network_range',
+                'label': 'Network Range',
+                'regex': CIDR_REGEX
             },
         ]
     }

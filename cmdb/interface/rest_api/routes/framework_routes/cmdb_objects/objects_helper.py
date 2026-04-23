@@ -149,6 +149,11 @@ def sync_select_field_options(
         types_manager.update_type(object_type.public_id, object_type)
 
 
+def is_special_type_changed(st_old: str, st_new: str) -> bool:
+    """TODO: document"""
+    return st_old != st_new
+
+
 def handle_notify_webhooks(
         request_user: CmdbUser,
         target_object: CmdbObject,
@@ -174,13 +179,7 @@ def handle_creat_object_log(
     ) -> None:
     """TODO: document"""
     try:
-        # rendered_object: RenderResult = CmdbRender(
-        #     target_object,
-        #     target_type,
-        #     request_user
-        # ).result()
-
-        rendered_object = CmdbMultiRender(
+        rendered_object: RenderResult = CmdbMultiRender(
             [target_object],
             request_user
         ).result(single_object=True)

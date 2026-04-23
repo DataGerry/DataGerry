@@ -56,8 +56,18 @@ class SpecialType(str, Enum):
         """TODO: dcoument"""
         existing_set: set[str] = set(existing)
 
-        return {
+        unused_types: dict[str, Any] = {
             key: value
             for key, value in cls.get_special_types().items()
             if key not in existing_set
         }
+
+        # Subnet requires Supernet to exist
+        if cls.SUPERNET not in existing_set:
+            unused_types.pop(cls.SUBNET, None)
+
+        # VLAN requires Subnet to exist
+        if cls.SUBNET not in existing_set:
+            unused_types.pop(cls.VLAN, None)
+
+        return unused_types
