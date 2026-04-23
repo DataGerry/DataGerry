@@ -35,17 +35,27 @@ class SchemaProvider:
     """
     Provides required information of SpecialTypes for CmdbTypes
     """
-    def get_schema(self, special_type: SpecialType) -> dict[str, Any]:
+    def get_schema(
+        self,
+        special_type: SpecialType,
+        supernet_id: int | None = None,
+        subnet_id: int | None = None,
+    ) -> dict[str, Any]:
         """TODO: document"""
         if not SpecialType.is_valid(special_type):
             raise ValueError(f"Invalid 'special_type' provided: {special_type}")
 
         if special_type == SpecialType.SUPERNET:
             return get_supernet_schema()
-        elif special_type == SpecialType.SUBNET:
-            return get_subnet_schema()
-        elif special_type == SpecialType.VLAN:
-            return get_vlan_schema()
 
-        LOGGER.debug("[get_schema] No schema was selected!")
-        return {}
+        if special_type == SpecialType.SUBNET:
+            if not supernet_id:
+                raise ValueError("No Supernet ID provided for Subnet schema!")
+            return get_subnet_schema(supernet_id)
+
+        if special_type == SpecialType.VLAN:
+            if not subnet_id:
+                raise ValueError("No Subnet ID provided for Vlan schema!")
+            return get_vlan_schema(subnet_id)
+
+        raise ValueError(f"Unkown SpecialType: {special_type} provided to Schema!")

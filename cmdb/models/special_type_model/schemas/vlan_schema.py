@@ -21,38 +21,55 @@ from typing import Any
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_vlan_schema() -> dict[str, Any]:
+def get_vlan_schema(subnet_id: int) -> dict[str, Any]:
     """TODO: document"""
     return {
         'special_type': SpecialType.VLAN,
         'sections': [
             {
                 'type': 'section',
-                'name': 'information',
+                'name': 'dg_information',
                 'label': 'Information',
                 'fields': [
-                    'name'
+                    'dg_name'
                 ]
             },
             {
                 'type': 'section',
-                'name': 'network',
-                'label': 'Network Details',
+                'name': 'dg_vlan_details',
+                'label': 'Vlan Details',
                 'fields': [
-                    'gateway'
+                    'dg_subnet_ref',
+                    'dg_vlan_type'
                 ]
             },
         ],
         'fields': [
             {
                 'type': 'text',
-                'name': 'name',
+                'name': 'dg_name',
                 'label': 'Name'
             },
             {
-                'type': 'text',
-                'name': 'gateway',
-                'label': 'Gateway'
+                'type': 'ref',
+                'name': 'dg_subnet_ref',
+                'label': 'Subnet',
+                'ref_types': [subnet_id]
+            },
+            {
+                'type': 'select',
+                'name': 'dg_vlan_type',
+                'label': 'Type',
+                'options': [
+                    {
+                        'name': 'static',
+                        'Label': 'Static'
+                    },
+                    {
+                        'name': 'dynamic',
+                        'Label': 'Dynamic'
+                    }
+                ]
             },
         ]
     }

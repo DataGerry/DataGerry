@@ -52,9 +52,9 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.framework.results import IterationResult
-# from cmdb.framework.rendering.cmdb_render import CmdbRender
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_list import RenderList
+from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
 from cmdb.interface.rest_api.routes.routes_helper import (
@@ -73,6 +73,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     handle_delete_location_and_child_locations,
     validate_and_fill_object_fields,
     sync_select_field_options,
+    is_special_type_changed,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
@@ -788,21 +789,23 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
             active_state = request.get_json().get('active', None)
             new_data = copy.deepcopy(data)
 
-            current_object_instance = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
+            current_object_instance: CmdbObject | None = objects_manager.get_object(
+                obj_id,
+                request_user,
+                AccessControlPermission.READ,
+                as_dict=False
+            )
 
             if not current_object_instance:
                 abort(404, f"Object with ID:{public_id} not found!")
 
-            current_object_instance = CmdbObject.from_data(current_object_instance)
+            if is_special_type_changed(current_object_instance.special_type, new_data.get('special_type')):
+                abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {public_id}")
+
             current_type_instance = objects_manager.get_object_type(current_object_instance.get_type_id())
 
             if not current_type_instance:
                 abort(500, "Type of Object not found in database!")
-
-            # current_object_render_result = CmdbRender(current_object_instance,
-            #                                         current_type_instance,
-            #                                         request_user,
-            #                                         False).result()
 
             current_object_render_result = CmdbMultiRender(
                 [current_object_instance],
@@ -939,12 +942,15 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         else:
             abort(400, "Object state is not a boolean value (true/false)!")
 
-        found_object = objects_manager.get_object(public_id, request_user, AccessControlPermission.READ)
+        found_object: CmdbObject | None = objects_manager.get_object(
+            public_id,
+            request_user,
+            AccessControlPermission.READ,
+            as_dict=False
+        )
 
         if not found_object:
             abort(404, f"Object with ID:{public_id} not found!")
-
-        found_object: CmdbObject = CmdbObject.from_data(found_object)
 
         if found_object.active == state:
             return DefaultResponse(False).make_response()
@@ -961,12 +967,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         if not current_type_instance:
             abort(500, "Type of Object not found in database!")
 
-        # current_object_render_result = CmdbRender(found_object,
-        #                                           current_type_instance,
-        #                                           request_user,
-        #                                           False).result()
-
-        current_object_render_result = CmdbMultiRender(
+        current_object_render_result: RenderResult = CmdbMultiRender(
             [found_object],
             request_user
         ).result(single_object=True)
@@ -1316,13 +1317,8 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
                 if obj.get("type_id") is not None
             ]
 
-            type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
-
             for child_object in children_objects:
                 child_object_id = child_object["public_id"]
-                child_type_id = child_object["type_id"]
-
-                child_object_type: CmdbType | None = type_map.get(child_type_id)
 
                 # Delete the current child object
                 objects_manager.delete_with_follow_up(

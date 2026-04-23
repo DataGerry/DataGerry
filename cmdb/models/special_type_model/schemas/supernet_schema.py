@@ -28,36 +28,18 @@ def get_supernet_schema() -> dict[str, Any]:
         'sections': [
             {
                 'type': 'section',
-                'name': 'information',
+                'name': 'dg_information',
                 'label': 'Information',
                 'fields': [
-                    'name',
-                    'cidr',
-                    'network',
-                    'prefix',
+                    'dg_name',
                 ]
             },
         ],
         'fields': [
             {
                 'type': 'text',
-                'name': 'name',
+                'name': 'dg_name',
                 'label': 'Name'
-            },
-            {
-                'type': 'text',
-                'name': 'cidr',
-                'label': 'CIDR',
-            },
-            {
-                'type': 'number',
-                'name': 'network',
-                'label': 'Network',
-            },
-            {
-                'type': 'number',
-                'name': 'prefix',
-                'label': 'Prefix',
-            },
+            }
         ]
     }
