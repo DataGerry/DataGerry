@@ -139,14 +139,14 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
         schema_provider = SchemaProvider()
 
         if special_type == SpecialType.SUBNET:
-            supernet: dict[str, Any] | None = types_manager.get_one_by({'special_type': special_type})
+            supernet: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUPERNET})
 
             if not supernet:
                 abort(400, "Supernet SpecialType not found!")
 
             schema =  schema_provider.get_schema(special_type, supernet_id=supernet.get('public_id'))
         elif special_type == SpecialType.VLAN:
-            subnet: dict[str, Any] | None = types_manager.get_one_by({'special_type': special_type})
+            subnet: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
 
             if not subnet:
                 abort(400, "Subnet SpecialType not found!")

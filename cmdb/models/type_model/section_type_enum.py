@@ -14,29 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbType relevant classes
+Enumeration of all available SectionTypes for CmdbTypes
 """
-from .cmdb_type import CmdbType
-from .type_reference import TypeReference
-from .type_external_link import TypeExternalLink
-from .type_field_section import TypeFieldSection
-from .type_reference_section import TypeReferenceSection
-from .type_multi_data_section import TypeMultiDataSection
-from .type_summary import TypeSummary
-from .type_render_meta import TypeRenderMeta
-from .field_type_enum import FieldType
-from .section_type_enum import SectionType
+from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'CmdbType',
-    'TypeReference',
-    'TypeExternalLink',
-    'TypeFieldSection',
-    'TypeReferenceSection',
-    'TypeMultiDataSection',
-    'TypeSummary',
-    'TypeRenderMeta',
-    'FieldType',
-    'SectionType',
-]
+class SectionType(str, Enum):
+    """
+    Enumeration of section types in CmdbTypes
+    """
+    SECTION = 'section'
+    MDS_SECTION = 'multi-data-section'
+    REF_SECTION = 'ref-section'
+
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """
+        Checks if a given string is a valid SectionType
+
+        Args:
+            value (str): The string to check
+
+        Returns:
+            bool: True if the string matches an existing SectionType, False otherwise
+        """
+        return value in cls._value2member_map_
