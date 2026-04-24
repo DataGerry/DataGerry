@@ -282,35 +282,6 @@ class CmdbMultiRender:
             render_result.summary_line = default_line
 
         return render_result
-        # summary_list = []
-        # summary_line = ''
-        # default_line = f'{type_instance.label} #{object_instance.public_id}'
-
-        # if not type_instance.has_summaries():
-        #     render_result.summaries = summary_list
-        #     render_result.summary_line = default_line
-
-        #     return render_result
-
-        # try:
-        #     summary_list = deepcopy(type_instance.get_summary().fields)
-        #     render_result.summaries = summary_list
-        #     first = True
-
-        #     for line in summary_list:
-        #         if first:
-        #             summary_line += f'{line["value"]}'
-        #             first = False
-        #         else:
-        #             summary_line += f' | {line["value"]}'
-
-        #     render_result.summary_line = summary_line
-        # except Exception:
-        #     summary_line = default_line
-        # finally:
-        #     render_result.summary_line = summary_line
-
-        # return render_result
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -383,7 +354,26 @@ class CmdbMultiRender:
         # Collect referenced object IDs
         for obj in self.to_render_objects:
             for field in obj.fields:
-                if field["type"] in ("ref", "ref-section-field") and field.get("value"):
+                field_type = field.get("type")
+
+                if not field_type:
+                    LOGGER.debug(
+                        "Field-Type in Object: %s not found for field name: %s !",
+                        obj.public_id,
+                        field.get('name')
+                    )
+                    type_instance: CmdbType = self.types_manager.get_type(obj.get_public_id(), False)
+
+                    if not type_instance:
+                        LOGGER.debug("Type of Object: %s not found!", obj.public_id)
+                        continue
+
+                    target_field = type_instance.get_field(field['name'])
+
+                    field_type = target_field['type']
+
+
+                if field_type in ("ref", "ref-section-field") and field.get("value"):
                     reference_ids.add(int(field["value"]))
 
         if not reference_ids:
