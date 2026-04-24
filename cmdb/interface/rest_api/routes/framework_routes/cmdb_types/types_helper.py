@@ -37,6 +37,7 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -44,7 +45,12 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def verify_type_is_unique(types_manager: TypesManager, name: str, public_id: int | None = None) -> None:
+def verify_type_is_unique(
+    types_manager: TypesManager,
+    name: str,
+    public_id: int | None = None,
+    special_type: str | None = None
+) -> None:
     """
     Checks the possible public_id and name of the CmdbType for Validity
 
@@ -68,6 +74,31 @@ def verify_type_is_unique(types_manager: TypesManager, name: str, public_id: int
             abort(400, f"Type with name:{name} already exists!")
     else:
         abort(400, "Type data does not contain 'name' of the Type!")
+
+    if special_type:
+        special_type_exists: bool = types_manager.check_special_type_exists(special_type)
+
+        if special_type_exists:
+            abort(400, f"SpecialType: {special_type} already exists!")
+
+        # Validate that Supernet exists
+        if special_type == SpecialType.SUBNET:
+            supernet_exists: bool = types_manager.check_special_type_exists(SpecialType.SUPERNET)
+
+            if not supernet_exists:
+                abort(400, "Unable to create SUBNET class, SUPERNET need to be created first!")
+
+        # Validate that Subnet exists
+        if special_type == SpecialType.VLAN:
+            supernet_exists: bool = types_manager.check_special_type_exists(SpecialType.SUBNET)
+
+            if not supernet_exists:
+                abort(400, "Unable to create VLAN class, SUBNET need to be created first!")
+
+
+def special_type_is_unchanged(old_st: str, new_st: str) -> bool:
+    """TODO: document"""
+    return old_st == new_st
 
 
 def prepare_builder_parameters(type_params: TypeIterationParameters) -> BuilderParameters:

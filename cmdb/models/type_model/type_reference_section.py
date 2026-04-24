@@ -94,7 +94,7 @@ class TypeReferenceSection(TypeSection):
 
 
     def __repr__(self) -> str:
-        #TODO: document
+        """TODO: document"""
         return (f"{self.__class__.__name__}(\n"
                 f"type={repr(self.type)},\n "
                 f"name={repr(self.name)},\n "

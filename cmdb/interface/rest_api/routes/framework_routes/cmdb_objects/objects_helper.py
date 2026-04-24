@@ -46,7 +46,7 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -56,7 +56,6 @@ LOGGER: Logger = getLogger(__name__)
 def delete_one_cascade(
         request_user: CmdbUser,
         deleted_object: CmdbObject,
-        object_type: CmdbType,
         objects_manager: ObjectsManager,
         log_action: LogAction
     ) -> None:
@@ -71,7 +70,7 @@ def delete_one_cascade(
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
 
     # Create ObjectLog of the deletion
-    handle_creat_object_log(request_user, deleted_object, object_type, log_action)
+    handle_creat_object_log(request_user, deleted_object, log_action)
 
     # Sync config item count in CLOUD_MODE
     if current_app.cloud_mode:
@@ -149,6 +148,11 @@ def sync_select_field_options(
         types_manager.update_type(object_type.public_id, object_type)
 
 
+def is_special_type_changed(st_old: str, st_new: str) -> bool:
+    """TODO: document"""
+    return st_old != st_new
+
+
 def handle_notify_webhooks(
         request_user: CmdbUser,
         target_object: CmdbObject,
@@ -170,16 +174,14 @@ def handle_notify_webhooks(
 def handle_creat_object_log(
         request_user: CmdbUser,
         target_object: CmdbObject,
-        target_type: CmdbType,
         log_action: LogAction
     ) -> None:
     """TODO: document"""
     try:
-        rendered_object: RenderResult = CmdbRender(
-            target_object,
-            target_type,
+        rendered_object: RenderResult = CmdbMultiRender(
+            [target_object],
             request_user
-        ).result()
+        ).result(single_object=True)
 
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 

@@ -17,43 +17,34 @@
 TODO: document
 """
 from logging import Logger, getLogger
-
 from cmdb.models.docapi_model.safe_null import SafeNull
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                   SafeDict - CLASS                                                   #
+#                                                  SafeObject - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-class SafeDict(dict):
+class SafeObject:
     """TODO: document"""
-    def __getitem__(self, key):
-        try:
-            value = super().get(key, SafeNull())
-            return self._wrap(value)
-        except Exception:
-            return super().get(key, SafeNull())
-
-    def get(self, key, default=None):
-        try:
-            value = super().get(key, SafeNull() if default is None else default)
-            return self._wrap(value)
-        except Exception:
-            return super().get(key, SafeNull())
-
     def __getattr__(self, name):
-        value = super().get(name, SafeNull())
-        return self._wrap(value)
+        return SafeNull()
 
-    def _wrap(self, value):
-        if value is None:
-            return SafeNull()
+    def __getitem__(self, key):
+        return SafeNull()
 
-        if isinstance(value, dict) and not isinstance(value, SafeDict):
-            return SafeDict(value)
+    def get(self, *args, **kwargs):
+        """TODO: document"""
+        return SafeNull()
 
-        if isinstance(value, list):
-            return [self._wrap(v) for v in value]
+    def __str__(self):
+        return "\u00A0"
 
-        return value
+    def __repr__(self):
+        return "\u00A0"
+
+    def __html__(self):
+        return "&nbsp;"
+
+    def __bool__(self):
+        return False

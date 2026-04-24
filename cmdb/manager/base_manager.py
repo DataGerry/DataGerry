@@ -129,6 +129,14 @@ class BaseManager:
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
+    def get_distinct(self, key: str, criteria: dict[str, Any]) -> list[Any]:
+        """TODO: document"""
+        try:
+            return self.dbm.get_distinct(self.collection, self.db_name, key, criteria)
+        except Exception as err:
+            raise BaseManagerGetError(str(err)) from err
+
+
     def iterate_query(
         self,
         builder_params: BuilderParameters,

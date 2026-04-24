@@ -17,13 +17,12 @@
 Implementation of RenderList
 """
 from logging import getLogger
-
-from cmdb.manager import ObjectsManager
+from typing import Any
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.rendering.render_result import RenderResult
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER = getLogger(__name__)
@@ -35,11 +34,12 @@ class RenderList:
     """
     A class responsible for rendering a list of CmdbObjects
     """
-    def __init__(self,
-                 object_list: list[CmdbObject],
-                 request_user: CmdbUser,
-                 ref_render: bool = False,
-                 objects_manager: ObjectsManager | None = None) -> None:
+    def __init__(
+        self,
+        object_list: list[CmdbObject],
+        request_user: CmdbUser,
+        ref_render: bool = False,
+    ) -> None:
         """
         Initializes a RenderList
 
@@ -52,10 +52,9 @@ class RenderList:
         self.object_list: list[CmdbObject] = object_list
         self.request_user: CmdbUser = request_user
         self.ref_render: bool = ref_render
-        self.objects_manager: ObjectsManager | None = objects_manager
 
 
-    def render_result_list(self, raw: bool = False) -> list[RenderResult | dict]:
+    def render_result_list(self, raw: bool = False) -> list[RenderResult | dict[str, Any]]:
         """
         Renders the list of CmdbObjects and returns the processed results
 
@@ -65,15 +64,13 @@ class RenderList:
         Returns:
             list[RenderResult | dict]: A list of rendered results, either as RenderResult objects or dictionaries
         """
-        preparation_objects: list[RenderResult] = []
+        rendered_objects: list[RenderResult] = CmdbMultiRender(
+            self.object_list,
+            self.request_user,
+            self.ref_render
+        ).result()
 
-        for passed_object in self.object_list:
-            tmp_render = CmdbRender(passed_object,
-                                    self.objects_manager.get_object_type(passed_object.type_id),
-                                    self.request_user,
-                                    self.ref_render)
+        if raw:
+            return [obj.__dict__ for obj in rendered_objects]
 
-            current_render_result: RenderResult = tmp_render.result()
-            preparation_objects.append(current_render_result.__dict__ if raw else current_render_result)
-
-        return preparation_objects
+        return rendered_objects

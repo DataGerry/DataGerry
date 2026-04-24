@@ -16,6 +16,7 @@
 """
 TODO: document
 """
+import json
 from logging import Logger, getLogger
 
 from cmdb.models.docapi_model.safe_dict import SafeDict
@@ -48,6 +49,7 @@ class RefResult:
         except Exception:
             return SafeDict({})
 
+
     def __getitem__(self, key):
         try:
             value = self.obj_data.get(key)
@@ -56,6 +58,7 @@ class RefResult:
             return value if value is not None else SafeDict({})
         except Exception:
             return SafeDict({})
+
 
     def get(self, key, default=None):
         """TODO. document"""
@@ -66,3 +69,8 @@ class RefResult:
             return value
         except Exception:
             return default
+
+
+    def __repr__(self) -> str:
+        """TODO: document"""
+        return f"RefResult(obj_data={json.dumps(self.obj_data, indent=2)})"

@@ -112,9 +112,10 @@ class SearcherFramework:
             # parse result list
             pre_rendered_result_list = [CmdbObject(**raw_result) for raw_result in raw_search_result_list_entry['data']]
 
-            rendered_result_list = RenderList(pre_rendered_result_list,
-                                              request_user,
-                                              objects_manager=self.objects_manager).render_result_list()
+            rendered_result_list: list[RenderResult] = RenderList(
+                pre_rendered_result_list,
+                request_user
+            ).render_result_list()
 
             total_results = raw_search_result_list_entry['metadata'][0].get('total', 0)
             group_result_list = raw_search_result_list[0]['group']

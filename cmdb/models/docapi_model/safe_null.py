@@ -43,10 +43,13 @@ class SafeNull:
         return self
 
     def __str__(self):
-        return ""
+        return "\u00A0"
 
     def __repr__(self):
-        return ""
+        return "\u00A0"
 
     def __bool__(self):
         return False
+
+    def __html__(self):
+        return "&nbsp;"

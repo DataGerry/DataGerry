@@ -14,29 +14,32 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbType relevant classes
+Definition of required sections and fields for the SpecialType SUPERNET
 """
-from .cmdb_type import CmdbType
-from .type_reference import TypeReference
-from .type_external_link import TypeExternalLink
-from .type_field_section import TypeFieldSection
-from .type_reference_section import TypeReferenceSection
-from .type_multi_data_section import TypeMultiDataSection
-from .type_summary import TypeSummary
-from .type_render_meta import TypeRenderMeta
-from .field_type_enum import FieldType
-from .section_type_enum import SectionType
+from typing import Any
+
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'CmdbType',
-    'TypeReference',
-    'TypeExternalLink',
-    'TypeFieldSection',
-    'TypeReferenceSection',
-    'TypeMultiDataSection',
-    'TypeSummary',
-    'TypeRenderMeta',
-    'FieldType',
-    'SectionType',
-]
+def get_supernet_schema() -> dict[str, Any]:
+    """TODO: document"""
+    return {
+        'special_type': SpecialType.SUPERNET,
+        'sections': [
+            {
+                'type': 'section',
+                'name': 'dg_information',
+                'label': 'Information',
+                'fields': [
+                    'dg_name',
+                ]
+            },
+        ],
+        'fields': [
+            {
+                'type': 'text',
+                'name': 'dg_name',
+                'label': 'Name'
+            }
+        ]
+    }

@@ -22,6 +22,7 @@ import re
 from typing import Any
 from datetime import datetime
 from itertools import product
+from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -35,8 +36,9 @@ from cmdb.manager import (
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
-from cmdb.models.type_model import CmdbType
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.models.docapi_model.safe_object import SafeObject
+from cmdb.models.docapi_model.safe_dict import SafeDict
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.models.docapi_model.relation_result import RelationResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -288,26 +290,23 @@ class DefaultTemplateData:
         def _object_fn(public_id: int):
             obj = self.object_cache.get(public_id)
             if not obj:
-                return None
+                return SafeObject()
 
             cmdb_object = CmdbObject.from_data(obj)
             obj_type = self.type_cache.get(cmdb_object.get_type_id())
             if not obj_type:
-                return None
+                return SafeObject()
 
-            render = CmdbRender(
-                cmdb_object,
-                CmdbType.from_data(obj_type),
-                self.request_user,
-                False,
-            )
+            render: RenderResult = CmdbMultiRender([cmdb_object], self.request_user).result(single_object=True)
 
-            return ObjectTemplateData(
-                render.result(),
+            result = ObjectTemplateData(
+                render,
                 self.objects_manager,
                 self.request_user,
                 self.template_type
             ).get_template_data()
+
+            return self._safe_wrap(result)
 
         return _object_fn
 
@@ -596,3 +595,11 @@ class DefaultTemplateData:
                     return True
 
         return False
+
+
+    def _safe_wrap(self, data):
+        if isinstance(data, dict):
+            return SafeDict({k: self._safe_wrap(v) for k, v in data.items()})
+        if isinstance(data, list):
+            return [self._safe_wrap(v) for v in data]
+        return data

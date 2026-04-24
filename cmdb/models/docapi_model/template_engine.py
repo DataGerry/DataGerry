@@ -20,7 +20,8 @@ from logging import Logger, getLogger
 
 from jinja2 import Environment, ChainableUndefined
 
-from cmdb.models.docapi_model.reference_result import SafeDict
+from cmdb.models.docapi_model.safe_dict import SafeDict
+from cmdb.models.docapi_model.safe_object import SafeObject
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -53,16 +54,19 @@ class TemplateEngine:
         """
         # Initialize the Jinja2 environment with ChainableUndefined to handle undefined variables gracefully
         environment = Environment(undefined=ChainableUndefined)
-        environment.finalize = lambda x: "" if x is None else x
+        environment.finalize = lambda x: "\u00A0" if x in (None, "") or isinstance(x, SafeObject) else x
+
+        # LOGGER.debug(f"template_data: {template_data}")
 
         safe_template_data = self._safe_wrap(template_data)
+        safe_fallback = SafeObject()
 
         environment.globals["object"] = lambda public_id: (
-            safe_template_data.get("objects", {}).get(public_id, "")
+            safe_template_data.get("objects", {}).get(public_id, safe_fallback)
         )
-        environment.globals["root"] = safe_template_data.get("root", "")
+        environment.globals["root"] = safe_template_data.get("root", safe_fallback)
         environment.globals["report"] = lambda public_id: (
-            safe_template_data.get("reports", {}).get(public_id, "")
+            safe_template_data.get("reports", {}).get(public_id, safe_fallback)
         )
 
         # Load the template string into the Jinja2 environment
@@ -70,7 +74,6 @@ class TemplateEngine:
 
         try:
             return template.render(safe_template_data)
-            # return template.render(template_data)
         except Exception as err:
             LOGGER.error("Template rendering failed (unexpected fatal error): %s", err)
             return template_string  # fallback: return raw template so PDF is not empty

@@ -78,6 +78,11 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'required': False,
             'default': True
         },
+        'special_type': { # The assigned SpecialType if any
+            'type': 'string',
+            'required': False,
+            'nullable': True,
+        },
         'fields': {
             'type': 'list',
             'required': False,

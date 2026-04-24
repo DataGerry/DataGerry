@@ -22,6 +22,7 @@ from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
+
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
@@ -36,6 +37,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.location_node import LocationNode
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.framework.rendering.render_list import RenderList
+from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -111,10 +113,11 @@ def insert_cmdb_location(params: dict, request_user: CmdbUser) -> Response:
 
             current_object = CmdbObject.from_data(current_object)
 
-            rendered_list = RenderList([current_object],
-                                    request_user,
-                                    True,
-                                    objects_manager).render_result_list(True)
+            rendered_list: list[RenderResult] = RenderList(
+                [current_object],
+                request_user,
+                True
+            ).render_result_list(True)
 
             params['name'] = rendered_list[0]['summary_line']
 
@@ -422,10 +425,11 @@ def update_cmdb_location_for_object(params: dict, request_user: CmdbUser):
 
             current_object = CmdbObject.from_data(current_object)
 
-            rendered_list = RenderList([current_object],
-                                    request_user,
-                                    True,
-                                    objects_manager).render_result_list(raw=True)
+            rendered_list: list[RenderResult] = RenderList(
+                [current_object],
+                request_user,
+                True
+            ).render_result_list(raw=True)
 
             params['name'] = rendered_list[0]['summary_line']
 
