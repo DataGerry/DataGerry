@@ -1,10 +1,7 @@
 <div id="sidebar" [class.is-collapsed]="isSidebarCollapsed">
 
-  <button class="sb-toggle"
-          [class.sb-toggle--hidden]="!!flyout"
-          (click)="toggleSidebar()"
-          type="button"
-          [attr.aria-label]="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+  <button class="sb-toggle" [class.sb-toggle--hidden]="!!flyout" (click)="toggleSidebar()" type="button"
+    [attr.aria-label]="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
     <fa-icon [icon]="isSidebarCollapsed ? 'chevron-right' : 'chevron-left'"></fa-icon>
   </button>
 
@@ -12,10 +9,8 @@
     <ul class="sb-nav">
 
       <li class="sb-nav-item" data-tip="Add Object">
-        <a *permissionLink="['base.framework.object.add']"
-           class="sb-item sb-item--action"
-           routerLink="/framework/object/add"
-           routerLinkActive="active">
+        <a *permissionLink="['base.framework.object.add']" class="sb-item sb-item--action"
+          routerLink="/framework/object/add" routerLinkActive="active">
           <span class="sb-icon"><fa-icon icon="plus"></fa-icon></span>
           <span class="sb-label">Add new Object</span>
         </a>
@@ -24,37 +19,25 @@
       <div class="sb-divider"></div>
 
       <li class="sb-nav-item sb-tabs" *ngIf="!isSidebarCollapsed">
-        <button class="sb-tab"
-                [class.sb-tab--active]="selectedMenu === 'categories'"
-                (click)="onSidebarMenuClicked(selectedCategories)"
-                #selectedCategories
-                value="categories"
-                type="button">
+        <button class="sb-tab" [class.sb-tab--active]="selectedMenu === 'categories'"
+          (click)="onSidebarMenuClicked(selectedCategories)" #selectedCategories value="categories" type="button">
           <span>Categories</span>
         </button>
-        <button class="sb-tab"
-                [class.sb-tab--active]="selectedMenu === 'locations'"
-                (click)="onSidebarMenuClicked(selectedLocations)"
-                #selectedLocations
-                value="locations"
-                type="button">
+        <button class="sb-tab" [class.sb-tab--active]="selectedMenu === 'locations'"
+          (click)="onSidebarMenuClicked(selectedLocations)" #selectedLocations value="locations" type="button">
           <span>Locations</span>
         </button>
       </li>
 
       <ng-container *ngIf="isSidebarCollapsed">
-        <li class="sb-nav-item"
-            data-tip="Categories"
-            (mouseenter)="onGroupMouseEnter('categories', $event)"
-            (mouseleave)="onGroupMouseLeave()">
+        <li class="sb-nav-item" data-tip="Categories" (mouseenter)="onGroupMouseEnter('categories', $event)"
+          (mouseleave)="onGroupMouseLeave()">
           <div class="sb-item" [class.is-active]="selectedMenu === 'categories'">
             <span class="sb-icon"><fa-icon icon="th-large"></fa-icon></span>
           </div>
         </li>
-        <li class="sb-nav-item"
-            data-tip="Locations"
-            (mouseenter)="onGroupMouseEnter('locations', $event)"
-            (mouseleave)="onGroupMouseLeave()">
+        <li class="sb-nav-item" data-tip="Locations" (mouseenter)="onGroupMouseEnter('locations', $event)"
+          (mouseleave)="onGroupMouseLeave()">
           <div class="sb-item" [class.is-active]="selectedMenu === 'locations'">
             <span class="sb-icon"><fa-icon icon="map-marker-alt"></fa-icon></span>
           </div>
@@ -62,16 +45,11 @@
       </ng-container>
 
       <li class="sb-nav-item sb-content-panel"
-          *ngIf="selectedMenu === 'categories' && !isSidebarCollapsed && categoryTree">
+        *ngIf="selectedMenu === 'categories' && !isSidebarCollapsed && categoryTree">
 
         <div class="sb-filter">
-          <input type="text"
-                 placeholder="Filter.."
-                 [formControl]="filterTerm" />
-          <button class="sb-filter__clear"
-                  *ngIf="filterTerm.value"
-                  (click)="filterTerm.reset('')"
-                  type="button">
+          <input type="text" placeholder="Filter.." [formControl]="filterTerm" />
+          <button class="sb-filter__clear" *ngIf="filterTerm.value" (click)="filterTerm.reset('')" type="button">
             <fa-icon icon="times"></fa-icon>
           </button>
         </div>
@@ -81,35 +59,32 @@
         </ng-container>
 
         <div class="sb-tree-container">
-          <cmdb-sidebar-category
-            *ngFor="let node of categoryTree | categoryTreeFilter: filterTerm.value"
+          <cmdb-sidebar-category *ngFor="let node of categoryTree | categoryTreeFilter: filterTerm.value"
             [categoryNode]="node">
           </cmdb-sidebar-category>
         </div>
 
         <ng-container *ngIf="filterTerm.value">
-          <p class="sb-section-label">Matched Types</p>
-          <cmdb-sidebar-type
-            *ngFor="let type of typeList | typeFilter: filterTerm.value"
-            [type]="type">
-          </cmdb-sidebar-type>
+          <ng-container *permissionLink="'base.framework.object.view'">
+            <p class="sb-section-label">Matched Types</p>
+            <cmdb-sidebar-type *ngFor="let type of typeList | typeFilter: filterTerm.value" [type]="type">
+            </cmdb-sidebar-type>
+          </ng-container>
         </ng-container>
 
         <ng-container *ngIf="!filterTerm.value && unCategorizedTypes?.length">
-          <p class="sb-section-label mt-3">Uncategorized</p>
-          <div class="sb-uncategorized-container">
-            <cmdb-sidebar-type
-              *ngFor="let type of unCategorizedTypes"
-              [type]="type">
-            </cmdb-sidebar-type>
-          </div>
+          <ng-container *permissionLink="'base.framework.object.view'">
+            <p class="sb-section-label mt-3">Uncategorized</p>
+            <div class="sb-uncategorized-container">
+              <cmdb-sidebar-type *ngFor="let type of unCategorizedTypes" [type]="type">
+              </cmdb-sidebar-type>
+            </div>
+          </ng-container>
         </ng-container>
       </li>
 
-      <li class="sb-nav-item sb-content-panel"
-          *ngIf="selectedMenu === 'locations' && !isSidebarCollapsed">
-        <location-tree [isExpanded]="isExpanded"
-                       (expandClicked)="onExpandClicked()">
+      <li class="sb-nav-item sb-content-panel" *ngIf="selectedMenu === 'locations' && !isSidebarCollapsed">
+        <location-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()">
         </location-tree>
       </li>
 
@@ -117,32 +92,22 @@
   </div>
 
   <ng-container *ngIf="flyout">
-    <div *ngIf="flyout.group === 'categories'"
-         class="sb-flyout"
-         [style.top.px]="flyout.top"
-         (mouseenter)="onFlyoutMouseEnter()"
-         (mouseleave)="onFlyoutMouseLeave()">
+    <div *ngIf="flyout.group === 'categories'" class="sb-flyout" [style.top.px]="flyout.top"
+      (mouseenter)="onFlyoutMouseEnter()" (mouseleave)="onFlyoutMouseLeave()">
       <div class="sb-flyout__head">Categories</div>
       <div class="sb-flyout__body">
-        <cmdb-sidebar-category
-          *ngFor="let node of categoryTree | categoryTreeFilter: ''"
-          [categoryNode]="node">
+        <cmdb-sidebar-category *ngFor="let node of categoryTree | categoryTreeFilter: ''" [categoryNode]="node">
         </cmdb-sidebar-category>
         <ng-container *ngIf="unCategorizedTypes?.length">
           <p class="sb-flyout__section-label mt-2">Uncategorized</p>
-          <cmdb-sidebar-type
-            *ngFor="let type of unCategorizedTypes"
-            [type]="type">
+          <cmdb-sidebar-type *ngFor="let type of unCategorizedTypes" [type]="type">
           </cmdb-sidebar-type>
         </ng-container>
       </div>
     </div>
 
-    <div *ngIf="flyout.group === 'locations'"
-         class="sb-flyout"
-         [style.top.px]="flyout.top"
-         (mouseenter)="onFlyoutMouseEnter()"
-         (mouseleave)="onFlyoutMouseLeave()">
+    <div *ngIf="flyout.group === 'locations'" class="sb-flyout" [style.top.px]="flyout.top"
+      (mouseenter)="onFlyoutMouseEnter()" (mouseleave)="onFlyoutMouseLeave()">
       <div class="sb-flyout__head">Locations</div>
       <div class="sb-flyout__body">
         <location-tree [isExpanded]="false"></location-tree>
