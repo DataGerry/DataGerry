@@ -67,7 +67,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
     // Sidebar expansion state
     isExpanded: boolean = false;
+    isSidebarCollapsed: boolean = false;
 
+    flyout: { group: string; top: number } | null = null;
+    flyoutHovered = false;
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -88,6 +91,8 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
     public ngOnInit(): void {
         this.renderer.addClass(document.body, 'sidebar-fixed');
+
+        this.isSidebarCollapsed = false; // default state
 
         if (this.user) {
             this.sidebarService.loadCategoryTree();
@@ -187,5 +192,38 @@ export class SidebarComponent implements OnInit, OnDestroy {
         if (main) {
             this.renderer.setStyle(main, 'margin-left', newWidth);
         }
+    }
+
+
+    toggleSidebar(): void {
+        this.isSidebarCollapsed = !this.isSidebarCollapsed;
+        this.cdRed.markForCheck();
+        const w = this.isSidebarCollapsed ? '64px' : '240px';
+        this.setSidebarWidth(w);
+        this.updateDynamicStyles(w);
+    }
+
+    onGroupMouseEnter(group: string, event: MouseEvent): void {
+        if (!this.isSidebarCollapsed) { return; }
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        this.flyout = { group, top: rect.top };
+        this.cdRed.markForCheck();
+    }
+
+    onGroupMouseLeave(): void {
+        setTimeout(() => {
+            if (!this.flyoutHovered) {
+                this.flyout = null;
+                this.cdRed.markForCheck();
+            }
+        }, 80);
+    }
+
+    onFlyoutMouseEnter(): void { this.flyoutHovered = true; }
+
+    onFlyoutMouseLeave(): void {
+        this.flyoutHovered = false;
+        this.flyout = null;
+        this.cdRed.markForCheck();
     }
 }

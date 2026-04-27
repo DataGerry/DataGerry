@@ -34,7 +34,7 @@
         <div *ngIf="isCloudMode" class="col-5 col-md-2 d-flex align-items-center justify-content-center">
           <div class="progress-container w-100 px-2">
             <div class="progress-label">
-              <span class="label-text">Objects 66 / 1000</span>
+              <span class="label-text">Objects {{ usedObjects }} / {{ totalObjects }}</span>
               <span class="label-percent" [style.color]="getTextColor()">{{ percentage | number: '1.1-1' }}%</span>
             </div>
         
