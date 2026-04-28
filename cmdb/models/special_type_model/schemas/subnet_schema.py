@@ -37,10 +37,10 @@ def get_subnet_schema(supernet_id: int | None) -> dict[str, Any]:
         'sections': [
             {
                 'type': SectionType.SECTION,
-                'name': 'dg_information',
+                'name': 'dg-information',
                 'label': 'Information',
                 'fields': [
-                    'dg_name'
+                    'dg-name'
                 ]
             },
             {
@@ -48,33 +48,34 @@ def get_subnet_schema(supernet_id: int | None) -> dict[str, Any]:
                 'name': 'dg_network_details',
                 'label': 'Network Details',
                 'fields': [
-                    'dg_supernet_ref',
-                    'dg_parent_subnet_ref',
-                    'dg_network_range'
+                    'dg-supernet-ref',
+                    'dg-parent-subnet-ref',
+                    'dg-network-range'
                 ]
             },
         ],
         'fields': [
             {
                 'type': FieldType.TEXT,
-                'name': 'dg_name',
+                'name': 'dg-name',
                 'label': 'Name'
             },
             {
                 'type': FieldType.REFERENCE,
-                'name': 'dg_supernet_ref',
+                'name': 'dg-supernet-ref',
                 'label': 'Supernet',
+                'description': "Reference to Supernet SpecialType",
                 'ref_types': ref_types
             },
             {
                 'type': FieldType.REFERENCE,
-                'name': 'dg_parent_subnet_ref',
+                'name': 'dg-parent-subnet-ref',
                 'label': 'Parent Subnet',
                 'ref_types': []
             },
             {
                 'type': FieldType.TEXT,
-                'name': 'dg_network_range',
+                'name': 'dg-network-range',
                 'label': 'Network Range',
             },
         ]

@@ -34,7 +34,11 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
 
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError, BaseManagerInsertError
+from cmdb.errors.manager.section_templates_manager import (
+    SectionTemplatesManagerInsertError,
+    SectionTemplatesManagerIterationError,
+    SectionTemplatesManagerGetError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -66,26 +70,23 @@ class SectionTemplatesManager(BaseManager):
     def insert_section_template(self, data: dict[str, Any]) -> int:
         """
         Insert new CMDBSectionTemplate
+
         Args:
             data: init data
             user: current user who requested the action
             permission: Required permission for this action
         Raises:
-            BaseManagerInsertError: Raised when CmdbSectionTemplate could not be instantiated from data
-            BaseManagerInsertError: Raised when inserting into database fails
+            SectionTemplatesManagerInsertError: Raised when inserting into database fails
         Returns:
             Public ID of the new section template in database
         """
         try:
             new_section_template = CmdbSectionTemplate(**data)
 
-            ack = self.insert(new_section_template.__dict__)
-            #TODO: ERROR-FIX
-
-            return ack
+            return self.insert(new_section_template.__dict__)
         except Exception as err:
             LOGGER.debug('[insert_section_template] Error while inserting section template - error: %s', err)
-            raise BaseManagerInsertError(err) from err
+            raise SectionTemplatesManagerInsertError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -101,21 +102,23 @@ class SectionTemplatesManager(BaseManager):
             user (CmdbUser, optional): User requesting this action
             permission (AccessControlPermission, optional): Permission which should be checked for the user
         Raises:
-            BaseManagerIterationError: Raised when something goes wrong during the aggregate part
-            BaseManagerIterationError: Raised when something goes wrong during the building of the IterationResult
+            SectionTemplatesManagerIterationError: Raised when something goes wrong during the building of the
+                                                   IterationResult
         Returns:
             IterationResult[CmdbSectionTemplate]: Result which matches the Builderparameters
         """
         try:
             aggregation_result, total = self.iterate_query(builder_params, user, permission)
 
-            iteration_result: IterationResult[CmdbSectionTemplate] = IterationResult(aggregation_result,
-                                                                                     total,
-                                                                                     CmdbSectionTemplate)
+            iteration_result: IterationResult[CmdbSectionTemplate] = IterationResult(
+                aggregation_result,
+                total,
+                CmdbSectionTemplate
+            )
 
             return iteration_result
         except Exception as err:
-            raise BaseManagerIterationError(err) from err
+            raise SectionTemplatesManagerIterationError(err) from err
 
 
     def get_section_template(self, public_id: int) -> CmdbSectionTemplate:
@@ -125,7 +128,7 @@ class SectionTemplatesManager(BaseManager):
         Args:
             public_id (int): public_id of the CmdbSectionTemplate which should be retrieved
         Raises:
-            BaseManagerGetError: Raised if the CmdbSectionTemplate could not ne retrieved
+            SectionTemplatesManagerGetError: Raised if the CmdbSectionTemplate could not ne retrieved
         Returns:
             CmdbSectionTemplate: The requested CmdbSectionTemplate if it exists, else None
         """
@@ -138,7 +141,7 @@ class SectionTemplatesManager(BaseManager):
 
             return found_template
         except Exception as err:
-            raise BaseManagerGetError(str(err)) from err
+            raise SectionTemplatesManagerGetError(str(err)) from err
 
 
     def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict[str, int]:
