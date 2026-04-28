@@ -18,19 +18,25 @@ Definition of required sections and fields for the SpecialType SUBNET
 """
 from typing import Any
 
+from cmdb.models.type_model import FieldType, SectionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-CIDR_REGEX = r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})/(?:3[0-2]|[12]?\d)$'
+# CIDR_REGEX = r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})/(?:3[0-2]|[12]?\d)$'
 
 # -------------------------------------------------------------------------------------------------------------------- #
-def get_subnet_schema(supernet_id: int) -> dict[str, Any]:
+def get_subnet_schema(supernet_id: int | None) -> dict[str, Any]:
     """TODO: document"""
+    ref_types: list[int] = []
+
+    if supernet_id:
+        ref_types = [supernet_id]
+
     return {
         'special_type': SpecialType.SUBNET,
         'sections': [
             {
-                'type': 'section',
+                'type': SectionType.SECTION,
                 'name': 'dg_information',
                 'label': 'Information',
                 'fields': [
@@ -38,32 +44,38 @@ def get_subnet_schema(supernet_id: int) -> dict[str, Any]:
                 ]
             },
             {
-                'type': 'section',
+                'type': SectionType.SECTION,
                 'name': 'dg_network_details',
                 'label': 'Network Details',
                 'fields': [
                     'dg_supernet_ref',
+                    'dg_parent_subnet_ref',
                     'dg_network_range'
                 ]
             },
         ],
         'fields': [
             {
-                'type': 'text',
+                'type': FieldType.TEXT,
                 'name': 'dg_name',
                 'label': 'Name'
             },
             {
-                'type': 'ref',
+                'type': FieldType.REFERENCE,
                 'name': 'dg_supernet_ref',
                 'label': 'Supernet',
-                'ref_types': [supernet_id]
+                'ref_types': ref_types
             },
             {
-                'type': 'text',
+                'type': FieldType.REFERENCE,
+                'name': 'dg_parent_subnet_ref',
+                'label': 'Parent Subnet',
+                'ref_types': []
+            },
+            {
+                'type': FieldType.TEXT,
                 'name': 'dg_network_range',
                 'label': 'Network Range',
-                'regex': CIDR_REGEX
             },
         ]
     }

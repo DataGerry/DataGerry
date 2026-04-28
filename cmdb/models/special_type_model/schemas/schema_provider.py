@@ -49,13 +49,9 @@ class SchemaProvider:
             return get_supernet_schema()
 
         if special_type == SpecialType.SUBNET:
-            if not supernet_id:
-                raise ValueError("No Supernet ID provided for Subnet schema!")
             return get_subnet_schema(supernet_id)
 
         if special_type == SpecialType.VLAN:
-            if not subnet_id:
-                raise ValueError("No Subnet ID provided for Vlan schema!")
             return get_vlan_schema(subnet_id)
 
         raise ValueError(f"Unkown SpecialType: {special_type} provided to Schema!")
