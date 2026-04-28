@@ -134,26 +134,7 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
         if not SpecialType.is_valid(special_type):
             abort(400, f"The provided SpecialType: {special_type} is not valid!")
 
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        schema: dict[str, Any] = {}
-        schema_provider = SchemaProvider()
-
-        if special_type == SpecialType.SUBNET:
-            supernet: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUPERNET})
-
-            if not supernet:
-                abort(400, "Supernet SpecialType not found!")
-
-            schema =  schema_provider.get_schema(special_type, supernet_id=supernet.get('public_id'))
-        elif special_type == SpecialType.VLAN:
-            subnet: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
-
-            if not subnet:
-                abort(400, "Subnet SpecialType not found!")
-
-            schema =  schema_provider.get_schema(special_type, subnet_id=subnet.get('public_id'))
-        else:
-            schema: dict[str, Any] = schema_provider.get_schema(special_type)
+        schema: dict[str, Any] = SchemaProvider().get_schema(special_type)
 
         return DefaultResponse(schema).make_response()
     except HTTPException as http_err:

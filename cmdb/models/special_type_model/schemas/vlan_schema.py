@@ -18,16 +18,22 @@ Definition of required sections and fields for the SpecialType SUBNET
 """
 from typing import Any
 
+from cmdb.models.type_model import FieldType, SectionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_vlan_schema(subnet_id: int) -> dict[str, Any]:
+def get_vlan_schema(subnet_id: int | None) -> dict[str, Any]:
     """TODO: document"""
+    ref_types: list[int] = []
+
+    if subnet_id:
+        ref_types = [subnet_id]
+
     return {
         'special_type': SpecialType.VLAN,
         'sections': [
             {
-                'type': 'section',
+                'type': SectionType.SECTION,
                 'name': 'dg_information',
                 'label': 'Information',
                 'fields': [
@@ -35,7 +41,7 @@ def get_vlan_schema(subnet_id: int) -> dict[str, Any]:
                 ]
             },
             {
-                'type': 'section',
+                'type': SectionType.SECTION,
                 'name': 'dg_vlan_details',
                 'label': 'Vlan Details',
                 'fields': [
@@ -46,18 +52,18 @@ def get_vlan_schema(subnet_id: int) -> dict[str, Any]:
         ],
         'fields': [
             {
-                'type': 'text',
+                'type': FieldType.TEXT,
                 'name': 'dg_name',
                 'label': 'Name'
             },
             {
-                'type': 'ref',
+                'type': FieldType.REFERENCE,
                 'name': 'dg_subnet_ref',
                 'label': 'Subnet',
-                'ref_types': [subnet_id]
+                'ref_types': ref_types
             },
             {
-                'type': 'select',
+                'type': FieldType.SELECT,
                 'name': 'dg_vlan_type',
                 'label': 'Type',
                 'options': [

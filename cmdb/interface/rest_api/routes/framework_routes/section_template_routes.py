@@ -67,16 +67,16 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         int: public_id of the created CmdbSectionTemplate
     """
     try:
-        template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                                 request_user)
 
-        params['public_id'] = template_manager.get_next_public_id(inc_id=True)
+        params['public_id'] = section_templates_manager.get_next_public_id(inc_id=True)
         params['is_global'] = params['is_global'] in ['true', 'True', True]
         params['predefined'] = params['predefined'] in ['true', 'True', True]
         params['fields'] = json.loads(params['fields'])
         params['type'] = 'section'
 
-        created_section_template_id: int = template_manager.insert_section_template(params)
+        created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
         return DefaultResponse(created_section_template_id).make_response()
     except BaseManagerInsertError as err:
@@ -104,12 +104,12 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
         (GetMultiResponse): All CmdbSectionTemplates considering the params
     """
     try:
-        template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                             request_user)
 
         builder_params: BuilderParameters = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[CmdbSectionTemplate] = template_manager.iterate(builder_params)
+        iteration_result: IterationResult[CmdbSectionTemplate] = section_templates_manager.iterate(builder_params)
         template_list: list[dict] = [template_.__dict__ for template_ in iteration_result.results]
 
         api_response = GetMultiResponse(template_list,
@@ -141,9 +141,9 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User which is requesting the CmdbSectionTemplate
     """
     try:
-        template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                                 request_user)
-        section_template_instance: CmdbSectionTemplate = template_manager.get_section_template(public_id)
+        section_template_instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
 
         if not section_template_instance:
             abort(404, f"SectionTemplate with ID: {public_id} not found!")
@@ -173,10 +173,10 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
         dict: Dict with counts of types and objects using this global CmdbSectionTemplate
     """
     try:
-        template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                                 request_user)
-        instance: CmdbSectionTemplate = template_manager.get_section_template(public_id)
-        counts: dict = template_manager.get_global_template_usage_count(instance.name, instance.is_global)
+        instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
+        counts: dict = section_templates_manager.get_global_template_usage_count(instance.name, instance.is_global)
 
         return DefaultResponse(counts).make_response()
     except BaseManagerGetError as err:
@@ -206,7 +206,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         _type_: _description_
     """
     try:
-        template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                                 request_user)
         params['is_global'] = params['is_global'] in ('true', 'True')
         params['predefined'] = params['predefined'] in ('true', 'True')
@@ -214,15 +214,15 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         params['public_id'] = int(params['public_id'])
         params['type'] = 'section'
 
-        current_template: CmdbSectionTemplate = template_manager.get_section_template(params['public_id'])
+        current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(params['public_id'])
 
         if current_template:
-            result = template_manager.update({"public_id": params["public_id"]}, params)
+            result = section_templates_manager.update({"public_id": params["public_id"]}, params)
 
             # Apply changes to all types and objects using the template
-            template_manager.handle_section_template_changes(params, current_template)
+            section_templates_manager.handle_section_template_changes(params, current_template)
         else:
-            raise NoDocumentFoundError(template_manager.collection)
+            raise NoDocumentFoundError(section_templates_manager.collection)
 
         return UpdateSingleResponse(result.acknowledged).make_response()
     except BaseManagerGetError as err:
@@ -261,19 +261,19 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
         DefaultResponse: A response indicating whether the deletion was successful
     """
     try:
-        template_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                                 request_user)
 
-        template_instance: CmdbSectionTemplate = template_manager.get_section_template(public_id)
+        template_instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
 
         if template_instance.predefined:
             abort(400, "A predefined SectionTemplate is not deletable!")
 
         if template_instance.is_global:
-            template_manager.cleanup_global_section_templates(template_instance.name)
+            section_templates_manager.cleanup_global_section_templates(template_instance.name)
 
         #TODO: REFACTOR-FIX
-        ack: bool = template_manager.delete({'public_id':public_id})
+        ack: bool = section_templates_manager.delete({'public_id':public_id})
 
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:

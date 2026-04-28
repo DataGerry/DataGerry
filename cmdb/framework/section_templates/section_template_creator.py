@@ -18,6 +18,7 @@ This module handles all predefined section templates
 """
 from logging import Logger, getLogger
 from typing import Any
+from cmdb.models.type_model import FieldType, SectionType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -37,6 +38,7 @@ class SectionTemplateCreator:
         predefined_templates.append(self.__get_network_template())
         predefined_templates.append(self.__get_rack_mounting_template())
         predefined_templates.append(self.__get_model_spec_template())
+        # predefined_templates.append(self.__get_ipam_interface_template())
 
         return predefined_templates
 
@@ -190,20 +192,17 @@ class SectionTemplateCreator:
         return model_spec_section
 
 
-    def get_ipam_interface_template(self, subnet_id: int) -> dict[str, Any]:
+    def __get_ipam_interface_template(self) -> dict[str, Any]:
         """TODO: document"""
-        if not subnet_id:
-            raise ValueError("No Subnet-ID provided to IPAM Interface SectionTemplate")
-
         interface: dict[str, Any] = {
             "is_global": True,
             "predefined": True,
             "name": "dg-ipam-interface",
             "label": "Interfaces",
-            "type": "multi-data-section",
+            "type": SectionType.MDS_SECTION,
             "fields": [
                 {
-                    "type": "checkbox",
+                    "type": FieldType.CHECKBOX,
                     "name": "dg-interface-active",
                     "label": "Active",
                     "options": [
@@ -215,7 +214,7 @@ class SectionTemplateCreator:
                     "value": True
                 },
                 {
-                    "type": "select",
+                    "type": FieldType.SELECT,
                     "name": "dg-interface-type",
                     "label": "Type",
                     "options": [
@@ -230,28 +229,28 @@ class SectionTemplateCreator:
                     ],
                 },
                 {
-                    "type": "ref",
+                    "type": FieldType.REFERENCE,
                     "name": "dg-interface-subnet",
                     "label": "Network",
-                    "ref_types": [subnet_id]
+                    "ref_types": []
                 },
                 {
-                    "type": "text",
+                    "type": FieldType.TEXT,
                     "name": "dg-interface-ip-address",
                     "label": "IP-Address",
                 },
                 {
-                    "type": "text",
+                    "type": FieldType.TEXT,
                     "name": "dg-interface-host",
                     "label": "Hostname",
                 },
                 {
-                    "type": "text",
+                    "type": FieldType.TEXT,
                     "name": "dg-interface-domain",
                     "label": "Domain",
                 },
                 {
-                    "type": "text",
+                    "type": FieldType.TEXT,
                     "name": "dg-interface-mac-address",
                     "label": "Mac-Address",
                     "regex": r'^(([0-9A-Fa-f]{2}([:-])){5}[0-9A-Fa-f]{2})$|^(([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4})$',
