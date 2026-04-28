@@ -29,17 +29,17 @@ def get_supernet_schema() -> dict[str, Any]:
         'sections': [
             {
                 'type': SectionType.SECTION,
-                'name': 'dg_information',
+                'name': 'dg-information',
                 'label': 'Information',
                 'fields': [
-                    'dg_name',
+                    'dg-name',
                 ]
             },
         ],
         'fields': [
             {
                 'type': FieldType.TEXT,
-                'name': 'dg_name',
+                'name': 'dg-name',
                 'label': 'Name'
             }
         ]

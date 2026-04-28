@@ -29,6 +29,7 @@ from cmdb.manager import SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.models.type_model import SectionType
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -36,13 +37,11 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 
-from cmdb.errors.database import NoDocumentFoundError
-from cmdb.errors.manager import (
-    BaseManagerInsertError,
-    BaseManagerIterationError,
-    BaseManagerGetError,
-    BaseManagerUpdateError,
-    BaseManagerDeleteError,
+from cmdb.errors.manager import BaseManagerUpdateError, BaseManagerDeleteError
+from cmdb.errors.manager.section_templates_manager import (
+    SectionTemplatesManagerInsertError,
+    SectionTemplatesManagerIterationError,
+    SectionTemplatesManagerGetError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -67,24 +66,37 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         int: public_id of the created CmdbSectionTemplate
     """
     try:
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                                request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
+
+        existing_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': params['name']})
+
+        if existing_template:
+            abort(400, f"A template with the name: {params['name']} already exists!")
+
+        if params['type'] not in [SectionType.SECTION, SectionType.MDS_SECTION]:
+            abort(400, f"Invalid template type provided: {params['type']}!")
+
+        if params['predefined'] in ['true', 'True', True]:
+            abort(400, "It is not possible to create predefined section templates via API!")
 
         params['public_id'] = section_templates_manager.get_next_public_id(inc_id=True)
         params['is_global'] = params['is_global'] in ['true', 'True', True]
-        params['predefined'] = params['predefined'] in ['true', 'True', True]
+        params['predefined'] = False
         params['fields'] = json.loads(params['fields'])
-        params['type'] = 'section'
 
         created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
         return DefaultResponse(created_section_template_id).make_response()
-    except BaseManagerInsertError as err:
-        # TODO: ERROR-FIX
-        LOGGER.error("[create_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(400, "Failed to create the SectionTemplate!")
+    except HTTPException as http_err:
+        raise http_err
+    except SectionTemplatesManagerInsertError as err:
+        LOGGER.error("[create_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to create the SectionTemplate!")
     except Exception as err:
-        LOGGER.error("[create_section_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[create_section_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An internal server error occured while creating the SectionTemplate!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -104,25 +116,28 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
         (GetMultiResponse): All CmdbSectionTemplates considering the params
     """
     try:
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                            request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
 
         builder_params: BuilderParameters = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
         iteration_result: IterationResult[CmdbSectionTemplate] = section_templates_manager.iterate(builder_params)
         template_list: list[dict] = [template_.__dict__ for template_ in iteration_result.results]
 
-        api_response = GetMultiResponse(template_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
+        api_response = GetMultiResponse(
+            template_list,
+            iteration_result.total,
+            params,
+            request.url,
+            request.method == 'HEAD'
+        )
 
         return api_response.make_response()
-    except BaseManagerIterationError as err:
-        #TODO: ERROR-FIX
-        LOGGER.error("[get_all_section_templates] %s: %s", type(err), err, exc_info=True)
-        abort(400, "Failed to iterate SectionTemplates!")
+    except SectionTemplatesManagerIterationError as err:
+        LOGGER.error("[get_all_section_templates] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, "Failed to iterate SectionTemplates!")
     except Exception as err:
         LOGGER.error("[get_all_section_templates] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while iterating SectionTemplates!")
@@ -141,8 +156,10 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User which is requesting the CmdbSectionTemplate
     """
     try:
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                                request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
         section_template_instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
 
         if not section_template_instance:
@@ -151,9 +168,9 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
         return DefaultResponse(section_template_instance).make_response()
     except HTTPException as http_err:
         raise http_err
-    except BaseManagerGetError as err:
-        LOGGER.error("[get_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(400, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
+    except SectionTemplatesManagerGetError as err:
+        LOGGER.error("[get_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
     except Exception as err:
         LOGGER.error("[get_all_section_templates] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while retrieving SectionTemplate with ID: {public_id}!")
@@ -173,15 +190,16 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
         dict: Dict with counts of types and objects using this global CmdbSectionTemplate
     """
     try:
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                                request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
         instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
         counts: dict = section_templates_manager.get_global_template_usage_count(instance.name, instance.is_global)
 
         return DefaultResponse(counts).make_response()
-    except BaseManagerGetError as err:
-        #TODO: ERROR-FIX
-        LOGGER.error("[get_global_section_template_count] %s: %s", type(err), err, exc_info=True)
+    except SectionTemplatesManagerGetError as err:
+        LOGGER.error("[get_global_section_template_count] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve global SectionTemplate count for ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[get_global_section_template_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
@@ -203,38 +221,40 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     Args:
         params (dict): updated CmdbSectionTemplate parameters
     Returns:
-        _type_: _description_
+        bool: success
     """
     try:
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                                request_user)
-        params['is_global'] = params['is_global'] in ('true', 'True')
-        params['predefined'] = params['predefined'] in ('true', 'True')
-        params['fields'] = json.loads(params['fields'])
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
         params['public_id'] = int(params['public_id'])
-        params['type'] = 'section'
+        params['predefined'] = params['predefined'] in ('true', 'True')
+        params['is_global'] = params['is_global'] in ('true', 'True')
+        params['fields'] = json.loads(params['fields'])
 
         current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(params['public_id'])
 
-        if current_template:
-            result = section_templates_manager.update({"public_id": params["public_id"]}, params)
+        if not current_template:
+            abort(404, "Target section template not found!")
 
-            # Apply changes to all types and objects using the template
-            section_templates_manager.handle_section_template_changes(params, current_template)
-        else:
-            raise NoDocumentFoundError(section_templates_manager.collection)
+        if current_template.predefined != params['predefined']:
+            abort(400, "The 'predefined' property of a template is not changable!")
+
+
+        result = section_templates_manager.update({"public_id": params["public_id"]}, params)
+
+        # Apply changes to all types and objects using the template
+        section_templates_manager.handle_section_template_changes(params, current_template)
 
         return UpdateSingleResponse(result.acknowledged).make_response()
-    except BaseManagerGetError as err:
-        #TODO: ERROR-FIX
+    except SectionTemplatesManagerGetError as err:
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(404, f"Failed to retrieve SectionTemplate with ID: {params['public_id']}!")
+        abort(500, f"Failed to retrieve SectionTemplate with ID: {params['public_id']}!")
     except BaseManagerUpdateError as err:
         #TODO: ERROR-FIX
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(400, f"Failed to update SectionTemplate with ID: {params['public_id']}!")
-    except NoDocumentFoundError:
-        abort(404, f"SectionTemplate with ID:{params.get('public_id')} not found!")
+        abort(500, f"Failed to update SectionTemplate with ID: {params['public_id']}!")
     except Exception as err:
         LOGGER.error("[update_section_template] Exception: %s, Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating SectionTemplate with ID:{params['public_id']}!")
@@ -261,10 +281,15 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
         DefaultResponse: A response indicating whether the deletion was successful
     """
     try:
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                                request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
 
         template_instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
+
+        if not template_instance:
+            abort(404, f"Section Template with ID: {public_id} not found!")
 
         if template_instance.predefined:
             abort(400, "A predefined SectionTemplate is not deletable!")
@@ -278,8 +303,8 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:
         raise http_err
-    except BaseManagerGetError as err:
-        LOGGER.debug("[delete_section_template] %s: %s", type(err), err, exc_info=True)
+    except SectionTemplatesManagerGetError as err:
+        LOGGER.debug("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
     except BaseManagerDeleteError as err:
         LOGGER.debug("[delete_section_template] %s: %s", type(err), err, exc_info=True)

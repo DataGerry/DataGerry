@@ -782,7 +782,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict[str, Any], database: str) -> dict[str, Any] | None:
+def retrive_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     """
     Retrieve a user from the database by email
 

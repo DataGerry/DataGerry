@@ -229,10 +229,11 @@ class SectionTemplateCreator:
                     ],
                 },
                 {
-                    "type": FieldType.REFERENCE,
-                    "name": "dg-interface-subnet",
-                    "label": "Network",
-                    "ref_types": []
+                    'type': FieldType.REFERENCE,
+                    'name': "dg-interface-subnet",
+                    'label': "Network",
+                    'description': "Reference to Subnet SpecialType",
+                    'ref_types': []
                 },
                 {
                     "type": FieldType.TEXT,
