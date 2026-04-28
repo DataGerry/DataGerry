@@ -34,7 +34,6 @@ import { User } from '../../../management/models/user';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
-import { SectionIdentifierService } from '../services/SectionIdentifierService.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 

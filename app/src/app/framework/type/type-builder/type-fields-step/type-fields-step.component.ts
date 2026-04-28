@@ -24,9 +24,12 @@ import { SectionTemplateService } from 'src/app/framework/section_templates/serv
 
 import { TypeBuilderStepComponent } from '../type-builder-step.component';
 import { CmdbType } from '../../../models/cmdb-type';
+import { CmdbMode } from '../../../modes.enum';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { SpecialTypeService } from '../../../services/special-type.service';
+import { SpecialType } from '../../../models/special-type';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -43,6 +46,9 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
   public sectionTemplates: Array<CmdbSectionTemplate> = [];
   public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
+  public lockedSectionNames: Array<string> = [];
+  public lockedFieldNames: Array<string> = [];
+  private activeSpecialTypeForLocks: SpecialType | null = null;
 
   public builderValid: boolean = true;
 
@@ -57,14 +63,16 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
     public constructor(private differs: KeyValueDiffers,
                        private sectionTemplateService: SectionTemplateService,
-                       private toastService: ToastService) {
+                       private toastService: ToastService,
+                       private specialTypeService: SpecialTypeService) {
         super();
     }
 
 
     public ngOnInit(): void {
         this.typeInstanceDiffer = this.differs.find(this.typeInstance).create();
-          this.getAllSectionTemplates();
+        this.getAllSectionTemplates();
+        this.syncSpecialTypeLockState();
 
     }
 
@@ -72,6 +80,7 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
     public ngDoCheck(): void {
         const changes = this.typeInstanceDiffer.diff(this.typeInstance);
         if (changes) {
+            this.syncSpecialTypeLockState();
             this.valid = this.status;
             this.validateChange.emit(this.valid);
         }
@@ -109,5 +118,53 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
         },
         error: (error) => this.toastService.error(error?.error?.message)
       });
+  }
+
+  private syncSpecialTypeLockState(): void {
+    if (this.mode !== CmdbMode.Create) {
+      const hasStateToReset = this.activeSpecialTypeForLocks !== null
+        || this.lockedSectionNames.length > 0
+        || this.lockedFieldNames.length > 0;
+
+      if (hasStateToReset) {
+        this.activeSpecialTypeForLocks = null;
+        this.lockedSectionNames = [];
+        this.lockedFieldNames = [];
+      }
+      return;
+    }
+
+    const selectedSpecialType = this.normalizeSpecialTypeValue(this.typeInstance?.special_type);
+    if (selectedSpecialType === this.activeSpecialTypeForLocks) {
+      return;
+    }
+
+    if (!selectedSpecialType) {
+      this.activeSpecialTypeForLocks = null;
+      this.lockedSectionNames = [];
+      this.lockedFieldNames = [];
+      return;
+    }
+
+    this.activeSpecialTypeForLocks = selectedSpecialType;
+    this.specialTypeService.getSchema(selectedSpecialType).pipe(takeUntil(this.unsubscribe)).subscribe({
+      next: (schema) => {
+        this.lockedSectionNames = schema.sections.map(section => section.name);
+        this.lockedFieldNames = schema.fields.map(field => field.name);
+      },
+      error: () => {
+        this.lockedSectionNames = [];
+        this.lockedFieldNames = [];
+      }
+    });
+  }
+
+  private normalizeSpecialTypeValue(value: string | SpecialType | null | undefined): SpecialType | null {
+    if (!value || typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmedValue = value.trim();
+    return trimmedValue ? (trimmedValue as SpecialType) : null;
   }
 }
