@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of SettingsManager
 """
-import logging
+from logging import Logger, getLogger
 
 from pymongo.results import UpdateResult
 
@@ -27,7 +27,7 @@ from cmdb.manager.system_manager.system_reader import SystemReader
 from cmdb.errors.system_config import SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                SettingsManager - CLASS                                               #

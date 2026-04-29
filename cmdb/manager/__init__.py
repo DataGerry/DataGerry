@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,6 @@ from cmdb.manager.groups_manager import GroupsManager
 from cmdb.manager.locations_manager import LocationsManager
 from cmdb.manager.logs_manager import LogsManager
 from cmdb.manager.media_files_manager import MediaFilesManager
-from cmdb.manager.object_links_manager import ObjectLinksManager
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.object_relations_manager import ObjectRelationsManager
 from cmdb.manager.object_relation_logs_manager import ObjectRelationLogsManager
@@ -82,7 +81,6 @@ __all__: list[str] = [
     'LocationsManager',
     'LogsManager',
     'MediaFilesManager',
-    'ObjectLinksManager',
     'ObjectsManager',
     'ObjectRelationsManager',
     'ObjectRelationLogsManager',

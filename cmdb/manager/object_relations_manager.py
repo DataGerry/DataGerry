@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,8 @@
 """
 This module contains the implementation of the ObjectRelationsManager
 """
-import logging
-
+from logging import Logger, getLogger
+from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.base_manager import BaseManager
@@ -45,7 +45,7 @@ from cmdb.errors.models.cmdb_object_relation import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ObjectRelationsManager - CLASS                                            #
@@ -144,6 +144,11 @@ class ObjectRelationsManager(BaseManager):
         except Exception as err:
             raise ObjectRelationsManagerIterationError(err) from err
 
+
+    def get_related_relations(self, public_id: int) -> list[dict[str, Any]]:
+        """TODO: document"""
+        return list(self.find(criteria=self.get_related_relations_query(public_id)))
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_object_relation(self, public_id:int, data: dict) -> None:
@@ -184,6 +189,15 @@ class ObjectRelationsManager(BaseManager):
             raise ObjectRelationsManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def get_related_relations_query(self, public_id: int) -> dict[str, Any]:
+        """TODO: document"""
+        return {
+            "$or": [
+                {"relation_parent_id": public_id},
+                {"relation_child_id": public_id},
+            ]
+        }
 
     def delete_invalidated_object_relations(
             self,

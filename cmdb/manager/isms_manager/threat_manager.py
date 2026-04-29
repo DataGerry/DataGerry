@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,9 @@
 """
 This module contains the implementation of the ThreatManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsThreat, IsmsRisk
@@ -31,7 +30,7 @@ from cmdb.errors.manager.threat_manager.threat_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ThreatManager - CLASS                                                #

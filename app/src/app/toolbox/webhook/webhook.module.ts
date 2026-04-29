@@ -1,0 +1,79 @@
+import { NgModule } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { RouterModule, Routes } from '@angular/router';
+
+import { WebhookFormComponent } from './components/webhook-form/webhook-form.component';
+import { WebhookOverviewComponent } from './components/webhook-overview/webhook-overview.component';
+import { WebhookLogViewerComponent } from './components/webhook-log-viewer/webhook-log-viewer.component';
+import { NgSelectModule } from '@ng-select/ng-select';
+import { UserSettingsResolver } from 'src/app/management/user-settings/resolvers/user-settings-resolver.service';
+import { CoreModule } from 'src/app/core/core.module';
+import { TableModule } from 'src/app/layout/table/table.module';
+import { AuthModule } from 'src/app/modules/auth/auth.module';
+
+
+const routes: Routes = [
+    {
+      path: '',
+      data: {
+        breadcrumb: 'Webhooks',
+        right: 'base.framework.webhook.view'
+      },
+      resolve: {
+        userSetting: UserSettingsResolver
+      },
+      children: [
+        {
+          path: '',
+          component: WebhookOverviewComponent
+        },
+        {
+          path: 'create',
+          data: {
+            breadcrumb: 'Create WebHook',
+            right: 'base.framework.webhook.add'
+          },
+          component: WebhookFormComponent
+        },
+        {
+          path: 'edit/:id',
+          data: {
+            breadcrumb: 'Edit WebHook',
+            right: 'base.framework.webhook.edit'
+          },
+          component: WebhookFormComponent
+        },
+        {
+          path: 'logs',
+          data: {
+            breadcrumb: 'WebHook Logs',
+            right: 'base.framework.webhook.view'
+          },
+          component: WebhookLogViewerComponent
+        }
+      ]
+    }
+  ];
+  
+
+@NgModule({
+    declarations: [
+        WebhookOverviewComponent,
+        WebhookFormComponent,
+        WebhookLogViewerComponent,
+    ],
+    imports: [
+        CommonModule,
+        FormsModule,
+        ReactiveFormsModule,
+        RouterModule.forChild(routes),
+        TableModule,
+        NgSelectModule,
+        AuthModule,
+        // LayoutModule
+        CoreModule
+    ],
+    providers: [],
+})
+export class WebhookModule { }

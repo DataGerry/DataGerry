@@ -16,7 +16,7 @@
 """
 Implementation of all database updater helpers
 """
-import logging
+from logging import Logger, getLogger
 import os
 import requests
 
@@ -27,7 +27,7 @@ from cmdb.errors.security import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

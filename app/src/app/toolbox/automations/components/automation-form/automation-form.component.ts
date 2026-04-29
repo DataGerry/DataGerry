@@ -21,12 +21,12 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { BehaviorSubject, combineLatest, Subscription } from 'rxjs';
 import { finalize, map } from 'rxjs/operators';
 import { AutomationsService } from '../../services/automations.service';
-import { ConnectorsService } from '../../../connectors/services/connectors.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { Connector } from '../../../connectors/models/connector.model';
 import { AuthService } from 'src/app/modules/auth/services/auth.service';
-import { InternalConnectorHelperService } from '../../../connectors/services/internal-connector-helper.service';
+import { Connector } from '../../connectors/models/connector.model';
+import { ConnectorsService } from '../../connectors/services/connectors.service';
+import { InternalConnectorHelperService } from '../../connectors/services/internal-connector-helper.service';
 
 @Component({
   selector: 'app-automation-form',
@@ -182,10 +182,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (templates) => {
           this.templates = templates || [];
+          this.syncSelectedTemplateWithAvailableTemplates();
         },
         error: (err) => {
           this.toast.error(err?.error?.message);
           this.templates = [];
+          this.resetTemplateSelection();
         }
       });
   }
@@ -239,10 +241,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     // Load templates if connector IDs have changed and both are available
     if ((this.currentSourceConnectorId !== previousSourceId || this.currentTargetConnectorId !== previousTargetId) &&
       this.currentSourceConnectorId && this.currentTargetConnectorId) {
+      this.resetTemplateSelection();
       this.loadTemplates();
     } else if (!this.currentSourceConnectorId || !this.currentTargetConnectorId) {
       // Clear templates if one of the connector IDs is missing
       this.templates = [];
+      this.resetTemplateSelection();
     }
   }
 
@@ -259,6 +263,31 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
     // Reset connector selection when direction changes to prevent auto-selection issues
     this.form.patchValue({ connector: '' });
+    this.templates = [];
+    this.resetTemplateSelection();
+  }
+
+  private resetTemplateSelection(): void {
+    this.selectedTemplate = null;
+    if (this.form.get('business_template')?.value) {
+      this.form.patchValue({ business_template: '' }, { emitEvent: false });
+    }
+  }
+
+  private syncSelectedTemplateWithAvailableTemplates(): void {
+    const selectedTemplateId = this.form.get('business_template')?.value;
+    if (!selectedTemplateId) {
+      this.selectedTemplate = null;
+      return;
+    }
+
+    const matchedTemplate = this.templates.find(t => t.templateId === selectedTemplateId) || null;
+    if (!matchedTemplate) {
+      this.resetTemplateSelection();
+      return;
+    }
+
+    this.selectedTemplate = matchedTemplate;
   }
 
 

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,7 +20,7 @@ import os
 import base64
 import functools
 import json
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 import time
 import hashlib
@@ -30,8 +30,6 @@ from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
-
-from pymongo.errors import NetworkTimeout, AutoReconnect
 
 from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
 from cmdb.manager import (
@@ -65,7 +63,7 @@ from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 DEFAULT_MIME_TYPE = 'application/json'
 
@@ -884,6 +882,7 @@ def validate_subscrption_user(
         raise RequestError(str(err)) from err
 
 
+#TODO: Move this method to DataGerry ServicePortal Manager
 def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
     """
     Synchronize configuration items with the service portal
@@ -937,31 +936,6 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as err:
         LOGGER.error("[sync_config_items] Request Error: %s. Type: %s", err, type(err))
         return False
-
-
-def mongo_retry(retries: int = 3, delay:int = 2):
-    """
-    Decorator to retry MongoDB operations in case of transient errors.
-    
-    Args:
-        retries (int): Number of retries
-        delay (int): Seconds between retries
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for _ in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except (NetworkTimeout, AutoReconnect) as e:
-                    last_exception = e
-                    time.sleep(delay)
-            # After retries exhausted
-            raise last_exception
-        return wrapper
-    return decorator
-
 
 # --------------------------------------------------- USER CACHING --------------------------------------------------- #
 

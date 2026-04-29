@@ -71,9 +71,12 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             this.registerForEventChanges();
             this.setTreeName('');
             this.setLocationExists('false');
-            this.currentObjectID = this.route.snapshot.params.publicID;
+            // Only read the route publicID as object ID in view/edit flows.
+            if (this.mode === this.MODES.View || this.mode === this.MODES.Edit) {
+                this.currentObjectID = Number(this.route.snapshot.params.publicID);
+            }
 
-            if(!this.currentObjectID){
+            if (!this.currentObjectID) {
                 this.currentObjectID = this.objectID;
             }
 

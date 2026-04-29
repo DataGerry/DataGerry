@@ -16,21 +16,22 @@
 """
 Implementation of the DocApiRenderer in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 from io import BytesIO
 
-from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.manager import ObjectsManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.docapi_model.object_document_generator import ObjectDocumentGenerator
 from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
 
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                DocApiRenderer - CLASS                                                #
@@ -41,12 +42,11 @@ class DocApiRenderer:
     """
 
     def __init__(
-            self,
-            objects_manager: ObjectsManager,
-            target_template: DocapiTemplate,
-            target_object: CmdbObject,
-            types_manager: TypesManager = None
-        ) -> None:
+        self,
+        objects_manager: ObjectsManager,
+        target_template: DocapiTemplate,
+        target_object: CmdbObject,
+    ) -> None:
         """
         Initializes the DocApiRenderer
 
@@ -54,10 +54,9 @@ class DocApiRenderer:
             objects_manager (ObjectsManager): The manager responsible for CmdbObjects
             template (DocapiTemplate): Target template
         """
-        self.target_template = target_template
-        self.target_object = target_object
-        self.objects_manager = objects_manager
-        self.types_manager = types_manager
+        self.target_template: DocapiTemplate = target_template
+        self.target_object: CmdbObject = target_object
+        self.objects_manager: ObjectsManager = objects_manager
 
 
     def render_object_template(self, request_user: CmdbUser = None) -> BytesIO:
@@ -71,25 +70,24 @@ class DocApiRenderer:
             1. Fetch the template using the template ID (`doctpl_id`)
             2. Retrieve the CMDB object using the object ID (`object_id`)
             3. Fetch the object type information for the CMDB object
-            4. Create a `CmdbRender` object to prepare the data
+            4. Create a `CmdbMultiRender` object to prepare the data
             5. Use `ObjectDocumentGenerator` to generate a PDF document
             6. Return the generated PDF as a BytesIO object
 
         Returns:
             BytesIO: A file-like object containing the generated PDF document
         """
-        type_instance = self.objects_manager.get_object_type(self.target_object.get_type_id())
+        cmdb_render_object: RenderResult = CmdbMultiRender(
+            [self.target_object],
+            request_user
+        ).result(single_object=True)
 
-        cmdb_render_object = CmdbRender(self.target_object,
-                                        type_instance,
-                                        request_user,
-                                        False)
-
-        generator = ObjectDocumentGenerator(self.target_template,
-                                            cmdb_render_object.result(),
-                                            PdfDocumentType(),
-                                            self.objects_manager,
-                                            self.types_manager,
-                                            request_user)
+        generator = ObjectDocumentGenerator(
+            self.target_template,
+            cmdb_render_object,
+            PdfDocumentType(),
+            self.objects_manager,
+            request_user
+        )
 
         return generator.generate_doc()

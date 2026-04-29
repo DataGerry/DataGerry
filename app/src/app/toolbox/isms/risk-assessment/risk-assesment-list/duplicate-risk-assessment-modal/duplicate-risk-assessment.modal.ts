@@ -139,14 +139,7 @@ export class DuplicateRiskAssessmentModalComponent implements OnInit {
     return !this.loading && !!this.options.length;
   }
 
-  /* ─────────── build payload (exclude target IDs & PKs) ─────────── */
-  private buildPayload(): any {
-    // Strip keys BE should generate and targets (handled via URL)
-    const {
-      public_id, risk_id, object_id, object_id_ref_type, ...rest
-    } = this.item as any;
-    return { ...rest };
-  }
+
 
   /* ─────────── submit ─────────── */
   submit(): void {
@@ -160,8 +153,6 @@ export class DuplicateRiskAssessmentModalComponent implements OnInit {
         ? (this.item.object_id_ref_type === 'OBJECT' ? 'object' : 'object_group')
         : 'risk';
 
-    // const payload = this.buildPayload();
-
     this.loader.show(); this.loading = true;
 
     this.raService.duplicateRiskAssessments(targets, refType, copyCma, this.item)
@@ -171,7 +162,7 @@ export class DuplicateRiskAssessmentModalComponent implements OnInit {
       )
       .subscribe({
         next : () => { this.toast.success('Duplicated'); this.activeModal.close('done'); },
-        error: err  => this.toast.error(err?.error?.message || 'Duplicate failed')
+        error: err  => this.toast.error(err?.error?.message)
       });
   }
 }

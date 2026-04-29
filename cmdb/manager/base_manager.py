@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -96,7 +96,46 @@ class BaseManager:
         except DocumentInsertError as err:
             raise BaseManagerInsertError(str(err)) from err
 
+
+    def insert_many(
+        self,
+        data: list[dict[str, Any]],
+        skip_public: bool = False,
+    ) -> None:
+        """
+        Insert multiple documents into the manager's collection.
+
+        Args:
+            data (list[dict]): Documents to insert (public_id must be pre-assigned if skip_public=True)
+            skip_public (bool): Skip public_id generation (default True for bulk inserts)
+        """
+        try:
+            if skip_public:
+                return self.dbm.insert_many(self.collection, self.db_name, data, skip_public)
+
+            # If you ever want public_id generation here in the future:
+            for item in data:
+                if "public_id" not in item:
+                    item["public_id"] = self.dbm.get_next_public_id(
+                        self.collection,
+                        self.db_name,
+                        inc_id=True
+                    )
+
+            return self.dbm.insert_many(self.collection, self.db_name, data)
+
+        except Exception as err:
+            raise BaseManagerInsertError(str(err)) from err
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
+    def get_distinct(self, key: str, criteria: dict[str, Any]) -> list[Any]:
+        """TODO: document"""
+        try:
+            return self.dbm.get_distinct(self.collection, self.db_name, key, criteria)
+        except Exception as err:
+            raise BaseManagerGetError(str(err)) from err
+
 
     def iterate_query(
         self,
@@ -253,7 +292,7 @@ class BaseManager:
             raise err
 
 
-    def find(self, *args: Any, criteria: dict = None, **kwargs: Any) -> Cursor:
+    def find(self, *args: Any, criteria: dict = None, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Retrieves documents from the specified collection that match the given criteria.
 
@@ -266,13 +305,19 @@ class BaseManager:
             BaseManagerGetError: If an error occurs while retrieving documents from the collection
 
         Returns:
-            Cursor: A cursor for the result set, allowing iteration over the documents that match the criteria
+            list[dict[str, Any]]: A list of dicstionaries matching the criteria
         """
         try:
             if criteria is None:
                 criteria = {}
 
-            return self.dbm.find(collection=self.collection, db_name=self.db_name, filter=criteria, *args, **kwargs)
+            return list(self.dbm.find(
+                collection=self.collection,
+                db_name=self.db_name,
+                filter=criteria,
+                *args,
+                **kwargs
+            ))
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
@@ -291,7 +336,7 @@ class BaseManager:
             dict | None: The found document, or None if no document matches the criteria
         """
         try:
-            target_collection = collection or self.collection
+            target_collection: str = collection or self.collection
 
             return self.dbm.find_one_by(target_collection, self.db_name, criteria)
         except DocumentGetError as err:
@@ -390,14 +435,20 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
-    def count_documents(self, collection: str, *args: Any, **kwargs: Any) -> int:
+    def reserve_public_ids(self, amount: int) -> list[int]:
+        """TODO: document"""
+        try:
+            return self.dbm.reserve_public_ids(self.collection, self.db_name, amount)
+        except DocumentGetError as err:
+            raise BaseManagerGetError(str(err)) from err
+
+
+    def count_documents(self, criteria: dict[str, Any] | None = None) -> int:
         """
         Counts the number of documents in a collection based on the given filter
 
         Args:
-            collection (str): The name of the collection to count documents from
-            *args: Positional arguments for the 'count' operation
-            **kwargs: Keyword arguments for the 'count' operation (e.g., filter criteria)
+            criteria (dict[str, Any]): Filter for count
 
         Raises:
             BaseManagerGetError: If an error occurs during the 'count' operation
@@ -406,7 +457,7 @@ class BaseManager:
             int: The number of documents that match the given criteria
         """
         try:
-            return self.dbm.count(collection, self.db_name, *args, **kwargs)
+            return self.dbm.count(self.collection, self.db_name, criteria)
         except DocumentGetError as err:
             raise BaseManagerGetError(str(err)) from err
 
@@ -487,7 +538,8 @@ class BaseManager:
             criteria: dict,
             update: dict,
             add_to_set: bool = False,
-            plain: bool = False) -> UpdateResult:
+            plain: bool = False
+    ) -> UpdateResult:
         """
         Updates multiple documents in the collection that match the given filter
 
@@ -530,6 +582,36 @@ class BaseManager:
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(str(err)) from err
 
+
+    def update_many_raw(self, filter_query: dict, update: dict, array_filters: list[dict] | None = None):
+        """TODO: document"""
+        try:
+            return self.dbm.update_many_raw(
+                collection=self.collection,
+                db_name=self.db_name,
+                filter_query=filter_query,
+                update=update,
+                array_filters=array_filters,
+            )
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(str(err)) from err
+
+
+    def bulk_write(self, operations: list) -> None:
+        """
+        Performs a bulk write on the current manager's collection.
+
+        Args:
+            operations (list): List of pymongo operations (e.g., UpdateOne, DeleteOne, etc.)
+
+        Raises:
+            BaseManagerUpdateError: If the bulk write fails.
+        """
+        try:
+            self.dbm.bulk_write(self.collection, self.db_name, operations)
+        except DocumentInsertError as err:
+            raise BaseManagerUpdateError(f"Bulk write failed in collection '{self.collection}': {err}") from err
+
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     def delete(self, criteria: dict, collection: str | None = None) -> bool:
@@ -558,12 +640,12 @@ class BaseManager:
             raise BaseManagerDeleteError(str(err)) from err
 
 
-    def delete_many(self, filter_query: dict) -> DeleteResult:
+    def delete_many(self, filter_query: dict[str, Any]) -> DeleteResult:
         """
         Deletes multiple documents from the collection that match the given filter criteria
 
         Args:
-            filter_query (dict): A dictionary specifying the filter criteria for selecting documents to delete
+            filter_query (dict[str, Any]): Dictionary specifying the filter criteria for selecting documents to delete
 
         Raises:
             BaseManagerDeleteError: If the deletion operation fails
@@ -573,5 +655,17 @@ class BaseManager:
         """
         try:
             return self.dbm.delete_many(collection=self.collection, db_name=self.db_name, **filter_query)
+        except DocumentDeleteError as err:
+            raise BaseManagerDeleteError(str(err)) from err
+
+
+    def delete_many_raw(self, filter_query: dict) -> DeleteResult:
+        """TODO: document"""
+        try:
+            return self.dbm.delete_many_raw(
+                collection=self.collection,
+                db_name=self.db_name,
+                filter_query=filter_query
+            )
         except DocumentDeleteError as err:
             raise BaseManagerDeleteError(err) from err

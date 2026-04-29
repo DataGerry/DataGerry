@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 This module contains the implementation of the CategoriesManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -51,7 +52,7 @@ from cmdb.errors.models.cmdb_category import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               CategoriesManager - CLASS                                              #
@@ -131,7 +132,7 @@ class CategoriesManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_category(self, public_id: int) -> dict:
+    def get_category(self, public_id: int) -> dict[str, Any]:
         """
         Retrieves a CmdbCategory from the database
 
@@ -203,28 +204,10 @@ class CategoriesManager(BaseManager):
 
             return [CmdbCategory.from_data(category) for category in raw_categories]
         except (BaseManagerGetError, CmdbCategoryInitFromDataError) as err:
-            raise CategoriesManagerGetError(err) from err
+            raise CategoriesManagerGetError(str(err)) from err
         except Exception as err:
             LOGGER.error("[get_categories_by] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(err) from err
-
-
-    def count_categories(self) -> int:
-        """
-        Returns the number of CmdbCategories
-
-        Raises:
-            CategoriesManagerGetError: When an error occures during counting CmdbCategories
-
-        Returns:
-            int: Returns the number of CmdbCategories
-        """
-        try:
-            categories_count = self.count_documents(self.collection)
-
-            return categories_count
-        except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(err) from err
+            raise CategoriesManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -266,7 +249,7 @@ class CategoriesManager(BaseManager):
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
-    def reset_children_categories(self, public_id: int) -> None:
+    def remove_category_as_parent(self, public_id: int) -> None:
         """
         Sets the parent attribute to null for all children of a CmdbCategory
 
@@ -278,18 +261,14 @@ class CategoriesManager(BaseManager):
             CategoriesManagerUpdateError: When a child CmdbCategory could not be updated
         """
         try:
-            # Get all children
-            child_categories = self.get(filter={'parent': public_id})
-
-            # Update all child CmdbCategories
-            for category in child_categories:
-                category['parent'] = None
-                category_public_id = category['public_id']
-                self.update({'public_id':category_public_id}, category)
+            self.update_many(
+                criteria={'parent': public_id},
+                update={'parent': None}
+            )
         except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(err) from err
+            raise CategoriesManagerGetError(str(err)) from err
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(err) from err
+            raise CategoriesManagerUpdateError(str(err)) from err
         except Exception as err:
             LOGGER.error("[reset_children_categories] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerUpdateError(err) from err
+            raise CategoriesManagerUpdateError(str(err)) from err

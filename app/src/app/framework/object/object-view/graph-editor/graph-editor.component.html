@@ -1,4 +1,4 @@
-<div class="ci-explorer-container">
+<div class="ci-explorer-container" #editorRoot [class.is-fullscreen]="isFullscreen">
   <div class="top-toolbar">
     <div class="toolbar-left"></div>
     <div class="toolbar-right">
@@ -30,6 +30,13 @@
         <button class="control-btn" [class.active]="showMinimap" (click)="toggleMinimap()" title="Toggle Minimap">
           <span class="material-icons">map</span>
         </button>
+
+        <button class="control-btn" [class.active]="isFullscreen" (click)="toggleFullscreen()"
+        [title]="isFullscreen ? 'Exit Fullscreen' : 'Maximize to Fullscreen'">
+        <span class="material-icons">
+          {{ isFullscreen ? 'close_fullscreen' : 'open_in_full' }}
+        </span>
+      </button>
       </div>
     </div>
   </div>
@@ -316,7 +323,7 @@
 
 
   <!-- Enhanced Context Menu -->
-  <div class="context-menu modern-menu" *ngIf="contextMenuVisible && selectedNode && !selectedNode.isRoot"
+  <div class="context-menu modern-menu" *ngIf="contextMenuVisible && selectedNode"
     [style.left.px]="contextMenuX" [style.top.px]="contextMenuY">
     <div class="menu-header">
       <span class="material-icons">settings</span>
@@ -325,16 +332,16 @@
 
     <div class="menu-divider"></div>
     <div class="menu-section">
-      <div class="menu-item highlight" (click)="selectAsRootNode()">
+      <div class="menu-item highlight" *ngIf="!selectedNode?.isRoot" (click)="selectAsRootNode()">
         <span class="material-icons">adjust</span>
         <span class="menu-item-text">Set as Root Node</span>
       </div>
-      <div class="menu-item" (click)="toggleExpand(selectedNode!,$event)">
+      <div class="menu-item" (click)="onContextToggleExpand($event)">
         <span class="material-icons">
-          {{ selectedNode?.expanded ? 'unfold_less' : 'unfold_more' }}
+          {{ getContextExpandIcon(selectedNode) }}
         </span>
         <span class="menu-item-text">
-          {{ selectedNode?.expanded ? 'Collapse' : 'Expand' }}
+          {{ getContextExpandLabel(selectedNode) }}
         </span>
       </div>
       <div class="menu-item" (click)="centerOnNode(selectedNode!)">
@@ -356,9 +363,9 @@
           <button class="action-btn" title="Edit connection">
             <span class="material-icons">edit</span>
           </button>
-          <button class="action-btn" (click)="selectedConnection = null">
-            <span class="material-icons">close</span>
-          </button>
+          <app-button [bootstrapClass]="'btn-secondary'" label="close" type="button"
+          (clicked)="selectedConnection = null">
+        </app-button>
         </div>
       </div>
       <div class="panel-body">

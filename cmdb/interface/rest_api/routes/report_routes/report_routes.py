@@ -189,7 +189,7 @@ def count_cmdb_reports_of_type(public_id: int, request_user: CmdbUser):
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
-        reports_count = reports_manager.count_items({'type_id':public_id})
+        reports_count = reports_manager.count_documents({'type_id':public_id})
 
         return DefaultResponse(reports_count).make_response()
     except ReportsManagerGetError as err:
@@ -223,7 +223,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         requested_report: dict = reports_manager.get_item(public_id, as_dict=True)
-        LOGGER.debug(f"requested_report: {requested_report}")
+        # LOGGER.debug(f"requested_report: {requested_report}")
 
         if not requested_report:
             abort(404, f"The Report with ID:{public_id} was not found!")
@@ -250,7 +250,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser):
             if preview_mode:
                 result = result[:2]
 
-        LOGGER.debug(f"report result: {result}")
+        # LOGGER.debug(f"report result: {result}")
         return DefaultResponse(result).make_response()
     except HTTPException as http_err:
         raise http_err
@@ -366,7 +366,7 @@ def replace_datetime(match: re.Match) -> str:
 
     Args:
         match (re.Match): A regular expression match object containing 
-                          a string of datetime arguments (e.g., "2025, 11, 26, 0, 0").
+                          a string of datetime arguments (e.g., "2024, 11, 26, 0, 0").
 
     Returns:
         str: A string representation (repr) of the evaluated datetime object.

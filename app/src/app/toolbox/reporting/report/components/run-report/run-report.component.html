@@ -1,0 +1,43 @@
+ <div class="d-flex justify-content-between align-items-center" *ngIf="showHeader">
+    <h1>Report Results</h1>
+  </div>
+  <hr *ngIf="showHeader"/>
+  <div class="d-flex justify-content-between align-items-center button-margin" *ngIf="showActions">
+    <div class="btn-group text-start" *ngIf="showGoBack">
+      <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
+        <i class="fas fa-arrow-left icon-margin"></i> Go Back
+      </button>
+    </div>
+    <div class="btn-group text-end" *ngIf="showExport">
+      <div>
+        <button class="btn btn-secondary" 
+                (click)="exportingFiles()" 
+                [disabled]="!disableExportButton()">
+          Export as CSV
+        </button>
+      </div>
+    </div>
+  </div>
+  <cmdb-table 
+    [items]="displayedItems" 
+    [totalItems]="total"
+    [columns]="columns" 
+    [sort]="sort"
+    [loading]="loading"
+    [page]="page"
+    [pageSize]="limit"
+    [sortable]="enableSorting"
+    [searchEnabled]="enableSearch"
+    [paginationEnabled]="enablePagination"
+    [pageSizeEnabled]="enablePageSize"
+    [infoEnabled]="enableInfo"
+    (pageChange)="onPageChange($event)"
+    (pageSizeChange)="onPageSizeChange($event)"
+    (sortChange)="onSortChange($event)"
+    (searchChange)="onSearchChange($event)">
+  </cmdb-table>
+  
+  <app-loading-popup 
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of QuickSearchPipelineBuilder
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
 from cmdb.manager.query_builder.search_references_pipeline_builder import SearchReferencesPipelineBuilder
@@ -26,7 +26,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import AccessControlQueryBuilder
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          QuickSearchPipelineBuilder - CLASS                                          #

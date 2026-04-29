@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,8 @@
 """
 Implementation of IsmsRisk in DataGerry - ISMS
 """
-import logging
-
+from logging import Logger, getLogger
+from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.risk_type_enum import RiskType
 
@@ -26,10 +26,9 @@ from cmdb.errors.models.isms_risk import (
     IsmsRiskInitFromDataError,
     IsmsRiskToJsonError,
 )
-
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   IsmsRisk - CLASS                                                   #
@@ -42,6 +41,13 @@ class IsmsRisk(CmdbDAO):
     """
     COLLECTION = "isms.risk"
     MODEL = 'Risk'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('risk_type', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_type', 'unique': False},
+        {'keys': [('threats', CmdbDAO.DAO_ASCENDING)], 'name': 'threats', 'unique': False},
+        {'keys': [('vulnerabilities', CmdbDAO.DAO_ASCENDING)], 'name': 'vulnerabilities', 'unique': False},
+        {'keys': [('identifier', CmdbDAO.DAO_ASCENDING)], 'name': 'identifier', 'unique': False}
+    ]
 
     # pylint: disable=R0801
     SCHEMA: dict = {
@@ -99,7 +105,7 @@ class IsmsRisk(CmdbDAO):
             identifier: str = None,
             consequences: str = None,
             description: str = None,
-        ):
+        ) -> None:
         """
         Initialises an IsmsRisk
 

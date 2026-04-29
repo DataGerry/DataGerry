@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Ebene_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 600 600">
+  <!-- Generator: Adobe Illustrator 30.2.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 1)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: none;
+      }
+
+      .st1 {
+        fill: url(#Unbenannter_Verlauf_4);
+      }
+
+      .st2 {
+        fill: #1a1b19;
+      }
+
+      .st3 {
+        fill: #191a18;
+      }
+
+      .st4 {
+        fill: url(#Unbenannter_Verlauf_12);
+      }
+
+      .st5 {
+        clip-path: url(#clippath);
+      }
+    </style>
+    <linearGradient id="Unbenannter_Verlauf_4" data-name="Unbenannter Verlauf 4" x1="584.43" y1="84.87" x2="136.42" y2="741.51" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbba05"/>
+      <stop offset="1" stop-color="#e84d19"/>
+    </linearGradient>
+    <clipPath id="clippath">
+      <path class="st0" d="M559.3,381.51h0c0-97.9-79.36-177.27-177.27-177.27v177.27h0v177.27c0-97.9,79.36-177.26,177.25-177.27h.02Z"/>
+    </clipPath>
+    <radialGradient id="Unbenannter_Verlauf_12" data-name="Unbenannter Verlauf 12" cx="559.3" cy="368.35" fx="559.3" fy="368.35" r="75.92" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset=".23" stop-color="#fff" stop-opacity=".71"/>
+      <stop offset=".54" stop-color="#fff" stop-opacity=".33"/>
+      <stop offset=".76" stop-color="#fff" stop-opacity=".09"/>
+      <stop offset=".87" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path class="st1" d="M559.3,381.51h0c0-97.9-79.36-177.27-177.27-177.27v177.27h0s-177.27,0-177.27,0c0,97.9,79.36,177.27,177.27,177.27,0-97.9,79.36-177.26,177.25-177.27h.02Z"/>
+  <circle class="st2" cx="484.5" cy="305.59" r="13.19"/>
+  <g class="st5">
+    <circle class="st4" cx="559.3" cy="368.35" r="75.92"/>
+  </g>
+  <circle class="st2" cx="559.3" cy="368.32" r="13.19"/>
+  <path class="st3" d="M430.75,211.11"/>
+  <path class="st3" d="M382.04,162.41v41.84c16.9,0,33.23,2.42,48.72,6.83-.02-26.89-21.82-48.68-48.72-48.68Z"/>
+</svg>

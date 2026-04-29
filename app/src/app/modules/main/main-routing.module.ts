@@ -19,6 +19,7 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { AuthGuard } from '../auth/guards/auth.guard';
+import { PermissionGuard } from '../auth/guards/permission.guard';
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
 import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
@@ -95,20 +96,24 @@ const routes: Routes = [
             breadcrumb: 'Automations'
         },
         canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         children: [
             {
                 path: '',
+                data: {
+                    right: 'base.openCelium.connection.view'
+                },
                 loadChildren: () => import('../../toolbox/automations/automations.module').then(m => m.AutomationsModule)
             },
             {
                 path: 'connectors',
                 data: {
-                    breadcrumb: 'Connectors'
+                    breadcrumb: 'Connectors',
+                    right: 'base.openCelium.connector.view'
                 },
-                canActivate: [AuthGuard],
-                canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/connectors/connectors.module').then(m => m.ConnectorsModule)
+                canActivate: [AuthGuard, PermissionGuard],
+                canActivateChild: [AuthGuard, PermissionGuard],
+                loadChildren: () => import('../../toolbox/automations/connectors/connectors.module').then(m => m.ConnectorsModule)
             },
             {
                 path: 'licenses',
@@ -117,7 +122,7 @@ const routes: Routes = [
                 },
                 canActivate: [AuthGuard],
                 canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/licenses/licenses.module').then(m => m.LicensesModule)
+                loadChildren: () => import('../../toolbox/automations/licenses/licenses.module').then(m => m.LicensesModule)
             }
         ]
     },
@@ -143,7 +148,7 @@ const routes: Routes = [
     {
         path: 'docapi',
         data: {
-            breadcrumb: 'DocAPI'
+            breadcrumb: 'Document Generator'
         },
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
@@ -183,7 +188,7 @@ const routes: Routes = [
         },
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
-        loadChildren: () => import('../../reporting/reporting.module').then(m => m.ReportingModule)
+        loadChildren: () => import('../../toolbox/reporting/reporting.module').then(m => m.ReportingModule)
     },
     {
         path: 'webhooks',
@@ -193,7 +198,7 @@ const routes: Routes = [
             right: 'base.framework.webhook.view'
         },
         loadChildren: () =>
-            import('../../webhook/webhook.module').then((m) => m.WebhookModule)
+            import('../../toolbox/webhook/webhook.module').then((m) => m.WebhookModule)
     }
 ];
 

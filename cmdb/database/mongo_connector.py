@@ -18,7 +18,7 @@ This module provides the `MongoConnector` class to establish and manage a connec
 to a MongoDB database
 """
 import os
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from pymongo import MongoClient
 from pymongo.database import Database
@@ -29,7 +29,7 @@ from cmdb.database.database_utils import retry_operation
 from cmdb.errors.database import DatabaseConnectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                MongoConnector - CLASS                                                #
@@ -54,7 +54,7 @@ class MongoConnector:
             client_options (dict[str, Any] | None): MongoClient options
 
         Returns:
-            MongoConnector: A singleton instance of MongoConnector.
+            MongoConnector: A singleton instance of MongoConnector
         """
         if not cls._instance:
             cls._instance = super(MongoConnector, cls).__new__(cls)
@@ -85,6 +85,18 @@ class MongoConnector:
         self.host: str = host
         self.port: int = int(port)
         self.client_options: dict[str, Any] = client_options or {}
+
+        # TODO: improve handling of tls and ssl
+        # remove depricated
+        self.client_options.pop("ssl", None)
+
+        # TLS nur setzen, wenn NICHT im connection string
+        if "tls" not in self.client_options:
+            if self.connection_string and self.connection_string.startswith("mongodb+srv://"):
+                self.client_options["tls"] = True
+            else:
+                self.client_options["tls"] = False
+
         self._client = None  # Lazy-loaded MongoClient
 
 

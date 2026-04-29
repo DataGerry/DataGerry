@@ -16,8 +16,9 @@
 """
 Implementation of DatabaseUpdater
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+import time
 
 from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
@@ -29,7 +30,7 @@ from cmdb.utils.helpers import process_bar, load_class
 from cmdb.errors.system_config import SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -43,6 +44,9 @@ class DatabaseUpdater:
         20240603,
         20250619,
         20251203,
+        20260225,
+        20260226,
+        20260417,
     ]
 
 
@@ -81,6 +85,9 @@ class DatabaseUpdater:
                 )
                 updater_instance = updater_class(self.dbm, self.db_name)
                 updater_instance.start_update()
+
+                # Small delay to avoid throttling
+                time.sleep(0.25)
 
 
     def set_update_version(self, version: int) -> None:

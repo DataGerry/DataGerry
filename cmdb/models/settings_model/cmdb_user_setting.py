@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,9 @@
 """
 Implementation of CmdbUserSetting
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from pymongo import IndexModel
 
 from cmdb.models.settings_model.user_setting_payload import UserSettingPayload
@@ -29,7 +31,7 @@ from cmdb.errors.models.cmdb_user_setting import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CmdbUserSetting- CLASS                                                #
@@ -44,10 +46,9 @@ class CmdbUserSetting:
 
     COLLECTION = 'management.users.settings'
     MODEL = 'UserSetting'
-    INDEX_KEYS = [
-        {'keys': [('resource', 1), ('user_id', 1)],
-         'name': 'resource-user',
-         'unique': True}
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('resource', 1), ('user_id', 1)], 'name': 'resource-user', 'unique': True}
     ]
 
     SCHEMA: dict = {

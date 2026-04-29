@@ -42,11 +42,10 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 export class DocapiListComponent implements OnInit, OnDestroy {
 
     public subscriber: ReplaySubject<void> = new ReplaySubject<void>();
-    public messageBlock: string = 'DocAPI is an interface for generating PDF documents out of CMDB data. A user can design a\n' +
+    public messageBlock: string = 'Document Generator is an interface for generating PDF documents out of CMDB data. A user can design a\n' +
         'Document Template in the frontend. Each Document Template consists of a Template Type, Template\n' +
-        'Content and Template Styling. The Template Type defines the kind of the template. For example the Object Template type\n' +
-        'generates documents for single CMDB objects. Each Template Type may have its own configuration settings. For Object\n' +
-        'Templates, an object type needs to be configured. In the Template Content section, the document itself can be designed\n' +
+        'Content and Template Styling. The Template Type defines the kind of the template.\n' +
+        'In the Template Content section, the document itself can be designed\n' +
         ' with an WYSIWYG editor. Depending on the chosen Template Type, template variables can be used at all places of the\n' +
         ' document. These variables will then be replaced when rendering the document for a specific object.'
 

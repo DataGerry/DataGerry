@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Type, Any
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.query_builder import BuilderParameters
 
@@ -131,25 +130,6 @@ class GenericManager(BaseManager):
         except Exception as err:
             LOGGER.error("[iterate_items] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("iterate", Exception)(f"Iteration error: {err}") from err
-
-
-    def count_items(self, criteria: dict | None = None) -> int:
-        """
-        Counts the total number of items in the collection
-
-        Returns:
-            int: The total count
-
-        Raises:
-            Custom get exception based on the specific manager
-        """
-        try:
-            if criteria:
-                return self.count_documents(self.collection, criteria=criteria)
-
-            return self.count_documents(self.collection)
-        except Exception as err:
-            raise self.exceptions.get("get", Exception)(f"Counting error: {err}") from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

@@ -36,7 +36,7 @@
                             Label is required
                         </div>
                     </div>
-                    <small id="docLabelInputHelp" class="form-text text-muted">Only a display name</small>
+                    <small id="docLabelInputHelp" class="form-text text-muted">Display name</small>
                     <div class="clearfix"></div>
                 </div>
 
@@ -45,16 +45,17 @@
                     <input
                         type="text"
                         formControlName="name"
-                        class="form-control"
+                        class="form-control name-input-disabled-vibe"
                         [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                                     'is-invalid': name.invalid && (name.dirty || name.touched) }"
                         id="docNameInput"
-                        readonly
+                        
+                        disable
                         lowercase
                         required
                     >
                     <small id="docNameInputHelp" class="form-text text-muted">
-                        Document name must be lowercase unique
+                        Template name must be unique
                     </small>
                     <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
                         <div class="text-end" *ngIf="name.errors.required">
@@ -76,7 +77,7 @@
                         aria-describedby="docDescriptionInputHelp"
                     ></textarea>
                     <small id="docDescriptionInputHelp" class="form-text text-muted">
-                        Small description of the document
+                        Small description of the template
                     </small>
                     <div class="clearfix"></div>
                 </div>

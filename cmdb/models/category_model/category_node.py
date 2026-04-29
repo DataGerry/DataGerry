@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,14 @@
 """
 Represents a CategoryNode of a CategoryTree in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 from itertools import chain
 
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model.cmdb_category import CmdbCategory
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CategoryNode - CLASS                                                 #

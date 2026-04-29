@@ -16,7 +16,7 @@
 """
 CmdbService definition
 """
-import logging
+from logging import Logger, getLogger, config
 import signal
 import sys
 import threading
@@ -24,7 +24,7 @@ import threading
 from cmdb.utils.logger import get_logging_conf
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              AbstractCmdbService - CLASS                                             #
@@ -55,7 +55,7 @@ class AbstractCmdbService:
         """service start"""
         # setup service logging
         logging_conf = get_logging_conf()
-        logging.config.dictConfig(logging_conf)
+        config.dictConfig(logging_conf)
 
         LOGGER.info("Starting %s ...", self._name)
 

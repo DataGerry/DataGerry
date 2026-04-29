@@ -1,0 +1,17 @@
+<div class="cover-pane" *ngIf="coverForm" [formGroup]="coverForm">
+    <div class="mb-3">
+        <app-toggle [id]="'coverActivatedInput'" [formControlName]="'cover_activated'"
+            [label]="'Activate cover page'" />
+    </div>
+
+    <label class="form-label" for="coverContentInput">Cover Content</label>
+    <editor
+        id="coverContentInput"
+        formControlName="cover_content"
+        [init]="editorConfig"
+        aria-describedby="coverContentHelp"
+    ></editor>
+    <small id="coverContentHelp" class="form-text text-muted">
+        Design the dedicated cover page content.
+    </small>
+</div>

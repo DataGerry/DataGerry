@@ -3,7 +3,7 @@ export const environment = {
     cloudMode: true,
     preCloudMode: true,
     featurePreviewMode: false,
-    protocol: 'https',
-    apiUrl: window["env"]["apiUrl"], // API URL
-    apiPort: 443
-}
+    protocol: 'http',
+    apiUrl: '192.168.64.2', // API URL
+    apiPort: 4000
+};

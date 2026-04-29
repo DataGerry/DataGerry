@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for ISMS Configuration
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import abort
 from werkzeug import Response
@@ -43,7 +43,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 isms_config_blueprint = APIBlueprint('isms_config', __name__)
 
@@ -70,10 +70,10 @@ def get_isms_config_status(request_user: CmdbUser) -> Response:
                                                                                      request_user)
         risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
-        risk_class_amount: int = risk_class_manager.count_items()
-        likelihood_amount: int = likelihood_manager.count_items()
-        impact_amount: int = impact_manager.count_items()
-        impact_category_amount: int = impact_category_manager.count_items()
+        risk_class_amount: int = risk_class_manager.count_documents()
+        likelihood_amount: int = likelihood_manager.count_documents()
+        impact_amount: int = impact_manager.count_documents()
+        impact_category_amount: int = impact_category_manager.count_documents()
 
         current_risk_matrix: dict[str, Any] | None = risk_matrix_manager.get_item(1, as_dict=True)
 

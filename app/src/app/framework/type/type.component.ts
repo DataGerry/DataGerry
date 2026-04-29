@@ -38,7 +38,26 @@ import { UserSetting } from '../../management/user-settings/models/user-setting'
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { User } from '../../management/models/user';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+type TypeListUserData = {
+    author?: string;
+    author_image?: string;
+    last_editor?: string;
+    last_editor_image?: string;
+};
+
+type TypeWithCleanStatus = {
+    type_data: CmdbType;
+    clean_status: boolean;
+    user_data?: TypeListUserData;
+};
+
+type TypeTableItem = CmdbType & {
+    clean_status?: boolean;
+    user_data?: TypeListUserData;
+};
 
 @Component({
     selector: 'cmdb-type',
@@ -55,12 +74,12 @@ export class TypeComponent implements OnInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
     // Current category collection
-    public types: Array<CmdbType> = [];
-    public typesAPIResponse: APIGetMultiResponse<CmdbType>;
+    public types: Array<TypeTableItem> = [];
+    public typesAPIResponse: APIGetMultiResponse<TypeWithCleanStatus>;
     public totalTypes: number = 0;
 
     // Type selection
-    public selectedTypes: Array<CmdbType> = [];
+    public selectedTypes: Array<TypeTableItem> = [];
     public selectedTypeIDs: Array<number> = [];
 
     // Table Template: active column
@@ -316,11 +335,17 @@ export class TypeComponent implements OnInit, OnDestroy {
             page: this.page
         };
 
-        this.typeService.getTypes(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(
+        this.typeService.getTypesWithCleanStatus(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(
             {
-                next: (apiResponse: APIGetMultiResponse<CmdbType>) => {
+                next: (apiResponse: APIGetMultiResponse<TypeWithCleanStatus>) => {
                     this.typesAPIResponse = apiResponse;
-                    this.types = apiResponse?.results as Array<CmdbType>;
+                    this.types = (apiResponse?.results || []).map((item: TypeWithCleanStatus) => {
+                        return {
+                            ...(item.type_data as CmdbType),
+                            clean_status: item.clean_status,
+                            user_data: item.user_data
+                        } as TypeTableItem;
+                    });
                     this.totalTypes = apiResponse?.total;
                     this.loading = false;
                     this.sideBarService?.loadCategoryTree();
@@ -360,9 +385,32 @@ export class TypeComponent implements OnInit, OnDestroy {
      *
      * @param selectedItems
      */
-    public onSelectedChange(selectedItems: Array<CmdbType>): void {
+    public onSelectedChange(selectedItems: Array<TypeTableItem>): void {
         this.selectedTypes = selectedItems;
         this.selectedTypeIDs = selectedItems.map(t => t.public_id);
+    }
+
+
+    public resolveTypeListUser(item: TypeTableItem, columnName: string): Partial<User> | null {
+        if (!item?.user_data) {
+            return null;
+        }
+
+        if (columnName === 'author_id' && item.user_data.author) {
+            return {
+                user_name: item.user_data.author,
+                image: item.user_data.author_image
+            };
+        }
+
+        if (columnName === 'editor_id' && item.user_data.last_editor) {
+            return {
+                user_name: item.user_data.last_editor,
+                image: item.user_data.last_editor_image
+            };
+        }
+
+        return null;
     }
 
 

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -32,7 +32,6 @@ LOGGER: Logger = getLogger(__name__)
 EXECUTION_URL: str = "/execution"
 EXECUTION_LOG_LIST_URL: str = f"{EXECUTION_URL}/log-files"
 EXECUTION_LOG_URL: str = f"{EXECUTION_URL}/log/element"
-
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            OcConnectionLogManager - CLASS                                            #

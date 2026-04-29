@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,9 @@
 """
 This module contains the implementation of the RiskMatrixManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsRiskMatrix
@@ -27,7 +26,7 @@ from cmdb.models.isms_model import IsmsRiskMatrix
 from cmdb.errors.manager.risk_matrix_manager import RISK_MATRIX_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             RiskMatrixManager - CLASS                                            #

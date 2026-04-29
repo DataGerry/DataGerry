@@ -1,21 +1,104 @@
 <div class="mt-3">
-    <div class="row">
-        <div class="col">
-            <form [formGroup]="contentForm" id="contentForm" class="needs-validation" novalidate autocomplete="off">
-                <div class="mb-3">
-                    <label for="docContentInput">Document Content: <span class="required">*</span></label>
-                    <editor
-                        formControlName="template_data"
-                        id="docContentInput"
-                        aria-describedby="docContentInputHelp"
-                        [init]="editorConfig"
-                    ></editor>
-                    <small id="docLabelInputHelp" class="form-text text-muted">
-                        Design the content of your document
-                    </small>
-                    <div class="clearfix"></div>
+    <div class="doc-split-pane">
+
+        <aside class="doc-outline-panel" [class.is-collapsed]="outlineCollapsed">
+            <div class="outline-content">
+                <div class="outline-header">
+                    <span class="outline-title">Outline</span>
                 </div>
+                <div class="outline-body">
+                    <ng-container *ngIf="headingNavigation.length > 0; else noHeadings">
+                        <div cdkDropListGroup>
+                            <ng-container *ngTemplateOutlet="headingTree; context: {
+                                $implicit: headingNavigation,
+                                parentHeadingId: null,
+                                parentLevel: 0
+                            }"></ng-container>
+                        </div>
+                    </ng-container>
+                    <ng-template #noHeadings>
+                        <div class="outline-empty-state">
+                            <div class="outline-empty-icon">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+                                    stroke-linecap="round">
+                                    <line x1="3" y1="4" x2="13" y2="4" />
+                                    <line x1="3" y1="7" x2="10" y2="7" />
+                                    <line x1="3" y1="10" x2="11" y2="10" />
+                                    <line x1="3" y1="13" x2="8" y2="13" />
+                                </svg>
+                            </div>
+                            <p class="outline-empty-title">Your outline will appear here</p>
+                            <p class="outline-empty-desc">Start adding headings in the editor to structure your
+                                document.</p>
+                            <div class="outline-empty-ghost" aria-hidden="true">
+                                <span class="ghost-row" style="--w: 72%"></span>
+                                <span class="ghost-row ghost-row--child" style="--w: 58%"></span>
+                                <span class="ghost-row ghost-row--child" style="--w: 63%"></span>
+                                <span class="ghost-row" style="--w: 68%"></span>
+                            </div>
+                        </div>
+                    </ng-template>
+                </div>
+            </div>
+
+            <button type="button" class="outline-handle" (click)="outlineCollapsed = !outlineCollapsed"
+                [attr.aria-label]="outlineCollapsed ? 'Show outline' : 'Hide outline'"
+                [attr.title]="outlineCollapsed ? 'Show outline' : 'Hide outline'">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </aside>
+
+        <div class="doc-editor-area">
+            <form [formGroup]="contentForm" id="contentForm" novalidate autocomplete="off">
+                <editor
+                    *ngIf="editorConfig"
+                    formControlName="template_data"
+                    id="docContentInput"
+                    [init]="editorConfig"
+                ></editor>
             </form>
         </div>
+
     </div>
+    <small class="form-text text-muted mt-2 d-block">
+        Design the content of your document. Use Document Options to configure margins, cover page, headers, footers,
+        and table of contents.
+    </small>
+</div>
+
+<ng-template #headingTree let-items let-parentHeadingId="parentHeadingId" let-parentLevel="parentLevel">
+    <ul class="outline-nav-list" cdkDropList [cdkDropListData]="createDropListData(items, parentHeadingId, parentLevel)"
+        (cdkDropListDropped)="onOutlineDrop($event)"
+        [style.minHeight.px]="items.length === 0 && parentHeadingId ? 10 : null">
+        <li *ngFor="let item of items; trackBy: trackByHeadingId" class="outline-nav-item"
+            [attr.data-level]="item.level">
+            <div class="outline-nav-row" cdkDrag [cdkDragData]="item">
+                <span class="outline-drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
+                    <i class="fas fa-grip-vertical"></i>
+                </span>
+                <button type="button" class="outline-nav-btn" [class.is-active]="activeHeadingId === item.id"
+                    (click)="jumpToHeading(item)" (contextmenu)="openOutlineContextMenu($event, item)"
+                    (keydown)="onOutlineItemKeydown($event, item)" aria-haspopup="menu">
+                    <span class="outline-level-dot"></span>
+                    <span class="outline-nav-text">{{ item.text }}</span>
+                </button>
+            </div>
+            <ng-container *ngTemplateOutlet="headingTree; context: {
+                $implicit: item.children,
+                parentHeadingId: item.id,
+                parentLevel: item.level
+            }"></ng-container>
+        </li>
+    </ul>
+</ng-template>
+
+<div *ngIf="outlineContextMenu.visible" class="outline-context-menu" role="menu" [style.left.px]="outlineContextMenu.x"
+    [style.top.px]="outlineContextMenu.y" (click)="onContextMenuContainerClick($event)">
+    <button type="button" class="outline-context-menu__item" role="menuitem" (click)="duplicateFromContextMenu()">
+        Duplicate section
+    </button>
+    <button type="button" class="outline-context-menu__item outline-context-menu__item--danger" role="menuitem"
+        (click)="deleteFromContextMenu()">
+        Delete section
+    </button>
 </div>

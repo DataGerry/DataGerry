@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Server module for web-based services
 """
 import os
-import logging
+from logging import Logger, getLogger
 import multiprocessing
 from gunicorn.app.base import BaseApplication
 
@@ -26,7 +26,7 @@ from cmdb.utils.logger import get_logging_conf
 from cmdb.interface.gunicorn_config import post_fork
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  HTTPServer - CLASS                                                  #

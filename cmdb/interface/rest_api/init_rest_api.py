@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Registration of all REST API Routes for the FlaskApp
 """
-import logging
+from logging import Logger, getLogger
 import sys
 import copy
 from datetime import datetime, timezone
@@ -51,7 +51,7 @@ from cmdb.interface.rest_api.responses.error_handlers import (
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
@@ -144,7 +144,7 @@ def register_converters(app: BaseCmdbApp):
 
 
 #pylint: disable=R0914, R0915
-def register_blueprints(app: BaseCmdbApp):
+def register_blueprints(app: BaseCmdbApp) -> None:
     """
     Registers API routes for the app
 
@@ -155,9 +155,8 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.auth_routes import auth_blueprint
     from cmdb.interface.rest_api.routes.system_routes.setup_routes import setup_blueprint
     from cmdb.interface.rest_api.routes.settings_routes.date_routes import date_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.objects_routes import objects_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.object_links_routes import links_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.types_routes import types_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
     from cmdb.interface.rest_api.routes.connection import connection_routes
     from cmdb.interface.rest_api.routes.framework_routes.categories_routes import categories_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.location_routes import location_blueprint
@@ -187,10 +186,12 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
     from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes import ci_explorer_blueprint
     from cmdb.interface.rest_api.routes.config_routes.config_file_routes import config_file_blueprint
+    from cmdb.interface.rest_api.routes.ai_routes.chatgpt_routes import chatgpt_blueprint
     from cmdb.interface.rest_api.routes.framework_routes import (
         extendable_option_blueprint,
         object_group_blueprint,
     )
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes import special_types_blueprint
     from cmdb.interface.rest_api.routes.isms_routes import (
         risk_class_blueprint,
         likelihood_blueprint,
@@ -221,8 +222,8 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
     app.register_blueprint(date_blueprint, url_prefix='/date')
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
-    app.register_blueprint(links_blueprint, url_prefix='/objects/links')
     app.register_blueprint(types_blueprint, url_prefix='/types')
+    app.register_blueprint(special_types_blueprint, url_prefix='/special_types')
     app.register_blueprint(connection_routes)
     app.register_blueprint(categories_blueprint, url_prefix='/categories')
     app.register_blueprint(location_blueprint, url_prefix='/locations')
@@ -254,6 +255,7 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
     app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
     app.register_blueprint(config_file_blueprint, url_prefix='/config_file')
+    app.register_blueprint(chatgpt_blueprint, url_prefix='/chatgpt')
 
     # ISMS Blueprints
     app.register_blueprint(isms_config_blueprint, url_prefix='/isms/config')

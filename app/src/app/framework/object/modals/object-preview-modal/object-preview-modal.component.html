@@ -14,5 +14,6 @@
   </div>
 </div>
 <div class="modal-footer">
-  <button type="button" class="btn btn-warning" (click)="activeModal.close()">Close</button>
+  <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="activeModal.close()">
+  </app-button>
 </div>

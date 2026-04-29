@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Represents a CmdbObjectRelation in DataGerry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
@@ -30,12 +31,12 @@ from cmdb.errors.models.cmdb_object_relation import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                 CmdbRelation - CLASS                                                 #
+#                                              CmdbObjectRelation - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 #pylint: disable=too-many-instance-attributes
 class CmdbObjectRelation(CmdbDAO):
@@ -46,6 +47,23 @@ class CmdbObjectRelation(CmdbDAO):
     """
     COLLECTION = "framework.objectRelations"
     MODEL = 'ObjectRelation'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('relation_id', CmdbDAO.DAO_ASCENDING)], 'name': 'relation_id', 'unique': False},
+        {'keys': [('relation_parent_id', CmdbDAO.DAO_ASCENDING)], 'name': 'relation_parent_id', 'unique': False},
+        {
+            'keys': [('relation_parent_type_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'relation_parent_type_id',
+            'unique': False
+        },
+        {'keys': [('relation_child_id', CmdbDAO.DAO_ASCENDING)], 'name': 'relation_child_id', 'unique': False},
+        {
+            'keys': [('relation_child_type_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'relation_child_type_id',
+            'unique': False
+        }
+    ]
+
     SCHEMA: dict = get_cmdb_object_relation_schema()
 
     #pylint: disable=too-many-arguments

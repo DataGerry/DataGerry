@@ -43,13 +43,13 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
 
 /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
-    public get name() {
-        return this.settingsForm?.get('name');
+    public get name(): UntypedFormControl {
+        return this.settingsForm.get('name') as UntypedFormControl;
     }
 
 
-    public get label() {
-    return this.settingsForm?.get('label');
+    public get label(): UntypedFormControl {
+        return this.settingsForm.get('label') as UntypedFormControl;
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -77,7 +77,7 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
                 this.settingsForm?.get('name')?.markAsDirty({ onlySelf: true });
                 this.settingsForm?.get('name')?.markAsTouched({ onlySelf: true });
             });
-        } else if (CmdbMode.Edit) {
+        } else if (this.mode === CmdbMode.Edit) {
             this.settingsForm?.markAllAsTouched();
         }
     }

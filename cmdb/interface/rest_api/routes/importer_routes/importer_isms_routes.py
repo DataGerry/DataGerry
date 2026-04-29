@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@ Implementation of all API routes for Isms Imports
 """
 import io
 from csv import DictReader, Sniffer, Error
-import logging
+from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.exceptions import HTTPException
 from werkzeug.datastructures import FileStorage
@@ -43,7 +43,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 isms_importer_blueprint = APIBlueprint('isms_importer', __name__)
 

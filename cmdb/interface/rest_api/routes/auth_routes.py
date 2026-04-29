@@ -16,9 +16,10 @@
 """
 Implementation of all authentication related API routes
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any, Tuple
 from datetime import datetime, timezone
+
 from flask import request, current_app, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -60,7 +61,7 @@ from cmdb.errors.database import DatabaseConnectionError
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 auth_blueprint = APIBlueprint('auth', __name__)
 

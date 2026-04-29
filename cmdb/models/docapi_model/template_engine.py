@@ -16,11 +16,15 @@
 """
 Implementation of the TemplateEngine
 """
-import logging
+from logging import Logger, getLogger
+
 from jinja2 import Environment, ChainableUndefined
+
+from cmdb.models.docapi_model.safe_dict import SafeDict
+from cmdb.models.docapi_model.safe_object import SafeObject
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                TemplateEngine - CLASS                                                #
@@ -50,20 +54,35 @@ class TemplateEngine:
         """
         # Initialize the Jinja2 environment with ChainableUndefined to handle undefined variables gracefully
         environment = Environment(undefined=ChainableUndefined)
+        environment.finalize = lambda x: "\u00A0" if x in (None, "") or isinstance(x, SafeObject) else x
 
-        # ---- REGISTER FUNCTIONS ----
+        # LOGGER.debug(f"template_data: {template_data}")
+
+        safe_template_data = self._safe_wrap(template_data)
+        safe_fallback = SafeObject()
+
         environment.globals["object"] = lambda public_id: (
-            template_data.get("objects", {}).get(public_id)
+            safe_template_data.get("objects", {}).get(public_id, safe_fallback)
         )
-
-        environment.globals["root"] = template_data.get("root")
-
-        # reports
+        environment.globals["root"] = safe_template_data.get("root", safe_fallback)
         environment.globals["report"] = lambda public_id: (
-            template_data.get("reports", {}).get(public_id)
+            safe_template_data.get("reports", {}).get(public_id, safe_fallback)
         )
 
         # Load the template string into the Jinja2 environment
         template = environment.from_string(template_string)
 
-        return template.render(template_data)
+        try:
+            return template.render(safe_template_data)
+        except Exception as err:
+            LOGGER.error("Template rendering failed (unexpected fatal error): %s", err)
+            return template_string  # fallback: return raw template so PDF is not empty
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def _safe_wrap(self, data):
+        if isinstance(data, dict):
+            return SafeDict({k: self._safe_wrap(v) for k, v in data.items()})
+        if isinstance(data, list):
+            return [self._safe_wrap(v) for v in data]
+        return data

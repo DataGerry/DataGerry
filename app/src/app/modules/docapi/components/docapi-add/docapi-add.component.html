@@ -1,2 +1,2 @@
-<cmdb-content-header title="Add new DocAPI document"/>
-<cmdb-docapi-builder [mode]="mode"/>
+<cmdb-content-header [title]="title"/>
+<cmdb-docapi-builder [mode]="mode" (labelChanged)="onLabelChanged($event)"/>

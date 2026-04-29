@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 This module contains the implementation of the ObjectRelationLogsManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 
 from cmdb.database import MongoDatabaseManager
@@ -46,7 +47,7 @@ from cmdb.errors.manager.object_relation_logs_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           ObjectRelationLogsManager - CLASS                                          #
@@ -170,8 +171,9 @@ class ObjectRelationLogsManager(BaseManager):
             self,
             action: LogInteraction,
             request_user: CmdbUser,
-            old_object_relation: dict = None,
-            new_object_relation: dict= None) -> None:
+            old_object_relation: dict[str, Any] = None,
+            new_object_relation: dict[str, Any] = None
+        ) -> None:
         """
         Creates a CmdbObjectRelationLog from a CmdbObjectRelation and inserts it into the database
 
@@ -183,6 +185,27 @@ class ObjectRelationLogsManager(BaseManager):
         Raises:
             ObjectRelationLogsManagerBuildError: If bulding the log dict failed
         """
+        try:
+            object_relation_log = self.format_object_relation_log_data(
+                action,
+                request_user,
+                old_object_relation,
+                new_object_relation
+            )
+
+            self.insert(object_relation_log)
+        except Exception as err:
+            raise ObjectRelationLogsManagerBuildError(err) from err
+
+
+    def format_object_relation_log_data(
+        self,
+        action: LogInteraction,
+        request_user: CmdbUser,
+        old_object_relation: dict[str, Any] = None,
+        new_object_relation: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        """TODO: document"""
         try:
             object_relation = new_object_relation if new_object_relation else old_object_relation
 
@@ -219,7 +242,7 @@ class ObjectRelationLogsManager(BaseManager):
                     new_object_relation.get("field_values", [])
                 )
 
-            self.insert(object_relation_log)
+            return object_relation_log
         except Exception as err:
             raise ObjectRelationLogsManagerBuildError(err) from err
 

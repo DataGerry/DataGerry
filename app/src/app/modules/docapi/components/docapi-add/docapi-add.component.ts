@@ -28,4 +28,15 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 })
 export class DocapiAddComponent {
   public mode: CmdbMode = CmdbMode.Create;
+  public templateLabel: string = '';
+
+
+  public onLabelChanged(label: string): void {
+    this.templateLabel = label?.trim() ?? '';
+  }
+  
+
+  public get title(): string {
+    return this.templateLabel ? `Add ${this.templateLabel} Template` : 'Add Template';
+  }
 }

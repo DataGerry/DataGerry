@@ -22,7 +22,7 @@ import { forkJoin } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -51,7 +51,6 @@ import { IsmsValidationService } from '../services/isms-validation.service';
 })
 export class RiskMatrixReportComponent implements OnInit {
 
-    /* DOM node that will be rendered to a canvas */
     @ViewChild('reportContent', { static: false })
     reportContent!: ElementRef<HTMLDivElement>;
 

@@ -26,10 +26,11 @@ import { GroupService } from '../../../management/services/group.service';
 import { User } from '../../../management/models/user';
 import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { Subscription, switchMap } from 'rxjs';
+import { Observable, Subscription, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 
 import { Router } from '@angular/router';
+import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -53,6 +54,8 @@ export class NavigationComponent implements OnInit {
     public totalObjects: number = 0;
     public isCloudMode = environment.cloudMode;
     public featurePreviewMode = environment.featurePreviewMode;
+    public isNotificationDrawerOpen = false;
+    public readonly notificationCount$: Observable<number>;
     configItemsLimit: number;
     private subscription: Subscription;
 
@@ -65,8 +68,10 @@ export class NavigationComponent implements OnInit {
         private groupService: GroupService,
         private objectService: ObjectService,
         private router: Router,
+        private notificationQuery: NotificationQuery
     ) {
         this.user = this.userService.getCurrentUser();
+        this.notificationCount$ = this.notificationQuery.selectCount();
     }
 
 
@@ -194,5 +199,24 @@ export class NavigationComponent implements OnInit {
 
     public goToAiPromptPage(): void {
         this.router.navigate(['/ai-assistant']);
-      }
+    }
+
+
+    public toggleNotificationDrawer(): void {
+        this.isNotificationDrawerOpen = !this.isNotificationDrawerOpen;
+    }
+
+    
+    public closeNotificationDrawer(): void {
+        this.isNotificationDrawerOpen = false;
+    }
+
+
+    public formatNotificationCount(count: number | null): string {
+        if (!count || count <= 0) {
+            return '';
+        }
+
+        return count > 9 ? '9+' : `${count}`;
+    }
 }

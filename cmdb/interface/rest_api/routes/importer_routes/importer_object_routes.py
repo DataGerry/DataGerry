@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of all API routes for Object Imports
 """
 import json
-import logging
+from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.datastructures import FileStorage
@@ -37,7 +37,7 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -72,7 +72,7 @@ from cmdb.errors.render import InstanceRenderError
 from cmdb.errors.importer import ImportRuntimeError, ImporterLoadError, ParserLoadError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 importer_object_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/object')
 
@@ -378,14 +378,13 @@ def import_objects(request_user: CmdbUser) -> Response:
         for message in import_response.success_imports:
             try:
                 # get object state of every imported object
-                current_type_instance = objects_manager.get_object_type(importer_config_request.get('type_id'))
                 current_object = objects_manager.get_object(message.public_id)
                 current_object = CmdbObject.from_data(current_object)
 
-                current_object_render_result = CmdbRender(current_object,
-                                                        current_type_instance,
-                                                        request_user,
-                                                        False).result()
+                current_object_render_result = CmdbMultiRender(
+                    [current_object],
+                    request_user
+                ).result(single_object=True)
 
                 # insert object create log
                 log_params = {

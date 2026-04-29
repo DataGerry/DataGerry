@@ -39,6 +39,7 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
                 this.typeParamPreData = data?.template_parameters;
             }
 
+            this.buildTemplateTypeOptions();
             this.checkTypeChildValid();
 
         }
@@ -47,16 +48,36 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
     @Input() public mode: CmdbMode;
     public modes = CmdbMode;
     public typeForm: UntypedFormGroup;
-    public readonly docTypeSelect: any[] = [
-        { label: 'Object Template', content: 'OBJECT', description: 'Template for single objects' }
-    ];
+    public docTypeSelect: any[] = [];
+
+    @Output() public typeParamReady = new EventEmitter<DocapiBuilderTypeStepBaseComponent>();
+
+    private _typeParamComponent: DocapiBuilderTypeStepBaseComponent;
 
     @ViewChild('typeparam')
-    public typeParamComponent: DocapiBuilderTypeStepBaseComponent;
+    set typeParamComponent(component: DocapiBuilderTypeStepBaseComponent) {
+        this._typeParamComponent = component;
+        this.checkTypeChildValid();
+        if (component) {
+            this.typeParamReady.emit(component);
+        }
+    }
+
+    get typeParamComponent(): DocapiBuilderTypeStepBaseComponent {
+        return this._typeParamComponent;
+    }
     public typeParamPreData: any;
 
     public typeValid: boolean = false;
     public typeChildValid: boolean = false;
+
+    public get isStepValid(): boolean {
+        if (!this.typeForm?.valid) {
+            return false;
+        }
+
+        return !!this.typeParamComponent?.typeParamForm?.valid;
+    }
 
     @Output() public formValidEmitter: EventEmitter<boolean>;
 
@@ -64,8 +85,9 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
     * Updates the validity of the child components based on the type parameter
     */
     private checkTypeChildValid() {
-        this.typeChildValid = this.typeParamComponent ? this.typeParamComponent?.formValid : true;
-        this.formValidEmitter?.emit(this.typeValid && this.typeChildValid);
+        this.typeValid = this.typeForm?.valid;
+        this.typeChildValid = !!this.typeParamComponent?.typeParamForm?.valid;
+        this.formValidEmitter?.emit(this.isStepValid);
     }
 
 
@@ -83,9 +105,39 @@ export class DocapiBuilderTypeStepComponent implements OnInit {
 
 
     public ngOnInit(): void {
+        this.buildTemplateTypeOptions();
+        this.checkTypeChildValid();
         this.typeForm?.valueChanges?.subscribe(() => {
-            this.typeValid = this.typeForm?.valid;
-            this.formValidEmitter?.emit(this.typeValid && this.typeChildValid);
+            this.checkTypeChildValid();
         });
+    }
+
+    public onTypeParamValidationChange(isValid: boolean): void {
+        this.typeChildValid = isValid;
+        this.formValidEmitter?.emit(this.isStepValid);
+    }
+
+    private buildTemplateTypeOptions(): void {
+        const isEditMode = this.mode === CmdbMode.Edit;
+        const currentType = this.typeForm?.get('template_type')?.value;
+        const allowObject = isEditMode && currentType === 'OBJECT';
+
+        const objectOption = {
+            label: 'Object Template (Deprecated)',
+            content: 'OBJECT',
+            description: 'Template for single objects',
+            disabled: !allowObject
+        };
+        const defaultOption = {
+            label: 'Default Template',
+            content: 'DEFAULT',
+            description: ''
+        };
+
+        if (isEditMode) {
+            this.docTypeSelect = allowObject ? [objectOption, defaultOption] : [defaultOption];
+        } else {
+            this.docTypeSelect = [defaultOption];
+        }
     }
 }

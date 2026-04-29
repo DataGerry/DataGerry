@@ -1,0 +1,56 @@
+<div *ngIf="open" class="notification-drawer-backdrop" (click)="onClose()" aria-hidden="true">
+</div>
+
+<aside class="notification-drawer" [@drawerState]="open ? 'open' : 'closed'" [attr.aria-hidden]="!open"
+  [attr.aria-modal]="open" role="dialog">
+
+  <header class="notification-drawer__header">
+    <h5 class="notification-drawer__title mb-0">Notifications</h5>
+    <div class="notification-drawer__actions">
+      <button type="button" class="btn btn-sm btn-outline-secondary" (click)="clearNotifications()">
+        Clear all
+      </button>
+      <button type="button" class="notification-drawer__close" aria-label="Close notifications" (click)="onClose()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  </header>
+
+  <section class="notification-drawer__content">
+    <ng-container *ngIf="selectedFilter$ | async as selectedFilter">
+      <div class="notification-filter" role="group" aria-label="Filter notifications by type">
+        <button
+          *ngFor="let option of filterOptions"
+          type="button"
+          class="btn btn-sm notification-filter__button"
+          [class.notification-filter__button--active]="selectedFilter === option.value"
+          (click)="setFilter(option.value)">
+          {{ option.label }}
+        </button>
+      </div>
+    </ng-container>
+
+    <ng-container *ngIf="filteredNotifications$ | async as notifications">
+      <ng-container *ngIf="selectedFilter$ | async as selectedFilter">
+        <p *ngIf="notifications.length === 0" class="notification-drawer__empty mb-0">
+          {{ selectedFilter === 'all' ? 'No notifications yet.' : 'No notifications for the selected type.' }}
+        </p>
+      </ng-container>
+
+      <ul *ngIf="notifications.length > 0" class="notification-list mb-0">
+        <li *ngFor="let notification of notifications; trackBy: trackById" class="notification-list__item"
+          [ngClass]="'notification-list__item--' + notification.type">
+          <div class="notification-list__meta">
+            <span class="notification-type" [ngClass]="'notification-type--' + notification.type">
+              {{ notification.type | titlecase }}
+            </span>
+            <time class="notification-time">
+              {{ notification.timestamp | date: 'medium' }}
+            </time>
+          </div>
+          <p class="notification-list__message mb-0">{{ notification.message }}</p>
+        </li>
+      </ul>
+    </ng-container>
+  </section>
+</aside>

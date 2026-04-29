@@ -222,6 +222,13 @@ export class TableComponent<T> implements OnInit, OnDestroy {
     // Added output to emit reordered items
     @Output() public orderChange: EventEmitter<T[]> = new EventEmitter<T[]>();
 
+    public trackById = (index: number, item: any) => item.id ?? index;
+    public trackByName = (index: number, column: any) => column.name ?? index;
+
+    public get joinedRowClasses(): string {
+        return this.rowClasses?.join(' ') ?? '';
+    }
+
     ASC: number = SortDirection.ASCENDING;
     DSC: number = SortDirection.DESCENDING;
     routerSubscription: Subscription | undefined;

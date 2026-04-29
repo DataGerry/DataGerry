@@ -16,13 +16,13 @@
 """
 This class represents a type reference
 """
-import logging
+from logging import Logger, getLogger
 import re
 
 from cmdb.errors.models.cmdb_type import CmdbTypeReferenceLineFillError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     TypeReference                                                    #

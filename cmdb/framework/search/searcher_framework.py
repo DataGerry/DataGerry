@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of SearcherFramework
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager.query_builder.search_pipeline_builder import SearchPipelineBuilder #TODO: IMPORT-FIX
 from cmdb.manager import ObjectsManager
@@ -29,7 +29,7 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.search.search_result import SearchResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               SearcherFramework - CLASS                                              #
@@ -112,9 +112,10 @@ class SearcherFramework:
             # parse result list
             pre_rendered_result_list = [CmdbObject(**raw_result) for raw_result in raw_search_result_list_entry['data']]
 
-            rendered_result_list = RenderList(pre_rendered_result_list,
-                                              request_user,
-                                              objects_manager=self.objects_manager).render_result_list()
+            rendered_result_list: list[RenderResult] = RenderList(
+                pre_rendered_result_list,
+                request_user
+            ).render_result_list()
 
             total_results = raw_search_result_list_entry['metadata'][0].get('total', 0)
             group_result_list = raw_search_result_list[0]['group']

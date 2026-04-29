@@ -16,7 +16,7 @@
 """
 Implementation of ZipExportFormat
 """
-import logging
+from logging import Logger, getLogger
 import io
 import zipfile
 
@@ -25,7 +25,7 @@ from cmdb.framework.exporter.format.base_exporter_format import BaseExporterForm
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ZipExportFormat - CLASS                                               #

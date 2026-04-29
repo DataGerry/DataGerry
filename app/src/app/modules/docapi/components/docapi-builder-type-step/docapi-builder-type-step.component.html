@@ -12,7 +12,7 @@
                         formControlName="template_type"
                     >
                         <ng-template ng-option-tmp let-item="item" let-index="index">
-                            {{item.label}} : {{item.description}}
+                            {{ item.label }}{{ item.description ? ' : ' + item.description : '' }}
                         </ng-template>
                     </ng-select>
                     <small id="docTypeInputHelp" class="form-text text-muted">
@@ -21,20 +21,20 @@
                 </div>
             </form>
 
-            <ng-container [ngSwitch]="typeForm.get('template_type').value">
+            <ng-container [ngSwitch]="typeForm.get('template_type')?.value">
                 <cmdb-docapi-builder-type-step-object
                     *ngSwitchCase="'OBJECT'"
                     [preData]="typeParamPreData"
                     [mode]="mode"
                     #typeparam
-                    (formValidationEmitter)="typeChildValid = $event"
+                    (formValidationEmitter)="onTypeParamValidationChange($event)"
                 />
                 <cmdb-docapi-builder-type-step-object
                     *ngSwitchCase="'DEFAULT'"
                     [preData]="typeParamPreData"
                     [mode]="mode"
                     #typeparam
-                    (formValidationEmitter)="typeChildValid = $event"
+                    (formValidationEmitter)="onTypeParamValidationChange($event)"
                 />
             </ng-container>
         </div>

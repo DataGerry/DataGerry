@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -19,8 +19,8 @@ Implementation of all API routes for CmdbCategories
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from flask import request, abort
 
+from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -76,14 +76,16 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
         InsertSingleResponse: The new CmdbCategory and its public_id
     """
     try:
-        categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
-                                                                            request_user)
+        categories_manager: CategoriesManager = ManagerProvider.get_manager(
+            ManagerType.CATEGORIES,
+            request_user
+        )
 
         data.setdefault('creation_time', datetime.now(timezone.utc))
 
         result_id: int = categories_manager.insert_category(data)
 
-        created_category = categories_manager.get_category(result_id)
+        created_category: dict[str, Any] = categories_manager.get_category(result_id)
 
         if not created_category:
             abort(404, "Could not retrieve the created Category from the database!")
@@ -120,18 +122,22 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
         GetMultiResponse: All the CmdbCategories matching the CollectionParameters
     """
     try:
-        categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
-                                                                            request_user)
+        categories_manager: CategoriesManager = ManagerProvider.get_manager(
+            ManagerType.CATEGORIES,
+            request_user
+        )
 
         body: bool = request.method == 'HEAD'
 
         if params.optional['view'] == 'tree':
             tree: CategoryTree = categories_manager.tree
-            api_response = GetMultiResponse(CategoryTree.to_json(tree),
-                                            len(tree),
-                                            params,
-                                            request.url,
-                                            body)
+            api_response = GetMultiResponse(
+                CategoryTree.to_json(tree),
+                len(tree),
+                params,
+                request.url,
+                body
+            )
 
             return api_response.make_response(pagination=False)
 
@@ -139,14 +145,15 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
         iteration_result: IterationResult[CmdbCategory] = categories_manager.iterate(builder_params)
-
         category_list: list[dict[str, Any]] = [CmdbCategory.to_json(category) for category in iteration_result.results]
 
-        api_response = GetMultiResponse(category_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+        api_response = GetMultiResponse(
+            category_list,
+            iteration_result.total,
+            params,
+            request.url,
+            body
+        )
 
         return api_response.make_response()
     except CategoriesManagerIterationError as err:
@@ -164,7 +171,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right='base.framework.category.view')
-def get_cmdb_category(public_id: int, request_user: CmdbUser):
+def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbCategory
 
@@ -176,15 +183,19 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser):
         GetSingleResponse: The requested CmdbCategory
     """
     try:
-        categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
-                                                                            request_user)
+        categories_manager: CategoriesManager = ManagerProvider.get_manager(
+            ManagerType.CATEGORIES,
+            request_user
+        )
 
-        requested_category = categories_manager.get_category(public_id)
+        requested_category: dict[str, Any] = categories_manager.get_category(public_id)
 
         if not requested_category:
             abort(404, f"The Category with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_category, body = request.method == 'HEAD').make_response()
+        body: bool = request.method == 'HEAD'
+
+        return GetSingleResponse(requested_category, body=body).make_response()
     except HTTPException as http_err:
         raise http_err
     except CategoriesManagerGetError as err:
@@ -201,7 +212,7 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right='base.framework.category.edit')
 @categories_blueprint.validate(CmdbCategory.SCHEMA)
-def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbCategory
 
@@ -214,19 +225,19 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser):
         UpdateSingleResponse: The new data of the CmdbCategory
     """
     try:
-        categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
-                                                                            request_user)
+        categories_manager: CategoriesManager = ManagerProvider.get_manager(
+            ManagerType.CATEGORIES,
+            request_user
+        )
 
-        category = CmdbCategory.from_data(data)
-
-        to_update_category = categories_manager.get_category(public_id)
+        to_update_category: dict[str, Any] = categories_manager.get_category(public_id)
 
         if not to_update_category:
             abort(404, f"The Category with ID:{public_id} was not found!")
 
-        categories_manager.update_category(public_id, category)
+        categories_manager.update_category(public_id, CmdbCategory.from_data(data))
 
-        return UpdateSingleResponse(result=data).make_response()
+        return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:
         raise http_err
     except CategoriesManagerGetError as err:
@@ -257,18 +268,20 @@ def delete_cmdb_category(public_id: int, request_user: CmdbUser):
         DeleteSingleResponse: The deleted CmdbCategory data
     """
     try:
-        categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
-                                                                            request_user)
+        categories_manager: CategoriesManager = ManagerProvider.get_manager(
+            ManagerType.CATEGORIES,
+            request_user
+        )
 
-        to_delete_category = categories_manager.get_category(public_id)
+        to_delete_category: dict[str, Any] = categories_manager.get_category(public_id)
 
         if not to_delete_category:
             abort(404, f"The Category with ID:{public_id} was not found!")
 
         categories_manager.delete_category(public_id)
 
-        # Update 'parent' attribute on direct children
-        categories_manager.reset_children_categories(public_id)
+        # Remove this CmdbCategory as parent of ther CmdbCategories
+        categories_manager.remove_category_as_parent(public_id)
 
         return DeleteSingleResponse(raw=to_delete_category).make_response()
     except HTTPException as http_err:

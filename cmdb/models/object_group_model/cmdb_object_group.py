@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -44,6 +44,11 @@ class CmdbObjectGroup(CmdbDAO):
     OPTION_TYPE = OptionType.OBJECT_GROUP
     COLLECTION = "framework.objectGroups"
     MODEL = 'ObjectGroup'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('group_type', CmdbDAO.DAO_ASCENDING)], 'name': 'group_type', 'unique': False},
+        {'keys': [('assigned_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'assigned_ids', 'unique': False}
+    ]
 
     SCHEMA: dict = {
         'public_id': {
