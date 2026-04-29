@@ -43,7 +43,7 @@ class CmdbSectionTemplate(CmdbDAO):
     COLLECTION = 'framework.sectionTemplates'
     MODEL = 'Section_Template'
     DEFAULT_VERSION = '1.0.0'
-    REQUIRED_INIT_KEYS = ['name', 'label','type', 'fields']
+    REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
 
     SCHEMA: dict = {
         'public_id': {
@@ -76,18 +76,18 @@ class CmdbSectionTemplate(CmdbDAO):
         }
     }
 
-    # this is required for compability with existing sections
-    SECTION_TYPE = 'section'
-
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
-    def __init__(self,
-                 name: str,
-                 label: str,
-                 fields: list,
-                 is_global: bool = False,
-                 predefined: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        name: str,
+        label: str,
+        fields: list,
+        type: str,
+        is_global: bool = False,
+        predefined: bool = False,
+        **kwargs
+    ) -> None:
         """
         Initialisation of a section template
 
@@ -101,7 +101,7 @@ class CmdbSectionTemplate(CmdbDAO):
         self.fields: list = fields
         self.is_global: bool = is_global
         self.predefined: bool = predefined
-        self.type: str = self.SECTION_TYPE
+        self.type: str = type
         super().__init__(**kwargs)
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
@@ -122,9 +122,9 @@ class CmdbSectionTemplate(CmdbDAO):
             name = data.get('name'),
             label = data.get('label'),
             fields = data.get('fields'),
-            is_global = data.get('is_global',False),
-            predefined = data.get('predefined',False),
-            type = cls.SECTION_TYPE,
+            is_global = data.get('is_global', False),
+            predefined = data.get('predefined', False),
+            type = data.get('type'),
         )
 
 
