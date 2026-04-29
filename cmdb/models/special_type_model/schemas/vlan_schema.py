@@ -34,7 +34,7 @@ def get_vlan_schema(subnet_id: int | None) -> dict[str, Any]:
         'sections': [
             {
                 'type': SectionType.SECTION,
-                'name': 'dg_information',
+                'name': 'dg-information',
                 'label': 'Information',
                 'fields': [
                     'dg_name'
@@ -42,29 +42,30 @@ def get_vlan_schema(subnet_id: int | None) -> dict[str, Any]:
             },
             {
                 'type': SectionType.SECTION,
-                'name': 'dg_vlan_details',
+                'name': 'dg-vlan_details',
                 'label': 'Vlan Details',
                 'fields': [
-                    'dg_subnet_ref',
-                    'dg_vlan_type'
+                    'dg-subnet-ref',
+                    'dg-vlan-type'
                 ]
             },
         ],
         'fields': [
             {
                 'type': FieldType.TEXT,
-                'name': 'dg_name',
+                'name': 'dg-name',
                 'label': 'Name'
             },
             {
                 'type': FieldType.REFERENCE,
-                'name': 'dg_subnet_ref',
+                'name': 'dg-subnet-ref',
                 'label': 'Subnet',
+                'description': "Reference to Subnet SpecialType",
                 'ref_types': ref_types
             },
             {
                 'type': FieldType.SELECT,
-                'name': 'dg_vlan_type',
+                'name': 'dg-vlan-type',
                 'label': 'Type',
                 'options': [
                     {
