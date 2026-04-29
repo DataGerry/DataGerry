@@ -118,10 +118,15 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
+        this.clearFlyoutCloseTimeout();
+    
+        this.subscriber?.next();
         this.subscriber?.complete();
+    
         this.categoryTreeSubscription?.unsubscribe();
         this.unCategorizedTypesSubscription?.unsubscribe();
         this.filterTermSubscription?.unsubscribe();
+    
         this.renderer?.removeClass(document?.body, 'sidebar-fixed');
     }
 
@@ -198,32 +203,65 @@ export class SidebarComponent implements OnInit, OnDestroy {
     toggleSidebar(): void {
         this.isSidebarCollapsed = !this.isSidebarCollapsed;
         this.cdRed.markForCheck();
-        const w = this.isSidebarCollapsed ? '64px' : '240px';
+        const w = this.isSidebarCollapsed ? '75px' : '230px';
         this.setSidebarWidth(w);
         this.updateDynamicStyles(w);
     }
-
+    
+    private flyoutCloseTimeout: ReturnType<typeof setTimeout> | null = null;
+    
+    private clearFlyoutCloseTimeout(): void {
+        if (this.flyoutCloseTimeout) {
+            clearTimeout(this.flyoutCloseTimeout);
+            this.flyoutCloseTimeout = null;
+        }
+    }
+    
     onGroupMouseEnter(group: string, event: MouseEvent): void {
-        if (!this.isSidebarCollapsed) { return; }
+        if (!this.isSidebarCollapsed) {
+            return;
+        }
+    
+        this.clearFlyoutCloseTimeout();
+        this.flyoutHovered = false;
+    
         const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-        this.flyout = { group, top: rect.top };
+    
+        this.flyout = {
+            group,
+            top: rect.top
+        };
+    
         this.cdRed.markForCheck();
     }
-
+    
     onGroupMouseLeave(): void {
-        setTimeout(() => {
+        this.clearFlyoutCloseTimeout();
+    
+        this.flyoutCloseTimeout = setTimeout(() => {
             if (!this.flyoutHovered) {
                 this.flyout = null;
                 this.cdRed.markForCheck();
             }
-        }, 80);
+    
+            this.flyoutCloseTimeout = null;
+        }, 120);
     }
-
-    onFlyoutMouseEnter(): void { this.flyoutHovered = true; }
-
+    
+    onFlyoutMouseEnter(): void {
+        this.clearFlyoutCloseTimeout();
+        this.flyoutHovered = true;
+    }
+    
     onFlyoutMouseLeave(): void {
         this.flyoutHovered = false;
-        this.flyout = null;
-        this.cdRed.markForCheck();
+    
+        this.clearFlyoutCloseTimeout();
+    
+        this.flyoutCloseTimeout = setTimeout(() => {
+            this.flyout = null;
+            this.cdRed.markForCheck();
+            this.flyoutCloseTimeout = null;
+        }, 80);
     }
 }
