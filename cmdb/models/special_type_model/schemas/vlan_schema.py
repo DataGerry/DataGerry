@@ -18,47 +18,54 @@ Definition of required sections and fields for the SpecialType SUBNET
 """
 from typing import Any
 
+from cmdb.models.type_model import FieldType, SectionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_vlan_schema(subnet_id: int) -> dict[str, Any]:
+def get_vlan_schema(subnet_id: int | None) -> dict[str, Any]:
     """TODO: document"""
+    ref_types: list[int] = []
+
+    if subnet_id:
+        ref_types = [subnet_id]
+
     return {
         'special_type': SpecialType.VLAN,
         'sections': [
             {
-                'type': 'section',
-                'name': 'dg_information',
+                'type': SectionType.SECTION,
+                'name': 'dg-information',
                 'label': 'Information',
                 'fields': [
                     'dg_name'
                 ]
             },
             {
-                'type': 'section',
-                'name': 'dg_vlan_details',
+                'type': SectionType.SECTION,
+                'name': 'dg-vlan_details',
                 'label': 'Vlan Details',
                 'fields': [
-                    'dg_subnet_ref',
-                    'dg_vlan_type'
+                    'dg-subnet-ref',
+                    'dg-vlan-type'
                 ]
             },
         ],
         'fields': [
             {
-                'type': 'text',
-                'name': 'dg_name',
+                'type': FieldType.TEXT,
+                'name': 'dg-name',
                 'label': 'Name'
             },
             {
-                'type': 'ref',
-                'name': 'dg_subnet_ref',
+                'type': FieldType.REFERENCE,
+                'name': 'dg-subnet-ref',
                 'label': 'Subnet',
-                'ref_types': [subnet_id]
+                'description': "Reference to Subnet SpecialType",
+                'ref_types': ref_types
             },
             {
-                'type': 'select',
-                'name': 'dg_vlan_type',
+                'type': FieldType.SELECT,
+                'name': 'dg-vlan-type',
                 'label': 'Type',
                 'options': [
                     {

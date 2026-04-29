@@ -18,6 +18,7 @@ Definition of required sections and fields for the SpecialType SUPERNET
 """
 from typing import Any
 
+from cmdb.models.type_model import FieldType, SectionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -27,18 +28,18 @@ def get_supernet_schema() -> dict[str, Any]:
         'special_type': SpecialType.SUPERNET,
         'sections': [
             {
-                'type': 'section',
-                'name': 'dg_information',
+                'type': SectionType.SECTION,
+                'name': 'dg-information',
                 'label': 'Information',
                 'fields': [
-                    'dg_name',
+                    'dg-name',
                 ]
             },
         ],
         'fields': [
             {
-                'type': 'text',
-                'name': 'dg_name',
+                'type': FieldType.TEXT,
+                'name': 'dg-name',
                 'label': 'Name'
             }
         ]

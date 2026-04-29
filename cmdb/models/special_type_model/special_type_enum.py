@@ -62,12 +62,4 @@ class SpecialType(str, Enum):
             if key not in existing_set
         }
 
-        # Subnet requires Supernet to exist
-        if cls.SUPERNET not in existing_set:
-            unused_types.pop(cls.SUBNET, None)
-
-        # VLAN requires Subnet to exist
-        if cls.SUBNET not in existing_set:
-            unused_types.pop(cls.VLAN, None)
-
         return unused_types

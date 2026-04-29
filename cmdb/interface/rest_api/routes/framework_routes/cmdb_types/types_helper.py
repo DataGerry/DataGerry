@@ -31,6 +31,7 @@ from cmdb.manager import (
     RelationsManager,
     CiExplorerProfileManager,
     ObjectGroupsManager,
+    SectionTemplatesManager,
 )
 
 from cmdb.models.object_group_model import ObjectGroupMode
@@ -81,19 +82,80 @@ def verify_type_is_unique(
         if special_type_exists:
             abort(400, f"SpecialType: {special_type} already exists!")
 
-        # Validate that Supernet exists
-        if special_type == SpecialType.SUBNET:
-            supernet_exists: bool = types_manager.check_special_type_exists(SpecialType.SUPERNET)
 
-            if not supernet_exists:
-                abort(400, "Unable to create SUBNET class, SUPERNET need to be created first!")
+def handle_special_types(
+    types_manager: TypesManager,
+    special_type: SpecialType,
+    section_templates_manager: SectionTemplatesManager,
+    special_type_id: int
+) -> None:
+    """TODO: document"""
+    if special_type == SpecialType.SUPERNET: # SUPERNET handling
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
 
-        # Validate that Subnet exists
-        if special_type == SpecialType.VLAN:
-            supernet_exists: bool = types_manager.check_special_type_exists(SpecialType.SUBNET)
+        if not subnet_type:
+            return
 
-            if not supernet_exists:
-                abort(400, "Unable to create VLAN class, SUBNET need to be created first!")
+        updated: bool = ensure_ref_type(subnet_type['fields'], 'dg_supernet_ref', special_type_id)
+
+        if updated:
+            types_manager.update_type(subnet_type['public_id'], subnet_type)
+
+    elif special_type == SpecialType.SUBNET: # SUBNET handling
+        # TODO: new method to get one by filter or section template manager ?
+        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': 'dg-ipam-interface'})
+
+        if interface_template:
+            tpl_updated: bool = ensure_ref_type(interface_template['fields'], 'dg-interface-subnet', special_type_id)
+
+            if tpl_updated:
+                section_templates_manager.update({"public_id": interface_template["public_id"]}, interface_template)
+
+
+
+        vlan_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.VLAN})
+
+        vlan_updated: bool = False
+
+        if vlan_type:
+            vlan_updated |= ensure_ref_type(vlan_type['fields'], 'dg_subnet_ref', special_type_id)
+
+            if vlan_updated:
+                types_manager.update_type(vlan_type['public_id'], vlan_type)
+
+
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by({'public_id': special_type_id})
+
+        if not subnet_type:
+            return
+
+        supernet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUPERNET})
+
+        subnet_updated: bool = False
+
+        if supernet_type:
+            subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg_supernet_ref', supernet_type['public_id'])
+
+        subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg_parent_subnet_ref', special_type_id)
+
+        if subnet_updated:
+            types_manager.update_type(special_type_id, subnet_type)
+
+    elif special_type == SpecialType.VLAN: # VLAN handling
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
+
+        if not subnet_type:
+            return
+
+        vlan_type: dict[str, Any] | None = types_manager.get_one_by({'public_id': special_type_id})
+
+        if not vlan_type:
+            return
+
+        updated = ensure_ref_type(vlan_type['fields'], 'dg_subnet_ref', subnet_type['public_id'])
+
+        if updated:
+            types_manager.update_type(vlan_type['public_id'], vlan_type)
 
 
 def special_type_is_unchanged(old_st: str, new_st: str) -> bool:
@@ -255,3 +317,21 @@ def type_deletion_followup(request_user: CmdbUser, public_id: int) -> None:
 
     # Delete the type from all dynamic groups
     object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)
+
+
+def ensure_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) -> bool:
+    """
+    Ensures that ref_id is present in field.ref_types.
+    Returns True if modified.
+    """
+    for field in fields:
+        if field.get('name') == field_name:
+            ref_types: list[int] = field.setdefault('ref_types', [])
+
+            if ref_id not in ref_types:
+                ref_types.append(ref_id)
+                return True
+
+            return False
+
+    return False
