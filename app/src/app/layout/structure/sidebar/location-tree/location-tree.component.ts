@@ -67,6 +67,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      * Input for sidebar expansion state
      */
     @Input() isExpanded: boolean;
+    @Input() showSidebarExpandButton: boolean = true;
 
     /**
      * Output event for expand button click

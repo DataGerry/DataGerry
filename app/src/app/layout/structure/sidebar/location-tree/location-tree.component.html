@@ -23,14 +23,15 @@
 
     <!-- Tree -->
     <div class="tree-scroll-area" [class.expanded-mode]="isExpanded">
-        <button 
-        class="sidebar-expand-button"
-        (click)="onSidebarExpandClicked()"
-        [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
-        title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
-        <i class="fas fa-expand" *ngIf="!isExpanded"></i>
-        <i class="fas fa-compress" *ngIf="isExpanded"></i>
-    </button>
+        <button
+            *ngIf="showSidebarExpandButton"
+            class="sidebar-expand-button"
+            (click)="onSidebarExpandClicked()"
+            [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
+            title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
+            <i class="fas fa-expand" *ngIf="!isExpanded"></i>
+            <i class="fas fa-compress" *ngIf="isExpanded"></i>
+        </button>
         
         <!-- Empty state: No locations configured -->
         <div *ngIf="!hasLocations" class="empty-state-message">
