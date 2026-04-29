@@ -93,6 +93,8 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
 
     @Input() public sectionTemplates: Array<CmdbSectionTemplate> = [];
     @Input() public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
+    @Input() public lockedSectionNames: Array<string> = [];
+    @Input() public lockedFieldNames: Array<string> = [];
 
     public selectedGlobalSectionTemplates: Array<CmdbSectionTemplate> = [];
     public globalSectionTemplateFields: Array<string> = [];
@@ -502,7 +504,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
      */
     public onFieldDrop(event: DndDropEvent, section: CmdbTypeSection) {
         this.updateSectionFieldStatus()
-        if (this.isGlobalSection(section)) {
+        if (!this.canDropFieldsIntoSection(section)) {
             return;
         }
 
@@ -530,7 +532,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
 
 
     public onFieldDragged(item: any, section: CmdbTypeSection) {
-        if (this.isGlobalSection(section)) {
+        if (!this.canMoveField(item) || !this.canDropFieldsIntoSection(section)) {
             return;
         }
 
@@ -557,6 +559,10 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
      * @param effect - The effect of the drag-and-drop operation (e.g., 'move').
      */
     public onSectionDragged(item: any, list: any[], effect: DropEffect) {
+        if (!this.canMoveSection(item)) {
+            return;
+        }
+
         if (effect === 'move') {
             const index = list?.indexOf(item);
             list.splice(index, 1);
@@ -576,6 +582,9 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
      * @param sectionIndex The index of the section to be removed.
      */
     public removeSection(item: CmdbTypeSection, sectionIndex: number) {
+        if (!this.canRemoveSection(item)) {
+            return;
+        }
 
         if (this.activeIndex === sectionIndex) {
             this.activeIndex = null
@@ -620,6 +629,10 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
      * @param section - The section from which the field will be removed.
      */
     public removeField(item: any, section: CmdbTypeSection) {
+        if (!this.canRemoveField(item) || !this.canDropFieldsIntoSection(section)) {
+            return;
+        }
+
         const indexField: number = this.typeInstance?.fields?.indexOf(item);
 
         if (indexField > -1) {
@@ -903,13 +916,12 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
     /* -------------------------------------------- SECTION TEMPLATE HANDLING ------------------------------------------- */
 
     public getDnDEffectAllowedForField(field: any) {
-        return this.isGlobalField(field?.name) ? "none" : "move";
+        return this.canMoveField(field) ? "move" : "none";
     }
 
 
     public getSectionMode(section: CmdbTypeSection, mode: CmdbMode) {
-        //TODO: improve this condition
-        if (this.isGlobalSection(section) || section?.name?.includes("dg_gst-") || section?.name?.includes("dg-")) {
+        if (!this.canEditSection(section)) {
             return CmdbMode.Global
         }
 
@@ -938,7 +950,75 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked 
 
 
     public getSectionCollapseIcon(section: CmdbTypeSection) {
-        return this.isGlobalSection(section) ? ['far', 'eye'] : ['far', 'edit'];
+        return this.canEditSection(section) ? ['far', 'edit'] : ['far', 'eye'];
+    }
+
+
+    public isSchemaLockedSection(section: CmdbTypeSection): boolean {
+        return this.lockedSectionNames.includes(section?.name ?? '');
+    }
+
+
+    public isSchemaLockedField(field: any): boolean {
+        return this.lockedFieldNames.includes(field?.name ?? '');
+    }
+
+
+    public isLockedSection(section: CmdbTypeSection): boolean {
+        return !this.canEditSection(section);
+    }
+
+
+    public isLockedField(field: any): boolean {
+        return this.isGlobalField(field?.name) || this.isSchemaLockedField(field);
+    }
+
+
+    public canEditSection(section: CmdbTypeSection): boolean {
+        return !this.isGlobalSection(section) && !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
+    }
+
+
+    public canRemoveSection(section: CmdbTypeSection): boolean {
+        if (this.isGlobalSection(section)) {
+            return true;
+        }
+
+        if (this.isSchemaLockedSection(section)) {
+            return false;
+        }
+
+        return !this.isSystemSection(section);
+    }
+
+
+    public canMoveSection(section: CmdbTypeSection): boolean {
+        if (this.isGlobalSection(section)) {
+            return true;
+        }
+
+        return !this.isSystemSection(section);
+    }
+
+
+    public canDropFieldsIntoSection(section: CmdbTypeSection): boolean {
+        return !this.isGlobalSection(section) && !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
+    }
+
+
+    public canMoveField(field: any): boolean {
+        return !this.isLockedField(field);
+    }
+
+
+    public canRemoveField(field: any): boolean {
+        return !this.isLockedField(field);
+    }
+
+
+    private isSystemSection(section: CmdbTypeSection): boolean {
+        const sectionName = section?.name ?? '';
+        return sectionName.includes('dg_gst-') || sectionName.includes('dg-');
     }
 
 

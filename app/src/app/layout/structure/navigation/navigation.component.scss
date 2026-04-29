@@ -451,6 +451,7 @@ cmdb-search-bar {
       }
 
       &:hover {
+
         cursor: pointer;
         background: $brand-primary-hover;
         border-color: rgba($brand-primary, 0.2);
@@ -482,39 +483,51 @@ cmdb-search-bar {
 }
 
 // --- Progress Bar ---
+// --- Progress Bar ---
 .progress-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
+  min-width: 160px; // Ensures the entire block doesn't get crushed on zoom
   padding: 0 4px;
 
   .progress-label {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     width: 100%;
     margin-bottom: 6px;
+    gap: 8px; // Keeps a safe minimum distance between text and percentage
 
     .label-text {
-      font-size: 0.65rem;
+      // Fluidly scales down the font size if the container gets tight, 
+      // maxing out at 0.65rem and shrinking no smaller than 0.5rem.
+      font-size: clamp(0.5rem, 1.5vw, 0.65rem); 
       color: $text-muted;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      
+      white-space: nowrap; // Forces the text to stay on exactly one line
     }
 
     .label-percent {
-      font-size: 0.8rem;
+      // Scales down slightly on tight screens to prevent overflow
+      font-size: clamp(0.65rem, 1.8vw, 0.8rem);
       font-weight: 800;
       color: $text-dark;
       letter-spacing: 0px;
+      line-height: 1;
+      
+      white-space: nowrap; // Prevents the percentage from wrapping
     }
   }
 
   .progress.track-modern {
     height: 12px;
     width: 100%;
+    min-width: 100px; // Guarantees the gray/green bar itself always stays visible
     background-color: rgba($text-dark, 0.08);
     border-radius: 999px;
     overflow: hidden;
