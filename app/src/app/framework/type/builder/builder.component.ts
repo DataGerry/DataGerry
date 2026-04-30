@@ -423,18 +423,27 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         if (data.hasOwnProperty("isDuplicate")) {
             if (data?.isDuplicate) {
                 this.activeDuplicateField = { sectionIndex, fieldIndex };
-                this.disableFields = true;
+                this.setDisableFields(true);
             } else {
                 this.activeDuplicateField = null;
-                this.disableFields = false;
+                this.setDisableFields(false);
             }
 
             return;
         }
 
         this.activeDuplicateField = null;
-        this.disableFields = false;
+        this.setDisableFields(false);
         this.handleFieldChanges(data);
+    }
+
+
+    private setDisableFields(value: boolean): void {
+        if (this.disableFields === value) {
+            return;
+        }
+        this.disableFields = value;
+        this.validationService?.setDisableFields(value);
     }
 
 
@@ -775,20 +784,14 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
      * @returns A boolean indicating whether the component should be disabled.
      */
     public isConfigEditDisabled(sectionIndex: number, fieldIndex: number): boolean {
-
-        // If disableFields is true, disable all fields except the activeDuplicateField
-        if (this.disableFields) {
-            this.validationService.setDisableFields(true)
-            return !(
-                this.activeDuplicateField?.sectionIndex === sectionIndex &&
-                this.activeDuplicateField?.fieldIndex === fieldIndex
-            );
+        if (!this.disableFields) {
+            return false;
         }
-        this.validationService.setDisableFields(false)
-        this.updateHighlightState()
 
-        // If no active duplicate, all components are enabled
-        return false;
+        return !(
+            this.activeDuplicateField?.sectionIndex === sectionIndex &&
+            this.activeDuplicateField?.fieldIndex === fieldIndex
+        );
     }
 
 

@@ -205,7 +205,7 @@ export class SectionTemplateService<T = CmdbSectionTemplate | RenderResult> impl
     private withSectionTemplateType(params: SectionTemplateRequestParams): SectionTemplateRequestParams {
         return {
             ...params,
-            type: 'section'
+            type: params.type ?? 'section'
         };
     }
 }
