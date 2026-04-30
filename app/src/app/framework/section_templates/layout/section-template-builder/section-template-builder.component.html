@@ -85,11 +85,28 @@
                     <div class="card-body">
                         <cmdb-section-field-edit [data]="initialSection" [mode]="MODES.Edit"
                             #sectionComponent></cmdb-section-field-edit>
-                        <form [formGroup]="formGroup">
-                            <div class="mb-3 is-global" *ngIf="sectionTemplateID <= 0">
-                                <mat-checkbox formControlName="isGlobal" id="is-global-label">
+                        <form [formGroup]="formGroup" class="section-template-options" *ngIf="sectionTemplateID <= 0">
+                            <div class="section-template-option">
+                                <app-toggle
+                                    class="section-template-option-control"
+                                    [id]="'is-multi-data-section-label'"
+                                    [formControlName]="'isMultiDataSection'"
+                                    [ariaLabel]="'Multi Data Section'"
+                                />
+                                <span class="section-template-option-label">
+                                    Multi Data Section
+                                </span>
+                            </div>
+                            <div class="section-template-option is-global">
+                                <app-toggle
+                                    class="section-template-option-control"
+                                    [id]="'is-global-label'"
+                                    [formControlName]="'isGlobal'"
+                                    [ariaLabel]="'Global Template'"
+                                />
+                                <span class="section-template-option-label">
                                     Global Template
-                                  </mat-checkbox>                                  
+                                </span>
                             </div>
                         </form>
                         <hr>
