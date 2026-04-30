@@ -168,6 +168,7 @@ export class SectionTemplateBuilderComponent implements OnInit {
         let params = {
             "name": this.sectionComponent?.form?.controls['name']?.value,
             "label": this.initialSection?.label,
+            "type": "section",
             "is_global": this.formGroup?.value?.isGlobal,
             "predefined": false,
             "fields": JSON.stringify(this.initialSection?.fields)
