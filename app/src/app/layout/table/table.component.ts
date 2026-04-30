@@ -88,6 +88,7 @@ export class TableComponent<T> implements OnInit, OnDestroy {
     @Input('columns')
     public set Columns(columns: Array<Column>) {
         this.columns = columns;
+        this.buildColumnSearchForm();
     }
 
     // Column search form group
@@ -288,9 +289,7 @@ export class TableComponent<T> implements OnInit, OnDestroy {
             });
         }
 
-        this.columnSearchForm = new UntypedFormGroup(
-            Object.fromEntries(this.columns.map(c => [c.name, new UntypedFormControl('')]))
-          );
+        this.buildColumnSearchForm();
     }
 
 
@@ -324,6 +323,13 @@ export class TableComponent<T> implements OnInit, OnDestroy {
             this.columnVisibilityChange.asObservable(),
             this.sortChange.asObservable(),
             this.pageSizeChange.asObservable()
+        );
+    }
+
+
+    private buildColumnSearchForm(): void {
+        this.columnSearchForm = new UntypedFormGroup(
+            Object.fromEntries((this.columns || []).map(c => [c.name, new UntypedFormControl('')]))
         );
     }
 
