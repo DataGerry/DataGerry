@@ -112,6 +112,18 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
      * @param type - The type of the input field being changed.
      */
     onInputChange(event: any, type: string) {
+        if (type === 'name') {
+            if (this.isDuplicateSectionIdentifier(event)) {
+                this.setDuplicateIdentifierState(true);
+                this.validationService.setSectionHighlightState(true);
+                this.fieldChanges$.next({ isDuplicate: true, elementType: 'multi-data-section' });
+                return;
+            }
+
+            this.setDuplicateIdentifierState(false);
+            this.fieldChanges$.next({ isDuplicate: false, elementType: 'multi-data-section' });
+        }
+
         this.fieldChanges$.next({
             "newValue": event,
             "inputName": type,
@@ -129,6 +141,29 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
             this.isValid$ = true;
         });
         this.updateSectionValue(this.nameControl.value)
+    }
+
+
+    private isDuplicateSectionIdentifier(newValue: string): boolean {
+        if (!newValue || newValue === this.currentValue) {
+            return false;
+        }
+
+        return (this.sections ?? []).some(section => section !== this.data && section?.name === newValue);
+    }
+
+
+    private setDuplicateIdentifierState(isDuplicate: boolean): void {
+        this.isIdentifierValid = !isDuplicate;
+        const errors = { ...(this.nameControl.errors ?? {}) };
+
+        if (isDuplicate) {
+            this.nameControl.setErrors({ ...errors, duplicateIdentifier: true });
+            return;
+        }
+
+        delete errors.duplicateIdentifier;
+        this.nameControl.setErrors(Object.keys(errors).length ? errors : null);
     }
 
 
