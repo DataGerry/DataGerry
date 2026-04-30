@@ -28,6 +28,24 @@ export class SectionIdentifierService {
 
 
     /**
+     * Rebuilds the identifier registry from the current builder sections.
+     * This keeps generated or schema-locked sections reserved for duplicate checks.
+     */
+    public syncSections(sectionNames: string[]): void {
+        this.sections = {};
+
+        sectionNames.forEach((sectionName: string, index: number) => {
+            this.sections[`${index}:${sectionName}`] = {
+                newValue: sectionName,
+                index
+            };
+        });
+
+        this.checkGlobalValidity();
+    }
+
+
+    /**
      * Adds a new section at a specified index, adjusting subsequent sections' indices if necessary.
      * 
      * @param initialValue - The initial identifier of the section.

@@ -9,7 +9,7 @@ export interface BuilderInteractionPolicyContext {
     schemaLockedFieldNames: Array<string>;
 }
 
-const SYSTEM_SECTION_PREFIXES = ['dg_gst-', 'dg-'];
+const SYSTEM_SECTION_PREFIXES = ['dg_gst-'];
 
 /**
  * Builder interaction rules (single source of truth):
@@ -60,7 +60,7 @@ export class BuilderInteractionPolicy {
             return true;
         }
 
-        return !this.isSystemSection(section);
+        return !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
     }
 
     public canDropFieldsIntoSection(section: CmdbTypeSection): boolean {
@@ -98,7 +98,7 @@ export class BuilderInteractionPolicy {
 
     private isSystemSection(section: CmdbTypeSection): boolean {
         const sectionName = section?.name ?? '';
-        return SYSTEM_SECTION_PREFIXES.some(prefix => sectionName.includes(prefix));
+        return SYSTEM_SECTION_PREFIXES.some(prefix => sectionName.startsWith(prefix));
     }
 
     private context(): BuilderInteractionPolicyContext {

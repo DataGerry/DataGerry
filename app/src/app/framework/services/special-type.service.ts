@@ -37,6 +37,7 @@ export class SpecialTypeService implements ApiServicePrefix {
     };
 
     private schemaCache = new Map<SpecialType, Observable<SpecialTypeSchema>>();
+    private schemaSnapshotCache = new Map<SpecialType, SpecialTypeSchema>();
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -67,7 +68,11 @@ export class SpecialTypeService implements ApiServicePrefix {
             };
 
             const schema$ = this.api.callGet<SpecialTypeSchema>(`${this.servicePrefix}/schema`, options).pipe(
-                map((response: HttpResponse<SpecialTypeSchema>) => this.extractResponseBody<SpecialTypeSchema>(response.body)),
+                map((response: HttpResponse<SpecialTypeSchema>) => {
+                    const schema = this.extractResponseBody<SpecialTypeSchema>(response.body);
+                    this.schemaSnapshotCache.set(specialType, schema);
+                    return schema;
+                }),
                 shareReplay(1)
             );
 
@@ -75,6 +80,11 @@ export class SpecialTypeService implements ApiServicePrefix {
         }
 
         return this.schemaCache.get(specialType)!;
+    }
+
+
+    public getCachedSchema(specialType: SpecialType): SpecialTypeSchema | null {
+        return this.schemaSnapshotCache.get(specialType) ?? null;
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

@@ -20,15 +20,17 @@ import { Component, Input, OnDestroy, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { checkTypeExistsValidator, TypeService } from '../../../services/type.service';
 import { CmdbMode } from '../../../modes.enum';
-import { ReplaySubject } from 'rxjs';
+import { ReplaySubject, Subscription } from 'rxjs';
 import { TypeBuilderStepComponent } from '../type-builder-step.component';
-import { takeUntil } from 'rxjs/operators';
-import { take } from 'rxjs/operators';
+import { finalize, take, takeUntil } from 'rxjs/operators';
 import { CmdbType } from '../../../models/cmdb-type';
 import { alphanumericValidator } from './alphanumeric-validator';
 import { SpecialType, SpecialTypeOption, SpecialTypeSchema } from '../../../models/special-type';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ValidationService } from '../../services/validation.service';
+import { SpecialTypeSchemaContent, SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 
 
 /**
@@ -50,6 +52,8 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   private specialTypeSchemaFieldNames: Set<string> = new Set<string>();
   private specialTypeSchemaSectionNames: Set<string> = new Set<string>();
   private previouslySelectedSpecialType: SpecialType | null = null;
+  private latestSpecialTypeRequestId = 0;
+  private specialTypeSchemaRequest: Subscription | null = null;
 
 
   @Input('typeInstance')
@@ -74,7 +78,9 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   constructor(
     private typeService: TypeService,
     private specialTypeService: SpecialTypeService,
-    private toastService: ToastService
+    private toastService: ToastService,
+    private loaderService: LoaderService,
+    private validationService: ValidationService
   ) {
     super();
     this.form = new UntypedFormGroup({
@@ -111,6 +117,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
 
 
   public ngOnDestroy(): void {
+    this.specialTypeSchemaRequest?.unsubscribe();
     this.subscriber?.next();
     this.subscriber?.complete();
   }
@@ -181,34 +188,54 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   private handleSpecialTypeChange(specialType: SpecialType | null): void {
     const normalizedSpecialType = this.normalizeSpecialTypeValue(specialType);
 
-    if (normalizedSpecialType === this.previouslySelectedSpecialType) {
+    if (
+      normalizedSpecialType === this.previouslySelectedSpecialType
+      && this.isCurrentSpecialTypeSchemaApplied(normalizedSpecialType)
+    ) {
       return;
     }
 
     if (!normalizedSpecialType) {
+      this.latestSpecialTypeRequestId++;
+      this.specialTypeSchemaRequest?.unsubscribe();
+      this.loaderService.hide();
       this.removeSpecialTypeSchemaFromType();
       this.previouslySelectedSpecialType = null;
       return;
     }
 
-    this.specialTypeService.getSchema(normalizedSpecialType).pipe(take(1)).subscribe({
+    const requestId = ++this.latestSpecialTypeRequestId;
+    this.specialTypeSchemaRequest?.unsubscribe();
+
+    const cachedSchema = this.specialTypeService.getCachedSchema(normalizedSpecialType);
+    if (cachedSchema) {
+      if (!this.applySchemaIfValid(cachedSchema, normalizedSpecialType)) {
+        this.specialType.patchValue(this.previouslySelectedSpecialType, { emitEvent: false });
+      }
+
+      return;
+    }
+
+    this.loaderService.show();
+    this.specialTypeSchemaRequest = this.specialTypeService.getSchema(normalizedSpecialType).pipe(
+      take(1),
+      finalize(() => this.loaderService.hide())
+    ).subscribe({
       next: (schema: SpecialTypeSchema) => {
-        if (!schema || !Array.isArray(schema.sections) || !Array.isArray(schema.fields)) {
-          this.specialType.patchValue(this.previouslySelectedSpecialType, { emitEvent: false });
-          this.toastService.error('Received an invalid special type schema from backend.');
+        if (requestId !== this.latestSpecialTypeRequestId) {
           return;
         }
 
-        const applied = this.applySpecialTypeSchemaToType(schema);
-        if (!applied) {
+        if (!this.applySchemaIfValid(schema, normalizedSpecialType)) {
           this.specialType.patchValue(this.previouslySelectedSpecialType, { emitEvent: false });
           return;
         }
-
-        this.typeInstance.special_type = normalizedSpecialType;
-        this.previouslySelectedSpecialType = normalizedSpecialType;
       },
       error: (error) => {
+        if (requestId !== this.latestSpecialTypeRequestId) {
+          return;
+        }
+
         this.specialType.patchValue(this.previouslySelectedSpecialType, { emitEvent: false });
         this.toastService.error(error?.error?.message || 'Failed to load special type schema.');
       }
@@ -229,35 +256,59 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   }
 
 
-  private applySpecialTypeSchemaToType(schema: SpecialTypeSchema): boolean {
-    const customSections = this.typeInstance.render_meta.sections.filter(
-      (section) => !this.specialTypeSchemaSectionNames.has(section.name)
-    );
-    const customFields = this.typeInstance.fields.filter(
-      (field) => !this.specialTypeSchemaFieldNames.has(field.name)
-    );
+  private clearTypeContentBeforeSpecialSchemaPatch(): void {
+    this.typeInstance.render_meta.sections = [];
+    this.typeInstance.fields = [];
+    this.specialTypeSchemaSectionNames = new Set<string>();
+    this.specialTypeSchemaFieldNames = new Set<string>();
+  }
 
-    const incomingSectionNames = new Set<string>(schema.sections.map(section => section.name));
-    const incomingFieldNames = new Set<string>(schema.fields.map(field => field.name));
-    const conflictingSection = customSections.find(section => incomingSectionNames.has(section.name));
-    const conflictingField = customFields.find(field => incomingFieldNames.has(field.name));
 
-    if (conflictingSection || conflictingField) {
-      this.toastService.error('Cannot apply special type schema due to conflicting section or field identifiers.');
+  private applySpecialTypeSchemaToType(schemaContent: SpecialTypeSchemaContent): void {
+    this.typeInstance.fields = [...schemaContent.fields];
+    this.typeInstance.render_meta = {
+      ...this.typeInstance.render_meta,
+      sections: [...schemaContent.sections]
+    };
+
+    this.specialTypeSchemaSectionNames = schemaContent.sectionNames;
+    this.specialTypeSchemaFieldNames = schemaContent.fieldNames;
+  }
+
+
+  private setActiveSpecialType(specialType: SpecialType): void {
+    this.typeInstance.special_type = specialType;
+    this.previouslySelectedSpecialType = specialType;
+    this.validationService.setSectionHighlightState(false);
+    this.validationService.setFieldHighlightState(false);
+  }
+
+
+  private isCurrentSpecialTypeSchemaApplied(specialType: SpecialType | null): boolean {
+    if (!specialType) {
       return false;
     }
 
-    const schemaFields = schema.fields.map(field => ({ ...field }));
-    const schemaSections = schema.sections.map(section => ({
-      ...section,
-      fields: [...section.fields]
-    }));
+    const schema = this.specialTypeService.getCachedSchema(specialType);
+    if (!SpecialTypeSchemaMapper.isValidSchemaShape(schema) || !SpecialTypeSchemaMapper.validateSchema(schema).valid) {
+      return false;
+    }
 
-    this.typeInstance.fields = [...schemaFields, ...customFields];
-    this.typeInstance.render_meta.sections = [...schemaSections, ...customSections];
+    return SpecialTypeSchemaMapper.createTypeContentSignature(this.typeInstance) === SpecialTypeSchemaMapper.buildContent(schema).signature;
+  }
 
-    this.specialTypeSchemaSectionNames = incomingSectionNames;
-    this.specialTypeSchemaFieldNames = incomingFieldNames;
+
+  private applySchemaIfValid(schema: SpecialTypeSchema, specialType: SpecialType): boolean {
+    const validationResult = SpecialTypeSchemaMapper.validateSchema(schema);
+    if (!validationResult.valid) {
+      this.toastService.error(validationResult.message ?? 'Received an invalid special type schema from backend.');
+      return false;
+    }
+
+    const schemaContent = SpecialTypeSchemaMapper.buildContent(schema);
+    this.clearTypeContentBeforeSpecialSchemaPatch();
+    this.applySpecialTypeSchemaToType(schemaContent);
+    this.setActiveSpecialType(specialType);
     return true;
   }
 

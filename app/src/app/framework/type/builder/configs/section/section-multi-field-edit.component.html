@@ -8,7 +8,7 @@
                     type="text"
                     class="form-control"
                     name-guideline
-                    [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
+                    [ngClass]="{ 'is-valid': isIdentifierValid && nameControl.valid && (nameControl.dirty || nameControl.touched),
                      'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || !isIdentifierValid}"
                 />
                 <div class="input-group-append">
@@ -19,7 +19,10 @@
                 </div>
             </div>
             <small class="form-text text-muted text-start">Use a unique identifier</small>
-            <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
+            <div *ngIf="!isIdentifierValid || (nameControl.invalid && (nameControl.dirty || nameControl.touched))" class="invalid-feedback">
+                <div class="text-end" *ngIf="!isIdentifierValid">
+                    Identifier must be unique
+                </div>
                 <div class="text-end" *ngIf="nameControl.errors?.required">
                     Identifier is a required field
                 </div>

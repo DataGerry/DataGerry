@@ -17,8 +17,8 @@
 */
 import { Component, DoCheck, Input, KeyValueDiffer, KeyValueDiffers, OnDestroy, OnInit } from '@angular/core';
 
-import { ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { ReplaySubject, Subscription } from 'rxjs';
+import { take, takeUntil } from 'rxjs/operators';
 
 import { SectionTemplateService } from 'src/app/framework/section_templates/services/section-template.service';
 
@@ -29,7 +29,8 @@ import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-templ
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { SpecialTypeService } from '../../../services/special-type.service';
-import { SpecialType } from '../../../models/special-type';
+import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
+import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -49,6 +50,8 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
   public lockedSectionNames: Array<string> = [];
   public lockedFieldNames: Array<string> = [];
   private activeSpecialTypeForLocks: SpecialType | null = null;
+  private failedSpecialTypeForLocks: SpecialType | null = null;
+  private specialTypeSchemaRequest: Subscription | null = null;
 
   public builderValid: boolean = true;
 
@@ -88,8 +91,11 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 
     public ngOnDestroy(): void {
+        this.specialTypeSchemaRequest?.unsubscribe();
         this.subscriber?.next();
         this.subscriber?.complete();
+        this.unsubscribe?.next();
+        this.unsubscribe?.complete();
     }
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */
@@ -121,42 +127,93 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
   }
 
   private syncSpecialTypeLockState(): void {
-    if (this.mode !== CmdbMode.Create) {
-      const hasStateToReset = this.activeSpecialTypeForLocks !== null
-        || this.lockedSectionNames.length > 0
-        || this.lockedFieldNames.length > 0;
-
-      if (hasStateToReset) {
-        this.activeSpecialTypeForLocks = null;
-        this.lockedSectionNames = [];
-        this.lockedFieldNames = [];
-      }
+    const selectedSpecialType = this.normalizeSpecialTypeValue(this.typeInstance?.special_type);
+    if (
+      selectedSpecialType === this.activeSpecialTypeForLocks
+      && (this.lockedSectionNames.length > 0 || this.lockedFieldNames.length > 0)
+    ) {
       return;
     }
 
-    const selectedSpecialType = this.normalizeSpecialTypeValue(this.typeInstance?.special_type);
-    if (selectedSpecialType === this.activeSpecialTypeForLocks) {
+    if (
+      selectedSpecialType === this.activeSpecialTypeForLocks
+      && this.specialTypeSchemaRequest
+    ) {
       return;
     }
 
     if (!selectedSpecialType) {
-      this.activeSpecialTypeForLocks = null;
-      this.lockedSectionNames = [];
-      this.lockedFieldNames = [];
+      this.resetSpecialTypeLocks();
       return;
     }
 
+    if (selectedSpecialType === this.failedSpecialTypeForLocks) {
+      return;
+    }
+
+    if (selectedSpecialType !== this.activeSpecialTypeForLocks) {
+      this.failedSpecialTypeForLocks = null;
+    }
+
     this.activeSpecialTypeForLocks = selectedSpecialType;
-    this.specialTypeService.getSchema(selectedSpecialType).pipe(takeUntil(this.unsubscribe)).subscribe({
-      next: (schema) => {
-        this.lockedSectionNames = schema.sections.map(section => section.name);
-        this.lockedFieldNames = schema.fields.map(field => field.name);
+    const cachedSchema = this.specialTypeService.getCachedSchema(selectedSpecialType);
+    if (cachedSchema) {
+      this.applySpecialTypeLocks(cachedSchema);
+      return;
+    }
+
+    this.lockedSectionNames = [];
+    this.lockedFieldNames = [];
+    this.specialTypeSchemaRequest?.unsubscribe();
+    this.specialTypeSchemaRequest = this.specialTypeService.getSchema(selectedSpecialType).pipe(
+      take(1),
+      takeUntil(this.subscriber)
+    ).subscribe({
+      next: (schema: SpecialTypeSchema) => {
+        this.specialTypeSchemaRequest = null;
+        if (selectedSpecialType !== this.activeSpecialTypeForLocks) {
+          return;
+        }
+
+        this.applySpecialTypeLocks(schema);
       },
-      error: () => {
-        this.lockedSectionNames = [];
-        this.lockedFieldNames = [];
+      error: (error) => {
+        this.specialTypeSchemaRequest = null;
+        if (selectedSpecialType !== this.activeSpecialTypeForLocks) {
+          return;
+        }
+
+        this.resetSpecialTypeLocks();
+        this.failedSpecialTypeForLocks = selectedSpecialType;
+        this.toastService.error(error?.error?.message || 'Failed to load special type schema.');
       }
     });
+  }
+
+
+  private applySpecialTypeLocks(schema: SpecialTypeSchema): void {
+    const validationResult = SpecialTypeSchemaMapper.validateSchema(schema);
+    if (!validationResult.valid) {
+      this.lockedSectionNames = [];
+      this.lockedFieldNames = [];
+      this.failedSpecialTypeForLocks = this.activeSpecialTypeForLocks;
+      this.toastService.error(validationResult.message ?? 'Received an invalid special type schema from backend.');
+      return;
+    }
+
+    this.failedSpecialTypeForLocks = null;
+    this.lockedSectionNames = schema.sections.map(section => section.name);
+    this.lockedFieldNames = schema.fields.map(field => field.name);
+  }
+
+
+  private resetSpecialTypeLocks(): void {
+    this.specialTypeSchemaRequest?.unsubscribe();
+    this.specialTypeSchemaRequest = null;
+    this.activeSpecialTypeForLocks = null;
+    this.failedSpecialTypeForLocks = null;
+    this.lockedSectionNames = [];
+    this.lockedFieldNames = [];
   }
 
   private normalizeSpecialTypeValue(value: string | SpecialType | null | undefined): SpecialType | null {
