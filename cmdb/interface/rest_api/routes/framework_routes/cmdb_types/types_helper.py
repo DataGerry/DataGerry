@@ -102,15 +102,13 @@ def handle_special_types(
             types_manager.update_type(subnet_type['public_id'], subnet_type)
 
     elif special_type == SpecialType.SUBNET: # SUBNET handling
-        # TODO: new method to get one by filter or section template manager ?
         interface_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': 'dg-ipam-interface'})
 
         if interface_template:
             tpl_updated: bool = ensure_ref_type(interface_template['fields'], 'dg-interface-subnet', special_type_id)
 
             if tpl_updated:
-                section_templates_manager.update({"public_id": interface_template["public_id"]}, interface_template)
-
+                section_templates_manager.update_section_template(interface_template["public_id"], interface_template)
 
 
         vlan_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.VLAN})

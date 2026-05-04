@@ -26,7 +26,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import TypesManager, ObjectsManager, UsersManager
+from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
@@ -354,6 +354,26 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
         updated_type: CmdbType = types_manager.get_type(public_id, as_dict=False)
+
+
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
+
+        old_templates = set(old_type.global_template_ids or [])
+        new_templates = set(updated_type.global_template_ids or [])
+
+        removed_templates = old_templates - new_templates
+
+        for template_name in removed_templates:
+            section_templates_manager.cleanup_global_section_from_type(
+                updated_type.public_id,
+                template_name
+            )
+
+        if not updated_type:
+            abort(404, f"The updated Type with ID:{public_id} was not found!")
 
         # When CmdbType is updated, update relevant data in all CmdbLocations of this CmdbType
         apply_type_changes_to_locations(request_user, old_type, updated_type)

@@ -45,7 +45,7 @@ def get_subnet_schema(supernet_id: int | None) -> dict[str, Any]:
             },
             {
                 'type': SectionType.SECTION,
-                'name': 'dg_network_details',
+                'name': 'dg-network-details',
                 'label': 'Network Details',
                 'fields': [
                     'dg-supernet-ref',
