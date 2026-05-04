@@ -37,11 +37,12 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 
-from cmdb.errors.manager import BaseManagerUpdateError, BaseManagerDeleteError
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
     SectionTemplatesManagerIterationError,
     SectionTemplatesManagerGetError,
+    SectionTemplatesManagerUpdateError,
+    SectionTemplatesManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -194,10 +195,17 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
             ManagerType.SECTION_TEMPLATES,
             request_user
         )
+
         instance: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
+
+        if not instance:
+            abort(404, f"Target SectionTemplate with ID:{public_id} not found")
+
         counts: dict = section_templates_manager.get_global_template_usage_count(instance.name, instance.is_global)
 
         return DefaultResponse(counts).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[get_global_section_template_count] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve global SectionTemplate count for ID: {public_id}!")
@@ -228,6 +236,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             ManagerType.SECTION_TEMPLATES,
             request_user
         )
+
         params['public_id'] = int(params['public_id'])
         params['predefined'] = params['predefined'] in ('true', 'True')
         params['is_global'] = params['is_global'] in ('true', 'True')
@@ -239,20 +248,21 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             abort(404, "Target section template not found!")
 
         if current_template.predefined != params['predefined']:
-            abort(400, "The 'predefined' property of a template is not changable!")
+            abort(400, "The 'predefined' property of a Section Template is not changable!")
 
+        if current_template.type != params['type']:
+            abort(400, "The 'type' of a Section Template is not changable!")
 
-        result = section_templates_manager.update({"public_id": params["public_id"]}, params)
+        section_templates_manager.update_section_template(params["public_id"], params)
 
         # Apply changes to all types and objects using the template
         section_templates_manager.handle_section_template_changes(params, current_template)
 
-        return UpdateSingleResponse(result.acknowledged).make_response()
+        return UpdateSingleResponse(True).make_response()
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
         abort(500, f"Failed to retrieve SectionTemplate with ID: {params['public_id']}!")
-    except BaseManagerUpdateError as err:
-        #TODO: ERROR-FIX
+    except SectionTemplatesManagerUpdateError as err:
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
         abort(500, f"Failed to update SectionTemplate with ID: {params['public_id']}!")
     except Exception as err:
@@ -295,18 +305,16 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
             abort(400, "A predefined SectionTemplate is not deletable!")
 
         if template_instance.is_global:
-            section_templates_manager.cleanup_global_section_templates(template_instance.name)
+            section_templates_manager.cleanup_global_section_templates(template_instance.name, True)
 
-        #TODO: REFACTOR-FIX
-        ack: bool = section_templates_manager.delete({'public_id':public_id})
-
+        ack: bool = section_templates_manager.delete_section_template(public_id)
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:
         raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.debug("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
-    except BaseManagerDeleteError as err:
+    except SectionTemplatesManagerDeleteError as err:
         LOGGER.debug("[delete_section_template] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to delete SectionTemplate with public_id: {public_id}!")
     except Exception as err:

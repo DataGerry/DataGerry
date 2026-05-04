@@ -19,7 +19,8 @@ This module contains the implementation of the SectionTemplatesManager
 from logging import Logger, getLogger
 from typing import Any
 
-from deepdiff import DeepDiff
+from pymongo import UpdateOne
+# from deepdiff import DeepDiff
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -28,7 +29,7 @@ from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.base_manager import BaseManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import CmdbType, TypeFieldSection
+from cmdb.models.type_model import CmdbType, TypeFieldSection, TypeMultiDataSection, SectionType
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.results import IterationResult
@@ -38,6 +39,8 @@ from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
     SectionTemplatesManagerIterationError,
     SectionTemplatesManagerGetError,
+    SectionTemplatesManagerUpdateError,
+    SectionTemplatesManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -162,116 +165,145 @@ class SectionTemplatesManager(BaseManager):
         if not is_global:
             return counts
 
-        type_filter: dict = {
-            "global_template_ids":template_name
-        }
-
-        found_types: list[CmdbType] = self.types_manager.find_types(type_filter)
+        found_types: list[CmdbType] = self.types_manager.find_types({"global_template_ids":template_name})
 
         if len(found_types) == 0:
             return counts
 
         counts['types'] = len(found_types)
-        objects_count: int = 0
 
-        a_type: CmdbType
-        for a_type in found_types:
-            objects: list[CmdbObject] = self.objects_manager.get_objects_by(type_id=a_type.public_id)
-            objects_count += len(objects)
+        type_ids: list[int] = [a_type.public_id for a_type in found_types]
+        matching_objects: list[dict[str, Any]] = self.objects_manager.find(criteria={"type_id": {"$in": type_ids}})
 
-        counts['objects'] = objects_count
+        counts['objects'] = len(matching_objects)
 
         return counts
+
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
+    def update_section_template(
+        self,
+        public_id: int,
+        updated_section_template: CmdbSectionTemplate | dict[str, Any]
+    ) -> None:
+        """TODO: document"""
+        try:
+            if isinstance(updated_section_template, CmdbSectionTemplate):
+                updated_section_template: dict[str, Any] = CmdbSectionTemplate.to_json(updated_section_template)
+
+            self.update(criteria={'public_id': public_id}, data=updated_section_template)
+        except Exception as err:
+            LOGGER.error("[update_section_template] Exception: %s. Type: %s", err, type(err))
+            raise SectionTemplatesManagerUpdateError(str(err)) from err
+
+# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
+
+    def delete_section_template(self, public_id: int) -> bool:
+        """TODO: document"""
+        try:
+            return self.delete({'public_id': public_id})
+        except Exception as err:
+            LOGGER.error("[delete_section_template] Exception: %s. Type: %s", err, type(err))
+            raise SectionTemplatesManagerDeleteError(str(err)) from err
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   HELPER FUNCTIONS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def handle_section_template_changes(self, new_params: dict, current_template: CmdbSectionTemplate) -> None:
+    def handle_section_template_changes(
+        self,
+        new_params: dict[str, Any],
+        current_template: CmdbSectionTemplate
+    ) -> None:
         """
         Handles changes to global section templates and updates all used instances
         
         Args:
-            params (dict): The new values for the section template
+            params (dict[str, Any]): The new values for the section template
         """
-        updated_field_names: list[str] = []
-
-        for new_field in new_params['fields']:
-            updated_field_names.append(new_field['name'])
+        # Only affects global section templates
+        if not current_template.is_global:
+            return
 
         new_section_label: str = self.get_section_label_diff(new_params, CmdbSectionTemplate.to_json(current_template))
-        field_diffs = self.get_fields_diff(new_params, CmdbSectionTemplate.to_json(current_template))
+        field_diffs: dict[str, Any] = self.get_fields_diff(new_params, CmdbSectionTemplate.to_json(current_template))
 
         types_to_change: list[CmdbType] = self.get_types_using_template(new_params['name'])
 
         for a_type in types_to_change:
+            to_change_global_section: TypeFieldSection | TypeMultiDataSection = a_type.get_section(new_params['name'])
 
-            to_change_global_section: TypeFieldSection = a_type.get_section(new_params['name'])
+            if not to_change_global_section:
+                continue
 
-            # Change label if it was changed
-            if len(new_section_label) > 0:
+            if new_section_label:
                 to_change_global_section.label = new_section_label
 
+            deleted: set[str] = set(field_diffs['deleted'])
             # Remove deleted fields from type summary
-            a_type.render_meta.summary.fields = [field_name for field_name in a_type.render_meta.summary.fields
-                                                  if field_name not in field_diffs['deleted']]
+            a_type.render_meta.summary.fields = [
+                field_name
+                for field_name in a_type.render_meta.summary.fields
+                if field_name not in deleted
+            ]
 
             # Replace the old section fields with new section fields
-            to_change_global_section.fields = []
-
-            for a_field in new_params['fields']:
-                to_change_global_section.fields.append(a_field['name'])
+            to_change_global_section.fields = [
+                f['name'] for f in new_params['fields']
+            ]
 
             # Update the section on the type
-            for i, a_section in enumerate(a_type.render_meta.sections):
+            sections = a_type.render_meta.sections
 
-                if a_section.name == to_change_global_section.name:
-                    a_type.render_meta.sections[i] = to_change_global_section
+            for i, section in enumerate(sections):
+                if section.name == to_change_global_section.name:
+                    sections[i] = to_change_global_section
                     break
 
-            # Remove deleted fields from type fields since they are not in the new fields
-            a_type.fields = [field for field in a_type.fields if field['name'] not in field_diffs['deleted']]
+            section_fields: set[str] = {f['name'] for f in new_params['fields']}
 
-            # Remove also the other section fields and add all as new fields
-            a_type.fields = [field for field in a_type.fields if field['name'] not in updated_field_names]
+            a_type.fields = [
+                f for f in a_type.fields
+                if f['name'] not in deleted and f['name'] not in section_fields
+            ]
 
-            for new_field in new_params['fields']:
-                a_type.fields.append(new_field)
+            a_type.fields.extend(new_params['fields'])
 
             # Delete all deleted fields from objects
-            self.cleanup_global_section_objects(a_type.public_id, field_diffs['deleted'])
+            self.cleanup_global_section_objects(
+                a_type.public_id,
+                field_diffs['deleted'],
+                current_template.type,
+                current_template.name
+            )
 
-            # Add all new created fields to objects
-            new_field_names: list[str] = []
 
-            for new_field in field_diffs['added']:
-                new_field_names.append(new_field['name'])
+            self.set_new_global_template_fields(
+                a_type.public_id,
+                field_diffs['added'],
+                current_template.type,
+                current_template.name
+            )
 
-            self.set_new_global_template_fields(a_type.public_id, new_field_names)
-
-            #Update the type changes for the type
+            # Update the type changes for the type
             self.types_manager.update_type(a_type.public_id, a_type)
 
 
-    def get_section_label_diff(self, new_params: dict, current_params: dict) -> str:
+    def get_section_label_diff(self, new_params: dict[str, Any], current_params: dict[str, Any]) -> str:
         """
         Checks if the label of the global section template got changed
         
         Args:
-            new_params (dict): Changes to current global section template
-            current_params (dict): Current version of the global section template
+            new_params (dict[str, Any]): Changes to current global section template
+            current_params (dict[str, Any]): Current version of the global section template
 
         Returns:
             str: The new label if it is changed else empty string
         """
-        diff: str = ""
-        if new_params['label'] != current_params['label']:
-            diff = new_params['label']
-
-        return diff
+        return new_params['label'] if new_params['label'] != current_params['label'] else ""
 
 
-    def get_fields_diff(self, new_params: dict, current_params: dict) -> dict:
+    def get_fields_diff(self, new_params: dict, current_params: dict) -> dict[str, Any]:
         """
         Checks all fields of the template for differences
 
@@ -280,58 +312,32 @@ class SectionTemplatesManager(BaseManager):
             current_params (dict): The current version of the template
 
         Returns:
-            dict: All added, deleted and changed fields
+            dict[str, Any]: All added, deleted and changed fields
         """
-        deleted_fields: list[str] = []
-        added_fields: list = []
-        changed_fields: list = []
+        new_fields = {f['name']: f for f in new_params['fields']}
+        old_fields = {f['name']: f for f in current_params['fields']}
 
-        processed_field_names: list[str] = []
-        # Check for deleted fields
-        for old_field in current_params['fields']:
-            found: bool = False
+        new_names = set(new_fields.keys())
+        old_names = set(old_fields.keys())
 
-            for new_field in new_params['fields']:
+        # Added & deleted
+        added_names = new_names - old_names
+        deleted_names = old_names - new_names
+        # common_names = new_names & old_names
 
-                if old_field['name'] == new_field['name']:
-                    found = True
-                    break
+        added_fields = [new_fields[name] for name in added_names]
+        deleted_fields = list(deleted_names)
 
-            # The old field is not found in new params, so it has to be deleted
-            if not found:
-                processed_field_names.append(old_field['name'])
-                deleted_fields.append(old_field['name'])
-
-
-        # Check for added fields
-        for new_field in new_params['fields']:
-            found: bool = False
-
-            for old_field in current_params['fields']:
-
-                if old_field['name'] == new_field['name']:
-                    found = True
-                    break
-
-            if not found:
-                processed_field_names.append(new_field['name'])
-                added_fields.append(new_field)
-
-        # Check remaining fields if there are any changes
-        remaining_fields: list = [field for field in new_params['fields'] if field['name'] not in processed_field_names]
-
-        for remaining_field in remaining_fields:
-            for old_field in current_params['fields']:
-                # Find the changes
-                if remaining_field['name'] == old_field['name']:
-                    difference = DeepDiff(old_field, remaining_field)
-                    if len(difference) > 0:
-                        changed_fields.append(remaining_field)
+        # Changed
+        # changed_fields = []
+        # for name in common_names:
+        #     if DeepDiff(old_fields[name], new_fields[name]):
+        #         changed_fields.append(new_fields[name])
 
         return {
             'added': added_fields,
             'deleted': deleted_fields,
-            'changed': changed_fields
+            # 'changed': changed_fields
         }
 
 
@@ -345,14 +351,17 @@ class SectionTemplatesManager(BaseManager):
         Returns:
             list[CmdbType]: All types using the given global template
         """
-        type_filter: dict = {
-            "global_template_ids":template_name
-        }
-
-        return self.types_manager.find_types(type_filter)
+        return self.types_manager.find_types({"global_template_ids": template_name})
 
 
-    def cleanup_global_section_objects(self, type_id: int, section_field_names: list[str]) -> None:
+    def cleanup_global_section_objects(
+        self,
+        type_id: int,
+        section_field_names: list[str],
+        section_type: str,
+        section_mame: str,
+        delete_mode: bool = False
+    ) -> None:
         """
         Retrives all objects with the given type_id and deletes all fields provided
 
@@ -360,39 +369,193 @@ class SectionTemplatesManager(BaseManager):
             type_id (int): ID of the type for which the objects should be cleaned
             section_field_names (list[str]): list of all fields which should be deleted 
         """
-        section_objects: list = self.objects_manager.get_objects_by(type_id=type_id)
+        self.cleanup_section_fields(type_id, section_field_names)
 
-        # remove section fields and update the objects
-        an_object: CmdbObject
-        for an_object in section_objects:
-            an_object.fields = [field for field in an_object.fields if field['name'] not in section_field_names]
+        if section_type == SectionType.MDS_SECTION:
+            if delete_mode:
+                self.delete_mds_section_from_objects(type_id, section_mame)
+            else:
+                self.cleanup_mds_fields(type_id, section_field_names, section_mame)
 
-            self.objects_manager.update_object(an_object.public_id, an_object)
 
-
-    def set_new_global_template_fields(self, type_id: int, new_field_names: list[str]) -> None:
+    def delete_mds_section_from_objects(
+        self,
+        type_id: int,
+        section_name: str
+    ) -> None:
         """
-        Sets all new fields on every object
+        Removes an entire multi-data-section from all objects of a given type.
+
+        This deletes the full section container including all values and data entries.
 
         Args:
             type_id (int): ID of the CmdbType
-            new_field_names (list[str]): List of names of new fields
+            section_name (str): Name of the multi-data-section to remove
         """
-        section_objects: list = self.objects_manager.get_objects_by(type_id=type_id)
+        criteria: dict = {
+            "type_id": type_id
+        }
 
-        an_object: CmdbObject
-        for an_object in section_objects:
+        update: dict = {
+            "multi_data_sections": {
+                "section_id": section_name
+            }
+        }
 
-            for a_field_name in new_field_names:
-                an_object.fields.append({
-                    'name': a_field_name,
-                    'value': None
-                })
-
-            self.objects_manager.update_object(an_object.public_id, an_object)
+        self.objects_manager.update_many_pull(criteria, update)
 
 
-    def cleanup_global_section_templates(self, template_name: str) -> None:
+
+    def cleanup_section_fields(self, type_id: int, section_field_names: list[str]) -> None:
+        """TODO: document"""
+        if not section_field_names:
+            return
+
+        self.objects_manager.update_many_pull(
+            {"type_id": type_id},
+            {
+                "fields": {
+                    "name": {"$in": section_field_names}
+                }
+            }
+        )
+
+
+    def cleanup_mds_fields(self, type_id: int, section_field_names: list[str], section_name: str) -> None:
+        """TODO: document"""
+        field_names_set = set(section_field_names)
+
+        # Fetch only relevant objects
+        objects: list[CmdbObject] = self.objects_manager.get_objects_by(
+            type_id=type_id,
+            **{
+                "multi_data_sections.section_id": section_name
+            }
+        )
+
+        bulk_ops = []
+
+        # TODO: continue here
+        for obj in objects:
+            updated = False
+
+            for mds in obj.multi_data_sections:
+                if mds['section_id'] != section_name:
+                    continue
+
+                for entry in mds.get('values', []):
+                    original_len = len(entry['data'])
+
+                    entry['data'] = [
+                        field for field in entry['data']
+                        if field['name'] not in field_names_set
+                    ]
+
+                    if len(entry['data']) != original_len:
+                        updated = True
+
+            if updated:
+                bulk_ops.append(
+                    UpdateOne(
+                        {"public_id": obj.public_id},
+                        {"$set": {"multi_data_sections": obj.multi_data_sections}}
+                    )
+                )
+
+        if bulk_ops:
+            self.objects_manager.bulk_write(bulk_ops)
+
+
+    def set_new_global_template_fields(
+        self,
+        type_id: int,
+        new_fields: list[dict],
+        section_type: str,
+        section_name: str
+    ) -> None:
+        """TODO: document"""
+        if not new_fields:
+            return
+
+        if new_fields and not isinstance(new_fields[0], dict):
+            raise ValueError("new_fields must be list[dict]")
+
+        # ---- 1. HANDLE FLAT FIELDS SAFELY ----
+        objects = self.objects_manager.get_objects_by(type_id=type_id)
+
+        bulk_ops = []
+
+        for obj in objects:
+            existing_names = {f["name"] for f in obj.fields}
+
+            fields_to_add = [
+                {
+                    "name": f["name"],
+                    "type": f["type"],
+                    "value": f.get("default", None)
+                }
+                for f in new_fields
+                if f["name"] not in existing_names
+            ]
+
+            if fields_to_add:
+                obj.fields.extend(fields_to_add)
+
+                bulk_ops.append(
+                    UpdateOne(
+                        {"public_id": obj.public_id},
+                        {"$set": {"fields": obj.fields}}
+                    )
+                )
+
+        if bulk_ops:
+            self.objects_manager.bulk_write(bulk_ops)
+
+        # ---- 2. HANDLE MDS ----
+        if section_type != SectionType.MDS_SECTION:
+            return
+
+        objects = self.objects_manager.get_objects_by(
+            type_id=type_id,
+            multi_data_sections={
+                "$elemMatch": {"section_id": section_name}
+            }
+        )
+
+        bulk_ops = []
+
+        for obj in objects:
+            updated = False
+
+            for mds in obj.multi_data_sections:
+                if mds["section_id"] != section_name:
+                    continue
+
+                for entry in mds.get("values", []):
+                    existing_names = {f["name"] for f in entry["data"]}
+
+                    for f in new_fields:
+                        if f["name"] not in existing_names:
+                            entry["data"].append({
+                                "name": f["name"],
+                                "type": f["type"],
+                                "value": f.get("default", None)
+                            })
+                            updated = True
+
+            if updated:
+                bulk_ops.append(
+                    UpdateOne(
+                        {"public_id": obj.public_id},
+                        {"$set": {"multi_data_sections": obj.multi_data_sections}}
+                    )
+                )
+
+        if bulk_ops:
+            self.objects_manager.bulk_write(bulk_ops)
+
+
+    def cleanup_global_section_templates(self, template_name: str, delete_mode: bool = False) -> None:
         """
         Removes the global section template from types, summaries and objects
 
@@ -401,28 +564,146 @@ class SectionTemplatesManager(BaseManager):
         """
         found_types: list[CmdbType] = self.get_types_using_template(template_name)
 
-        a_type: CmdbType
         for a_type in found_types:
-            #remove the template_name from the type
-            a_type.global_template_ids.remove(template_name)
+            if template_name in a_type.global_template_ids:
+                a_type.global_template_ids.remove(template_name)
 
-            #remove the section from render_meta.sections
-            type_template_section: TypeFieldSection = a_type.get_section(template_name)
+            type_template_section: TypeFieldSection | TypeMultiDataSection | None = a_type.get_section(template_name)
+            if not type_template_section:
+                continue
 
-            a_type.render_meta.sections = [section for section in a_type.render_meta.sections
-                                           if section.name != type_template_section.name]
+            template_field_names = set(type_template_section.get_fields())
 
-            #remove the fields in render_meta.sections.fields from type.fields
-            template_section_field_names: list[str] = type_template_section.get_fields()
+            # remove from type fields
+            a_type.fields = [
+                field for field in a_type.fields
+                if field['name'] not in template_field_names
+            ]
 
-            a_type.fields = [field for field in a_type.fields if field['name'] not in template_section_field_names]
+            # remove from summary
+            a_type.render_meta.summary.fields = [
+                field_name for field_name in a_type.render_meta.summary.fields
+                if field_name not in template_field_names
+            ]
 
-            #remove all fields from summary
-            a_type.render_meta.summary.fields = [field_name for field_name in a_type.render_meta.summary.fields
-                                                  if field_name not in template_section_field_names]
+            # remove section
+            a_type.render_meta.sections = [
+                section for section in a_type.render_meta.sections
+                if section.name != template_name
+            ]
 
-            #remove the fields from all objects which used this global section template
-            self.cleanup_global_section_objects(a_type.public_id, template_section_field_names)
+            # remove from objects (flat + mds)
+            self.cleanup_global_section_objects(
+                a_type.public_id,
+                list(template_field_names),
+                type_template_section.type,
+                template_name,
+                delete_mode
+            )
 
-            #Update the type changes for the type
             self.types_manager.update_type(a_type.public_id, a_type)
+
+
+    def cleanup_global_section_from_type(
+        self,
+        type_id: int,
+        template_name: str
+    ) -> None:
+        """
+        Removes a global section template from a specific type and cleans up
+        all related fields and object data.
+
+        Args:
+            type_id (int): ID of the type
+            template_name (str): Name of the global section template
+        """
+        # --- 1. Load type ---
+        a_type: CmdbType = self.types_manager.get_type(type_id, as_dict=False)
+
+        if not a_type:
+            return
+
+        # --- 2. Get section ---
+        type_template_section: TypeFieldSection | TypeMultiDataSection = a_type.get_section(template_name)
+
+        if not type_template_section:
+            return
+
+        # --- 3. Collect field names ---
+        template_field_names: list[str] = type_template_section.get_fields()
+
+        # --- 4. Clean type schema ---
+
+        # remove from global_template_ids (safe)
+        a_type.global_template_ids = [
+            tid for tid in (a_type.global_template_ids or [])
+            if tid != template_name
+        ]
+
+        # remove fields from type.fields
+        a_type.fields = [
+            field for field in a_type.fields
+            if field['name'] not in template_field_names
+        ]
+
+        # remove from summary
+        a_type.render_meta.summary.fields = [
+            field_name for field_name in a_type.render_meta.summary.fields
+            if field_name not in template_field_names
+        ]
+
+        # remove section from render_meta.sections
+        a_type.render_meta.sections = [
+            section for section in a_type.render_meta.sections
+            if section.name != template_name
+        ]
+
+        a_type.global_template_ids = [
+            tid for tid in (a_type.global_template_ids or [])
+            if tid != template_name
+        ]
+
+        # --- 5. Persist updated type ---
+        self.types_manager.update_type(a_type.public_id, a_type)
+
+        # --- 6. Clean objects (flat + MDS) ---
+        self.delete_global_section_from_objects(
+            a_type.public_id,
+            template_field_names,
+            type_template_section.type,
+            template_name
+        )
+
+
+    def delete_global_section_from_objects(
+        self,
+        type_id: int,
+        section_field_names: list[str],
+        section_type: str,
+        section_name: str
+    ) -> None:
+        """
+        Removes all fields of a global section template from objects of a given type.
+        If the section is a multi-data-section, the entire MDS container is removed.
+
+        Args:
+            type_id (int): ID of the type
+            section_field_names (list[str]): Field names belonging to the section
+            section_type (str): Type of the section ('section' or 'multi-data-section')
+            section_name (str): Name of the section (used for MDS removal)
+        """
+
+        # --- 1. Remove flat fields from objects ---
+        if section_field_names:
+            self.objects_manager.update_many_pull(
+                criteria={"type_id": type_id},
+                update={
+                    "fields": {
+                        "name": {"$in": section_field_names}
+                    }
+                }
+            )
+
+        # --- 2. Remove MDS section completely (if applicable) ---
+        if section_type == SectionType.MDS_SECTION:
+            self.delete_mds_section_from_objects(type_id, section_name)

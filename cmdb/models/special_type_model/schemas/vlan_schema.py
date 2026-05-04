@@ -37,12 +37,12 @@ def get_vlan_schema(subnet_id: int | None) -> dict[str, Any]:
                 'name': 'dg-information',
                 'label': 'Information',
                 'fields': [
-                    'dg_name'
+                    'dg-name'
                 ]
             },
             {
                 'type': SectionType.SECTION,
-                'name': 'dg-vlan_details',
+                'name': 'dg-vlan-details',
                 'label': 'Vlan Details',
                 'fields': [
                     'dg-subnet-ref',
