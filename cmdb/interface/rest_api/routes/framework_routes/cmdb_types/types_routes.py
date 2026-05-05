@@ -30,6 +30,7 @@ from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemp
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -44,6 +45,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     verify_type_deletable,
     type_deletion_followup,
     special_type_is_unchanged,
+    get_objects_using_location_field,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
@@ -316,6 +318,57 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         LOGGER.error("[count_objects_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
 
+
+@types_blueprint.route('/<int:public_id>/location_field_usage', methods=['GET'])
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@insert_request_user
+@types_blueprint.protect(auth=True, right='base.framework.type.view')
+def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns the public_ids of CmdbObjects that have a value (integer > 0) in the
+    location-typed field of the given CmdbType
+
+    The frontend uses this to decide whether the location field can be removed
+    from the CmdbType. The same check is enforced server-side on update
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType | None = types_manager.get_type(public_id, as_dict=False)
+
+        if not target_type:
+            abort(404, f"The Type with ID:{public_id} was not found!")
+
+        object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
+
+        return DefaultResponse({
+            'in_use': bool(object_public_ids),
+            'count': len(object_public_ids),
+            'object_public_ids': object_public_ids,
+        }).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[get_location_field_usage_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine location-field usage for Type with ID: {public_id}!")
+    except TypesManagerGetError as err:
+        LOGGER.error("[get_location_field_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
+    except Exception as err:
+        LOGGER.error(
+            "[get_location_field_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True
+        )
+        abort(
+            500,
+            f"An internal server error occured while determining location-field usage for Type with ID: {public_id}!"
+        )
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @types_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
@@ -349,6 +402,20 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         if not special_type_is_unchanged(old_type.special_type, data.get('special_type')):
             abort(400, "It is not possible to change the SpecialType property of Types!")
+
+        # Block removal of the location field while CmdbObjects still hold a location value.
+        old_has_location_field: bool = any(f.get('type') == FieldType.LOCATION for f in old_type.get_fields())
+        new_has_location_field: bool = any(f.get('type') == FieldType.LOCATION for f in new_type.get_fields())
+
+        if old_has_location_field and not new_has_location_field:
+            object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
+
+            if object_public_ids:
+                abort(
+                    400,
+                    "Cannot remove the location field: "
+                    f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
+                )
 
         # Update the target CmdbType
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
@@ -390,6 +457,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     except ObjectsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_type] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Although the Type got updated, the update of correspondings Objects failed!")
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[update_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to check location-field usage for Type with ID: {public_id}!")
     except TypesManagerGetError as err:
         LOGGER.error("[update_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
