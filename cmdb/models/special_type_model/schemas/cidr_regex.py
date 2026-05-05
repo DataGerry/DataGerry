@@ -14,31 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbType relevant classes
+Shared regular expressions used by SpecialType schemas
 """
-from .cmdb_type import CmdbType
-from .type_reference import TypeReference
-from .type_external_link import TypeExternalLink
-from .type_field_section import TypeFieldSection
-from .type_reference_section import TypeReferenceSection
-from .type_multi_data_section import TypeMultiDataSection
-from .type_summary import TypeSummary
-from .type_render_meta import TypeRenderMeta
-from .field_type_enum import FieldType
-from .section_type_enum import SectionType
-from .field_key_enum import FieldKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'CmdbType',
-    'TypeReference',
-    'TypeExternalLink',
-    'TypeFieldSection',
-    'TypeReferenceSection',
-    'TypeMultiDataSection',
-    'TypeSummary',
-    'TypeRenderMeta',
-    'FieldType',
-    'SectionType',
-    'FieldKey',
-]
+# Matches an IPv4 CIDR (e.g. '10.0.0.0/8'). Each octet is 0-255 and the prefix length is 0-32.
+# IPv6 is intentionally not supported yet
+IPV4_CIDR_REGEX: str = (
+    r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)'
+    r'(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})'
+    r'/(?:3[0-2]|[12]?\d)$'
+)

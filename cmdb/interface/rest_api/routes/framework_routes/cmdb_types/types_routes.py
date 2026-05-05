@@ -46,6 +46,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     type_deletion_followup,
     special_type_is_unchanged,
     get_objects_using_location_field,
+    handle_special_types,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
@@ -106,6 +107,15 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         if not created_type:
             abort(404, "Could not retrieve the created Type from the database!")
+
+        special_type: str | None = created_type.get('special_type')
+
+        if special_type:
+            section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+                ManagerType.SECTION_TEMPLATES,
+                request_user,
+            )
+            handle_special_types(types_manager, special_type, section_templates_manager, result_id)
 
         return InsertSingleResponse(created_type, result_id).make_response()
     except HTTPException as http_err:
@@ -441,6 +451,14 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         if not updated_type:
             abort(404, f"The updated Type with ID:{public_id} was not found!")
+
+        if updated_type.special_type:
+            handle_special_types(
+                types_manager,
+                updated_type.special_type,
+                section_templates_manager,
+                updated_type.public_id,
+            )
 
         # When CmdbType is updated, update relevant data in all CmdbLocations of this CmdbType
         apply_type_changes_to_locations(request_user, old_type, updated_type)

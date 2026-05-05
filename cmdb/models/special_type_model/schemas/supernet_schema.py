@@ -18,29 +18,53 @@ Definition of required sections and fields for the SpecialType SUPERNET
 """
 from typing import Any
 
-from cmdb.models.type_model import FieldType, SectionType
+from cmdb.models.type_model import FieldType, SectionType, FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_supernet_schema() -> dict[str, Any]:
-    """TODO: document"""
+    """
+    Builds the section/field blueprint for the SUPERNET SpecialType
+
+    The 'dg-network-range' field is required and validated as an IPv4 CIDR; subnet objects are
+    later checked for containment within this range
+
+    Returns:
+        dict[str, Any]: Blueprint with the SUPERNET sections, fields and 'special_type' marker
+    """
     return {
-        'special_type': SpecialType.SUPERNET,
-        'sections': [
+        FieldKey.SPECIAL_TYPE: SpecialType.SUPERNET,
+        FieldKey.SECTIONS: [
             {
-                'type': SectionType.SECTION,
-                'name': 'dg-information',
-                'label': 'Information',
-                'fields': [
+                FieldKey.TYPE: SectionType.SECTION,
+                FieldKey.NAME: 'dg-information',
+                FieldKey.LABEL: 'Information',
+                FieldKey.FIELDS: [
                     'dg-name',
-                ]
+                ],
+            },
+            {
+                FieldKey.TYPE: SectionType.SECTION,
+                FieldKey.NAME: 'dg-network-details',
+                FieldKey.LABEL: 'Network Details',
+                FieldKey.FIELDS: [
+                    'dg-network-range',
+                ],
             },
         ],
-        'fields': [
+        FieldKey.FIELDS: [
             {
-                'type': FieldType.TEXT,
-                'name': 'dg-name',
-                'label': 'Name'
-            }
-        ]
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: 'dg-name',
+                FieldKey.LABEL: 'Name',
+            },
+            {
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: 'dg-network-range',
+                FieldKey.LABEL: 'Network Range',
+                FieldKey.REQUIRED: True,
+                FieldKey.REGEX: IPV4_CIDR_REGEX,
+            },
+        ],
     }
