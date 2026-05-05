@@ -14,69 +14,72 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Definition of required sections and fields for the SpecialType SUBNET
+Definition of required sections and fields for the SpecialType VLAN
 """
 from typing import Any
 
-from cmdb.models.type_model import FieldType, SectionType
+from cmdb.models.type_model import FieldType, SectionType, FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_vlan_schema(subnet_id: int | None) -> dict[str, Any]:
-    """TODO: document"""
-    ref_types: list[int] = []
+def get_vlan_schema() -> dict[str, Any]:
+    """
+    Builds the section/field blueprint for the VLAN SpecialType
 
-    if subnet_id:
-        ref_types = [subnet_id]
+    The 'dg-subnet-ref' field is returned with an empty 'ref_types'; the list is populated
+    post-insert by handle_special_types once a SUBNET SpecialType exists
 
+    Returns:
+        dict[str, Any]: Blueprint with the VLAN sections, fields and 'special_type' marker
+    """
     return {
-        'special_type': SpecialType.VLAN,
-        'sections': [
+        FieldKey.SPECIAL_TYPE: SpecialType.VLAN,
+        FieldKey.SECTIONS: [
             {
-                'type': SectionType.SECTION,
-                'name': 'dg-information',
-                'label': 'Information',
-                'fields': [
-                    'dg-name'
-                ]
+                FieldKey.TYPE: SectionType.SECTION,
+                FieldKey.NAME: 'dg-information',
+                FieldKey.LABEL: 'Information',
+                FieldKey.FIELDS: [
+                    'dg-name',
+                ],
             },
             {
-                'type': SectionType.SECTION,
-                'name': 'dg-vlan-details',
-                'label': 'Vlan Details',
-                'fields': [
+                FieldKey.TYPE: SectionType.SECTION,
+                FieldKey.NAME: 'dg-vlan-details',
+                FieldKey.LABEL: 'Vlan Details',
+                FieldKey.FIELDS: [
                     'dg-subnet-ref',
-                    'dg-vlan-type'
-                ]
+                    'dg-vlan-type',
+                ],
             },
         ],
-        'fields': [
+        FieldKey.FIELDS: [
             {
-                'type': FieldType.TEXT,
-                'name': 'dg-name',
-                'label': 'Name'
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: 'dg-name',
+                FieldKey.LABEL: 'Name',
             },
             {
-                'type': FieldType.REFERENCE,
-                'name': 'dg-subnet-ref',
-                'label': 'Subnet',
-                'description': "Reference to Subnet SpecialType",
-                'ref_types': ref_types
+                FieldKey.TYPE: FieldType.REFERENCE,
+                FieldKey.NAME: 'dg-subnet-ref',
+                FieldKey.LABEL: 'Subnet',
+                FieldKey.DESCRIPTION: "Reference to Subnet SpecialType",
+                FieldKey.REF_TYPES: [],
             },
             {
-                'type': FieldType.SELECT,
-                'name': 'dg-vlan-type',
-                'label': 'Type',
-                'options': [
+                FieldKey.TYPE: FieldType.SELECT,
+                FieldKey.NAME: 'dg-vlan-type',
+                FieldKey.LABEL: 'Type',
+                FieldKey.OPTIONS: [
                     {
-                        'name': 'static',
-                        'Label': 'Static'
+                        FieldKey.NAME: 'static',
+                        FieldKey.LABEL: 'Static',
                     },
                     {
-                        'name': 'dynamic',
-                        'Label': 'Dynamic'
-                    }
-                ]
+                        FieldKey.NAME: 'dynamic',
+                        FieldKey.LABEL: 'Dynamic',
+                    },
+                ],
             },
-        ]
+        ],
     }

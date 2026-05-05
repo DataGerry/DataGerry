@@ -18,65 +18,69 @@ Definition of required sections and fields for the SpecialType SUBNET
 """
 from typing import Any
 
-from cmdb.models.type_model import FieldType, SectionType
+from cmdb.models.type_model import FieldType, SectionType, FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# CIDR_REGEX = r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})/(?:3[0-2]|[12]?\d)$'
+def get_subnet_schema() -> dict[str, Any]:
+    """
+    Builds the section/field blueprint for the SUBNET SpecialType
 
-# -------------------------------------------------------------------------------------------------------------------- #
-def get_subnet_schema(supernet_id: int | None) -> dict[str, Any]:
-    """TODO: document"""
-    ref_types: list[int] = []
+    Reference fields ('dg-supernet-ref', 'dg-parent-subnet-ref') are returned with empty
+    'ref_types'; the lists are populated post-insert by handle_special_types when the matching
+    parent SpecialTypes exist
 
-    if supernet_id:
-        ref_types = [supernet_id]
-
+    Returns:
+        dict[str, Any]: Blueprint with the SUBNET sections, fields and 'special_type' marker
+    """
     return {
-        'special_type': SpecialType.SUBNET,
-        'sections': [
+        FieldKey.SPECIAL_TYPE: SpecialType.SUBNET,
+        FieldKey.SECTIONS: [
             {
-                'type': SectionType.SECTION,
-                'name': 'dg-information',
-                'label': 'Information',
-                'fields': [
-                    'dg-name'
-                ]
+                FieldKey.TYPE: SectionType.SECTION,
+                FieldKey.NAME: 'dg-information',
+                FieldKey.LABEL: 'Information',
+                FieldKey.FIELDS: [
+                    'dg-name',
+                ],
             },
             {
-                'type': SectionType.SECTION,
-                'name': 'dg-network-details',
-                'label': 'Network Details',
-                'fields': [
+                FieldKey.TYPE: SectionType.SECTION,
+                FieldKey.NAME: 'dg-network-details',
+                FieldKey.LABEL: 'Network Details',
+                FieldKey.FIELDS: [
                     'dg-supernet-ref',
                     'dg-parent-subnet-ref',
-                    'dg-network-range'
-                ]
+                    'dg-network-range',
+                ],
             },
         ],
-        'fields': [
+        FieldKey.FIELDS: [
             {
-                'type': FieldType.TEXT,
-                'name': 'dg-name',
-                'label': 'Name'
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: 'dg-name',
+                FieldKey.LABEL: 'Name',
             },
             {
-                'type': FieldType.REFERENCE,
-                'name': 'dg-supernet-ref',
-                'label': 'Supernet',
-                'description': "Reference to Supernet SpecialType",
-                'ref_types': ref_types
+                FieldKey.TYPE: FieldType.REFERENCE,
+                FieldKey.NAME: 'dg-supernet-ref',
+                FieldKey.LABEL: 'Supernet',
+                FieldKey.DESCRIPTION: "Reference to Supernet SpecialType",
+                FieldKey.REF_TYPES: [],
             },
             {
-                'type': FieldType.REFERENCE,
-                'name': 'dg-parent-subnet-ref',
-                'label': 'Parent Subnet',
-                'ref_types': []
+                FieldKey.TYPE: FieldType.REFERENCE,
+                FieldKey.NAME: 'dg-parent-subnet-ref',
+                FieldKey.LABEL: 'Parent Subnet',
+                FieldKey.REF_TYPES: [],
             },
             {
-                'type': FieldType.TEXT,
-                'name': 'dg-network-range',
-                'label': 'Network Range',
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: 'dg-network-range',
+                FieldKey.LABEL: 'Network Range',
+                FieldKey.REQUIRED: True,
+                FieldKey.REGEX: IPV4_CIDR_REGEX,
             },
-        ]
+        ],
     }

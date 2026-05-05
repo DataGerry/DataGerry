@@ -90,19 +90,29 @@ def handle_special_types(
     section_templates_manager: SectionTemplatesManager,
     special_type_id: int
 ) -> None:
-    """TODO: document"""
-    if special_type == SpecialType.SUPERNET: # SUPERNET handling
+    """
+    Cross-wires the reference fields of IPAM SpecialTypes (SUPERNET, SUBNET, VLAN) and the
+    'dg-ipam-interface' section template so their 'ref_types' lists include each newly created
+    or updated SpecialType. Idempotent: no write happens when 'ref_types' is already correct
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_type (SpecialType): The SpecialType of the CmdbType that triggered the wiring
+        section_templates_manager (SectionTemplatesManager): db interface for section templates
+        special_type_id (int): public_id of the CmdbType carrying 'special_type'
+    """
+    if special_type == SpecialType.SUPERNET:
         subnet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
 
         if not subnet_type:
             return
 
-        updated: bool = ensure_ref_type(subnet_type['fields'], 'dg_supernet_ref', special_type_id)
+        updated: bool = ensure_ref_type(subnet_type['fields'], 'dg-supernet-ref', special_type_id)
 
         if updated:
             types_manager.update_type(subnet_type['public_id'], subnet_type)
 
-    elif special_type == SpecialType.SUBNET: # SUBNET handling
+    elif special_type == SpecialType.SUBNET:
         interface_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': 'dg-ipam-interface'})
 
         if interface_template:
@@ -111,17 +121,13 @@ def handle_special_types(
             if tpl_updated:
                 section_templates_manager.update_section_template(interface_template["public_id"], interface_template)
 
-
         vlan_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.VLAN})
 
-        vlan_updated: bool = False
-
         if vlan_type:
-            vlan_updated |= ensure_ref_type(vlan_type['fields'], 'dg_subnet_ref', special_type_id)
+            vlan_updated: bool = ensure_ref_type(vlan_type['fields'], 'dg-subnet-ref', special_type_id)
 
             if vlan_updated:
                 types_manager.update_type(vlan_type['public_id'], vlan_type)
-
 
         subnet_type: dict[str, Any] | None = types_manager.get_one_by({'public_id': special_type_id})
 
@@ -133,14 +139,14 @@ def handle_special_types(
         subnet_updated: bool = False
 
         if supernet_type:
-            subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg_supernet_ref', supernet_type['public_id'])
+            subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg-supernet-ref', supernet_type['public_id'])
 
-        subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg_parent_subnet_ref', special_type_id)
+        subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg-parent-subnet-ref', special_type_id)
 
         if subnet_updated:
             types_manager.update_type(special_type_id, subnet_type)
 
-    elif special_type == SpecialType.VLAN: # VLAN handling
+    elif special_type == SpecialType.VLAN:
         subnet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
 
         if not subnet_type:
@@ -151,14 +157,23 @@ def handle_special_types(
         if not vlan_type:
             return
 
-        updated = ensure_ref_type(vlan_type['fields'], 'dg_subnet_ref', subnet_type['public_id'])
+        updated = ensure_ref_type(vlan_type['fields'], 'dg-subnet-ref', subnet_type['public_id'])
 
         if updated:
             types_manager.update_type(vlan_type['public_id'], vlan_type)
 
 
-def special_type_is_unchanged(old_st: str, new_st: str) -> bool:
-    """TODO: document"""
+def special_type_is_unchanged(old_st: str | None, new_st: str | None) -> bool:
+    """
+    Reports whether a CmdbType's 'special_type' value is the same before and after an update
+
+    Args:
+        old_st (str | None): The 'special_type' before the update
+        new_st (str | None): The 'special_type' from the update payload
+
+    Returns:
+        bool: True if both sides match (including both being None), False otherwise
+    """
     return old_st == new_st
 
 
