@@ -36,6 +36,7 @@ from cmdb.manager import (
 
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.special_type_model.special_type_enum import SpecialType
@@ -266,6 +267,48 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
 
     if objects_to_update:
         objects_manager.bulk_update_multi_data_sections(objects_to_update)
+
+
+def get_objects_using_location_field(
+    request_user: CmdbUser,
+    target_type: CmdbType,
+) -> list[int]:
+    """
+    Returns the public_ids of CmdbObjects that currently store a location value
+    (an integer > 0) in the location-typed field of the given CmdbType
+
+    Returns an empty list if the CmdbType has no location field
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        target_type (CmdbType): The CmdbType to inspect
+
+    Returns:
+        list[int]: public_ids of CmdbObjects that have a value in the location field
+    """
+    location_field: dict[str, Any] | None = next(
+        (f for f in target_type.get_fields() if f.get('type') == FieldType.LOCATION),
+        None,
+    )
+
+    if not location_field:
+        return []
+
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    criteria: dict[str, Any] = {
+        'type_id': target_type.get_public_id(),
+        'fields': {
+            '$elemMatch': {
+                'name': location_field['name'],
+                'value': {'$gt': 0},
+            },
+        },
+    }
+
+    matching_objects: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
+
+    return [obj['public_id'] for obj in matching_objects]
 
 
 def verify_type_deletable(
