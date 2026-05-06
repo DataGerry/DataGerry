@@ -171,10 +171,6 @@ class CollectionValidator:
                     if framework_class == CmdbLocation:
                         self.set_root_location(CmdbLocation.COLLECTION, self.db_name, create=True)
 
-                    # Create the predefined CmdbSectionTemplates
-                    if framework_class == CmdbSectionTemplate:
-                        self.init_predefined_templates(CmdbSectionTemplate.COLLECTION, self.db_name)
-
                     # Create the predefined CmdbReportCategories
                     if framework_class == CmdbReportCategory:
                         self.create_general_report_category(CmdbReportCategory.COLLECTION, self.db_name)
@@ -208,6 +204,10 @@ class CollectionValidator:
                             type(err),
                             exc_info=True
                         )
+
+                # Create the predefined CmdbSectionTemplates
+                if framework_class == CmdbSectionTemplate:
+                    self.init_predefined_templates(CmdbSectionTemplate.COLLECTION, self.db_name)
         except Exception as err:
             LOGGER.error("[init_framework_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             raise CollectionInitError(str(err)) from err
@@ -356,10 +356,7 @@ class CollectionValidator:
                     # The template does not exist, create it
                     LOGGER.info("Creating Template: %s", template_name)
                     self.dbm.insert(collection, self.db_name, predefined_template)
-                else:
-                    raise ValueError(
-                        f"Template with name {template_name} exists preventing creation of a required SectionTemplate!"
-                    )
+
         except Exception as err:
             raise DocumentInsertError(
                 f"Error initializing predefined templates for collection '{collection}': {err}"

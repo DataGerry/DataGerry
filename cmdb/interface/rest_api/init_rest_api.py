@@ -218,6 +218,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
         oc_connection_log_blueprint
     )
     from cmdb.interface.rest_api.routes.ipam_routes.ipam_validation_routes import ipam_validation_blueprint
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes import ipam_supernet_blueprint
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
@@ -277,6 +278,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
 
     # IPAM routes
     app.register_blueprint(ipam_validation_blueprint, url_prefix='/ipam/validate')
+    app.register_blueprint(ipam_supernet_blueprint, url_prefix='/ipam/supernet')
 
     # OpenCelium routes
     app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')
