@@ -1,0 +1,25 @@
+<div class="modal-header bg-primary text-white">
+    <h4 class="modal-title">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        {{ title }}
+    </h4>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('cancel')"></button>
+</div>
+
+<div class="modal-body">
+    <p>{{ message }}</p>
+
+    <p class="fw-semibold mb-2">Affected objects:</p>
+    <ul class="list-group">
+        <li *ngFor="let id of objectPublicIds" class="list-group-item d-flex justify-content-between align-items-center">
+            <a href="javascript:void(0)" class="text-decoration-none" (click)="openObject(id)">
+                Object #{{ id }}
+            </a>
+            <i class="fas fa-external-link-alt text-muted small"></i>
+        </li>
+    </ul>
+</div>
+
+<div class="modal-footer">
+    <app-button label="Close" bootstrapClass="btn-outline-dark" (clicked)="activeModal.close('close')"></app-button>
+</div>

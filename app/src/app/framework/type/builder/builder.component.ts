@@ -60,6 +60,7 @@ import { SectionIdentifierService } from '../services/SectionIdentifierService.s
 import { FieldIdentifierValidationService } from '../services/field-identifier-validation.service';
 import { BuilderUtils } from './utils/builder-utils';
 import { NumberControl } from './controls/number/number.control';
+import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 declare var $: any;
 
@@ -162,6 +163,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         public sectionIdentifierService: SectionIdentifierService, private fieldIdentifierValidation: FieldIdentifierValidationService,
         private renderer: Renderer2,
         private el: ElementRef,
+        private locationFieldDeletion: LocationFieldDeletionService,
     ) {
         this.typeInstance = new CmdbType();
     }
@@ -698,6 +700,17 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
             return;
         }
 
+        if (this.mode === CmdbMode.Edit
+            && this.locationFieldDeletion.sectionContainsLocationField(item, this.typeInstance)
+            && !this.locationFieldDeletion.canDelete('section')) {
+            return;
+        }
+
+        this.performSectionRemoval(item, sectionIndex);
+    }
+
+
+    private performSectionRemoval(item: CmdbTypeSection, sectionIndex: number): void {
         if (this.activeIndex === sectionIndex) {
             this.activeIndex = null
         }
@@ -749,6 +762,17 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
             return;
         }
 
+        if (this.mode === CmdbMode.Edit
+            && this.locationFieldDeletion.isLocationField(item)
+            && !this.locationFieldDeletion.canDelete('field')) {
+            return;
+        }
+
+        this.performFieldRemoval(item, section);
+    }
+
+
+    private performFieldRemoval(item: any, section: CmdbTypeSection): void {
         const indexField: number = this.typeInstance?.fields?.indexOf(item);
 
         if (indexField > -1) {
