@@ -95,18 +95,24 @@
           <tbody>
             <tr *ngFor="let connection of connections; trackBy: trackByConnectionId" class="connection-row">
               <td class="relation-id">
-                <span class="id-badge">{{ connection.metadata?.relation_id || 'N/A' }}</span>
+                <span class="id-badge">{{ connection.metadata?.relation_id || 'Dynamic' }}</span>
               </td>
 
               <td class="relation-name">
+                @if(connection.metadata?.relation_label === 'Location')
+                {
+                {{'Location'}}
+                }
+                @else {
                 {{ connection.metadata?.relation_name || 'Unknown' }}
+                }
               </td>
 
               <td class="relation-label">
                 <!-- Check if this is a location-based connection -->
                 <span *ngIf="connection.metadata?.relation_label === 'Location'" class="label-chip location-chip">
                   <span class="material-icons">location_on</span>
-                  Location
+                  Located
                 </span>
 
                 <!-- Normal relation label -->
@@ -115,7 +121,13 @@
                   [style.color]="getTextColor(connection.metadata?.relation_color || '#666')">
                   <i *ngIf="connection.metadata?.relation_icon" [ngClass]="connection.metadata.relation_icon"
                     [title]="connection.metadata.relation_icon"></i>
+                  @if(connection.metadata?.relation_label === 'Location')
+                  {
+                  {{'Located'}}
+                  }
+                  @else {
                   {{ connection.metadata?.relation_label || 'Unknown' }}
+                  }
                 </span>
               </td>
             </tr>
@@ -152,8 +164,7 @@
         No connections available
       </span>
     </div>
-    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
-    (clicked)="close()">
-  </app-button>
+    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="close()">
+    </app-button>
   </div>
 </div>
