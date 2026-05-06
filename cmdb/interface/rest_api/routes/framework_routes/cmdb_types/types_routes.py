@@ -117,6 +117,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
             )
             handle_special_types(types_manager, special_type, section_templates_manager, result_id)
 
+            # Re-fetch so cross-wired 'ref_types' written by handle_special_types are in the response
+            created_type = types_manager.get_type(result_id) or created_type
+
         return InsertSingleResponse(created_type, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
@@ -520,7 +523,7 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         types_manager.delete_type(public_id)
 
         # All the followup actions where the public_id need to be removed
-        type_deletion_followup(request_user, public_id)
+        type_deletion_followup(request_user, public_id, to_delete_type.get('special_type'))
         return DeleteSingleResponse(to_delete_type).make_response()
     except HTTPException as http_err:
         raise http_err

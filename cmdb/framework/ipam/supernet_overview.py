@@ -1,0 +1,439 @@
+# DATAGERRY - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Builds the data payload for the SUPERNET overview view
+
+The frontend renders a KPI strip and a flat (frontend-grouped) table of every SUBNET that
+references the supernet. This module exposes pure helpers (CIDR math, row/summary shaping)
+plus a thin DB orchestrator that loads the supernet, its subnets, and the per-subnet
+interface-IP allocation counts
+"""
+from ipaddress import IPv4Network
+from typing import Any
+
+from flask import abort
+
+from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.framework.ipam.cidr import parse_cidr
+from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.subnet_validator import (
+    SUBNET_RANGE_FIELD,
+    SUBNET_PARENT_SUPERNET_FIELD,
+    SUBNET_PARENT_SUBNET_FIELD,
+    SUPERNET_RANGE_FIELD,
+    extract_field_value,
+)
+from cmdb.framework.ipam.interface_validator import (
+    INTERFACE_SECTION_NAME,
+    INTERFACE_SUBNET_FIELD,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  PURE HELPERS                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _ip_range(network: IPv4Network) -> dict[str, str]:
+    """
+    Returns the lowest and highest address of an IPv4 network as strings
+
+    'Lowest' is the network address and 'highest' is the broadcast address; neither is filtered
+    out so the range reflects the literal bounds of the CIDR
+
+    Args:
+        network (IPv4Network): The parsed network
+
+    Returns:
+        dict[str, str]: {'first': <network address>, 'last': <broadcast address>}
+    """
+    return {
+        'first': str(network.network_address),
+        'last': str(network.broadcast_address),
+    }
+
+
+def _usable_count(network: IPv4Network) -> int:
+    """
+    Returns the number of IPs in a network that can be assigned to interfaces
+
+    /31 and /32 networks are reported as 0 by spec for the supernet overview, even though
+    interfaces can technically be assigned in those ranges. Other prefixes return
+    'num_addresses - 2' to exclude the network and broadcast addresses
+
+    Args:
+        network (IPv4Network): The parsed network
+
+    Returns:
+        int: Usable address count, with /31 and /32 zeroed
+    """
+    if network.prefixlen >= 31:
+        return 0
+
+    return network.num_addresses - 2
+
+
+def _percent(numerator: int, denominator: int) -> float:
+    """
+    Returns 'numerator / denominator * 100' rounded to 2 decimals, or 0.0 when denominator is 0
+
+    Args:
+        numerator (int): The numerator
+        denominator (int): The denominator
+
+    Returns:
+        float: Percentage rounded to 2 decimals; 0.0 if denominator is 0
+    """
+    if denominator <= 0:
+        return 0.0
+
+    return round(numerator / denominator * 100, 2)
+
+
+def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str, Any]:
+    """
+    Shapes a single SUBNET CmdbObject + its interface-IP usage count into one overview row
+
+    Returns degenerate rows (zeroed counts, null cidr / ip_range) when the subnet's
+    'dg-network-range' field is missing or unparsable, so a broken record does not break the
+    whole view. /31 and /32 subnets also report all-zero usage per the view spec
+
+    Args:
+        subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
+        used_count (int): Number of dg-ipam-interface rows that reference this subnet
+
+    Returns:
+        dict[str, Any]: One row with public_id, parent_subnet_ref, cidr, ip_range,
+            used_ips, free_ips, usage_percent
+    """
+    raw_cidr: Any = extract_field_value(subnet_obj, SUBNET_RANGE_FIELD)
+    network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
+    parent_subnet_ref: Any = extract_field_value(subnet_obj, SUBNET_PARENT_SUBNET_FIELD)
+
+    if network is None:
+        return {
+            'public_id': subnet_obj.get('public_id'),
+            'parent_subnet_ref': parent_subnet_ref,
+            'cidr': raw_cidr if isinstance(raw_cidr, str) else None,
+            'ip_range': None,
+            'used_ips': 0,
+            'free_ips': 0,
+            'usage_percent': 0.0,
+        }
+
+    usable: int = _usable_count(network)
+
+    if usable == 0:
+        return {
+            'public_id': subnet_obj.get('public_id'),
+            'parent_subnet_ref': parent_subnet_ref,
+            'cidr': str(network),
+            'ip_range': _ip_range(network),
+            'used_ips': 0,
+            'free_ips': 0,
+            'usage_percent': 0.0,
+        }
+
+    free: int = max(0, usable - used_count)
+
+    return {
+        'public_id': subnet_obj.get('public_id'),
+        'parent_subnet_ref': parent_subnet_ref,
+        'cidr': str(network),
+        'ip_range': _ip_range(network),
+        'used_ips': used_count,
+        'free_ips': free,
+        'usage_percent': _percent(used_count, usable),
+    }
+
+
+def compute_supernet_summary(
+    supernet_network: IPv4Network | None,
+    total_used: int,
+    subnet_count: int,
+) -> dict[str, Any]:
+    """
+    Shapes the KPI strip values for the supernet as a whole
+
+    All percentages are computed against the supernet's own usable address count
+    ('utilization_percent' is intentionally equal to 'used_percent' under this scheme).
+    A degenerate summary with zeroed counts is returned when the supernet's CIDR is missing
+    or unparsable, or when it is /31 / /32
+
+    Args:
+        supernet_network (IPv4Network | None): Parsed CIDR of the supernet, None if missing
+            or unparsable
+        total_used (int): Sum of used IPs across all subnets that reference the supernet
+        subnet_count (int): Number of subnets that reference the supernet
+
+    Returns:
+        dict[str, Any]: cidr, ip_range, total_ips, used_ips, free_ips, used_percent,
+            free_percent, utilization_percent, subnet_count
+    """
+    if supernet_network is None:
+        return {
+            'cidr': None,
+            'ip_range': None,
+            'total_ips': 0,
+            'used_ips': total_used,
+            'free_ips': 0,
+            'used_percent': 0.0,
+            'free_percent': 0.0,
+            'utilization_percent': 0.0,
+            'subnet_count': subnet_count,
+        }
+
+    total: int = _usable_count(supernet_network)
+
+    if total == 0:
+        return {
+            'cidr': str(supernet_network),
+            'ip_range': _ip_range(supernet_network),
+            'total_ips': 0,
+            'used_ips': 0,
+            'free_ips': 0,
+            'used_percent': 0.0,
+            'free_percent': 0.0,
+            'utilization_percent': 0.0,
+            'subnet_count': subnet_count,
+        }
+
+    free: int = max(0, total - total_used)
+    used_percent: float = _percent(total_used, total)
+    free_percent: float = _percent(free, total)
+
+    return {
+        'cidr': str(supernet_network),
+        'ip_range': _ip_range(supernet_network),
+        'total_ips': total,
+        'used_ips': total_used,
+        'free_ips': free,
+        'used_percent': used_percent,
+        'free_percent': free_percent,
+        'utilization_percent': used_percent,
+        'subnet_count': subnet_count,
+    }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   DATA LOADING                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _load_supernet_object(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+) -> dict[str, Any]:
+    """
+    Loads the SUPERNET CmdbObject by public_id, aborting with a structured HTTP error when
+    the SUPERNET CmdbType is undefined, the object does not exist, or the object exists but
+    is of a different CmdbType
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the candidate supernet object
+
+    Returns:
+        dict[str, Any]: The supernet CmdbObject document
+    """
+    supernet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUPERNET)
+
+    if supernet_type_id is None:
+        abort(400, "No SUPERNET CmdbType is defined; cannot build supernet overview!")
+
+    candidates: list[dict[str, Any]] = objects_manager.find_objects(
+        {'public_id': public_id},
+        as_dict=True,
+    )
+
+    if not candidates:
+        abort(404, f"Supernet with public_id {public_id} was not found!")
+
+    candidate: dict[str, Any] = candidates[0]
+
+    if candidate.get('type_id') != supernet_type_id:
+        abort(400, f"Object with public_id {public_id} is not a SUPERNET!")
+
+    return candidate
+
+
+def _load_subnets_for_supernet(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    supernet_public_id: int,
+) -> list[dict[str, Any]]:
+    """
+    Returns every SUBNET CmdbObject whose 'dg-supernet-ref' points at the given supernet
+
+    Returns an empty list when no SUBNET CmdbType is defined yet
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        supernet_public_id (int): public_id of the supernet object
+
+    Returns:
+        list[dict[str, Any]]: SUBNET CmdbObject documents linked to the supernet
+    """
+    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
+
+    if subnet_type_id is None:
+        return []
+
+    criteria: dict[str, Any] = {
+        'type_id': subnet_type_id,
+        'fields': {
+            '$elemMatch': {
+                'name': SUBNET_PARENT_SUPERNET_FIELD,
+                'value': supernet_public_id,
+            },
+        },
+    }
+
+    return objects_manager.find_objects(criteria, as_dict=True)
+
+
+def _count_used_ips_per_subnet(
+    objects_manager: ObjectsManager,
+    subnet_ids: list[int],
+) -> dict[int, int]:
+    """
+    Counts dg-ipam-interface rows by referenced subnet across every CmdbObject in the system
+
+    A single Mongo query selects candidate CmdbObjects whose interface section references
+    any of the given subnet ids. Bucketing happens in Python to keep the pipeline portable
+    (Cosmos Mongo API friendly: no aggregation stages required)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        subnet_ids (list[int]): The subnet public_ids to count usage for
+
+    Returns:
+        dict[int, int]: {subnet_id: row_count} with one entry per id in subnet_ids
+            (zero when no rows reference it)
+    """
+    counts: dict[int, int] = {sid: 0 for sid in subnet_ids}
+
+    if not subnet_ids:
+        return counts
+
+    criteria: dict[str, Any] = {
+        'multi_data_sections': {
+            '$elemMatch': {
+                'name': INTERFACE_SECTION_NAME,
+                'values': {
+                    '$elemMatch': {
+                        'data': {
+                            '$elemMatch': {
+                                'name': INTERFACE_SUBNET_FIELD,
+                                'value': {'$in': subnet_ids},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    candidates: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
+
+    for candidate in candidates:
+        for section in candidate.get('multi_data_sections', []) or []:
+            if section.get('name') != INTERFACE_SECTION_NAME:
+                continue
+
+            for row in section.get('values', []) or []:
+                row_subnet_id: Any = _row_subnet_ref(row)
+
+                if row_subnet_id in counts:
+                    counts[row_subnet_id] += 1
+
+    return counts
+
+
+def _row_subnet_ref(row: dict[str, Any]) -> Any:
+    """
+    Returns the dg-interface-subnet value of a single dg-ipam-interface MDS row, or None
+
+    Args:
+        row (dict[str, Any]): One entry from an MDS section's 'values' list
+
+    Returns:
+        Any: The referenced subnet's public_id, or None if the row has no such field
+    """
+    for entry in row.get('data', []) or []:
+        if entry.get('name') == INTERFACE_SUBNET_FIELD:
+            return entry.get('value')
+
+    return None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   ORCHESTRATOR                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def build_supernet_overview(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+) -> dict[str, Any]:
+    """
+    Builds the full supernet overview payload for the given supernet public_id
+
+    Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the public_id refers
+    to a non-supernet CmdbObject or no SUPERNET CmdbType is defined
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the supernet to summarise
+
+    Returns:
+        dict[str, Any]: {'supernet': {...summary..., 'public_id': int}, 'subnets': [...]}
+    """
+    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
+
+    raw_supernet_cidr: Any = extract_field_value(supernet_obj, SUPERNET_RANGE_FIELD)
+    supernet_network: IPv4Network | None = (
+        parse_cidr(raw_supernet_cidr) if isinstance(raw_supernet_cidr, str) else None
+    )
+
+    subnet_objs: list[dict[str, Any]] = _load_subnets_for_supernet(
+        objects_manager, types_manager, public_id,
+    )
+    subnet_ids: list[int] = [s['public_id'] for s in subnet_objs if 'public_id' in s]
+
+    used_per_subnet: dict[int, int] = _count_used_ips_per_subnet(objects_manager, subnet_ids)
+
+    subnet_rows: list[dict[str, Any]] = [
+        compute_subnet_row(s, used_per_subnet.get(s.get('public_id'), 0))
+        for s in subnet_objs
+    ]
+
+    total_used: int = sum(row['used_ips'] for row in subnet_rows)
+
+    summary: dict[str, Any] = compute_supernet_summary(
+        supernet_network,
+        total_used,
+        len(subnet_rows),
+    )
+
+    return {
+        'supernet': {
+            'public_id': supernet_obj.get('public_id'),
+            **summary,
+        },
+        'subnets': subnet_rows,
+    }

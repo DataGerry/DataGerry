@@ -54,12 +54,17 @@ def verify_type_is_unique(
     special_type: str | None = None
 ) -> None:
     """
-    Checks the possible public_id and name of the CmdbType for Validity
+    Validates that a candidate CmdbType's identifying attributes are unique in the database
+
+    Aborts the request with HTTP 400 when the public_id is already taken, when the name
+    collides with an existing CmdbType, when the name is missing, or when another CmdbType
+    already carries the given SpecialType marker
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
-        name (str): name of the CmdbType which should be created
-        public_id (int | None): already assigned public_id of the CmdbType which should be created
+        name (str): Name of the CmdbType which should be created
+        public_id (int | None): Pre-assigned public_id of the CmdbType, when present
+        special_type (str | None): SpecialType marker of the CmdbType, when present
     """
     # Check public_id already exists
     if public_id:
@@ -332,11 +337,17 @@ def verify_type_deletable(
     to_delete_type: dict[str, Any] | None = None
 ) -> None:
     """
-    Checks if the Type is deletable. Issues trigger direct responses
+    Confirms a CmdbType can be safely deleted, aborting the request when it cannot
+
+    Aborts with HTTP 404 when the CmdbType does not exist, HTTP 403 when at least one
+    CmdbObject of this CmdbType still exists, or HTTP 403 when at least one CmdbReport
+    still references the CmdbType
 
     Args:
-        request_user (CmdbUser): User requesting this data
-        target_type (dict[str, Any] | None): The CmdbType which should be deleted
+        request_user (CmdbUser): User performing the request
+        public_id (int): public_id of the CmdbType being checked
+        to_delete_type (dict[str, Any] | None): The CmdbType document to delete, or None
+            when the lookup already returned no result
     """
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
     reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
@@ -357,8 +368,25 @@ def verify_type_deletable(
         abort(403, "Delete not possible if Reports exist which are using this Type!")
 
 
-def type_deletion_followup(request_user: CmdbUser, public_id: int) -> None:
-    """TODO: document"""
+def type_deletion_followup(
+    request_user: CmdbUser,
+    public_id: int,
+    special_type: str | None = None,
+) -> None:
+    """
+    Performs cleanup actions that must run after a CmdbType has been deleted
+
+    Removes the deleted type's id from relations, CiExplorerProfiles and dynamic object
+    groups. When the deleted type carried a SpecialType marker, also drops the id from any
+    'ref_types' arrays that handle_special_types had cross-wired, so the surviving IPAM
+    CmdbTypes and the 'dg-ipam-interface' section template no longer offer the deleted type
+    as a valid reference target
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        public_id (int): public_id of the CmdbType that was just deleted
+        special_type (str | None): SpecialType marker of the deleted CmdbType, if any
+    """
     relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
     ci_explorer_profile_manager: CiExplorerProfileManager = ManagerProvider.get_manager(
@@ -374,11 +402,36 @@ def type_deletion_followup(request_user: CmdbUser, public_id: int) -> None:
     # Delete the type from all dynamic groups
     object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)
 
+    # Drop the deleted type's id from cross-wired SpecialType 'ref_types' arrays
+    if special_type:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user,
+        )
+        cleanup_special_type_references(
+            types_manager,
+            section_templates_manager,
+            special_type,
+            public_id,
+        )
+
 
 def ensure_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) -> bool:
     """
-    Ensures that ref_id is present in field.ref_types.
-    Returns True if modified.
+    Ensures 'ref_id' is present in the named field's 'ref_types' list
+
+    Mutates the matching field's 'ref_types' in place, creating an empty list when missing.
+    Idempotent: returns False when the field does not exist or the id is already present, so
+    callers can branch on the return to decide whether a persist is required
+
+    Args:
+        fields (list[dict[str, Any]]): The CmdbType / section-template field list to mutate
+        field_name (str): The target field's 'name'
+        ref_id (int): The CmdbType public_id to add to 'ref_types'
+
+    Returns:
+        bool: True when 'ref_types' was modified, False otherwise
     """
     for field in fields:
         if field.get('name') == field_name:
@@ -391,3 +444,86 @@ def ensure_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) 
             return False
 
     return False
+
+
+def remove_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) -> bool:
+    """
+    Removes ref_id from field.ref_types if present
+
+    Mirror of ensure_ref_type for cleanup paths. Idempotent: returns False when the field
+    does not exist on the given list, when the field has no 'ref_types' list, or when
+    'ref_id' is not in 'ref_types'
+
+    Args:
+        fields (list[dict[str, Any]]): The CmdbType / section-template field list to mutate
+        field_name (str): The target field's 'name'
+        ref_id (int): The CmdbType public_id to drop from 'ref_types'
+
+    Returns:
+        bool: True when 'ref_types' was modified, False otherwise
+    """
+    for field in fields:
+        if field.get('name') == field_name:
+            ref_types: Any = field.get('ref_types')
+
+            if isinstance(ref_types, list) and ref_id in ref_types:
+                ref_types.remove(ref_id)
+                return True
+
+            return False
+
+    return False
+
+
+def cleanup_special_type_references(
+    types_manager: TypesManager,
+    section_templates_manager: SectionTemplatesManager,
+    special_type: str,
+    deleted_type_id: int,
+) -> None:
+    """
+    Inverse of handle_special_types: removes 'deleted_type_id' from any 'ref_types' arrays
+    that handle_special_types would have populated for the given SpecialType
+
+    SUPERNET: drops the id from SUBNET's 'dg-supernet-ref'.
+    SUBNET:   drops the id from VLAN's 'dg-subnet-ref' and the 'dg-ipam-interface' section
+              template's 'dg-interface-subnet'. The deleted SUBNET's own
+              'dg-parent-subnet-ref' self-reference disappears with the type.
+    VLAN:     no schema points at VLAN, no cleanup required.
+
+    Idempotent: silently no-ops when the cross-wired CmdbTypes / section template do not
+    exist, or when 'deleted_type_id' is not present in their 'ref_types'
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        section_templates_manager (SectionTemplatesManager): db interface for section templates
+        special_type (str): SpecialType marker of the CmdbType that was just deleted
+        deleted_type_id (int): public_id of the CmdbType that was just deleted
+    """
+    if special_type == SpecialType.SUPERNET:
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
+            {'special_type': SpecialType.SUBNET},
+        )
+
+        if subnet_type and remove_ref_type(subnet_type['fields'], 'dg-supernet-ref', deleted_type_id):
+            types_manager.update_type(subnet_type['public_id'], subnet_type)
+
+    elif special_type == SpecialType.SUBNET:
+        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
+            {'special_type': SpecialType.VLAN},
+        )
+
+        if vlan_type and remove_ref_type(vlan_type['fields'], 'dg-subnet-ref', deleted_type_id):
+            types_manager.update_type(vlan_type['public_id'], vlan_type)
+
+        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
+            {'name': 'dg-ipam-interface'},
+        )
+
+        if interface_template and remove_ref_type(
+            interface_template['fields'], 'dg-interface-subnet', deleted_type_id,
+        ):
+            section_templates_manager.update_section_template(
+                interface_template['public_id'],
+                interface_template,
+            )
