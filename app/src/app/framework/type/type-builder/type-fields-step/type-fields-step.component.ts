@@ -24,7 +24,6 @@ import { SectionTemplateService } from 'src/app/framework/section_templates/serv
 
 import { TypeBuilderStepComponent } from '../type-builder-step.component';
 import { CmdbType } from '../../../models/cmdb-type';
-import { CmdbMode } from '../../../modes.enum';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -185,7 +184,7 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
         this.resetSpecialTypeLocks();
         this.failedSpecialTypeForLocks = selectedSpecialType;
-        this.toastService.error(error?.error?.message || 'Failed to load special type schema.');
+        this.toastService.error(error?.error?.message);
       }
     });
   }
@@ -197,7 +196,6 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
       this.lockedSectionNames = [];
       this.lockedFieldNames = [];
       this.failedSpecialTypeForLocks = this.activeSpecialTypeForLocks;
-      this.toastService.error(validationResult.message ?? 'Received an invalid special type schema from backend.');
       return;
     }
 
@@ -212,8 +210,13 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
     this.specialTypeSchemaRequest = null;
     this.activeSpecialTypeForLocks = null;
     this.failedSpecialTypeForLocks = null;
-    this.lockedSectionNames = [];
-    this.lockedFieldNames = [];
+
+    if (this.lockedSectionNames.length !== 0) {
+      this.lockedSectionNames = [];
+    }
+    if (this.lockedFieldNames.length !== 0) {
+      this.lockedFieldNames = [];
+    }
   }
 
   private normalizeSpecialTypeValue(value: string | SpecialType | null | undefined): SpecialType | null {
