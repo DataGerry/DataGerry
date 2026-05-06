@@ -329,7 +329,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
 
 
-@types_blueprint.route('/<int:public_id>/location_field_usage', methods=['GET'])
+@types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.view')
