@@ -22,19 +22,11 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SubnetField, InterfaceField, IpamSection
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ipv4, contains, ip_in_network
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import build_error, extract_field_value, SUBNET_RANGE_FIELD
-from cmdb.framework.ipam.interface_validator import (
-    INTERFACE_SECTION_NAME,
-    INTERFACE_SUBNET_FIELD,
-    INTERFACE_IP_FIELD,
-)
+from cmdb.framework.ipam.subnet_validator import build_error, extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-SUBNET_PARENT_SUPERNET_FIELD: str = 'dg-supernet-ref'
-SUBNET_PARENT_SUBNET_FIELD: str = 'dg-parent-subnet-ref'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -85,7 +77,7 @@ def _find_child_subnets_of_supernet(
     return objects_manager.find_objects(
         {
             'type_id': subnet_type_id,
-            'fields': {'$elemMatch': {'name': SUBNET_PARENT_SUPERNET_FIELD, 'value': supernet_object_id}},
+            'fields': {'$elemMatch': {'name': SubnetField.PARENT_SUPERNET, 'value': supernet_object_id}},
         },
         as_dict=True,
     )
@@ -110,7 +102,7 @@ def _find_child_subnets_of_subnet(
     return objects_manager.find_objects(
         {
             'type_id': subnet_type_id,
-            'fields': {'$elemMatch': {'name': SUBNET_PARENT_SUBNET_FIELD, 'value': parent_subnet_object_id}},
+            'fields': {'$elemMatch': {'name': SubnetField.PARENT_SUBNET, 'value': parent_subnet_object_id}},
         },
         as_dict=True,
     )
@@ -135,12 +127,12 @@ def _find_objects_with_interface_to_subnet(
         {
             'multi_data_sections': {
                 '$elemMatch': {
-                    'name': INTERFACE_SECTION_NAME,
+                    'name': IpamSection.INTERFACE,
                     'values': {
                         '$elemMatch': {
                             'data': {
                                 '$elemMatch': {
-                                    'name': INTERFACE_SUBNET_FIELD,
+                                    'name': InterfaceField.SUBNET,
                                     'value': subnet_object_id,
                                 },
                             },
@@ -175,7 +167,7 @@ def _check_subnet_children_fit(
     errors: list[dict[str, Any]] = []
 
     for child in children:
-        raw: Any = extract_field_value(child, SUBNET_RANGE_FIELD)
+        raw: Any = extract_field_value(child, SubnetField.NETWORK_RANGE)
         child_net: IPv4Network | None = parse_cidr(raw) if isinstance(raw, str) else None
 
         if child_net is None or contains(new_range, child_net):
@@ -215,7 +207,7 @@ def _check_interface_ips_fit(
 
     for obj in objects_with_interfaces:
         for section in obj.get('multi_data_sections', []) or []:
-            if section.get('name') != INTERFACE_SECTION_NAME:
+            if section.get('name') != IpamSection.INTERFACE:
                 continue
 
             for row_index, row in enumerate(section.get('values', []) or []):
@@ -260,9 +252,9 @@ def _extract_interface_subnet_and_ip(row: dict[str, Any]) -> tuple[Any, Any]:
 
     for entry in row.get('data', []) or []:
         name: Any = entry.get('name')
-        if name == INTERFACE_SUBNET_FIELD:
+        if name == InterfaceField.SUBNET:
             subnet_value = entry.get('value')
-        elif name == INTERFACE_IP_FIELD:
+        elif name == InterfaceField.IP:
             ip_value = entry.get('value')
 
     return subnet_value, ip_value

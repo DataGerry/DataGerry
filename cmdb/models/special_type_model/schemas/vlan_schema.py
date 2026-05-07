@@ -18,8 +18,9 @@ Definition of required sections and fields for the SpecialType VLAN
 """
 from typing import Any
 
-from cmdb.models.type_model import FieldType, SectionType, FieldKey
+from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import VlanField, IpamSection
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_vlan_schema() -> dict[str, Any]:
@@ -33,42 +34,42 @@ def get_vlan_schema() -> dict[str, Any]:
         dict[str, Any]: Blueprint with the VLAN sections, fields and 'special_type' marker
     """
     return {
-        FieldKey.SPECIAL_TYPE: SpecialType.VLAN,
-        FieldKey.SECTIONS: [
+        TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN,
+        TypeSchemaKey.SECTIONS: [
             {
-                FieldKey.TYPE: SectionType.SECTION,
-                FieldKey.NAME: 'dg-information',
-                FieldKey.LABEL: 'Information',
-                FieldKey.FIELDS: [
-                    'dg-name',
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.INFORMATION,
+                SectionKey.LABEL: 'Information',
+                SectionKey.FIELDS: [
+                    VlanField.NAME,
                 ],
             },
             {
-                FieldKey.TYPE: SectionType.SECTION,
-                FieldKey.NAME: 'dg-vlan-details',
-                FieldKey.LABEL: 'Vlan Details',
-                FieldKey.FIELDS: [
-                    'dg-subnet-ref',
-                    'dg-vlan-type',
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.VLAN_DETAILS,
+                SectionKey.LABEL: 'Vlan Details',
+                SectionKey.FIELDS: [
+                    VlanField.SUBNET_REF,
+                    VlanField.TYPE,
                 ],
             },
         ],
-        FieldKey.FIELDS: [
+        TypeSchemaKey.FIELDS: [
             {
                 FieldKey.TYPE: FieldType.TEXT,
-                FieldKey.NAME: 'dg-name',
+                FieldKey.NAME: VlanField.NAME,
                 FieldKey.LABEL: 'Name',
             },
             {
                 FieldKey.TYPE: FieldType.REFERENCE,
-                FieldKey.NAME: 'dg-subnet-ref',
+                FieldKey.NAME: VlanField.SUBNET_REF,
                 FieldKey.LABEL: 'Subnet',
                 FieldKey.DESCRIPTION: "Reference to Subnet SpecialType",
                 FieldKey.REF_TYPES: [],
             },
             {
                 FieldKey.TYPE: FieldType.SELECT,
-                FieldKey.NAME: 'dg-vlan-type',
+                FieldKey.NAME: VlanField.TYPE,
                 FieldKey.LABEL: 'Type',
                 FieldKey.OPTIONS: [
                     {

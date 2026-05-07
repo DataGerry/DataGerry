@@ -26,6 +26,7 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SubnetField, InterfaceField, IpamSection
 from cmdb.framework.ipam.cidr import (
     parse_cidr,
     parse_ipv4,
@@ -33,13 +34,8 @@ from cmdb.framework.ipam.cidr import (
     is_network_or_broadcast,
 )
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import build_error, extract_field_value, SUBNET_RANGE_FIELD
+from cmdb.framework.ipam.subnet_validator import build_error, extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-INTERFACE_SECTION_NAME: str = 'dg-ipam-interface'
-INTERFACE_SUBNET_FIELD: str = 'dg-interface-subnet'
-INTERFACE_IP_FIELD: str = 'dg-interface-ip-address'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -108,13 +104,13 @@ def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[IPv4Network | N
     Returns:
         tuple[IPv4Network | None, list[dict[str, Any]]]: (parsed network or None, errors)
     """
-    raw: Any = extract_field_value(subnet_obj, SUBNET_RANGE_FIELD)
+    raw: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
     parsed: IPv4Network | None = parse_cidr(raw) if isinstance(raw, str) else None
 
     if parsed is None:
         return None, [build_error(
             InterfaceErrorCode.SUBNET_BROKEN_STATE,
-            f"Subnet object {subnet_obj.get('public_id')} has no valid '{SUBNET_RANGE_FIELD}' value",
+            f"Subnet object {subnet_obj.get('public_id')} has no valid '{SubnetField.NETWORK_RANGE.value}' value",
             {'subnet_object_id': subnet_obj.get('public_id'), 'stored_value': raw},
         )]
 
@@ -206,13 +202,13 @@ def _check_ip_uniqueness(
     criteria: dict[str, Any] = {
         'multi_data_sections': {
             '$elemMatch': {
-                'name': INTERFACE_SECTION_NAME,
+                'name': IpamSection.INTERFACE,
                 'values': {
                     '$elemMatch': {
                         'data': {
                             '$all': [
-                                {'$elemMatch': {'name': INTERFACE_SUBNET_FIELD, 'value': subnet_object_id}},
-                                {'$elemMatch': {'name': INTERFACE_IP_FIELD, 'value': ip_address}},
+                                {'$elemMatch': {'name': InterfaceField.SUBNET, 'value': subnet_object_id}},
+                                {'$elemMatch': {'name': InterfaceField.IP, 'value': ip_address}},
                             ],
                         },
                     },
@@ -259,7 +255,7 @@ def _collect_collision_errors(
         candidate_id: Any = candidate.get('public_id')
 
         for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('name') != INTERFACE_SECTION_NAME:
+            if section.get('name') != IpamSection.INTERFACE:
                 continue
 
             for row_index, row in enumerate(section.get('values', []) or []):
@@ -305,9 +301,9 @@ def _row_matches(row: dict[str, Any], subnet_object_id: int, ip_address: str) ->
     has_ip: bool = False
 
     for entry in row.get('data', []) or []:
-        if entry.get('name') == INTERFACE_SUBNET_FIELD and entry.get('value') == subnet_object_id:
+        if entry.get('name') == InterfaceField.SUBNET and entry.get('value') == subnet_object_id:
             has_subnet = True
-        elif entry.get('name') == INTERFACE_IP_FIELD and entry.get('value') == ip_address:
+        elif entry.get('name') == InterfaceField.IP and entry.get('value') == ip_address:
             has_ip = True
 
     return has_subnet and has_ip

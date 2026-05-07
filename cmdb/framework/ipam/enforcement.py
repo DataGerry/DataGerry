@@ -25,22 +25,23 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import (
+    SupernetField,
+    SubnetField,
+    VlanField,
+    InterfaceField,
+    IpamSection,
+)
 from cmdb.framework.ipam.subnet_validator import (
     validate_subnet,
     extract_field_value,
     build_error,
     SubnetErrorCode,
-    SUBNET_PARENT_SUPERNET_FIELD,
-    SUBNET_PARENT_SUBNET_FIELD,
-    SUBNET_RANGE_FIELD,
 )
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import (
     validate_interface,
     InterfaceErrorCode,
-    INTERFACE_SECTION_NAME,
-    INTERFACE_SUBNET_FIELD,
-    INTERFACE_IP_FIELD,
 )
 from cmdb.framework.ipam.range_change_guards import (
     range_changed,
@@ -54,9 +55,6 @@ from cmdb.framework.ipam.references import (
     find_interfaces_referencing_subnet,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-VLAN_SUBNET_REF_FIELD: str = 'dg-subnet-ref'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -143,9 +141,9 @@ def _enforce_subnet_object(
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
-    network_range: Any = extract_field_value(candidate_object, SUBNET_RANGE_FIELD)
-    parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SUBNET_PARENT_SUPERNET_FIELD))
-    parent_subnet_id: int | None = _coerce_int(extract_field_value(candidate_object, SUBNET_PARENT_SUBNET_FIELD))
+    network_range: Any = extract_field_value(candidate_object, SubnetField.NETWORK_RANGE)
+    parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUPERNET))
+    parent_subnet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUBNET))
     candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
 
     errors: list[dict[str, Any]] = validate_subnet(
@@ -158,7 +156,7 @@ def _enforce_subnet_object(
     )
 
     if previous_object is not None and candidate_id is not None:
-        previous_range: Any = extract_field_value(previous_object, SUBNET_RANGE_FIELD)
+        previous_range: Any = extract_field_value(previous_object, SubnetField.NETWORK_RANGE)
         if range_changed(previous_range, network_range):
             errors.extend(check_subnet_range_change(
                 objects_manager, types_manager, candidate_id, network_range,
@@ -186,7 +184,7 @@ def _enforce_supernet_object(
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
-    network_range: Any = extract_field_value(candidate_object, SUBNET_RANGE_FIELD)
+    network_range: Any = extract_field_value(candidate_object, SupernetField.NETWORK_RANGE)
     candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
 
     errors: list[dict[str, Any]] = []
@@ -195,7 +193,7 @@ def _enforce_supernet_object(
     errors.extend(parsed_errors)
 
     if previous_object is not None and candidate_id is not None:
-        previous_range: Any = extract_field_value(previous_object, SUBNET_RANGE_FIELD)
+        previous_range: Any = extract_field_value(previous_object, SupernetField.NETWORK_RANGE)
         if range_changed(previous_range, network_range):
             errors.extend(check_supernet_range_change(
                 objects_manager, types_manager, candidate_id, network_range,
@@ -244,7 +242,7 @@ def _enforce_vlan_object(
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
-    subnet_id: int | None = _coerce_int(extract_field_value(candidate_object, VLAN_SUBNET_REF_FIELD))
+    subnet_id: int | None = _coerce_int(extract_field_value(candidate_object, VlanField.SUBNET_REF))
 
     if subnet_id is None:
         return []
@@ -268,7 +266,7 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
     rows_out: list[tuple[int, int | None, str | None]] = []
 
     for section in candidate_object.get('multi_data_sections', []) or []:
-        if section.get('name') != INTERFACE_SECTION_NAME:
+        if section.get('name') != IpamSection.INTERFACE:
             continue
 
         for row_index, row in enumerate(section.get('values', []) or []):
@@ -279,9 +277,9 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
                 name: Any = entry.get('name')
                 value: Any = entry.get('value')
 
-                if name == INTERFACE_SUBNET_FIELD:
+                if name == InterfaceField.SUBNET:
                     subnet_ref = _coerce_int(value)
-                elif name == INTERFACE_IP_FIELD:
+                elif name == InterfaceField.IP:
                     ip_address = value if isinstance(value, str) and value else None
 
             rows_out.append((row_index, subnet_ref, ip_address))

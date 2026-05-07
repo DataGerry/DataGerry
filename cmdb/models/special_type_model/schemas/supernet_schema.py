@@ -18,8 +18,9 @@ Definition of required sections and fields for the SpecialType SUPERNET
 """
 from typing import Any
 
-from cmdb.models.type_model import FieldType, SectionType, FieldKey
+from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SupernetField, IpamSection
 from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -34,34 +35,34 @@ def get_supernet_schema() -> dict[str, Any]:
         dict[str, Any]: Blueprint with the SUPERNET sections, fields and 'special_type' marker
     """
     return {
-        FieldKey.SPECIAL_TYPE: SpecialType.SUPERNET,
-        FieldKey.SECTIONS: [
+        TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUPERNET,
+        TypeSchemaKey.SECTIONS: [
             {
-                FieldKey.TYPE: SectionType.SECTION,
-                FieldKey.NAME: 'dg-information',
-                FieldKey.LABEL: 'Information',
-                FieldKey.FIELDS: [
-                    'dg-name',
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.INFORMATION,
+                SectionKey.LABEL: 'Information',
+                SectionKey.FIELDS: [
+                    SupernetField.NAME,
                 ],
             },
             {
-                FieldKey.TYPE: SectionType.SECTION,
-                FieldKey.NAME: 'dg-network-details',
-                FieldKey.LABEL: 'Network Details',
-                FieldKey.FIELDS: [
-                    'dg-network-range',
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.NETWORK_DETAILS,
+                SectionKey.LABEL: 'Network Details',
+                SectionKey.FIELDS: [
+                    SupernetField.NETWORK_RANGE,
                 ],
             },
         ],
-        FieldKey.FIELDS: [
+        TypeSchemaKey.FIELDS: [
             {
                 FieldKey.TYPE: FieldType.TEXT,
-                FieldKey.NAME: 'dg-name',
+                FieldKey.NAME: SupernetField.NAME,
                 FieldKey.LABEL: 'Name',
             },
             {
                 FieldKey.TYPE: FieldType.TEXT,
-                FieldKey.NAME: 'dg-network-range',
+                FieldKey.NAME: SupernetField.NETWORK_RANGE,
                 FieldKey.LABEL: 'Network Range',
                 FieldKey.REQUIRED: True,
                 FieldKey.REGEX: IPV4_CIDR_REGEX,

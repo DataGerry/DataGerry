@@ -28,19 +28,15 @@ from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import (
+    SupernetField,
+    SubnetField,
+    InterfaceField,
+    IpamSection,
+)
 from cmdb.framework.ipam.cidr import parse_cidr
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import (
-    SUBNET_RANGE_FIELD,
-    SUBNET_PARENT_SUPERNET_FIELD,
-    SUBNET_PARENT_SUBNET_FIELD,
-    SUPERNET_RANGE_FIELD,
-    extract_field_value,
-)
-from cmdb.framework.ipam.interface_validator import (
-    INTERFACE_SECTION_NAME,
-    INTERFACE_SUBNET_FIELD,
-)
+from cmdb.framework.ipam.subnet_validator import extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -119,9 +115,9 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
         dict[str, Any]: One row with public_id, parent_subnet_ref, cidr, ip_range,
             used_ips, free_ips, usage_percent
     """
-    raw_cidr: Any = extract_field_value(subnet_obj, SUBNET_RANGE_FIELD)
+    raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
     network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
-    parent_subnet_ref: Any = extract_field_value(subnet_obj, SUBNET_PARENT_SUBNET_FIELD)
+    parent_subnet_ref: Any = extract_field_value(subnet_obj, SubnetField.PARENT_SUBNET)
 
     if network is None:
         return {
@@ -297,7 +293,7 @@ def _load_subnets_for_supernet(
         'type_id': subnet_type_id,
         'fields': {
             '$elemMatch': {
-                'name': SUBNET_PARENT_SUPERNET_FIELD,
+                'name': SubnetField.PARENT_SUPERNET,
                 'value': supernet_public_id,
             },
         },
@@ -333,12 +329,12 @@ def _count_used_ips_per_subnet(
     criteria: dict[str, Any] = {
         'multi_data_sections': {
             '$elemMatch': {
-                'name': INTERFACE_SECTION_NAME,
+                'name': IpamSection.INTERFACE,
                 'values': {
                     '$elemMatch': {
                         'data': {
                             '$elemMatch': {
-                                'name': INTERFACE_SUBNET_FIELD,
+                                'name': InterfaceField.SUBNET,
                                 'value': {'$in': subnet_ids},
                             },
                         },
@@ -352,7 +348,7 @@ def _count_used_ips_per_subnet(
 
     for candidate in candidates:
         for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('name') != INTERFACE_SECTION_NAME:
+            if section.get('name') != IpamSection.INTERFACE:
                 continue
 
             for row in section.get('values', []) or []:
@@ -375,7 +371,7 @@ def _row_subnet_ref(row: dict[str, Any]) -> Any:
         Any: The referenced subnet's public_id, or None if the row has no such field
     """
     for entry in row.get('data', []) or []:
-        if entry.get('name') == INTERFACE_SUBNET_FIELD:
+        if entry.get('name') == InterfaceField.SUBNET:
             return entry.get('value')
 
     return None
@@ -405,7 +401,7 @@ def build_supernet_overview(
     """
     supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
 
-    raw_supernet_cidr: Any = extract_field_value(supernet_obj, SUPERNET_RANGE_FIELD)
+    raw_supernet_cidr: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
     supernet_network: IPv4Network | None = (
         parse_cidr(raw_supernet_cidr) if isinstance(raw_supernet_cidr, str) else None
     )

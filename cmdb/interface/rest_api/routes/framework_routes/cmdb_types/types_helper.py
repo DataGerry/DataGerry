@@ -40,6 +40,12 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    VlanField,
+    InterfaceField,
+    IpamSection,
+)
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -112,16 +118,16 @@ def handle_special_types(
         if not subnet_type:
             return
 
-        updated: bool = ensure_ref_type(subnet_type['fields'], 'dg-supernet-ref', special_type_id)
+        updated: bool = ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, special_type_id)
 
         if updated:
             types_manager.update_type(subnet_type['public_id'], subnet_type)
 
     elif special_type == SpecialType.SUBNET:
-        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': 'dg-ipam-interface'})
+        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': IpamSection.INTERFACE})
 
         if interface_template:
-            tpl_updated: bool = ensure_ref_type(interface_template['fields'], 'dg-interface-subnet', special_type_id)
+            tpl_updated: bool = ensure_ref_type(interface_template['fields'], InterfaceField.SUBNET, special_type_id)
 
             if tpl_updated:
                 section_templates_manager.update_section_template(interface_template["public_id"], interface_template)
@@ -129,7 +135,7 @@ def handle_special_types(
         vlan_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.VLAN})
 
         if vlan_type:
-            vlan_updated: bool = ensure_ref_type(vlan_type['fields'], 'dg-subnet-ref', special_type_id)
+            vlan_updated: bool = ensure_ref_type(vlan_type['fields'], VlanField.SUBNET_REF, special_type_id)
 
             if vlan_updated:
                 types_manager.update_type(vlan_type['public_id'], vlan_type)
@@ -144,9 +150,9 @@ def handle_special_types(
         subnet_updated: bool = False
 
         if supernet_type:
-            subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg-supernet-ref', supernet_type['public_id'])
+            subnet_updated |= ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, supernet_type['public_id'])
 
-        subnet_updated |= ensure_ref_type(subnet_type['fields'], 'dg-parent-subnet-ref', special_type_id)
+        subnet_updated |= ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUBNET, special_type_id)
 
         if subnet_updated:
             types_manager.update_type(special_type_id, subnet_type)
@@ -162,7 +168,7 @@ def handle_special_types(
         if not vlan_type:
             return
 
-        updated = ensure_ref_type(vlan_type['fields'], 'dg-subnet-ref', subnet_type['public_id'])
+        updated = ensure_ref_type(vlan_type['fields'], VlanField.SUBNET_REF, subnet_type['public_id'])
 
         if updated:
             types_manager.update_type(vlan_type['public_id'], vlan_type)
@@ -505,7 +511,7 @@ def cleanup_special_type_references(
             {'special_type': SpecialType.SUBNET},
         )
 
-        if subnet_type and remove_ref_type(subnet_type['fields'], 'dg-supernet-ref', deleted_type_id):
+        if subnet_type and remove_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, deleted_type_id):
             types_manager.update_type(subnet_type['public_id'], subnet_type)
 
     elif special_type == SpecialType.SUBNET:
@@ -513,15 +519,15 @@ def cleanup_special_type_references(
             {'special_type': SpecialType.VLAN},
         )
 
-        if vlan_type and remove_ref_type(vlan_type['fields'], 'dg-subnet-ref', deleted_type_id):
+        if vlan_type and remove_ref_type(vlan_type['fields'], VlanField.SUBNET_REF, deleted_type_id):
             types_manager.update_type(vlan_type['public_id'], vlan_type)
 
         interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
-            {'name': 'dg-ipam-interface'},
+            {'name': IpamSection.INTERFACE},
         )
 
         if interface_template and remove_ref_type(
-            interface_template['fields'], 'dg-interface-subnet', deleted_type_id,
+            interface_template['fields'], InterfaceField.SUBNET, deleted_type_id,
         ):
             section_templates_manager.update_section_template(
                 interface_template['public_id'],
