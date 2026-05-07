@@ -14,39 +14,34 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Enumeration of dict keys allowed inside a single field entry of a CmdbType field schema
+Enumeration of top-level dict keys of a CmdbType / SpecialType schema
 """
 from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class FieldKey(str, Enum):
+class TypeSchemaKey(str, Enum):
     """
-    Enumeration of dict keys allowed inside a single field entry
+    Enumeration of top-level dict keys of a CmdbType / SpecialType schema
 
-    A field entry lives inside the 'fields' list of a CmdbType (or SpecialType) schema and describes
-    one input shown to the user. Use these members instead of bare string literals when constructing
-    or reading a field dict so a typo becomes an ImportError or AttributeError instead of a silently
-    ignored key
+    These keys appear at the outermost level of a type schema dict and reference the section list,
+    the field list and the optional SpecialType marker. Use these members instead of bare string
+    literals when constructing or reading a type schema so a typo becomes an ImportError or
+    AttributeError instead of a silently ignored key
     """
-    TYPE = 'type'
-    NAME = 'name'
-    LABEL = 'label'
-    DESCRIPTION = 'description'
-    REQUIRED = 'required'
-    REGEX = 'regex'
-    REF_TYPES = 'ref_types'
-    OPTIONS = 'options'
+    SPECIAL_TYPE = 'special_type'
+    SECTIONS = 'sections'
+    FIELDS = 'fields'
 
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
         """
-        Checks if a given string is a known FieldKey
+        Checks if a given string is a known TypeSchemaKey
 
         Args:
             value (str): The string to check
 
         Returns:
-            bool: True if the string matches an existing FieldKey, False otherwise
+            bool: True if the string matches an existing TypeSchemaKey, False otherwise
         """
         return value in cls._value2member_map_

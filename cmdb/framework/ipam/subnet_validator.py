@@ -24,15 +24,11 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SubnetField, SupernetField
 from cmdb.framework.ipam.cidr import parse_cidr, contains, overlaps
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
-
-SUPERNET_RANGE_FIELD: str = 'dg-network-range'
-SUBNET_RANGE_FIELD: str = 'dg-network-range'
-SUBNET_PARENT_SUPERNET_FIELD: str = 'dg-supernet-ref'
-SUBNET_PARENT_SUBNET_FIELD: str = 'dg-parent-subnet-ref'
 
 MAX_PARENT_CHAIN_DEPTH: int = 64
 
@@ -201,13 +197,13 @@ def _check_in_supernet(
             {'supernet_object_id': supernet_object_id},
         )]
 
-    supernet_range_raw: Any = extract_field_value(supernet_obj, SUPERNET_RANGE_FIELD)
+    supernet_range_raw: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
     supernet_net: IPv4Network | None = parse_cidr(supernet_range_raw) if isinstance(supernet_range_raw, str) else None
 
     if supernet_net is None:
         return [build_error(
             SubnetErrorCode.PARENT_SUPERNET_BROKEN_STATE,
-            f"Supernet object {supernet_object_id} has no valid '{SUPERNET_RANGE_FIELD}' value",
+            f"Supernet object {supernet_object_id} has no valid '{SupernetField.NETWORK_RANGE.value}' value",
             {'supernet_object_id': supernet_object_id, 'stored_value': supernet_range_raw},
         )]
 
@@ -260,13 +256,13 @@ def _check_in_parent_subnet(
             {'parent_subnet_object_id': parent_subnet_object_id},
         )]
 
-    parent_range_raw: Any = extract_field_value(parent_obj, SUBNET_RANGE_FIELD)
+    parent_range_raw: Any = extract_field_value(parent_obj, SubnetField.NETWORK_RANGE)
     parent_net: IPv4Network | None = parse_cidr(parent_range_raw) if isinstance(parent_range_raw, str) else None
 
     if parent_net is None:
         return [build_error(
             SubnetErrorCode.PARENT_SUBNET_BROKEN_STATE,
-            f"Parent subnet object {parent_subnet_object_id} has no valid '{SUBNET_RANGE_FIELD}' value",
+            f"Parent subnet object {parent_subnet_object_id} has no valid '{SubnetField.NETWORK_RANGE.value}' value",
             {'parent_subnet_object_id': parent_subnet_object_id, 'stored_value': parent_range_raw},
         )]
 
@@ -345,7 +341,7 @@ def _check_no_cycle(
         if not ancestor or ancestor.get('type_id') != subnet_type_id:
             return []
 
-        current_id = extract_field_value(ancestor, SUBNET_PARENT_SUBNET_FIELD) or None
+        current_id = extract_field_value(ancestor, SubnetField.PARENT_SUBNET) or None
 
     return [build_error(
         SubnetErrorCode.PARENT_CHAIN_CYCLE,
@@ -398,7 +394,7 @@ def _check_sibling_overlap(
         if exclude_subnet_id is not None and sibling_id == exclude_subnet_id:
             continue
 
-        sibling_range_raw: Any = extract_field_value(sibling, SUBNET_RANGE_FIELD)
+        sibling_range_raw: Any = extract_field_value(sibling, SubnetField.NETWORK_RANGE)
         sibling_net: IPv4Network | None = parse_cidr(sibling_range_raw) if isinstance(sibling_range_raw, str) else None
 
         if sibling_net is None:
@@ -442,15 +438,15 @@ def _collect_siblings(
     """
     if parent_subnet_id is not None:
         return _find_subnets_by_field(
-            objects_manager, subnet_type_id, SUBNET_PARENT_SUBNET_FIELD, parent_subnet_id,
+            objects_manager, subnet_type_id, SubnetField.PARENT_SUBNET, parent_subnet_id,
         )
 
     if parent_supernet_id is not None:
         candidates: list[dict[str, Any]] = _find_subnets_by_field(
-            objects_manager, subnet_type_id, SUBNET_PARENT_SUPERNET_FIELD, parent_supernet_id,
+            objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, parent_supernet_id,
         )
         # Exclude nested subnets — only direct children of the supernet are siblings
-        return [s for s in candidates if not extract_field_value(s, SUBNET_PARENT_SUBNET_FIELD)]
+        return [s for s in candidates if not extract_field_value(s, SubnetField.PARENT_SUBNET)]
 
     return []
 

@@ -18,8 +18,9 @@ Definition of required sections and fields for the SpecialType SUBNET
 """
 from typing import Any
 
-from cmdb.models.type_model import FieldType, SectionType, FieldKey
+from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SubnetField, IpamSection
 from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -35,49 +36,49 @@ def get_subnet_schema() -> dict[str, Any]:
         dict[str, Any]: Blueprint with the SUBNET sections, fields and 'special_type' marker
     """
     return {
-        FieldKey.SPECIAL_TYPE: SpecialType.SUBNET,
-        FieldKey.SECTIONS: [
+        TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET,
+        TypeSchemaKey.SECTIONS: [
             {
-                FieldKey.TYPE: SectionType.SECTION,
-                FieldKey.NAME: 'dg-information',
-                FieldKey.LABEL: 'Information',
-                FieldKey.FIELDS: [
-                    'dg-name',
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.INFORMATION,
+                SectionKey.LABEL: 'Information',
+                SectionKey.FIELDS: [
+                    SubnetField.NAME,
                 ],
             },
             {
-                FieldKey.TYPE: SectionType.SECTION,
-                FieldKey.NAME: 'dg-network-details',
-                FieldKey.LABEL: 'Network Details',
-                FieldKey.FIELDS: [
-                    'dg-supernet-ref',
-                    'dg-parent-subnet-ref',
-                    'dg-network-range',
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.NETWORK_DETAILS,
+                SectionKey.LABEL: 'Network Details',
+                SectionKey.FIELDS: [
+                    SubnetField.PARENT_SUPERNET,
+                    SubnetField.PARENT_SUBNET,
+                    SubnetField.NETWORK_RANGE,
                 ],
             },
         ],
-        FieldKey.FIELDS: [
+        TypeSchemaKey.FIELDS: [
             {
                 FieldKey.TYPE: FieldType.TEXT,
-                FieldKey.NAME: 'dg-name',
+                FieldKey.NAME: SubnetField.NAME,
                 FieldKey.LABEL: 'Name',
             },
             {
                 FieldKey.TYPE: FieldType.REFERENCE,
-                FieldKey.NAME: 'dg-supernet-ref',
+                FieldKey.NAME: SubnetField.PARENT_SUPERNET,
                 FieldKey.LABEL: 'Supernet',
                 FieldKey.DESCRIPTION: "Reference to Supernet SpecialType",
                 FieldKey.REF_TYPES: [],
             },
             {
                 FieldKey.TYPE: FieldType.REFERENCE,
-                FieldKey.NAME: 'dg-parent-subnet-ref',
+                FieldKey.NAME: SubnetField.PARENT_SUBNET,
                 FieldKey.LABEL: 'Parent Subnet',
                 FieldKey.REF_TYPES: [],
             },
             {
                 FieldKey.TYPE: FieldType.TEXT,
-                FieldKey.NAME: 'dg-network-range',
+                FieldKey.NAME: SubnetField.NETWORK_RANGE,
                 FieldKey.LABEL: 'Network Range',
                 FieldKey.REQUIRED: True,
                 FieldKey.REGEX: IPV4_CIDR_REGEX,

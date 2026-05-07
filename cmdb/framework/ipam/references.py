@@ -24,6 +24,7 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SubnetField, VlanField, InterfaceField
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -104,7 +105,7 @@ def find_subnets_referencing_supernet(
     if subnet_type_id is None:
         return []
 
-    return _find_objects_with_field_value(objects_manager, subnet_type_id, 'dg-supernet-ref', supernet_object_id)
+    return _find_objects_with_field_value(objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, supernet_object_id)
 
 
 def find_subnets_referencing_parent_subnet(
@@ -132,7 +133,7 @@ def find_subnets_referencing_parent_subnet(
     return _find_objects_with_field_value(
         objects_manager,
         subnet_type_id,
-        'dg-parent-subnet-ref',
+        SubnetField.PARENT_SUBNET,
         parent_subnet_object_id,
     )
 
@@ -159,7 +160,7 @@ def find_vlans_referencing_subnet(
     if vlan_type_id is None:
         return []
 
-    return _find_objects_with_field_value(objects_manager, vlan_type_id, 'dg-subnet-ref', subnet_object_id)
+    return _find_objects_with_field_value(objects_manager, vlan_type_id, VlanField.SUBNET_REF, subnet_object_id)
 
 
 def find_interfaces_referencing_subnet(
@@ -187,7 +188,7 @@ def find_interfaces_referencing_subnet(
                     '$elemMatch': {
                         'data': {
                             '$elemMatch': {
-                                'name': 'dg-interface-subnet',
+                                'name': InterfaceField.SUBNET,
                                 'value': subnet_object_id,
                             },
                         },
