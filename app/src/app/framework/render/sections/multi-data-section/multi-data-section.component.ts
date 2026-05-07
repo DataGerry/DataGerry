@@ -433,6 +433,8 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
         this.modalRef.componentInstance.sections = [this.modalSection];
         this.modalRef.componentInstance.saveValues = true;
+        this.modalRef.componentInstance.excludeObjectId = this.getCurrentObjectId();
+        this.modalRef.componentInstance.excludeRowIndex = null;
 
         this.modalRef.result.then((values: any) => {
             if (values){
@@ -473,6 +475,8 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
         this.modalRef.componentInstance.editValues = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
+        this.modalRef.componentInstance.excludeObjectId = this.getCurrentObjectId();
+        this.modalRef.componentInstance.excludeRowIndex = rowIndex;
 
         this.modalRef.result.then((values: any) => {
             if (values){
@@ -775,11 +779,21 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
     /**
      * Retrieves the current highest ID for a MultiDataSet
-     * 
+     *
      * @returns (number): the current highest ID for a MultiDataSet
      */
     getCurrentHighestMultiDataID(): number {
         return this.formatedDataSection.highest_id;
+    }
+
+
+    /**
+     * Resolves the public_id of the object currently being edited so backend validators can
+     * exclude it from collision checks. Returns null when the object does not yet exist (create mode).
+     */
+    private getCurrentObjectId(): number | null {
+        const objectId = this.renderResult?.object_information?.object_id;
+        return typeof objectId === 'number' && objectId > 0 ? objectId : null;
     }
 
 

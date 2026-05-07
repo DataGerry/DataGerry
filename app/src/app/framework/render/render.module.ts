@@ -61,6 +61,7 @@ import { TableModule } from 'src/app/layout/table/table.module';
 import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-data-actions.component';
 import { SubnetFormSyncDirective } from './special-types/subnet/directives/subnet-form-sync.directive';
 import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/directives/subnet-network-range-validator.directive';
+import { InterfaceIpamValidatorDirective } from './special-types/ipam-interface/directives/interface-ipam-validator.directive';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -110,12 +111,14 @@ import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/dir
         RefSectionSimpleComponent,
         MultiDataActionsComponent,
         SubnetFormSyncDirective,
-        SubnetNetworkRangeValidatorDirective
+        SubnetNetworkRangeValidatorDirective,
+        InterfaceIpamValidatorDirective
     ],
     exports: [
         RenderElementComponent,
         RenderComponent,
-        DateFormatterPipe
+        DateFormatterPipe,
+        InterfaceIpamValidatorDirective
     ]
 })
 export class RenderModule {
