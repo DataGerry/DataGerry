@@ -1,4 +1,11 @@
-<div id="renderModeWrapper" *ngIf="renderResult; then renderResultTemplate else mergeBlockTemplate"></div>
+<div
+    [cmdbSubnetFormSync]="typeInstance"
+    [cmdbSubnetFormSyncForm]="renderForm"
+    [cmdbSubnetNetworkRangeValidator]="typeInstance"
+    [cmdbSubnetNetworkRangeValidatorForm]="renderForm"
+    [cmdbSubnetNetworkRangeValidatorObjectId]="objectID ?? null">
+    <div id="renderModeWrapper" *ngIf="renderResult; then renderResultTemplate else mergeBlockTemplate"></div>
+</div>
 
 <ng-template #renderResultTemplate>
     <cmdb-sections-factory

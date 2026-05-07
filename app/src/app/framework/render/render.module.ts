@@ -59,6 +59,8 @@ import { DateFormatterPipe } from '../../layout/pipes/date-formatter.pipe';
 import { RefSectionSimpleComponent } from './simple/special/ref-section-simple.component';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-data-actions.component';
+import { SubnetFormSyncDirective } from './special-types/subnet/directives/subnet-form-sync.directive';
+import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/directives/subnet-network-range-validator.directive';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -106,7 +108,9 @@ import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-d
         SectionsFactoryComponent,
         DateFormatterPipe,
         RefSectionSimpleComponent,
-        MultiDataActionsComponent
+        MultiDataActionsComponent,
+        SubnetFormSyncDirective,
+        SubnetNetworkRangeValidatorDirective
     ],
     exports: [
         RenderElementComponent,
