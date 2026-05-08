@@ -55,7 +55,6 @@ class SubnetField(str, Enum):
     NAME = 'dg-name'
     NETWORK_RANGE = 'dg-network-range'
     PARENT_SUPERNET = 'dg-supernet-ref'
-    PARENT_SUBNET = 'dg-parent-subnet-ref'
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
@@ -99,6 +98,7 @@ class InterfaceField(str, Enum):
     """
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
+    MAC = 'dg-interface-mac-address'
 
     @classmethod
     def is_valid(cls, value: str) -> bool:

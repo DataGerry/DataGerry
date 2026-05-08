@@ -28,9 +28,8 @@ def get_subnet_schema() -> dict[str, Any]:
     """
     Builds the section/field blueprint for the SUBNET SpecialType
 
-    Reference fields ('dg-supernet-ref', 'dg-parent-subnet-ref') are returned with empty
-    'ref_types'; the lists are populated post-insert by handle_special_types when the matching
-    parent SpecialTypes exist
+    The 'dg-supernet-ref' reference field is returned with an empty 'ref_types'; the list
+    is populated post-insert by handle_special_types once the SUPERNET SpecialType exists
 
     Returns:
         dict[str, Any]: Blueprint with the SUBNET sections, fields and 'special_type' marker
@@ -52,7 +51,6 @@ def get_subnet_schema() -> dict[str, Any]:
                 SectionKey.LABEL: 'Network Details',
                 SectionKey.FIELDS: [
                     SubnetField.PARENT_SUPERNET,
-                    SubnetField.PARENT_SUBNET,
                     SubnetField.NETWORK_RANGE,
                 ],
             },
@@ -68,12 +66,6 @@ def get_subnet_schema() -> dict[str, Any]:
                 FieldKey.NAME: SubnetField.PARENT_SUPERNET,
                 FieldKey.LABEL: 'Supernet',
                 FieldKey.DESCRIPTION: "Reference to Supernet SpecialType",
-                FieldKey.REF_TYPES: [],
-            },
-            {
-                FieldKey.TYPE: FieldType.REFERENCE,
-                FieldKey.NAME: SubnetField.PARENT_SUBNET,
-                FieldKey.LABEL: 'Parent Subnet',
                 FieldKey.REF_TYPES: [],
             },
             {

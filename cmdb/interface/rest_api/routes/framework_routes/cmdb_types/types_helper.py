@@ -140,21 +140,17 @@ def handle_special_types(
             if vlan_updated:
                 types_manager.update_type(vlan_type['public_id'], vlan_type)
 
+        supernet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUPERNET})
+
+        if not supernet_type:
+            return
+
         subnet_type: dict[str, Any] | None = types_manager.get_one_by({'public_id': special_type_id})
 
         if not subnet_type:
             return
 
-        supernet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUPERNET})
-
-        subnet_updated: bool = False
-
-        if supernet_type:
-            subnet_updated |= ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, supernet_type['public_id'])
-
-        subnet_updated |= ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUBNET, special_type_id)
-
-        if subnet_updated:
+        if ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, supernet_type['public_id']):
             types_manager.update_type(special_type_id, subnet_type)
 
     elif special_type == SpecialType.VLAN:
@@ -493,8 +489,7 @@ def cleanup_special_type_references(
 
     SUPERNET: drops the id from SUBNET's 'dg-supernet-ref'.
     SUBNET:   drops the id from VLAN's 'dg-subnet-ref' and the 'dg-ipam-interface' section
-              template's 'dg-interface-subnet'. The deleted SUBNET's own
-              'dg-parent-subnet-ref' self-reference disappears with the type.
+              template's 'dg-interface-subnet'.
     VLAN:     no schema points at VLAN, no cleanup required.
 
     Idempotent: silently no-ops when the cross-wired CmdbTypes / section template do not
