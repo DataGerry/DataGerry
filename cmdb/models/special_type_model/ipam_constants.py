@@ -99,6 +99,7 @@ class InterfaceField(str, Enum):
     """
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
+    MAC = 'dg-interface-mac-address'
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
