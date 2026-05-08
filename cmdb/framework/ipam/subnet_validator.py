@@ -16,8 +16,8 @@
 """
 Validator for SUBNET CmdbObjects
 
-Surfaces canonical-CIDR, parent-existence, containment, sibling-overlap and parent-chain-cycle
-errors. Each check is decomposed into a small helper to remain unit-testable
+Surfaces canonical-CIDR, parent-supernet-existence, containment and sibling-overlap errors.
+Each check is decomposed into a small helper to remain unit-testable
 """
 from ipaddress import IPv4Network
 from typing import Any
@@ -30,9 +30,6 @@ from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-MAX_PARENT_CHAIN_DEPTH: int = 64
-
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ERROR CODES                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,11 +40,6 @@ class SubnetErrorCode:
     PARENT_SUPERNET_NOT_FOUND = 'parent_supernet_not_found'
     PARENT_SUPERNET_BROKEN_STATE = 'parent_supernet_broken_state'
     NOT_IN_PARENT_SUPERNET = 'not_in_parent_supernet'
-    PARENT_SUBNET_TYPE_MISSING = 'parent_subnet_type_missing'
-    PARENT_SUBNET_NOT_FOUND = 'parent_subnet_not_found'
-    PARENT_SUBNET_BROKEN_STATE = 'parent_subnet_broken_state'
-    NOT_IN_PARENT_SUBNET = 'not_in_parent_subnet'
-    PARENT_CHAIN_CYCLE = 'parent_chain_cycle'
     SIBLING_OVERLAP = 'sibling_overlap'
 
 
@@ -221,157 +213,23 @@ def _check_in_supernet(
     return []
 
 
-def _check_in_parent_subnet(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    candidate: IPv4Network,
-    parent_subnet_object_id: int,
-) -> list[dict[str, Any]]:
-    """
-    Validates the candidate is a subnet of the referenced parent subnet's network range
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        candidate (IPv4Network): The parsed candidate CIDR
-        parent_subnet_object_id (int): public_id of the referenced parent SUBNET CmdbObject
-
-    Returns:
-        list[dict[str, Any]]: Validation errors found, empty when containment holds
-    """
-    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
-
-    if subnet_type_id is None:
-        return [build_error(
-            SubnetErrorCode.PARENT_SUBNET_TYPE_MISSING,
-            "No SUBNET CmdbType is defined; cannot validate parent subnet",
-        )]
-
-    parent_obj: dict[str, Any] | None = _load_object_by_id(objects_manager, parent_subnet_object_id)
-
-    if not parent_obj or parent_obj.get('type_id') != subnet_type_id:
-        return [build_error(
-            SubnetErrorCode.PARENT_SUBNET_NOT_FOUND,
-            f"Parent subnet object with id {parent_subnet_object_id} does not exist",
-            {'parent_subnet_object_id': parent_subnet_object_id},
-        )]
-
-    parent_range_raw: Any = extract_field_value(parent_obj, SubnetField.NETWORK_RANGE)
-    parent_net: IPv4Network | None = parse_cidr(parent_range_raw) if isinstance(parent_range_raw, str) else None
-
-    if parent_net is None:
-        return [build_error(
-            SubnetErrorCode.PARENT_SUBNET_BROKEN_STATE,
-            f"Parent subnet object {parent_subnet_object_id} has no valid '{SubnetField.NETWORK_RANGE.value}' value",
-            {'parent_subnet_object_id': parent_subnet_object_id, 'stored_value': parent_range_raw},
-        )]
-
-    if not contains(parent_net, candidate):
-        return [build_error(
-            SubnetErrorCode.NOT_IN_PARENT_SUBNET,
-            f"Candidate {candidate} is not contained in parent subnet {parent_net}",
-            {
-                'candidate': str(candidate),
-                'parent_subnet_object_id': parent_subnet_object_id,
-                'parent_subnet_range': str(parent_net),
-            },
-        )]
-
-    return []
-
-
-def _check_no_cycle(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    candidate_subnet_id: int,
-    proposed_parent_subnet_id: int,
-) -> list[dict[str, Any]]:
-    """
-    Validates that setting the candidate subnet's parent to 'proposed_parent_subnet_id' would
-    not create a cycle in the parent chain
-
-    Walks the chain upward from the proposed parent and aborts if the candidate appears, or if
-    a pre-existing cycle is detected, or if the chain exceeds MAX_PARENT_CHAIN_DEPTH
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        candidate_subnet_id (int): public_id of the subnet being edited
-        proposed_parent_subnet_id (int): public_id the user is trying to set as parent
-
-    Returns:
-        list[dict[str, Any]]: Single-element list with a cycle error when one is found, else []
-    """
-    if candidate_subnet_id == proposed_parent_subnet_id:
-        return [build_error(
-            SubnetErrorCode.PARENT_CHAIN_CYCLE,
-            "A subnet cannot be its own parent",
-            {'candidate_subnet_id': candidate_subnet_id},
-        )]
-
-    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
-
-    if subnet_type_id is None:
-        return []
-
-    visited: set[int] = set()
-    current_id: int | None = proposed_parent_subnet_id
-
-    for _ in range(MAX_PARENT_CHAIN_DEPTH):
-        if current_id is None:
-            return []
-
-        if current_id in visited:
-            return [build_error(
-                SubnetErrorCode.PARENT_CHAIN_CYCLE,
-                "Existing parent chain already contains a cycle",
-                {'cycle_at_subnet_id': current_id},
-            )]
-        visited.add(current_id)
-
-        if current_id == candidate_subnet_id:
-            return [build_error(
-                SubnetErrorCode.PARENT_CHAIN_CYCLE,
-                "Setting this parent would create a cycle in the parent chain",
-                {'candidate_subnet_id': candidate_subnet_id, 'parent_subnet_id': proposed_parent_subnet_id},
-            )]
-
-        ancestor: dict[str, Any] | None = _load_object_by_id(objects_manager, current_id)
-
-        if not ancestor or ancestor.get('type_id') != subnet_type_id:
-            return []
-
-        current_id = extract_field_value(ancestor, SubnetField.PARENT_SUBNET) or None
-
-    return [build_error(
-        SubnetErrorCode.PARENT_CHAIN_CYCLE,
-        f"Parent chain exceeds maximum depth of {MAX_PARENT_CHAIN_DEPTH}",
-        {'max_depth': MAX_PARENT_CHAIN_DEPTH},
-    )]
-
-
 def _check_sibling_overlap(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     candidate: IPv4Network,
-    parent_supernet_id: int | None,
-    parent_subnet_id: int | None,
+    parent_supernet_id: int,
     exclude_subnet_id: int | None,
 ) -> list[dict[str, Any]]:
     """
-    Validates the candidate does not overlap with siblings sharing the same direct parent
+    Validates the candidate does not overlap with siblings sharing the same parent_supernet
 
-    'Direct parent' is the parent_subnet when set; otherwise the parent_supernet (with siblings
-    further filtered to those that themselves have no parent_subnet, so deeply-nested subnets
-    are not treated as siblings of top-level children). Standalone candidates (no parent at all)
-    have no sibling check per project policy
+    Standalone candidates (no parent_supernet) have no sibling check per project policy
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         candidate (IPv4Network): The parsed candidate CIDR
-        parent_supernet_id (int | None): public_id of chosen SUPERNET, or None
-        parent_subnet_id (int | None): public_id of chosen parent SUBNET, or None
+        parent_supernet_id (int): public_id of chosen SUPERNET
         exclude_subnet_id (int | None): public_id of the candidate itself when editing
 
     Returns:
@@ -382,8 +240,8 @@ def _check_sibling_overlap(
     if subnet_type_id is None:
         return []
 
-    siblings: list[dict[str, Any]] = _collect_siblings(
-        objects_manager, subnet_type_id, parent_supernet_id, parent_subnet_id,
+    siblings: list[dict[str, Any]] = _find_subnets_by_field(
+        objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, parent_supernet_id,
     )
 
     errors: list[dict[str, Any]] = []
@@ -414,43 +272,6 @@ def _check_sibling_overlap(
     return errors
 
 
-def _collect_siblings(
-    objects_manager: ObjectsManager,
-    subnet_type_id: int,
-    parent_supernet_id: int | None,
-    parent_subnet_id: int | None,
-) -> list[dict[str, Any]]:
-    """
-    Returns subnet objects sharing the candidate's direct parent
-
-    When 'parent_subnet_id' is set, siblings share that parent_subnet ref. Otherwise siblings
-    share the parent_supernet ref AND have no parent_subnet ref themselves (so nested subnets
-    are excluded from top-level sibling checks)
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        subnet_type_id (int): public_id of the SUBNET CmdbType
-        parent_supernet_id (int | None): public_id of chosen SUPERNET, or None
-        parent_subnet_id (int | None): public_id of chosen parent SUBNET, or None
-
-    Returns:
-        list[dict[str, Any]]: Full sibling subnet documents (with their 'fields' array)
-    """
-    if parent_subnet_id is not None:
-        return _find_subnets_by_field(
-            objects_manager, subnet_type_id, SubnetField.PARENT_SUBNET, parent_subnet_id,
-        )
-
-    if parent_supernet_id is not None:
-        candidates: list[dict[str, Any]] = _find_subnets_by_field(
-            objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, parent_supernet_id,
-        )
-        # Exclude nested subnets — only direct children of the supernet are siblings
-        return [s for s in candidates if not extract_field_value(s, SubnetField.PARENT_SUBNET)]
-
-    return []
-
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ORCHESTRATOR                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -459,11 +280,10 @@ def validate_subnet(
     types_manager: TypesManager,
     network_range: str,
     parent_supernet_id: int | None = None,
-    parent_subnet_id: int | None = None,
     exclude_subnet_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Validates a candidate SUBNET CmdbObject's network range and parent references
+    Validates a candidate SUBNET CmdbObject's network range and parent supernet reference
 
     Returns the accumulated list of errors so the caller can render or abort. An empty list
     means valid
@@ -473,9 +293,8 @@ def validate_subnet(
         types_manager (TypesManager): db interface for CmdbTypes
         network_range (str): The candidate IPv4 CIDR (must be canonical, host bits zeroed)
         parent_supernet_id (int | None): Chosen SUPERNET object id when applicable
-        parent_subnet_id (int | None): Chosen parent SUBNET object id when applicable
         exclude_subnet_id (int | None): Self-id during edits, so the candidate doesn't trip
-            cycle / sibling-overlap checks against its own pre-edit state
+            sibling-overlap checks against its own pre-edit state
 
     Returns:
         list[dict[str, Any]]: Structured validation errors; empty when the candidate is valid
@@ -487,19 +306,8 @@ def validate_subnet(
 
     if parent_supernet_id is not None:
         errors.extend(_check_in_supernet(objects_manager, types_manager, candidate, parent_supernet_id))
-
-    if parent_subnet_id is not None:
-        errors.extend(_check_in_parent_subnet(objects_manager, types_manager, candidate, parent_subnet_id))
-
-        if exclude_subnet_id is not None:
-            errors.extend(_check_no_cycle(
-                objects_manager, types_manager, exclude_subnet_id, parent_subnet_id,
-            ))
-
-    if parent_supernet_id is not None or parent_subnet_id is not None:
         errors.extend(_check_sibling_overlap(
-            objects_manager, types_manager, candidate,
-            parent_supernet_id, parent_subnet_id, exclude_subnet_id,
+            objects_manager, types_manager, candidate, parent_supernet_id, exclude_subnet_id,
         ))
 
     return errors

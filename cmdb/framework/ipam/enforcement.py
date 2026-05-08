@@ -39,10 +39,7 @@ from cmdb.framework.ipam.subnet_validator import (
     SubnetErrorCode,
 )
 from cmdb.framework.ipam.vlan_validator import validate_vlan
-from cmdb.framework.ipam.interface_validator import (
-    validate_interface,
-    InterfaceErrorCode,
-)
+from cmdb.framework.ipam.interface_validator import validate_interface_rows
 from cmdb.framework.ipam.range_change_guards import (
     range_changed,
     check_subnet_range_change,
@@ -50,7 +47,6 @@ from cmdb.framework.ipam.range_change_guards import (
 )
 from cmdb.framework.ipam.references import (
     find_subnets_referencing_supernet,
-    find_subnets_referencing_parent_subnet,
     find_vlans_referencing_subnet,
     find_interfaces_referencing_subnet,
 )
@@ -143,7 +139,6 @@ def _enforce_subnet_object(
     """
     network_range: Any = extract_field_value(candidate_object, SubnetField.NETWORK_RANGE)
     parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUPERNET))
-    parent_subnet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUBNET))
     candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
 
     errors: list[dict[str, Any]] = validate_subnet(
@@ -151,7 +146,6 @@ def _enforce_subnet_object(
         types_manager,
         network_range=network_range if isinstance(network_range, str) else '',
         parent_supernet_id=parent_supernet_id,
-        parent_subnet_id=parent_subnet_id,
         exclude_subnet_id=candidate_id if previous_object is not None else None,
     )
 
@@ -159,7 +153,7 @@ def _enforce_subnet_object(
         previous_range: Any = extract_field_value(previous_object, SubnetField.NETWORK_RANGE)
         if range_changed(previous_range, network_range):
             errors.extend(check_subnet_range_change(
-                objects_manager, types_manager, candidate_id, network_range,
+                objects_manager, candidate_id, network_range,
             ))
 
     return errors
@@ -287,46 +281,6 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
     return rows_out
 
 
-def _check_intra_submission_duplicates(
-    rows: list[tuple[int, int | None, str | None]],
-) -> list[dict[str, Any]]:
-    """
-    Reports interface rows in the same submission that share both subnet ref and IP
-
-    Args:
-        rows (list[tuple[int, int | None, str | None]]): Output of _extract_interface_rows
-
-    Returns:
-        list[dict[str, Any]]: One error per duplicate occurrence
-    """
-    seen: dict[tuple[int, str], int] = {}
-    errors: list[dict[str, Any]] = []
-
-    for row_index, subnet_ref, ip in rows:
-        if subnet_ref is None or ip is None:
-            continue
-
-        key: tuple[int, str] = (subnet_ref, ip)
-
-        if key in seen:
-            errors.append(build_error(
-                InterfaceErrorCode.IP_DUPLICATE,
-                f"IP {ip} is duplicated within submitted interface rows "
-                f"(rows {seen[key]} and {row_index})",
-                {
-                    'ip_address': ip,
-                    'subnet_object_id': subnet_ref,
-                    'first_row_index': seen[key],
-                    'duplicate_row_index': row_index,
-                },
-            ))
-            continue
-
-        seen[key] = row_index
-
-    return errors
-
-
 def _enforce_interface_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -334,8 +288,8 @@ def _enforce_interface_rows(
     previous_object: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     """
-    Validates each dg-ipam-interface row on the candidate object: per-row validation against
-    the DB plus intra-submission duplicate detection
+    Validates each dg-ipam-interface row on the candidate object via the shared batch
+    validator (cross-row duplicate detection plus per-row DB checks)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -351,26 +305,11 @@ def _enforce_interface_rows(
     if not rows:
         return []
 
-    errors: list[dict[str, Any]] = _check_intra_submission_duplicates(rows)
-
     exclude_object_id: int | None = (
         _coerce_int(candidate_object.get('public_id')) if previous_object is not None else None
     )
 
-    for row_index, subnet_ref, ip in rows:
-        if subnet_ref is None or ip is None:
-            continue
-
-        errors.extend(validate_interface(
-            objects_manager,
-            types_manager,
-            subnet_object_id=subnet_ref,
-            ip_address=ip,
-            exclude_object_id=exclude_object_id,
-            exclude_row_index=row_index,
-        ))
-
-    return errors
+    return validate_interface_rows(objects_manager, types_manager, rows, exclude_object_id)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -426,7 +365,6 @@ def enforce_object_invariants(
 class DeleteGuardErrorCode:
     """Stable codes for IPAM deletion-guard errors"""
     SUPERNET_HAS_REFERENCING_SUBNETS = 'supernet_has_referencing_subnets'
-    SUBNET_HAS_REFERENCING_SUBNETS = 'subnet_has_referencing_subnets'
     SUBNET_HAS_REFERENCING_VLANS = 'subnet_has_referencing_vlans'
     SUBNET_HAS_REFERENCING_INTERFACES = 'subnet_has_referencing_interfaces'
 
@@ -543,17 +481,6 @@ def _guard_subnet_delete(
         list[dict[str, Any]]: One error per blocking reference category
     """
     errors: list[dict[str, Any]] = []
-
-    child_subnets: list[dict[str, Any]] = find_subnets_referencing_parent_subnet(
-        objects_manager, types_manager, subnet_object_id,
-    )
-
-    if child_subnets:
-        errors.append(_build_delete_guard_error(
-            DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_SUBNETS,
-            f"Subnet is parent of subnets: {_format_id_list(child_subnets)}",
-            child_subnets,
-        ))
 
     vlans: list[dict[str, Any]] = find_vlans_referencing_subnet(
         objects_manager, types_manager, subnet_object_id,

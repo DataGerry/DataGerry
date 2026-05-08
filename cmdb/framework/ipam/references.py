@@ -108,36 +108,6 @@ def find_subnets_referencing_supernet(
     return _find_objects_with_field_value(objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, supernet_object_id)
 
 
-def find_subnets_referencing_parent_subnet(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    parent_subnet_object_id: int,
-) -> list[dict[str, Any]]:
-    """
-    Returns subnet CmdbObjects whose 'dg-parent-subnet-ref' points at the given subnet object
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        parent_subnet_object_id (int): public_id of the SUBNET CmdbObject being checked
-
-    Returns:
-        list[dict[str, Any]]: Matching child subnet objects as {'public_id', 'type_id'} dicts;
-            empty list when no SUBNET CmdbType exists or no child references this subnet
-    """
-    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
-
-    if subnet_type_id is None:
-        return []
-
-    return _find_objects_with_field_value(
-        objects_manager,
-        subnet_type_id,
-        SubnetField.PARENT_SUBNET,
-        parent_subnet_object_id,
-    )
-
-
 def find_vlans_referencing_subnet(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
