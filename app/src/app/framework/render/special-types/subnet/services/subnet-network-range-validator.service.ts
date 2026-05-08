@@ -72,22 +72,18 @@ export class SubnetNetworkRangeValidatorService {
 
         const networkRange = form.get(SUBNET_FIELD_NAMES.NETWORK_RANGE);
         const supernet = form.get(SUBNET_FIELD_NAMES.SUPERNET);
-        const parent = form.get(SUBNET_FIELD_NAMES.PARENT_SUBNET);
 
-        if (!networkRange || !supernet || !parent) {
+        if (!networkRange || !supernet) {
             return NOOP_HANDLE;
         }
 
-        const validator = this.buildValidator(supernet, parent, options.excludeSubnetId);
+        const validator = this.buildValidator(supernet, options.excludeSubnetId);
         const previousValidator = networkRange.asyncValidator;
         networkRange.addAsyncValidators(validator);
         networkRange.updateValueAndValidity({ emitEvent: false });
 
         const subscriptions: Subscription[] = [
             supernet.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
-                networkRange.updateValueAndValidity();
-            }),
-            parent.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
                 networkRange.updateValueAndValidity();
             })
         ];
@@ -108,7 +104,6 @@ export class SubnetNetworkRangeValidatorService {
 
     private buildValidator(
         supernet: AbstractControl,
-        parent: AbstractControl,
         excludeSubnetId: number | null
     ): AsyncValidatorFn {
         return (control: AbstractControl): Observable<ValidationErrors | null> => {
@@ -120,7 +115,6 @@ export class SubnetNetworkRangeValidatorService {
             const payload: SubnetValidationRequest = {
                 network_range: networkRange,
                 parent_supernet_id: this.toObjectId(supernet.value),
-                parent_subnet_id: this.toObjectId(parent.value),
                 exclude_subnet_id: excludeSubnetId
             };
 
