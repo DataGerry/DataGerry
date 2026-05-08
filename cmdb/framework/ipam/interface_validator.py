@@ -356,3 +356,103 @@ def validate_interface(
         ))
 
     return errors
+
+
+def find_intra_submission_duplicates(
+    rows: list[tuple[int, int | None, str | None]],
+) -> list[dict[str, Any]]:
+    """
+    Reports interface rows in the same submission that share both subnet ref and IP
+
+    Rows missing either the subnet ref or the IP are skipped (treated as incomplete, surfaced
+    by the per-row check instead). The first occurrence of a (subnet_ref, ip) pair seeds the
+    seen-set; every subsequent matching row is reported as a duplicate against that first row
+
+    Args:
+        rows (list[tuple[int, int | None, str | None]]): (row_index, subnet_ref, ip) tuples
+
+    Returns:
+        list[dict[str, Any]]: One IP_DUPLICATE error per duplicate occurrence, with details
+            carrying both the first and duplicate row indices
+    """
+    seen: dict[tuple[int, str], int] = {}
+    errors: list[dict[str, Any]] = []
+
+    for row_index, subnet_ref, ip in rows:
+        if subnet_ref is None or ip is None:
+            continue
+
+        key: tuple[int, str] = (subnet_ref, ip)
+
+        if key in seen:
+            errors.append(build_error(
+                InterfaceErrorCode.IP_DUPLICATE,
+                f"IP {ip} is duplicated within submitted interface rows "
+                f"(rows {seen[key]} and {row_index})",
+                {
+                    'ip_address': ip,
+                    'subnet_object_id': subnet_ref,
+                    'first_row_index': seen[key],
+                    'duplicate_row_index': row_index,
+                },
+            ))
+            continue
+
+        seen[key] = row_index
+
+    return errors
+
+
+def validate_interface_rows(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    rows: list[tuple[int, int | None, str | None]],
+    exclude_object_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Validates a batch of dg-ipam-interface rows belonging to one (in-flight) object
+
+    Performs:
+      1. Cross-row duplicate detection via find_intra_submission_duplicates so two rows on the
+         same form sharing a (subnet, IP) pair are flagged before they hit the DB
+      2. Per-row validation via validate_interface for each row that has both subnet_ref and IP
+         set; the row's index is injected into every per-row error's 'details.row_index' so the
+         caller can map errors back to the originating row
+
+    This function is the single source of truth for interface-row enforcement: save-time
+    enforcement and the inline pre-validation REST route both delegate to it
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        rows (list[tuple[int, int | None, str | None]]): (row_index, subnet_ref, ip) tuples
+        exclude_object_id (int | None): public_id of the editing object so its own pre-edit
+            row is not flagged as a collision against itself
+
+    Returns:
+        list[dict[str, Any]]: Accumulated structured errors; empty when the batch is valid
+    """
+    if not rows:
+        return []
+
+    errors: list[dict[str, Any]] = find_intra_submission_duplicates(rows)
+
+    for row_index, subnet_ref, ip in rows:
+        if subnet_ref is None or ip is None:
+            continue
+
+        row_errors: list[dict[str, Any]] = validate_interface(
+            objects_manager,
+            types_manager,
+            subnet_object_id=subnet_ref,
+            ip_address=ip,
+            exclude_object_id=exclude_object_id,
+            exclude_row_index=row_index,
+        )
+
+        for err in row_errors:
+            err.setdefault('details', {})['row_index'] = row_index
+
+        errors.extend(row_errors)
+
+    return errors

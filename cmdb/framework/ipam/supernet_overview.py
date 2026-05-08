@@ -112,17 +112,15 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
         used_count (int): Number of dg-ipam-interface rows that reference this subnet
 
     Returns:
-        dict[str, Any]: One row with public_id, parent_subnet_ref, cidr, ip_range,
-            used_ips, free_ips, usage_percent
+        dict[str, Any]: One row with public_id, cidr, ip_range, used_ips, free_ips,
+            usage_percent
     """
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
     network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
-    parent_subnet_ref: Any = extract_field_value(subnet_obj, SubnetField.PARENT_SUBNET)
 
     if network is None:
         return {
             'public_id': subnet_obj.get('public_id'),
-            'parent_subnet_ref': parent_subnet_ref,
             'cidr': raw_cidr if isinstance(raw_cidr, str) else None,
             'ip_range': None,
             'used_ips': 0,
@@ -135,7 +133,6 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
     if usable == 0:
         return {
             'public_id': subnet_obj.get('public_id'),
-            'parent_subnet_ref': parent_subnet_ref,
             'cidr': str(network),
             'ip_range': _ip_range(network),
             'used_ips': 0,
@@ -147,7 +144,6 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
 
     return {
         'public_id': subnet_obj.get('public_id'),
-        'parent_subnet_ref': parent_subnet_ref,
         'cidr': str(network),
         'ip_range': _ip_range(network),
         'used_ips': used_count,

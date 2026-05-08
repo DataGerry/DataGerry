@@ -15,7 +15,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Guards that refuse a SUPERNET / SUBNET object 'dg-network-range' edit when the change would
-orphan existing children (subnets) or interface IPs that no longer fit the new range
+orphan child subnets (for SUPERNET) or interface IPs (for SUBNET) that no longer fit the new
+range
 """
 from ipaddress import IPv4Network
 from typing import Any
@@ -78,31 +79,6 @@ def _find_child_subnets_of_supernet(
         {
             'type_id': subnet_type_id,
             'fields': {'$elemMatch': {'name': SubnetField.PARENT_SUPERNET, 'value': supernet_object_id}},
-        },
-        as_dict=True,
-    )
-
-
-def _find_child_subnets_of_subnet(
-    objects_manager: ObjectsManager,
-    subnet_type_id: int,
-    parent_subnet_object_id: int,
-) -> list[dict[str, Any]]:
-    """
-    Returns subnet documents whose 'dg-parent-subnet-ref' is the given subnet
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        subnet_type_id (int): public_id of the SUBNET CmdbType
-        parent_subnet_object_id (int): public_id of the parent subnet whose children we enumerate
-
-    Returns:
-        list[dict[str, Any]]: Full subnet documents (with their 'fields' array)
-    """
-    return objects_manager.find_objects(
-        {
-            'type_id': subnet_type_id,
-            'fields': {'$elemMatch': {'name': SubnetField.PARENT_SUBNET, 'value': parent_subnet_object_id}},
         },
         as_dict=True,
     )
@@ -301,41 +277,28 @@ def check_supernet_range_change(
 
 def check_subnet_range_change(
     objects_manager: ObjectsManager,
-    types_manager: TypesManager,
     subnet_object_id: int,
     new_range_value: Any,
 ) -> list[dict[str, Any]]:
     """
     Validates that changing a subnet's range to 'new_range_value' would not orphan existing
-    child subnets or interface IPs
+    interface IPs
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
         subnet_object_id (int): public_id of the subnet being edited
         new_range_value (Any): The proposed new 'dg-network-range' value
 
     Returns:
-        list[dict[str, Any]]: Errors per orphaned child or interface; empty when safe
+        list[dict[str, Any]]: Errors per orphaned interface IP; empty when safe
     """
     new_range: IPv4Network | None = parse_cidr(new_range_value) if isinstance(new_range_value, str) else None
 
     if new_range is None:
         return []
 
-    errors: list[dict[str, Any]] = []
-
-    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
-
-    if subnet_type_id is not None:
-        children: list[dict[str, Any]] = _find_child_subnets_of_subnet(
-            objects_manager, subnet_type_id, subnet_object_id,
-        )
-        errors.extend(_check_subnet_children_fit(children, new_range, subnet_object_id))
-
     interface_objs: list[dict[str, Any]] = _find_objects_with_interface_to_subnet(
         objects_manager, subnet_object_id,
     )
-    errors.extend(_check_interface_ips_fit(interface_objs, new_range, subnet_object_id))
 
-    return errors
+    return _check_interface_ips_fit(interface_objs, new_range, subnet_object_id)
