@@ -430,30 +430,45 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
                     f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
                 )
 
+        # Compute templates being removed by comparing the pre-update state to the
+        # incoming payload (NOT the post-update type), and snapshot each removed
+        # template's section info while it is still present on old_type — the blind
+        # update below will wipe the sections we need to identify affected fields
+        old_template_ids: set[str] = set(old_type.global_template_ids or [])
+        incoming_template_ids: set[str] = set(data.get('global_template_ids') or [])
+        removed_template_ids: set[str] = old_template_ids - incoming_template_ids
+
+        removed_template_hints: dict[str, tuple[list[str], str]] = {}
+
+        for template_name in removed_template_ids:
+            section = old_type.get_section(template_name)
+
+            if section is not None:
+                removed_template_hints[template_name] = (section.get_fields(), section.type)
+
         # Update the target CmdbType
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
         updated_type: CmdbType = types_manager.get_type(public_id, as_dict=False)
 
+        if not updated_type:
+            abort(404, f"The updated Type with ID:{public_id} was not found!")
 
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
             ManagerType.SECTION_TEMPLATES,
             request_user
         )
 
-        old_templates = set(old_type.global_template_ids or [])
-        new_templates = set(updated_type.global_template_ids or [])
-
-        removed_templates = old_templates - new_templates
-
-        for template_name in removed_templates:
+        for template_name in removed_template_ids:
+            expected_fields, expected_section_type = removed_template_hints.get(
+                template_name, (None, None),
+            )
             section_templates_manager.cleanup_global_section_from_type(
                 updated_type.public_id,
-                template_name
+                template_name,
+                expected_field_names=expected_fields,
+                expected_section_type=expected_section_type,
             )
-
-        if not updated_type:
-            abort(404, f"The updated Type with ID:{public_id} was not found!")
 
         if updated_type.special_type:
             handle_special_types(

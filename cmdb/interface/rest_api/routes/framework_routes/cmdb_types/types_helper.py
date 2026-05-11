@@ -16,6 +16,7 @@
 """
 Helper methods for CmdbType API routes
 """
+import copy
 from logging import Logger, getLogger
 from typing import Any
 
@@ -35,6 +36,7 @@ from cmdb.manager import (
 )
 
 from cmdb.models.object_group_model import ObjectGroupMode
+from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model.cmdb_user import CmdbUser
@@ -106,6 +108,13 @@ def handle_special_types(
     'dg-ipam-interface' section template so their 'ref_types' lists include each newly created
     or updated SpecialType. Idempotent: no write happens when 'ref_types' is already correct
 
+    When the SUBNET case mutates the 'dg-ipam-interface' section template, the propagation
+    hook 'handle_section_template_changes' is invoked afterwards so every CmdbType that has
+    already inlined the section gets its materialized 'dg-interface-subnet' field's
+    'ref_types' refreshed. Without that step a SUBNET created (or recreated) after a user
+    type already attached the IPAM interface section would never reach the type's stored
+    field definition, since section templates are copied at apply-time and not linked
+
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         special_type (SpecialType): The SpecialType of the CmdbType that triggered the wiring
@@ -127,10 +136,24 @@ def handle_special_types(
         interface_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': IpamSection.INTERFACE})
 
         if interface_template:
+            # Snapshot the pre-mutation state so handle_section_template_changes can diff
+            # the template against its prior version when propagating into user types
+            current_template_model: CmdbSectionTemplate = CmdbSectionTemplate.from_data(
+                copy.deepcopy(interface_template),
+            )
+
             tpl_updated: bool = ensure_ref_type(interface_template['fields'], InterfaceField.SUBNET, special_type_id)
 
             if tpl_updated:
                 section_templates_manager.update_section_template(interface_template["public_id"], interface_template)
+                # Propagate the new ref_types into every CmdbType that has already
+                # inlined the 'dg-ipam-interface' section; section templates are
+                # copied at apply-time, so without this call the materialized
+                # 'dg-interface-subnet' field on those types keeps the stale
+                # (or empty) ref_types from the moment the section was added
+                section_templates_manager.handle_section_template_changes(
+                    interface_template, current_template_model,
+                )
 
         vlan_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.VLAN})
 
@@ -379,10 +402,11 @@ def type_deletion_followup(
     Performs cleanup actions that must run after a CmdbType has been deleted
 
     Removes the deleted type's id from relations, CiExplorerProfiles and dynamic object
-    groups. When the deleted type carried a SpecialType marker, also drops the id from any
-    'ref_types' arrays that handle_special_types had cross-wired, so the surviving IPAM
-    CmdbTypes and the 'dg-ipam-interface' section template no longer offer the deleted type
-    as a valid reference target
+    groups, and strips it from every other CmdbType's field-level 'ref_types' arrays so
+    no surviving type still offers the deleted type as a reference target. When the
+    deleted type carried a SpecialType marker, additionally drops the id from any
+    'ref_types' arrays that handle_special_types had cross-wired on the IPAM section
+    template, so newly added 'dg-ipam-interface' sections no longer offer it either
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -395,6 +419,8 @@ def type_deletion_followup(
         ManagerType.CI_EXPLORER_PROFILE,
         request_user
     )
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
     # Delete this type_id from all relations parent and child ids
     relations_manager.remove_type_from_relations(public_id)
 
@@ -404,9 +430,17 @@ def type_deletion_followup(
     # Delete the type from all dynamic groups
     object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)
 
+    # Strip the deleted type id from every other CmdbType's field-level 'ref_types'
+    updated_count: int = cleanup_type_references_from_all_types(types_manager, public_id)
+
+    if updated_count:
+        LOGGER.info(
+            "Cleaned references to deleted CmdbType %s from %s sibling CmdbType(s)",
+            public_id, updated_count,
+        )
+
     # Drop the deleted type's id from cross-wired SpecialType 'ref_types' arrays
     if special_type:
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
             ManagerType.SECTION_TEMPLATES,
             request_user,
@@ -475,6 +509,56 @@ def remove_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) 
             return False
 
     return False
+
+
+def cleanup_type_references_from_all_types(
+    types_manager: TypesManager,
+    deleted_type_id: int,
+) -> int:
+    """
+    Strips 'deleted_type_id' from every CmdbType field whose 'ref_types' contains it
+
+    Runs after a CmdbType has been deleted: walks every other CmdbType that still
+    has the deleted id in any of its fields' 'ref_types' arrays, removes the id
+    in place, and persists the change. Uses a targeted Mongo query so only types
+    that actually reference the deleted id are pulled from the database
+
+    Covers both 'ref' and 'ref-section-field' fields as well as any fields
+    materialized from section templates (e.g. the IPAM 'dg-ipam-interface'
+    section's 'dg-interface-subnet'), because section templates are copied into
+    the host CmdbType's 'fields' list at the moment the section is added
+
+    Idempotent: when no candidate CmdbTypes still hold the id, returns 0 and
+    writes nothing
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        deleted_type_id (int): public_id of the CmdbType that was just deleted
+
+    Returns:
+        int: Number of CmdbTypes whose 'fields' were modified and persisted
+    """
+    candidates: list[dict[str, Any]] = types_manager.find(
+        criteria={'fields.ref_types': deleted_type_id},
+    )
+
+    updated_count: int = 0
+
+    for candidate in candidates:
+        changed: bool = False
+
+        for field in candidate.get('fields', []) or []:
+            ref_types: Any = field.get('ref_types')
+
+            if isinstance(ref_types, list) and deleted_type_id in ref_types:
+                ref_types.remove(deleted_type_id)
+                changed = True
+
+        if changed:
+            types_manager.update_type(candidate['public_id'], candidate)
+            updated_count += 1
+
+    return updated_count
 
 
 def cleanup_special_type_references(

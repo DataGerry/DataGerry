@@ -1429,6 +1429,9 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
             # Remove all child objects from static object groups
             handle_delete_from_object_groups(request_user, children_object_ids)
 
+            # Scrub dangling references to the deleted children from sibling CmdbObjects
+            objects_manager.delete_all_object_references(children_object_ids)
+
 
         # Delete target Object
         objects_manager.delete_with_follow_up(public_id, request_user, AccessControlPermission.DELETE)
