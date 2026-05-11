@@ -59,6 +59,8 @@ import { DateFormatterPipe } from '../../layout/pipes/date-formatter.pipe';
 import { RefSectionSimpleComponent } from './simple/special/ref-section-simple.component';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-data-actions.component';
+import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/directives/subnet-network-range-validator.directive';
+import { IPAM_INTERFACE_PROVIDERS } from './special-types/ipam-interface/ipam-interface.providers';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -106,12 +108,16 @@ import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-d
         SectionsFactoryComponent,
         DateFormatterPipe,
         RefSectionSimpleComponent,
-        MultiDataActionsComponent
+        MultiDataActionsComponent,
+        SubnetNetworkRangeValidatorDirective
     ],
     exports: [
         RenderElementComponent,
         RenderComponent,
         DateFormatterPipe
+    ],
+    providers: [
+        ...IPAM_INTERFACE_PROVIDERS
     ]
 })
 export class RenderModule {
