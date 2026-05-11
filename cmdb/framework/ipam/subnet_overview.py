@@ -140,26 +140,34 @@ def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str
 
 def _compose_assigned_row(
     ip_str: str,
-    type_label: str | None,
+    type_info: dict[str, Any] | None,
     assigned_to: dict[str, Any],
     mac_address: str | None,
 ) -> dict[str, Any]:
     """
     Shapes one 'assigned' row of the IP table
 
+    'type_info' carries the owning CmdbObject's CmdbType as a {public_id, label}
+    pair so two distinct types sharing the same label remain distinguishable on
+    the frontend. The pair is built by the orchestrator: public_id is the raw
+    type_id stored on the CmdbObject, label comes from the bulk type lookup and
+    may be None when the type can no longer be resolved (e.g. it was deleted
+    after the interface row was written)
+
     Args:
         ip_str (str): The IP address as canonical string
-        type_label (str | None): Label of the owning CmdbObject's CmdbType
+        type_info (dict[str, Any] | None): {'public_id', 'label'} for the
+            owning CmdbObject's CmdbType, or None when the type_id is missing
         assigned_to (dict[str, Any]): {'public_id', 'summary_line'} for the owning CmdbObject
         mac_address (str | None): MAC stored on the interface row, or None when absent
 
     Returns:
-        dict[str, Any]: Row with keys ip, status, type_label, assigned_to, mac_address
+        dict[str, Any]: Row with keys ip, status, type_info, assigned_to, mac_address
     """
     return {
         'ip': ip_str,
         'status': 'assigned',
-        'type_label': type_label,
+        'type_info': type_info,
         'assigned_to': assigned_to,
         'mac_address': mac_address,
     }
@@ -178,7 +186,7 @@ def _compose_free_row(ip_str: str) -> dict[str, Any]:
     return {
         'ip': ip_str,
         'status': 'free',
-        'type_label': None,
+        'type_info': None,
         'assigned_to': None,
         'mac_address': None,
     }
@@ -430,9 +438,16 @@ def build_subnet_overview(
 
         summary_line: str = objects_manager.get_summary_line(info['object_id'], with_type=True)
 
+        type_id: Any = info['type_id']
+        type_info: dict[str, Any] | None = (
+            {'public_id': type_id, 'label': type_labels.get(type_id)}
+            if type_id is not None
+            else None
+        )
+
         rows.append(_compose_assigned_row(
             ip,
-            type_labels.get(info['type_id']),
+            type_info,
             {'public_id': info['object_id'], 'summary_line': summary_line},
             info['mac'],
         ))
