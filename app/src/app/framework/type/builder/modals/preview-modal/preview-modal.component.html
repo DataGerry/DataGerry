@@ -13,11 +13,7 @@
         <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(false)"></button>
     </div>
     <div class="modal-body">
-        <form class="renderForm"
-              [cmdbInterfaceIpamValidator]="renderForm"
-              [cmdbInterfaceIpamValidatorSection]="sectionName"
-              [cmdbInterfaceIpamValidatorObjectId]="excludeObjectId"
-              [cmdbInterfaceIpamValidatorRowIndex]="excludeRowIndex">
+        <form class="renderForm">
             <fieldset *ngFor="let section of sections">
                 <legend>{{section?.label}}</legend>
                 <div *ngFor="let field of section?.fields">

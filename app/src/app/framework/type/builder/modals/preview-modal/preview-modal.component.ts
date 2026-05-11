@@ -33,8 +33,6 @@ export class PreviewModalComponent {
     @Input() saveValues: boolean = false;
     @Input() editValues: boolean = false;
     @Input() activateViewMode: boolean = false;
-    @Input() excludeObjectId: number | null = null;
-    @Input() excludeRowIndex: number | null = null;
 
     public renderForm: UntypedFormGroup;
     public modes = CmdbMode;
@@ -48,10 +46,5 @@ export class PreviewModalComponent {
 
     getViewMode() {
         return this.activateViewMode ? CmdbMode.View : CmdbMode.Create
-    }
-
-
-    public get sectionName(): string | null {
-        return this.sections?.[0]?.name ?? null;
     }
 }

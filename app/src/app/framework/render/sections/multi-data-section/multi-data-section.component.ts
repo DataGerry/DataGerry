@@ -15,9 +15,10 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, Inject, Input, OnDestroy, OnInit, Optional, TemplateRef, ViewChild } from '@angular/core';
 import { displayPassword, maskPassword, PasswordVisibilityMap, togglePasswordVisibility as toggleVis, ensureVisibilityBucket as ensureBucket, refreshItemsReference, getRawValueForFieldFromMds } from './password-cell.util';
 import { UntypedFormControl } from '@angular/forms';
+import { Subscription, combineLatest } from 'rxjs';
 
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
@@ -33,6 +34,13 @@ import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
+import {
+    MDS_ROW_VALIDATORS,
+    MdsRowValidator,
+    MdsRowValidatorHandle,
+    MdsValidationState,
+    VALID_MDS_STATE
+} from '../multi-data-section/mds-row-validator';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -89,12 +97,21 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     // Table Template: Password cell with eye icon
     @ViewChild('passwordTemplate', { static: true }) passwordTemplate: TemplateRef<any>;
 
+    // Merged state from every MdsRowValidator that opted in for this section.
+    public validationState: MdsValidationState = VALID_MDS_STATE;
+    private rowValidatorHandles: MdsRowValidatorHandle[] = [];
+    private rowValidatorSub: Subscription | null = null;
+
 
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-    constructor(private modalService: NgbModal, private objectService: ObjectService) {
+    constructor(
+        private modalService: NgbModal,
+        private objectService: ObjectService,
+        @Optional() @Inject(MDS_ROW_VALIDATORS) private rowValidators: ReadonlyArray<MdsRowValidator> | null
+    ) {
         super();
     }
 
@@ -114,6 +131,9 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
         //Init the Section which will be passed to the popups to display the MDS
         this.initModalSectionData();
+
+        //Attach external row validators
+        this.attachRowValidators();
     }
 
 
@@ -121,6 +141,11 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         if (this.modalRef) {
             this.modalRef.close();
         }
+        this.rowValidatorSub?.unsubscribe();
+        for (const handle of this.rowValidatorHandles) {
+            handle.destroy();
+        }
+        this.rowValidatorHandles = [];
     }
 
 /* ------------------------------------------------- REFERENCE SETUP ------------------------------------------------ */
@@ -433,8 +458,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
         this.modalRef.componentInstance.sections = [this.modalSection];
         this.modalRef.componentInstance.saveValues = true;
-        this.modalRef.componentInstance.excludeObjectId = this.getCurrentObjectId();
-        this.modalRef.componentInstance.excludeRowIndex = null;
 
         this.modalRef.result.then((values: any) => {
             if (values){
@@ -449,6 +472,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 this.calculateCurrentPage("create");
 
                 this.form.markAsDirty();
+                this.runMdsValidation();
             }
         });
     }
@@ -475,13 +499,12 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
         this.modalRef.componentInstance.editValues = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
-        this.modalRef.componentInstance.excludeObjectId = this.getCurrentObjectId();
-        this.modalRef.componentInstance.excludeRowIndex = rowIndex;
 
         this.modalRef.result.then((values: any) => {
             if (values){
                 this.updateNewValues(values, rowIndex);
                 this.form.markAsDirty();
+                this.runMdsValidation();
             }
         });
     }
@@ -500,6 +523,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 this.removeDataSet(rowIndex);
                 this.calculateCurrentPage("delete");
                 this.form.markAsDirty();
+                this.runMdsValidation();
             }
         });
     }
@@ -795,6 +819,89 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         const objectId = this.renderResult?.object_information?.object_id;
         return typeof objectId === 'number' && objectId > 0 ? objectId : null;
     }
+
+
+    /**
+     * Asks every registered {@link MdsRowValidator} whether it wants to attach to this
+     * section, then merges the live state of every attached handle into a single
+     * {@link validationState}. Validators that don't apply return null and are skipped,
+     * so this section's behavior degrades gracefully when no plugin opts in.
+     */
+    private attachRowValidators(): void {
+        for (const validator of this.rowValidators ?? []) {
+            const handle = validator.attach(
+                this.form,
+                this.section as CmdbMultiDataSection,
+                { excludeObjectId: this.getCurrentObjectId() }
+            );
+            if (handle) {
+                this.rowValidatorHandles.push(handle);
+            }
+        }
+
+        if (this.rowValidatorHandles.length === 0) {
+            return;
+        }
+
+        this.rowValidatorSub = combineLatest(
+            this.rowValidatorHandles.map(handle => handle.state$)
+        ).subscribe(states => {
+            this.validationState = this.mergeValidationStates(states);
+        });
+
+        if (this.shouldRunInitialValidation()) {
+            this.runMdsValidation();
+        }
+    }
+
+
+    /**
+     * Re-runs every attached row validator after a row commit / edit / delete.
+     */
+    private runMdsValidation(): void {
+        for (const handle of this.rowValidatorHandles) {
+            handle.validate(this.formatedDataSection.values);
+        }
+    }
+
+
+    private shouldRunInitialValidation(): boolean {
+        const editable = this.mode === CmdbMode.Edit || this.mode === CmdbMode.Create;
+        return editable && this.formatedDataSection.values.length > 0;
+    }
+
+
+    private mergeValidationStates(states: ReadonlyArray<MdsValidationState>): MdsValidationState {
+        const invalid = new Set<number>();
+        let allValid = true;
+
+        for (const state of states) {
+            if (!state.valid) {
+                allValid = false;
+            }
+            for (const index of state.invalidRowIndices) {
+                invalid.add(index);
+            }
+        }
+
+        return {
+            valid: allValid,
+            invalidRowIndices: Array.from(invalid)
+        };
+    }
+
+
+    /**
+     * Returns the CSS class the table should apply to a row, marking it red when any
+     * attached validator has flagged it. Returns a plain string because the table host
+     * uses [ngClass] in array form, which rejects object literals.
+     */
+    public rowValidationClass = (item: any): string => {
+        const rowIndex = item?.['dg-multiDataRowIndex'];
+        const invalid = typeof rowIndex === 'number'
+            && this.validationState.invalidRowIndices.includes(rowIndex);
+        return invalid ? 'mds-row-invalid' : '';
+    };
 
 
     /**

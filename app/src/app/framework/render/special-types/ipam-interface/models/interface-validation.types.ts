@@ -16,11 +16,16 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+export interface InterfaceRowPayload {
+    row_index: number;
+    subnet_id: number | null;
+    ip_address: string | null;
+}
+
+
 export interface InterfaceValidationRequest {
-    subnet_id: number;
-    ip_address: string;
+    rows: InterfaceRowPayload[];
     exclude_object_id: number | null;
-    exclude_row_index: number | null;
 }
 
 

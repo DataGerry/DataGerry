@@ -3,27 +3,7 @@
     margin-left: 5px;
 }
 
-
-// fieldset {
-//     border: 0px solid #ddd;
-//     margin-bottom: 15px;
-//     min-width: 0;
-//     padding: 5px 15px 5px 5px;
-//     position: relative;
-
-//     legend {
-//         font-size: 14px;
-//         font-weight: bold;
-//         margin-left: -6px;
-//         margin-bottom: 11px;
-//         width: 35%;
-//         border: 1px solid #ddd;
-//         border-radius: 0;
-//         padding: 5px 5px 5px 15px;
-//         background-color: #ffffff;
-//     }
-
-//     label {
-//         padding-left: 30px;
-//     }
-// }
+// Highlight rows that failed external row validation
+::ng-deep tr.mds-row-invalid > td {
+    background-color: #f8d7da;
+}
