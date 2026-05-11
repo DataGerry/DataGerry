@@ -607,15 +607,37 @@ class SectionTemplatesManager(BaseManager):
     def cleanup_global_section_from_type(
         self,
         type_id: int,
-        template_name: str
+        template_name: str,
+        expected_field_names: list[str] | None = None,
+        expected_section_type: str | None = None,
     ) -> None:
         """
         Removes a global section template from a specific type and cleans up
-        all related fields and object data.
+        all related fields and object data
+
+        Looks the template's section up on the type to discover which fields it
+        contributed and what kind of section it is. When the caller has already
+        wiped the section from the type (e.g. via a blind update_type that
+        persisted the frontend's payload before invoking this cleanup), it can
+        pass 'expected_field_names' and 'expected_section_type' as a pre-update
+        snapshot so cleanup can still strip the orphaned field definitions from
+        type.fields / type.render_meta.summary.fields and remove the matching
+        values from the type's CmdbObjects
+
+        Idempotent: silently no-ops when the type does not exist, when the
+        section is missing AND no hints were supplied, or when nothing on the
+        type matches the field names to remove
 
         Args:
             type_id (int): ID of the type
             template_name (str): Name of the global section template
+            expected_field_names (list[str] | None): Field names the template
+                contributed, captured from the pre-update snapshot. Required
+                when the section has already been removed from the type
+            expected_section_type (str | None): The 'type' string of the section
+                ('section' or 'multi-data-section'), captured from the same
+                snapshot. Required alongside 'expected_field_names' so
+                delete_global_section_from_objects routes correctly
         """
         # --- 1. Load type ---
         a_type: CmdbType = self.types_manager.get_type(type_id, as_dict=False)
@@ -623,16 +645,20 @@ class SectionTemplatesManager(BaseManager):
         if not a_type:
             return
 
-        # --- 2. Get section ---
-        type_template_section: TypeFieldSection | TypeMultiDataSection = a_type.get_section(template_name)
+        # --- 2. Resolve field names and section type (from the type if still present,
+        #        otherwise from the caller-supplied snapshot) ---
+        type_template_section: TypeFieldSection | TypeMultiDataSection | None = a_type.get_section(template_name)
 
-        if not type_template_section:
+        if type_template_section is not None:
+            template_field_names: list[str] = type_template_section.get_fields()
+            section_type: str = type_template_section.type
+        elif expected_field_names is not None and expected_section_type is not None:
+            template_field_names = expected_field_names
+            section_type = expected_section_type
+        else:
             return
 
-        # --- 3. Collect field names ---
-        template_field_names: list[str] = type_template_section.get_fields()
-
-        # --- 4. Clean type schema ---
+        # --- 3. Clean type schema ---
 
         # remove from global_template_ids (safe)
         a_type.global_template_ids = [
@@ -652,25 +678,20 @@ class SectionTemplatesManager(BaseManager):
             if field_name not in template_field_names
         ]
 
-        # remove section from render_meta.sections
+        # remove section from render_meta.sections (idempotent if already gone)
         a_type.render_meta.sections = [
             section for section in a_type.render_meta.sections
             if section.name != template_name
         ]
 
-        a_type.global_template_ids = [
-            tid for tid in (a_type.global_template_ids or [])
-            if tid != template_name
-        ]
-
-        # --- 5. Persist updated type ---
+        # --- 4. Persist updated type ---
         self.types_manager.update_type(a_type.public_id, a_type)
 
-        # --- 6. Clean objects (flat + MDS) ---
+        # --- 5. Clean objects (flat + MDS) ---
         self.delete_global_section_from_objects(
             a_type.public_id,
             template_field_names,
-            type_template_section.type,
+            section_type,
             template_name
         )
 
