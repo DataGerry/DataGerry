@@ -34,7 +34,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
 )
-from cmdb.framework.ipam.cidr import parse_cidr
+from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet
 from cmdb.framework.ipam.references import resolve_special_type_id
 from cmdb.framework.ipam.subnet_validator import extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -218,6 +218,73 @@ def compute_supernet_summary(
         'utilization_percent': used_percent,
         'subnet_count': subnet_count,
     }
+
+
+def _network_sort_key(network: IPv4Network) -> tuple[int, int]:
+    """
+    Returns a stable sort key for an IPv4Network: (network address as int, prefix length)
+
+    Ordering by network address gives ascending IP order; prefix length as the tiebreaker
+    ensures a broader (shorter-prefix) network sorts before any more-specific network that
+    starts at the same address, which is the order 'sort_and_link_subnets' relies on for
+    its single-pass parent linking
+
+    Args:
+        network (IPv4Network): The parsed network
+
+    Returns:
+        tuple[int, int]: (int(network_address), prefixlen)
+    """
+    return (int(network.network_address), network.prefixlen)
+
+
+def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Sorts subnet rows by ascending IP and annotates each with the parent subnet's public_id
+
+    Rows with a parsable 'cidr' are sorted by ascending network address (prefix length
+    ascending as a tiebreaker) and each is given a 'parent_id' equal to the public_id of
+    the most-specific other subnet in the same list that strictly contains it, or None
+    when no enclosing subnet is present (top-level under the supernet). Rows whose 'cidr'
+    is missing or unparsable are appended after the sorted rows in their original relative
+    order with parent_id set to None so the frontend can still display them
+
+    The linking pass uses a stack of (network, public_id) pairs: because parents always
+    precede their children in the sort order, the top of the stack after popping non-
+    enclosing entries is always the closest enclosing subnet
+
+    Args:
+        subnet_rows (list[dict[str, Any]]): Rows produced by 'compute_subnet_row'
+
+    Returns:
+        list[dict[str, Any]]: A new list where every row has an added 'parent_id' key;
+            rows with parsable CIDRs come first in IP order, unparsable rows trail
+    """
+    sortable: list[tuple[IPv4Network, dict[str, Any]]] = []
+    unsortable: list[dict[str, Any]] = []
+
+    for row in subnet_rows:
+        cidr: Any = row.get('cidr')
+        network: IPv4Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
+
+        if network is None:
+            row['parent_id'] = None
+            unsortable.append(row)
+        else:
+            sortable.append((network, row))
+
+    sortable.sort(key=lambda item: _network_sort_key(item[0]))
+
+    stack: list[tuple[IPv4Network, Any]] = []
+
+    for network, row in sortable:
+        while stack and not is_strict_subnet(stack[-1][0], network):
+            stack.pop()
+
+        row['parent_id'] = stack[-1][1] if stack else None
+        stack.append((network, row.get('public_id')))
+
+    return [row for _, row in sortable] + unsortable
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -422,10 +489,12 @@ def build_supernet_overview(
         len(subnet_rows),
     )
 
+    ordered_subnets: list[dict[str, Any]] = sort_and_link_subnets(subnet_rows)
+
     return {
         'supernet': {
             'public_id': supernet_obj.get('public_id'),
             **summary,
         },
-        'subnets': subnet_rows,
+        'subnets': ordered_subnets,
     }
