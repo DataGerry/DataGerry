@@ -51,7 +51,9 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
 
     Returns the subnet's KPI counters (total / used / free) plus a paginated, IP-sorted list of
     rows, one per usable address in the subnet. Rows are either 'assigned' (carrying the
-    referencing object id, summary line, type label and stored MAC) or 'free'
+    referencing object id, summary line, type label and stored MAC) or 'free'. The response
+    also carries a 'type_distribution' summary spanning the entire subnet (not just the current
+    page) that powers the chart breakdown of used types vs. free capacity
 
     Query params:
         page (int, default=1): 1-based page number; clamped into the valid range server-side
@@ -62,7 +64,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser making the request
 
     Returns:
-        Response: {'subnet': {...summary, public_id}, 'ips': {page, page_size, total, rows}}
+        Response: {'subnet': {...summary, public_id}, 'ips': {page, page_size, total, rows},
+            'type_distribution': [{public_id, label, count, percentage}, ...]}
     """
     try:
         page: int = request.args.get('page', default=1, type=int) or 1

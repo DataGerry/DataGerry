@@ -133,6 +133,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         new_object_json = json.dumps(request.json)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         objects_count: int = 0
 
@@ -165,7 +166,6 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         # Validate fields have type property
         validate_and_fill_object_fields(objects_manager, new_object_data)
 
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
             objects_manager,
             types_manager,

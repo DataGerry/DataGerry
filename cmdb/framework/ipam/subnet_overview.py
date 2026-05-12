@@ -43,6 +43,9 @@ from cmdb.framework.ipam.subnet_validator import extract_field_value
 DEFAULT_PAGE_SIZE: int = 50
 MAX_PAGE_SIZE: int = 500
 
+FREE_BUCKET_LABEL: str = 'Free'
+UNKNOWN_BUCKET_LABEL: str = 'Unknown'
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
@@ -220,6 +223,78 @@ def _extract_row_fields(row: dict[str, Any]) -> tuple[Any, Any, Any]:
     return subnet_ref, ip_value, mac_value
 
 
+def _build_type_distribution(
+    assigned: dict[str, dict[str, Any]],
+    type_labels: dict[int, str],
+    total: int,
+) -> list[dict[str, Any]]:
+    """
+    Builds the whole-subnet IP-usage distribution that feeds the frontend pie chart
+
+    Aggregates the assigned-IP map by owning CmdbType, appends a synthetic 'Free' bucket for
+    unused host capacity, and collapses every orphaned assignment (type_id missing on the
+    interface row or no longer resolvable because the CmdbType was deleted) into a single
+    'Unknown' bucket so the chart never grows a slice per stale type_id. Percentages are
+    computed against the subnet's total usable host count (the same denominator used by the
+    KPI counters) and rounded to two decimals. An empty list is returned when the subnet has
+    no usable hosts (/31, /32, or an unparsable CIDR) so the frontend can render a placeholder
+
+    Args:
+        assigned (dict[str, dict[str, Any]]): {ip_str: {'object_id', 'type_id', 'mac'}} as
+            produced by _load_assigned_rows_map; one entry per used IP across the whole subnet
+        type_labels (dict[int, str]): {type_id: label} for every CmdbType referenced by the
+            assigned map; type_ids absent from this mapping fall through to the Unknown bucket
+        total (int): Total usable host count of the subnet (denominator for percentages)
+
+    Returns:
+        list[dict[str, Any]]: One entry per type bucket with keys public_id, label, count,
+            percentage, followed by the Unknown bucket (only when non-empty) and the Free
+            bucket; empty list when total is 0
+    """
+    if total <= 0:
+        return []
+
+    by_type: dict[int, int] = {}
+    unknown_count: int = 0
+
+    for info in assigned.values():
+        type_id: Any = info.get('type_id')
+
+        if isinstance(type_id, int) and type_id in type_labels:
+            by_type[type_id] = by_type.get(type_id, 0) + 1
+        else:
+            unknown_count += 1
+
+    free_count: int = max(0, total - len(assigned))
+
+    distribution: list[dict[str, Any]] = [
+        {
+            'public_id': type_id,
+            'label': type_labels[type_id],
+            'count': count,
+            'percentage': round((count / total) * 100, 2),
+        }
+        for type_id, count in by_type.items()
+    ]
+
+    if unknown_count > 0:
+        distribution.append({
+            'public_id': None,
+            'label': UNKNOWN_BUCKET_LABEL,
+            'count': unknown_count,
+            'percentage': round((unknown_count / total) * 100, 2),
+        })
+
+    distribution.append({
+        'public_id': None,
+        'label': FREE_BUCKET_LABEL,
+        'count': free_count,
+        'percentage': round((free_count / total) * 100, 2),
+    })
+
+    return distribution
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   DATA LOADING                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -386,7 +461,10 @@ def build_subnet_overview(
 
     Returns:
         dict[str, Any]: {'subnet': {public_id, cidr, ip_range, total_ips, used_ips, free_ips},
-            'ips': {page, page_size, total, rows: [...]}}
+            'ips': {page, page_size, total, rows: [...]},
+            'type_distribution': [{public_id, label, count, percentage}, ...]} where the
+            distribution covers the whole subnet (not just the current page) and includes
+            'Unknown' (when present) and 'Free' buckets after the type buckets
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
 
@@ -410,6 +488,7 @@ def build_subnet_overview(
                 'total': 0,
                 'rows': [],
             },
+            'type_distribution': [],
         }
 
     total: int = _usable_count(network)
@@ -417,15 +496,17 @@ def build_subnet_overview(
     used_ips: int = len(assigned)
     free_ips: int = max(0, total - used_ips)
 
+    assigned_type_ids: list[int] = [
+        info['type_id']
+        for info in assigned.values()
+        if isinstance(info.get('type_id'), int)
+    ]
+    type_labels: dict[int, str] = _resolve_type_labels(types_manager, assigned_type_ids)
+
+    type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_labels, total)
+
     safe_page, safe_size = _clamp_page(page, page_size, total)
     page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
-
-    page_type_ids: list[int] = [
-        assigned[ip]['type_id']
-        for ip in page_ips
-        if ip in assigned and isinstance(assigned[ip].get('type_id'), int)
-    ]
-    type_labels: dict[int, str] = _resolve_type_labels(types_manager, page_type_ids)
 
     rows: list[dict[str, Any]] = []
 
@@ -470,4 +551,5 @@ def build_subnet_overview(
             'total': total,
             'rows': rows,
         },
+        'type_distribution': type_distribution,
     }
