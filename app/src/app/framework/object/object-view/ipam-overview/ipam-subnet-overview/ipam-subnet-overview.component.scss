@@ -1,0 +1,119 @@
+.ipam-subnet {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1rem 0;
+}
+
+.ipam-subnet__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.ipam-subnet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #ffffff;
+}
+
+.ipam-subnet-card__label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.ipam-subnet-card__value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+.ipam-subnet-card__value--mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 1.125rem;
+}
+
+.ipam-subnet-card__suffix {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    opacity: 0.75;
+    margin-left: 0.25rem;
+}
+
+.ipam-subnet-card--used .ipam-subnet-card__value {
+    color: #198754;
+}
+
+.ipam-subnet-card--free .ipam-subnet-card__value {
+    color: #0d6efd;
+}
+
+.ipam-subnet-card__placeholder {
+    color: #9ca3af;
+    font-weight: 600;
+}
+
+.ipam-subnet__table-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #ffffff;
+}
+
+.ipam-subnet__table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.ipam-subnet__table-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0;
+}
+
+.ipam-subnet__state {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+}
+
+.ipam-subnet__state--error {
+    color: #842029;
+    background-color: #f8d7da;
+    border: 1px solid #f5c2c7;
+}
+
+.ipam-subnet__state--empty {
+    color: #6b7280;
+    background-color: #f9fafb;
+    border: 1px dashed #d1d5db;
+}
+
+@media (max-width: 768px) {
+    .ipam-subnet__cards {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .ipam-subnet__cards {
+        grid-template-columns: 1fr;
+    }
+}

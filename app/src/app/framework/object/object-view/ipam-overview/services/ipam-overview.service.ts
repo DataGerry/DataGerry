@@ -16,12 +16,16 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable, inject } from '@angular/core';
-import { HttpHeaders } from '@angular/common/http';
+import { HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { ApiCallService, resp } from '../../../../../services/api-call.service';
-import { IpamSupernetOverviewResponse } from '../models/ipam-overview.types';
+import {
+    IpamSubnetOverviewParams,
+    IpamSubnetOverviewResponse,
+    IpamSupernetOverviewResponse
+} from '../models/ipam-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -32,17 +36,56 @@ export class IpamOverviewService {
 
     private readonly api = inject(ApiCallService);
 
-    private readonly options = {
-        headers: new HttpHeaders({ 'Content-Type': 'application/json' }),
-        params: {},
-        observe: resp
-    };
+    private readonly jsonHeaders = new HttpHeaders({ 'Content-Type': 'application/json' });
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public getSupernetOverview(publicId: number): Observable<IpamSupernetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
         return this.api
-            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, this.options)
+            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
             .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+    }
+
+
+    public getSubnetOverview(
+        publicId: number,
+        params: IpamSubnetOverviewParams = {}
+    ): Observable<IpamSubnetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildSubnetParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}`, options)
+            .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private buildSubnetParams(params: IpamSubnetOverviewParams): HttpParams {
+        let httpParams = new HttpParams();
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+        if (params.sort) {
+            httpParams = httpParams.set('sort', params.sort);
+        }
+        if (params.order != null) {
+            httpParams = httpParams.set('order', String(params.order));
+        }
+
+        return httpParams;
     }
 }

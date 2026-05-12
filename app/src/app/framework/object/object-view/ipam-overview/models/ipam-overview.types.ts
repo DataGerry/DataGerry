@@ -48,3 +48,56 @@ export interface IpamSupernetOverviewResponse {
     supernet: IpamSupernetSummary;
     subnets: IpamSubnetSummary[];
 }
+
+
+/* ------------------------------------------------- SUBNET OVERVIEW ------------------------------------------------ */
+
+export type IpamIpStatus = 'used' | 'free';
+
+export interface IpamIpEntry {
+    ip: string;
+    status: IpamIpStatus;
+    type_info: string | null;
+    assigned_to: string | null;
+    mac_address: string | null;
+    last_seen?: string | null;
+}
+
+export interface IpamSubnetDetail {
+    public_id?: number;
+    cidr?: string;
+    subnetmask?: string;
+    ip_range?: IpamIpRange;
+    total_ips?: number;
+    used_ips?: number;
+    free_ips?: number;
+    used_percent?: number;
+    free_percent?: number;
+}
+
+export interface IpamIpListPage {
+    page: number;
+    page_size: number;
+    total: number;
+    rows: IpamIpEntry[];
+}
+
+export interface IpamTypeDistributionEntry {
+    public_id: number | null;
+    label: string;
+    count: number;
+    percentage: number;
+}
+
+export interface IpamSubnetOverviewResponse {
+    subnet: IpamSubnetDetail;
+    ips: IpamIpListPage;
+    type_distribution?: IpamTypeDistributionEntry[];
+}
+
+export interface IpamSubnetOverviewParams {
+    page?: number;
+    page_size?: number;
+    sort?: string;
+    order?: number;
+}

@@ -1,0 +1,52 @@
+<cmdb-table
+  class="ipam-ip-table"
+  [id]="'ipam-ip-table'"
+  [items]="items"
+  [columns]="columns"
+  [initialVisibleColumns]="initialVisibleColumns"
+  [totalItems]="totalItems"
+  [page]="page"
+  [pageSize]="pageSize"
+  [sort]="sort"
+  [loading]="loading"
+  [selectEnabled]="true"
+  [searchEnabled]="false"
+  [paginationEnabled]="true"
+  [pageSizeEnabled]="true"
+  [toggleable]="false"
+  [emptyMessage]="'No IP addresses to display.'"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectedChange($event)">
+</cmdb-table>
+
+<ng-template #typeTemplate let-item="item">
+  @if (item?.type_info) {
+    <span class="ipam-badge ipam-badge--type">{{ item.type_info }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #statusTemplate let-item="item">
+  @if (item?.status === 'used') {
+    <span class="ipam-status ipam-status--used">
+      <span class="ipam-status__dot" aria-hidden="true"></span>
+      Used
+    </span>
+  } @else {
+    <span class="ipam-status ipam-status--free">
+      <span class="ipam-status__dot" aria-hidden="true"></span>
+      Free
+    </span>
+  }
+</ng-template>
+
+<ng-template #valueTemplate let-data="data">
+  @if (data) {
+    <span>{{ data }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
