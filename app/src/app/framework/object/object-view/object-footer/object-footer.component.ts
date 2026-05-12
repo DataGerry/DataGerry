@@ -17,7 +17,9 @@
 */
 
 import { Component, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
+
 import { RenderResult } from '../../../models/cmdb-render';
+import { SpecialType } from '../../../models/special-type';
 
 @Component({
     selector: 'cmdb-object-footer',
@@ -28,6 +30,7 @@ import { RenderResult } from '../../../models/cmdb-render';
 export class ObjectFooterComponent implements OnChanges {
 
   public objectID: number;
+  public isIpamObject = false;
   private rr: RenderResult;
 
   @Input('renderResult')
@@ -46,8 +49,7 @@ export class ObjectFooterComponent implements OnChanges {
 
   public ngOnChanges(changes: SimpleChanges): void {
     this.objectID = this.renderResult.object_information.object_id;
+    this.isIpamObject = this.renderResult?.object_information?.special_type === SpecialType.SUPERNET;
     this.changesRef.markForCheck();
   }
-
-
 }
