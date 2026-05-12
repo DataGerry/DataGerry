@@ -122,10 +122,10 @@ class ProcessManager:
             return False
 
         for service_def in self.__service_defs:
-            service_name: str = service_def.get_name()
+            service_name: str = service_def.name
 
             try:
-                service_class = load_class(service_def.get_class())
+                service_class = load_class(service_def.class_path)
                 service_instance = service_class()
 
                 process: multiprocessing.Process = multiprocessing.Process(
