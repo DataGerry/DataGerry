@@ -73,6 +73,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   filterMode: 'manual' | 'profile' = 'manual';
   profiles: FilterProfile[] = [];
   selectedProfileId: number | null = null;
+  withLocations: boolean = true;
 
   // Filter options
   typeOptionList: { public_id: number; display_name: string }[] = [];
@@ -281,7 +282,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.graphData.loadWithRoot(
       this.rootNodeId,
       this.typesFilter,
-      this.relationsFilter
+      this.relationsFilter,
+      this.withLocations
     ).pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: r => {
         this.paintInitial(r);
@@ -1201,6 +1203,14 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       this.relationOptionList,
       () => this.loadProfiles()
     );
+  }
+
+
+  /**
+   * Updates the "include locations" preference used for graph API calls.
+   */
+  onWithLocationsChange(checked: boolean): void {
+    this.withLocations = checked;
   }
 
 

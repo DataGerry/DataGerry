@@ -32,6 +32,7 @@ import { CmdbType } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { RenderComponent } from '../../render/render.component';
 import { CmdbObject } from '../../models/cmdb-object';
+import { SpecialType } from '../../models/special-type';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { finalize } from 'rxjs/operators';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -145,6 +146,16 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
     }
 
 
+    public get specialType(): SpecialType | null {
+        return this.typeInstance?.special_type ?? null;
+    }
+
+
+    public get isSpecialType(): boolean {
+        return this.specialType !== null;
+    }
+
+
     public saveObject() {
         this.renderForm.markAllAsTouched();
         if (this.renderForm.valid) {
@@ -159,6 +170,10 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
             this.objectInstance.version = '1.0.0';
             this.objectInstance.author_id = this.userService.getCurrentUser().public_id;
             this.objectInstance.ci_explorer_tooltip = null;
+
+            if (this.isSpecialType) {
+                this.objectInstance.special_type = this.specialType;
+            }
 
             this.objectInstance.fields = [];
             this.render.renderForm.removeControl('active');

@@ -165,9 +165,10 @@ export class GraphDataService {
   loadWithRoot(
     rootNodeId: number,
     typesFilter: number[] = [],
-    relationsFilter: number[] = []
+    relationsFilter: number[] = [],
+    withLocations: boolean = true
   ): Observable<GraphRespWithRoot> {
-    return this.ci?.loadWithRoot(rootNodeId, typesFilter, relationsFilter);
+    return this.ci?.loadWithRoot(rootNodeId, typesFilter, relationsFilter, withLocations);
   }
 
   expandChild(
