@@ -17,17 +17,22 @@
 */
 
 import { Component, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
+
 import { RenderResult } from '../../../models/cmdb-render';
+import { SpecialType } from '../../../models/special-type';
 
 @Component({
-    selector: 'cmdb-object-footer',
-    templateUrl: './object-footer.component.html',
-    styleUrls: ['./object-footer.component.scss'],
-    standalone: false
+  selector: 'cmdb-object-footer',
+  templateUrl: './object-footer.component.html',
+  styleUrls: ['./object-footer.component.scss'],
+  standalone: false
 })
 export class ObjectFooterComponent implements OnChanges {
 
   public objectID: number;
+  public isIpamObject = false;
+  public isSupernet = false;
+  public isSubnet = false;
   private rr: RenderResult;
 
   @Input('renderResult')
@@ -42,12 +47,14 @@ export class ObjectFooterComponent implements OnChanges {
     return this.rr;
   }
 
-  constructor(private changesRef: ChangeDetectorRef) {}
+  constructor(private changesRef: ChangeDetectorRef) { }
 
   public ngOnChanges(changes: SimpleChanges): void {
     this.objectID = this.renderResult.object_information.object_id;
+    const specialType = this.renderResult?.object_information?.special_type;
+    this.isSupernet = specialType === SpecialType.SUPERNET;
+    this.isSubnet = specialType === SpecialType.SUBNET;
+    this.isIpamObject = this.isSupernet || this.isSubnet;
     this.changesRef.markForCheck();
   }
-
-
 }
