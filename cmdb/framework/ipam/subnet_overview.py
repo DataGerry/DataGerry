@@ -35,13 +35,11 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ipv4, ip_in_network
+from cmdb.framework.ipam.pagination import DEFAULT_PAGE_SIZE, clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
 from cmdb.framework.ipam.subnet_validator import extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
-
-DEFAULT_PAGE_SIZE: int = 50
-MAX_PAGE_SIZE: int = 500
 
 FREE_BUCKET_LABEL: str = 'Free'
 UNKNOWN_BUCKET_LABEL: str = 'Unknown'
@@ -83,30 +81,6 @@ def _first_usable_int(network: IPv4Network) -> int | None:
         return None
 
     return int(network.network_address) + 1
-
-
-def _clamp_page(page: int, page_size: int, total: int) -> tuple[int, int]:
-    """
-    Clamps page / page_size into safe values given the total item count
-
-    Args:
-        page (int): Requested 1-based page number
-        page_size (int): Requested page size
-        total (int): Total number of available items
-
-    Returns:
-        tuple[int, int]: (clamped_page, clamped_page_size); page is at least 1 and at most the
-            last page that contains items, page_size is in [1, MAX_PAGE_SIZE]
-    """
-    safe_size: int = max(1, min(page_size, MAX_PAGE_SIZE))
-
-    if total <= 0:
-        return 1, safe_size
-
-    last_page: int = max(1, (total + safe_size - 1) // safe_size)
-    safe_page: int = max(1, min(page, last_page))
-
-    return safe_page, safe_size
 
 
 def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str]:
@@ -472,7 +446,7 @@ def build_subnet_overview(
     network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
 
     if network is None:
-        safe_page, safe_size = _clamp_page(page, page_size, 0)
+        safe_page, safe_size = clamp_page(page, page_size, 0)
         return {
             'subnet': {
                 'public_id': subnet_obj.get('public_id'),
@@ -505,7 +479,7 @@ def build_subnet_overview(
 
     type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_labels, total)
 
-    safe_page, safe_size = _clamp_page(page, page_size, total)
+    safe_page, safe_size = clamp_page(page, page_size, total)
     page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
 
     rows: list[dict[str, Any]] = []
