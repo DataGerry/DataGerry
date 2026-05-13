@@ -99,7 +99,7 @@ export class IpamIpTableComponent implements OnInit {
                 display: 'IP Address',
                 name: 'ip',
                 data: 'ip',
-                sortable: true,
+                sortable: false,
                 searchable: false,
                 style: { 'min-width': '120px' }
             },
@@ -107,7 +107,7 @@ export class IpamIpTableComponent implements OnInit {
                 display: 'Type',
                 name: 'type_info',
                 data: 'type_info',
-                sortable: true,
+                sortable: false,
                 searchable: false,
                 template: this.typeTemplate,
                 style: { 'min-width': '100px', 'text-align': 'center' }
@@ -116,7 +116,7 @@ export class IpamIpTableComponent implements OnInit {
                 display: 'Status',
                 name: 'status',
                 data: 'status',
-                sortable: true,
+                sortable: false,
                 searchable: false,
                 template: this.statusTemplate,
                 style: { 'min-width': '120px' }

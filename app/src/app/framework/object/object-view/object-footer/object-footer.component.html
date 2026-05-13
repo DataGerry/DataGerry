@@ -1,13 +1,8 @@
 <div id="object-footer" class="card">
   <div class="card-header">
     <ul class="nav nav-tabs card-header-tabs">
-      @if (isIpamObject) {
       <li class="nav-item">
-        <a class="nav-link active" data-bs-toggle="tab" href="#object-tab-ipam" role="tabpanel">IPAM</a>
-      </li>
-      }
-      <li class="nav-item">
-        <a class="nav-link" [class.active]="!isIpamObject" data-bs-toggle="tab" href="#object-tab-risk-assesments-list"
+        <a class="nav-link active" data-bs-toggle="tab" href="#object-tab-risk-assesments-list"
           role="tabpanel">Risk Assessments</a>
       </li>
       <li class="nav-item">
@@ -31,19 +26,8 @@
     </ul>
   </div>
   <div class="card-body tab-content">
-    @if (isIpamObject) {
-    <div class="tab-pane fade show active" id="object-tab-ipam" role="tabpanel">
-      @if (isSupernet) {
-      <cmdb-ipam-supernet-overview [publicId]="objectID"></cmdb-ipam-supernet-overview>
-      } @else if (isSubnet) {
-      <cmdb-ipam-subnet-overview [publicId]="objectID"></cmdb-ipam-subnet-overview>
-      }
-    </div>
-    }
-    <div class="tab-pane fade" [class.show]="!isIpamObject" [class.active]="!isIpamObject"
-      id="object-tab-risk-assesments-list" role="tabpanel">
+    <div class="tab-pane fade show active" id="object-tab-risk-assesments-list" role="tabpanel">
       <app-risk-assessment-list [objectId]="objectID"></app-risk-assessment-list>
-
     </div>
     <div class="tab-pane fade" id="object-tab-reference" role="tabpanel">
       <cmdb-object-references [publicID]="objectID"></cmdb-object-references>
