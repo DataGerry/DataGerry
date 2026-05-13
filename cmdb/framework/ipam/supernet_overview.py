@@ -14,12 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Builds the data payload for the SUPERNET overview view
+Builds the data payloads for the SUPERNET overview view
 
-The frontend renders a KPI strip and a flat (frontend-grouped) table of every SUBNET that
-references the supernet. This module exposes pure helpers (CIDR math, row/summary shaping)
-plus a thin DB orchestrator that loads the supernet, its subnets, and the per-subnet
-interface-IP allocation counts
+The frontend renders a KPI strip (computed against every subnet under the supernet) and a
+lazily-expandable, paginated table of top-level subnets. 'Top-level' is defined via CIDR
+containment among siblings: a subnet is top-level when no other subnet under the same
+supernet strictly contains it. Direct CIDR-children of any visible row are fetched on demand
+via a separate orchestrator when the user expands that row
+
+This module exposes pure helpers (CIDR math, row / summary shaping, parent-child indexing)
+plus two DB orchestrators: ``build_supernet_overview`` for the paginated top-level view and
+``build_supernet_subnet_children`` for the direct-children fetch
 """
 from ipaddress import IPv4Network
 from typing import Any
@@ -35,6 +40,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet
+from cmdb.framework.ipam.pagination import DEFAULT_PAGE_SIZE, clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
 from cmdb.framework.ipam.subnet_validator import extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -287,6 +293,53 @@ def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, A
     return [row for _, row in sortable] + unsortable
 
 
+def _index_children_by_parent(rows: list[dict[str, Any]]) -> dict[Any, list[dict[str, Any]]]:
+    """
+    Buckets rows by their 'parent_id' so direct children of any subnet are O(1) to look up
+
+    The output preserves the input order within each bucket, which - because the input comes
+    from ``sort_and_link_subnets`` - means children are already in ascending CIDR order. The
+    None bucket (top-level + unsortable rows) is included alongside the per-subnet buckets
+
+    Args:
+        rows (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets``; every row
+            must carry a 'parent_id' key
+
+    Returns:
+        dict[Any, list[dict[str, Any]]]: {parent_id: [child_row, ...]}; lookups for a subnet
+            id absent from the map yield an empty list at the call site
+    """
+    index: dict[Any, list[dict[str, Any]]] = {}
+
+    for row in rows:
+        parent_id: Any = row.get('parent_id')
+        index.setdefault(parent_id, []).append(row)
+
+    return index
+
+
+def _annotate_has_children(
+    rows: list[dict[str, Any]],
+    children_index: dict[Any, list[dict[str, Any]]],
+) -> None:
+    """
+    Sets a 'has_children' boolean on every row based on whether any other row lists it as its
+    parent
+
+    Rows are mutated in place. A row is considered to have children when its 'public_id'
+    appears as a key in the children index with at least one entry. Rows without a 'public_id'
+    or with an unparsable CIDR can never act as a parent so they always get False
+
+    Args:
+        rows (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets``
+        children_index (dict[Any, list[dict[str, Any]]]): Output of
+            ``_index_children_by_parent`` against the same row set
+    """
+    for row in rows:
+        public_id: Any = row.get('public_id')
+        row['has_children'] = bool(public_id is not None and children_index.get(public_id))
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   DATA LOADING                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -443,34 +496,30 @@ def _row_subnet_ref(row: dict[str, Any]) -> Any:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   ORCHESTRATOR                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def build_supernet_overview(
+def _build_linked_subnet_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
-    public_id: int,
-) -> dict[str, Any]:
+    supernet_public_id: int,
+) -> list[dict[str, Any]]:
     """
-    Builds the full supernet overview payload for the given supernet public_id
+    Loads every SUBNET under the supernet, shapes overview rows and links parents by CIDR
 
-    Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the public_id refers
-    to a non-supernet CmdbObject or no SUPERNET CmdbType is defined
+    Encapsulates the DB-and-link step that both orchestrators share: load the subnet objects,
+    count interface IPs per subnet, shape one row per subnet, then run ``sort_and_link_subnets``
+    so each row carries a ``parent_id`` pointing at its most-specific CIDR-enclosing sibling
+    (or None when top-level)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        public_id (int): public_id of the supernet to summarise
+        supernet_public_id (int): public_id of the supernet to load subnets for
 
     Returns:
-        dict[str, Any]: {'supernet': {...summary..., 'public_id': int}, 'subnets': [...]}
+        list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set;
+            rows with unparsable CIDRs trail the sorted block
     """
-    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
-
-    raw_supernet_cidr: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
-    supernet_network: IPv4Network | None = (
-        parse_cidr(raw_supernet_cidr) if isinstance(raw_supernet_cidr, str) else None
-    )
-
     subnet_objs: list[dict[str, Any]] = _load_subnets_for_supernet(
-        objects_manager, types_manager, public_id,
+        objects_manager, types_manager, supernet_public_id,
     )
     subnet_ids: list[int] = [s['public_id'] for s in subnet_objs if 'public_id' in s]
 
@@ -481,20 +530,135 @@ def build_supernet_overview(
         for s in subnet_objs
     ]
 
-    total_used: int = sum(row['used_ips'] for row in subnet_rows)
+    return sort_and_link_subnets(subnet_rows)
+
+
+def build_supernet_overview(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
+    """
+    Builds the paginated top-level supernet overview payload
+
+    The KPI strip in 'supernet' covers every subnet under the supernet (regardless of nesting
+    depth), so the totals stay stable as the user paginates or expands rows. The 'subnets'
+    block lists only top-level subnets - those whose CIDR is not strictly contained by any
+    sibling - paginated with the same page / page_size semantics used by the subnet overview.
+    Each returned row carries 'has_children: bool' so the frontend can render an expand caret
+    without a probe request; the direct children themselves are fetched via
+    ``build_supernet_subnet_children``
+
+    Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the public_id refers
+    to a non-supernet CmdbObject or no SUPERNET CmdbType is defined
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the supernet to summarise
+        page (int): 1-based page number for the top-level subnet list (clamped into the valid
+            range)
+        page_size (int): Page size for the top-level subnet list (clamped to [1, MAX_PAGE_SIZE])
+
+    Returns:
+        dict[str, Any]: {'supernet': {public_id, ...summary over all subnets...},
+            'subnets': {page, page_size, total, rows: [...top-level rows with has_children]}}
+    """
+    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
+
+    raw_supernet_cidr: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
+    supernet_network: IPv4Network | None = (
+        parse_cidr(raw_supernet_cidr) if isinstance(raw_supernet_cidr, str) else None
+    )
+
+    ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
+        objects_manager, types_manager, public_id,
+    )
+
+    children_index: dict[Any, list[dict[str, Any]]] = _index_children_by_parent(ordered_subnets)
+    _annotate_has_children(ordered_subnets, children_index)
+
+    total_used: int = sum(row['used_ips'] for row in ordered_subnets)
 
     summary: dict[str, Any] = compute_supernet_summary(
         supernet_network,
         total_used,
-        len(subnet_rows),
+        len(ordered_subnets),
     )
 
-    ordered_subnets: list[dict[str, Any]] = sort_and_link_subnets(subnet_rows)
+    top_level: list[dict[str, Any]] = [row for row in ordered_subnets if row.get('parent_id') is None]
+    total_top_level: int = len(top_level)
+
+    safe_page, safe_size = clamp_page(page, page_size, total_top_level)
+    start: int = (safe_page - 1) * safe_size
+    end: int = start + safe_size
+    page_rows: list[dict[str, Any]] = top_level[start:end]
 
     return {
         'supernet': {
             'public_id': supernet_obj.get('public_id'),
             **summary,
         },
-        'subnets': ordered_subnets,
+        'subnets': {
+            'page': safe_page,
+            'page_size': safe_size,
+            'total': total_top_level,
+            'rows': page_rows,
+        },
+    }
+
+
+def build_supernet_subnet_children(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    supernet_public_id: int,
+    subnet_public_id: int,
+) -> dict[str, Any]:
+    """
+    Builds the direct-children payload for one subnet under the given supernet
+
+    Returns every subnet whose closest CIDR-enclosing sibling under the same supernet is
+    ``subnet_public_id`` - i.e. one level of nesting only. Children are returned in ascending
+    CIDR order (inherited from ``sort_and_link_subnets``). Each child row also carries
+    ``has_children`` so the frontend can render nested expand carets without follow-up probes
+
+    Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the supernet id
+    refers to a non-supernet CmdbObject, when no SUPERNET / SUBNET CmdbType is defined, or
+    when ``subnet_public_id`` is not a SUBNET whose ``dg-supernet-ref`` matches the supernet
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        supernet_public_id (int): public_id of the SUPERNET whose subnet tree is being queried
+        subnet_public_id (int): public_id of the parent SUBNET whose direct children should
+            be returned
+
+    Returns:
+        dict[str, Any]: {'parent': {'public_id': subnet_public_id}, 'rows': [child_row, ...]}
+    """
+    _load_supernet_object(objects_manager, types_manager, supernet_public_id)
+
+    ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
+        objects_manager, types_manager, supernet_public_id,
+    )
+
+    parent_present: bool = any(row.get('public_id') == subnet_public_id for row in ordered_subnets)
+
+    if not parent_present:
+        abort(
+            400,
+            f"Subnet with public_id {subnet_public_id} is not a SUBNET under supernet"
+            f" {supernet_public_id}!",
+        )
+
+    children_index: dict[Any, list[dict[str, Any]]] = _index_children_by_parent(ordered_subnets)
+    _annotate_has_children(ordered_subnets, children_index)
+
+    children: list[dict[str, Any]] = children_index.get(subnet_public_id, [])
+
+    return {
+        'parent': {'public_id': subnet_public_id},
+        'rows': children,
     }

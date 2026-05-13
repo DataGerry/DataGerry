@@ -38,7 +38,7 @@ class SectionTemplateCreator:
         predefined_templates.append(self.__get_network_template())
         predefined_templates.append(self.__get_rack_mounting_template())
         predefined_templates.append(self.__get_model_spec_template())
-        # predefined_templates.append(self.__get_ipam_interface_template())
+        predefined_templates.append(self.__get_ipam_interface_template())
 
         return predefined_templates
 
