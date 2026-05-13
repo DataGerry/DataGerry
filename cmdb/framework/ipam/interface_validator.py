@@ -202,7 +202,7 @@ def _check_ip_uniqueness(
     criteria: dict[str, Any] = {
         'multi_data_sections': {
             '$elemMatch': {
-                'name': IpamSection.INTERFACE,
+                'section_id': IpamSection.INTERFACE,
                 'values': {
                     '$elemMatch': {
                         'data': {
@@ -255,7 +255,7 @@ def _collect_collision_errors(
         candidate_id: Any = candidate.get('public_id')
 
         for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('name') != IpamSection.INTERFACE:
+            if section.get('section_id') != IpamSection.INTERFACE:
                 continue
 
             for row_index, row in enumerate(section.get('values', []) or []):

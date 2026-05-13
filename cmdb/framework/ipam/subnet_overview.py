@@ -362,7 +362,7 @@ def _load_assigned_rows_map(
     criteria: dict[str, Any] = {
         'multi_data_sections': {
             '$elemMatch': {
-                'name': IpamSection.INTERFACE,
+                'section_id': IpamSection.INTERFACE,
                 'values': {
                     '$elemMatch': {
                         'data': {
@@ -386,7 +386,7 @@ def _load_assigned_rows_map(
         candidate_type_id: Any = candidate.get('type_id')
 
         for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('name') != IpamSection.INTERFACE:
+            if section.get('section_id') != IpamSection.INTERFACE:
                 continue
 
             for row in section.get('values', []) or []:
