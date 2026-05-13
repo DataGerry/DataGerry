@@ -392,7 +392,7 @@ def _count_used_ips_per_subnet(
     criteria: dict[str, Any] = {
         'multi_data_sections': {
             '$elemMatch': {
-                'name': IpamSection.INTERFACE,
+                'section_id': IpamSection.INTERFACE,
                 'values': {
                     '$elemMatch': {
                         'data': {
@@ -411,7 +411,7 @@ def _count_used_ips_per_subnet(
 
     for candidate in candidates:
         for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('name') != IpamSection.INTERFACE:
+            if section.get('section_id') != IpamSection.INTERFACE:
                 continue
 
             for row in section.get('values', []) or []:

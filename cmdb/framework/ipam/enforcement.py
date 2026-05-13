@@ -260,7 +260,7 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
     rows_out: list[tuple[int, int | None, str | None]] = []
 
     for section in candidate_object.get('multi_data_sections', []) or []:
-        if section.get('name') != IpamSection.INTERFACE:
+        if section.get('section_id') != IpamSection.INTERFACE:
             continue
 
         for row_index, row in enumerate(section.get('values', []) or []):

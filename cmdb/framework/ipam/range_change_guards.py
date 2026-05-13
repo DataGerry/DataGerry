@@ -103,7 +103,7 @@ def _find_objects_with_interface_to_subnet(
         {
             'multi_data_sections': {
                 '$elemMatch': {
-                    'name': IpamSection.INTERFACE,
+                    'section_id': IpamSection.INTERFACE,
                     'values': {
                         '$elemMatch': {
                             'data': {
@@ -183,7 +183,7 @@ def _check_interface_ips_fit(
 
     for obj in objects_with_interfaces:
         for section in obj.get('multi_data_sections', []) or []:
-            if section.get('name') != IpamSection.INTERFACE:
+            if section.get('section_id') != IpamSection.INTERFACE:
                 continue
 
             for row_index, row in enumerate(section.get('values', []) or []):
