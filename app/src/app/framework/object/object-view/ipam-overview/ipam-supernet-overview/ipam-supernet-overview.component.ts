@@ -29,18 +29,18 @@ import { Subject, finalize, takeUntil } from 'rxjs';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import { IpamSupernetSummary } from './models/ipam-overview.types';
-import { IpamOverviewService } from './services/ipam-overview.service';
+import { IpamSupernetSummary } from '../models/ipam-overview.types';
+import { IpamOverviewService } from '../services/ipam-overview.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-    selector: 'cmdb-ipam-overview',
-    templateUrl: './ipam-overview.component.html',
-    styleUrls: ['./ipam-overview.component.scss'],
+    selector: 'cmdb-ipam-supernet-overview',
+    templateUrl: './ipam-supernet-overview.component.html',
+    styleUrls: ['./ipam-supernet-overview.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class IpamOverviewComponent implements OnChanges, OnDestroy {
+export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
 
     @Input() public publicId: number | null = null;
 

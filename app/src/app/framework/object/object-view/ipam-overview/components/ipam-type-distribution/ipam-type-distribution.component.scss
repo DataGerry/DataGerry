@@ -1,0 +1,143 @@
+:host {
+    display: block;
+    width: 100%;
+}
+
+.ipam-type-dist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #ffffff;
+}
+
+.ipam-type-dist__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ipam-type-dist__title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0;
+}
+
+.ipam-type-dist__content {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+}
+
+.ipam-type-dist__chart {
+    position: relative;
+    width: 120px;
+    height: 120px;
+}
+
+.ipam-type-dist__chart canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.ipam-type-dist__chart-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0.55);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.ipam-type-dist__content--loading {
+    opacity: 0.85;
+}
+
+.ipam-type-dist__legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.ipam-type-dist__legend-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    color: #1f2937;
+}
+
+.ipam-type-dist__swatch {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 2px;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.ipam-type-dist__legend-text {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.ipam-type-dist__legend-label {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ipam-type-dist__legend-count {
+    color: #6b7280;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.ipam-type-dist__legend-percent {
+    color: #374151;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.ipam-type-dist__state {
+    padding: 1.5rem 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: #6b7280;
+    background-color: #f9fafb;
+    border: 1px dashed #d1d5db;
+}
+
+.ipam-type-dist__state--loading {
+    border-style: solid;
+    background-color: #f3f4f6;
+}
+
+@media (max-width: 640px) {
+    .ipam-type-dist__content {
+        grid-template-columns: 1fr;
+    }
+
+    .ipam-type-dist__chart {
+        height: 220px;
+    }
+
+    .ipam-type-dist__legend {
+        max-height: none;
+    }
+}

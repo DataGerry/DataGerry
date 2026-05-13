@@ -9,6 +9,17 @@
       </article>
 
       <article class="ipam-subnet-card">
+        <span class="ipam-subnet-card__label">IP Range</span>
+        <span class="ipam-subnet-card__value ipam-subnet-card__value--mono ipam-subnet-card__value--range">
+          @if (subnet?.ip_range?.first && subnet?.ip_range?.last) {
+            {{ subnet.ip_range.first }} <span class="ipam-subnet-card__range-sep">–</span> {{ subnet.ip_range.last }}
+          } @else {
+            <span class="ipam-subnet-card__placeholder">—</span>
+          }
+        </span>
+      </article>
+
+      <article class="ipam-subnet-card">
         <span class="ipam-subnet-card__label">Total IPs</span>
         <span class="ipam-subnet-card__value">
           {{ (subnet?.total_ips ?? total) | number }}
@@ -48,22 +59,31 @@
       </article>
     </div>
 
-    <div class="ipam-subnet__table-wrapper">
-      <div class="ipam-subnet__table-header">
-        <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
-      </div>
+    <div class="ipam-subnet__main">
+      <aside class="ipam-subnet__sidebar">
+        <cmdb-ipam-type-distribution
+          [typeDistribution]="typeDistribution"
+          [loading]="(isLoading$ | async) === true">
+        </cmdb-ipam-type-distribution>
+      </aside>
 
-      <cmdb-ipam-ip-table
-        [items]="ips"
-        [totalItems]="total"
-        [page]="page"
-        [pageSize]="pageSize"
-        [sort]="sort"
-        [loading]="(isLoading$ | async) === true"
-        (pageChange)="onPageChange($event)"
-        (pageSizeChange)="onPageSizeChange($event)"
-        (sortChange)="onSortChange($event)">
-      </cmdb-ipam-ip-table>
+      <div class="ipam-subnet__table-wrapper">
+        <div class="ipam-subnet__table-header">
+          <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
+        </div>
+
+        <cmdb-ipam-ip-table
+          [items]="ips"
+          [totalItems]="total"
+          [page]="page"
+          [pageSize]="pageSize"
+          [sort]="sort"
+          [loading]="(isLoading$ | async) === true"
+          (pageChange)="onPageChange($event)"
+          (pageSizeChange)="onPageSizeChange($event)"
+          (sortChange)="onSortChange($event)">
+        </cmdb-ipam-ip-table>
+      </div>
     </div>
   } @else if (hasError) {
     <div class="ipam-subnet__state ipam-subnet__state--error" role="alert">

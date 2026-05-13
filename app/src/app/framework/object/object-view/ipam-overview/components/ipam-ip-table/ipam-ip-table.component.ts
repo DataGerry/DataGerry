@@ -49,10 +49,10 @@ export class IpamIpTableComponent implements OnInit {
     @Output() public readonly pageChange = new EventEmitter<number>();
     @Output() public readonly pageSizeChange = new EventEmitter<number>();
     @Output() public readonly sortChange = new EventEmitter<Sort>();
-    @Output() public readonly selectionChange = new EventEmitter<IpamIpEntry[]>();
 
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('typeTemplate', { static: true }) public typeTemplate: TemplateRef<unknown>;
+    @ViewChild('assignedToTemplate', { static: true }) public assignedToTemplate: TemplateRef<unknown>;
     @ViewChild('valueTemplate', { static: true }) public valueTemplate: TemplateRef<unknown>;
 
     public columns: Column[] = [];
@@ -78,14 +78,17 @@ export class IpamIpTableComponent implements OnInit {
         this.sortChange.emit(sort);
     }
 
-    public onSelectedChange(selected: IpamIpEntry[]): void {
-        this.selectionChange.emit(selected);
-    }
-
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public trackByIp(_index: number, item: IpamIpEntry): string {
         return item?.ip;
+    }
+
+    public statusLabel(status?: string): string {
+        if (!status) {
+            return 'Used';
+        }
+        return status.charAt(0).toUpperCase() + status.slice(1);
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
@@ -98,7 +101,7 @@ export class IpamIpTableComponent implements OnInit {
                 data: 'ip',
                 sortable: true,
                 searchable: false,
-                style: { 'min-width': '160px' }
+                style: { 'min-width': '120px' }
             },
             {
                 display: 'Type',
@@ -107,7 +110,7 @@ export class IpamIpTableComponent implements OnInit {
                 sortable: true,
                 searchable: false,
                 template: this.typeTemplate,
-                style: { 'min-width': '110px' }
+                style: { 'min-width': '100px', 'text-align': 'center' }
             },
             {
                 display: 'Status',
@@ -122,9 +125,9 @@ export class IpamIpTableComponent implements OnInit {
                 display: 'Assigned To',
                 name: 'assigned_to',
                 data: 'assigned_to',
-                sortable: true,
+                sortable: false,
                 searchable: false,
-                template: this.valueTemplate,
+                template: this.assignedToTemplate,
                 style: { 'min-width': '180px' }
             },
             {
@@ -135,15 +138,6 @@ export class IpamIpTableComponent implements OnInit {
                 searchable: false,
                 template: this.valueTemplate,
                 style: { 'min-width': '180px' }
-            },
-            {
-                display: 'Last Seen',
-                name: 'last_seen',
-                data: 'last_seen',
-                sortable: true,
-                searchable: false,
-                template: this.valueTemplate,
-                style: { 'min-width': '160px' }
             }
         ];
 

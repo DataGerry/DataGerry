@@ -34,7 +34,7 @@
     @if (isIpamObject) {
     <div class="tab-pane fade show active" id="object-tab-ipam" role="tabpanel">
       @if (isSupernet) {
-      <cmdb-ipam-overview [publicId]="objectID"></cmdb-ipam-overview>
+      <cmdb-ipam-supernet-overview [publicId]="objectID"></cmdb-ipam-supernet-overview>
       } @else if (isSubnet) {
       <cmdb-ipam-subnet-overview [publicId]="objectID"></cmdb-ipam-subnet-overview>
       }
