@@ -115,32 +115,48 @@ def post_login() -> Response:
 
                 # In this case the user selected a subscription in the frontend
                 elif request_subscription:
-                    user_database = request_subscription['database']
+                    selected_subscription = next(
+                        (s for s in user_data.get("subscriptions", []) if s["id"] == request_subscription['id']),
+                        None
+                    )
+
+                    if not selected_subscription:
+                        abort(400, "Target subscription not found!")
+
+                    user_database = selected_subscription['database']
 
                     if not check_db_exists(user_database):
                         init_db_routine(user_database)
 
-                    set_admin_user(user_data, request_subscription)
+                    set_admin_user(user_data, selected_subscription)
                 # User have multiple subscriptions, send them to frontend to select
                 elif len(user_data['subscriptions']) > 1:
-                    return DefaultResponse(user_data['subscriptions']).make_response()
+                    filtered_subs: list[dict[str, Any]] = [
+                        {"id": sub["id"], "name": sub["name"]}
+                        for sub in user_data.get("subscriptions", [])
+                    ]
+
+                    return DefaultResponse(filtered_subs).make_response()
                 # There are either no subscriptions or something went wrong => failed path
                 else:
                     LOGGER.error("[post_login] Error: Invalid data. No subscriptions!")
                     abort(401, "The user has no assigned subscription!")
 
-                user: dict[str, Any] | None = retrive_user(user_data, user_database)
+                user: CmdbUser | None = retrive_user(user_data, user_database)
 
                 # User does not exist
                 if not user:
                     LOGGER.error("[post_login] Could not retrieve User from database!")
                     abort(401, "Invalid user or password. Could not login!")
 
+                # Remove the user password
+                user.password = ""
+
                 token, token_issued_at, token_expire = generate_token_with_params(
-                                                                            user,
-                                                                            current_app.database_manager,
-                                                                            True
-                                                                        )
+                    user,
+                    current_app.database_manager,
+                    True
+                )
 
                 return LoginResponse(user, token, token_issued_at, token_expire).make_response()
         except HTTPException as http_err:

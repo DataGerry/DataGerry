@@ -131,6 +131,7 @@ class CmdbMultiRender:
             "editor_name": self.get_user_name(obj.editor_id, True),
             "active": obj.active,
             "version": obj.version,
+            "special_type": obj.special_type,
         }
 
         return object_info

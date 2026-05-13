@@ -478,7 +478,11 @@ class MongoDatabaseManager:
             DocumentInsertError: If bulk write fails.
         """
         try:
-            self.get_collection(collection, db_name).bulk_write(operations)
+            batch_size = 500
+
+            for i in range(0, len(operations), batch_size):
+                batch = operations[i:i+batch_size]
+                self.get_collection(collection, db_name).bulk_write(batch, ordered=False)
         except Exception as err:
             raise DocumentInsertError(f"Failed bulk write in collection '{collection}': {err}") from err
 

@@ -26,10 +26,11 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import TypesManager, ObjectsManager, UsersManager
+from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -44,6 +45,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     verify_type_deletable,
     type_deletion_followup,
     special_type_is_unchanged,
+    get_objects_using_location_field,
+    handle_special_types,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
@@ -104,6 +107,18 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         if not created_type:
             abort(404, "Could not retrieve the created Type from the database!")
+
+        special_type: str | None = created_type.get('special_type')
+
+        if special_type:
+            section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+                ManagerType.SECTION_TEMPLATES,
+                request_user,
+            )
+            handle_special_types(types_manager, special_type, section_templates_manager, result_id)
+
+            # Re-fetch so cross-wired 'ref_types' written by handle_special_types are in the response
+            created_type = types_manager.get_type(result_id) or created_type
 
         return InsertSingleResponse(created_type, result_id).make_response()
     except HTTPException as http_err:
@@ -316,6 +331,57 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         LOGGER.error("[count_objects_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
 
+
+@types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@insert_request_user
+@types_blueprint.protect(auth=True, right='base.framework.type.view')
+def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns the public_ids of CmdbObjects that have a value (integer > 0) in the
+    location-typed field of the given CmdbType
+
+    The frontend uses this to decide whether the location field can be removed
+    from the CmdbType. The same check is enforced server-side on update
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType | None = types_manager.get_type(public_id, as_dict=False)
+
+        if not target_type:
+            abort(404, f"The Type with ID:{public_id} was not found!")
+
+        object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
+
+        return DefaultResponse({
+            'in_use': bool(object_public_ids),
+            'count': len(object_public_ids),
+            'object_public_ids': object_public_ids,
+        }).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[get_location_field_usage_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine location-field usage for Type with ID: {public_id}!")
+    except TypesManagerGetError as err:
+        LOGGER.error("[get_location_field_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
+    except Exception as err:
+        LOGGER.error(
+            "[get_location_field_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True
+        )
+        abort(
+            500,
+            f"An internal server error occured while determining location-field usage for Type with ID: {public_id}!"
+        )
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @types_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
@@ -350,10 +416,67 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         if not special_type_is_unchanged(old_type.special_type, data.get('special_type')):
             abort(400, "It is not possible to change the SpecialType property of Types!")
 
+        # Block removal of the location field while CmdbObjects still hold a location value.
+        old_has_location_field: bool = any(f.get('type') == FieldType.LOCATION for f in old_type.get_fields())
+        new_has_location_field: bool = any(f.get('type') == FieldType.LOCATION for f in new_type.get_fields())
+
+        if old_has_location_field and not new_has_location_field:
+            object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
+
+            if object_public_ids:
+                abort(
+                    400,
+                    "Cannot remove the location field: "
+                    f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
+                )
+
+        # Compute templates being removed by comparing the pre-update state to the
+        # incoming payload (NOT the post-update type), and snapshot each removed
+        # template's section info while it is still present on old_type — the blind
+        # update below will wipe the sections we need to identify affected fields
+        old_template_ids: set[str] = set(old_type.global_template_ids or [])
+        incoming_template_ids: set[str] = set(data.get('global_template_ids') or [])
+        removed_template_ids: set[str] = old_template_ids - incoming_template_ids
+
+        removed_template_hints: dict[str, tuple[list[str], str]] = {}
+
+        for template_name in removed_template_ids:
+            section = old_type.get_section(template_name)
+
+            if section is not None:
+                removed_template_hints[template_name] = (section.get_fields(), section.type)
+
         # Update the target CmdbType
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
         updated_type: CmdbType = types_manager.get_type(public_id, as_dict=False)
+
+        if not updated_type:
+            abort(404, f"The updated Type with ID:{public_id} was not found!")
+
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES,
+            request_user
+        )
+
+        for template_name in removed_template_ids:
+            expected_fields, expected_section_type = removed_template_hints.get(
+                template_name, (None, None),
+            )
+            section_templates_manager.cleanup_global_section_from_type(
+                updated_type.public_id,
+                template_name,
+                expected_field_names=expected_fields,
+                expected_section_type=expected_section_type,
+            )
+
+        if updated_type.special_type:
+            handle_special_types(
+                types_manager,
+                updated_type.special_type,
+                section_templates_manager,
+                updated_type.public_id,
+            )
 
         # When CmdbType is updated, update relevant data in all CmdbLocations of this CmdbType
         apply_type_changes_to_locations(request_user, old_type, updated_type)
@@ -370,6 +493,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     except ObjectsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_type] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Although the Type got updated, the update of correspondings Objects failed!")
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[update_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to check location-field usage for Type with ID: {public_id}!")
     except TypesManagerGetError as err:
         LOGGER.error("[update_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
@@ -412,7 +538,7 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         types_manager.delete_type(public_id)
 
         # All the followup actions where the public_id need to be removed
-        type_deletion_followup(request_user, public_id)
+        type_deletion_followup(request_user, public_id, to_delete_type.get('special_type'))
         return DeleteSingleResponse(to_delete_type).make_response()
     except HTTPException as http_err:
         raise http_err

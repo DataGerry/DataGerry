@@ -18,52 +18,62 @@ Definition of required sections and fields for the SpecialType SUBNET
 """
 from typing import Any
 
+from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import SubnetField, IpamSection
+from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
-CIDR_REGEX = r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})/(?:3[0-2]|[12]?\d)$'
+def get_subnet_schema() -> dict[str, Any]:
+    """
+    Builds the section/field blueprint for the SUBNET SpecialType
 
-# -------------------------------------------------------------------------------------------------------------------- #
-def get_subnet_schema(supernet_id: int) -> dict[str, Any]:
-    """TODO: document"""
+    The 'dg-supernet-ref' reference field is returned with an empty 'ref_types'; the list
+    is populated post-insert by handle_special_types once the SUPERNET SpecialType exists
+
+    Returns:
+        dict[str, Any]: Blueprint with the SUBNET sections, fields and 'special_type' marker
+    """
     return {
-        'special_type': SpecialType.SUBNET,
-        'sections': [
+        TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET,
+        TypeSchemaKey.SECTIONS: [
             {
-                'type': 'section',
-                'name': 'dg_information',
-                'label': 'Information',
-                'fields': [
-                    'dg_name'
-                ]
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.INFORMATION,
+                SectionKey.LABEL: 'Information',
+                SectionKey.FIELDS: [
+                    SubnetField.NAME,
+                ],
             },
             {
-                'type': 'section',
-                'name': 'dg_network_details',
-                'label': 'Network Details',
-                'fields': [
-                    'dg_supernet_ref',
-                    'dg_network_range'
-                ]
+                SectionKey.TYPE: SectionType.SECTION,
+                SectionKey.NAME: IpamSection.NETWORK_DETAILS,
+                SectionKey.LABEL: 'Network Details',
+                SectionKey.FIELDS: [
+                    SubnetField.PARENT_SUPERNET,
+                    SubnetField.NETWORK_RANGE,
+                ],
             },
         ],
-        'fields': [
+        TypeSchemaKey.FIELDS: [
             {
-                'type': 'text',
-                'name': 'dg_name',
-                'label': 'Name'
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: SubnetField.NAME,
+                FieldKey.LABEL: 'Name',
             },
             {
-                'type': 'ref',
-                'name': 'dg_supernet_ref',
-                'label': 'Supernet',
-                'ref_types': [supernet_id]
+                FieldKey.TYPE: FieldType.REFERENCE,
+                FieldKey.NAME: SubnetField.PARENT_SUPERNET,
+                FieldKey.LABEL: 'Supernet',
+                FieldKey.DESCRIPTION: "Reference to Supernet SpecialType",
+                FieldKey.REF_TYPES: [],
             },
             {
-                'type': 'text',
-                'name': 'dg_network_range',
-                'label': 'Network Range',
-                'regex': CIDR_REGEX
+                FieldKey.TYPE: FieldType.TEXT,
+                FieldKey.NAME: SubnetField.NETWORK_RANGE,
+                FieldKey.LABEL: 'Network Range',
+                FieldKey.REQUIRED: True,
+                FieldKey.REGEX: IPV4_CIDR_REGEX,
             },
-        ]
+        ],
     }

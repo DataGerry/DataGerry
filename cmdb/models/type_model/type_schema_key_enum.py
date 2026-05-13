@@ -14,52 +14,34 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all available SpecialTypes
+Enumeration of top-level dict keys of a CmdbType / SpecialType schema
 """
-from typing import Any, Iterable
 from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class SpecialType(str, Enum):
-    """Types of Events"""
-    SUPERNET = 'SUPERNET'
-    SUBNET = 'SUBNET'
-    VLAN = 'VLAN'
+class TypeSchemaKey(str, Enum):
+    """
+    Enumeration of top-level dict keys of a CmdbType / SpecialType schema
+
+    These keys appear at the outermost level of a type schema dict and reference the section list,
+    the field list and the optional SpecialType marker. Use these members instead of bare string
+    literals when constructing or reading a type schema so a typo becomes an ImportError or
+    AttributeError instead of a silently ignored key
+    """
+    SPECIAL_TYPE = 'special_type'
+    SECTIONS = 'sections'
+    FIELDS = 'fields'
 
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
         """
-        Checks if a given string is a valid SpecialType
+        Checks if a given string is a known TypeSchemaKey
 
         Args:
             value (str): The string to check
 
         Returns:
-            bool: True if the string matches an existing SpecialType, False otherwise
+            bool: True if the string matches an existing TypeSchemaKey, False otherwise
         """
         return value in cls._value2member_map_
-
-
-    @classmethod
-    def get_special_types(cls) -> dict[str, Any]:
-        """TODO: document"""
-        return {
-            cls.SUPERNET: "IPAM - Supernet class",
-            cls.SUBNET: "IPAM - Subnet class",
-            cls.VLAN: "IPAM - VLAN class"
-        }
-
-
-    @classmethod
-    def get_unused_types(cls, existing: Iterable[str]) -> dict[str, Any]:
-        """TODO: dcoument"""
-        existing_set: set[str] = set(existing)
-
-        unused_types: dict[str, Any] = {
-            key: value
-            for key, value in cls.get_special_types().items()
-            if key not in existing_set
-        }
-
-        return unused_types
