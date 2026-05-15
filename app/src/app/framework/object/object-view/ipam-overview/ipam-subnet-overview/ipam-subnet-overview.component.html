@@ -1,5 +1,8 @@
 <section class="ipam-subnet" aria-label="IPAM subnet overview">
   @if (isReady) {
+    <div class="ipam-subnet__table-header">
+      <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
+    </div>
     <div class="ipam-subnet__cards">
       <article class="ipam-subnet-card">
         <span class="ipam-subnet-card__label">Network</span>
@@ -68,10 +71,6 @@
       </aside>
 
       <div class="ipam-subnet__table-wrapper">
-        <div class="ipam-subnet__table-header">
-          <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
-        </div>
-
         <cmdb-ipam-ip-table
           [items]="ips"
           [totalItems]="total"

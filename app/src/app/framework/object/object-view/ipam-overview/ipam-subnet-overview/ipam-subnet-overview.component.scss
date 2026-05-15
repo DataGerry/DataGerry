@@ -18,7 +18,15 @@
     padding: 1rem 1.25rem;
     border: 1px solid #e5e7eb;
     border-radius: 0.5rem;
+    background-color: #f9fafb;
+    box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.ipam-subnet-card:hover {
     background-color: #ffffff;
+    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.06);
+    transform: translateY(-1px);
 }
 
 .ipam-subnet-card__label {
@@ -106,8 +114,8 @@
 }
 
 .ipam-subnet__table-title {
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 1.1rem;
+    font-weight: 900;
     color: #1f2937;
     margin: 0;
 }
