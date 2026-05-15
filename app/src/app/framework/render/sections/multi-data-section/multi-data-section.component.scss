@@ -2,8 +2,3 @@
     margin-bottom: 5px;
     margin-left: 5px;
 }
-
-// Highlight rows that failed external row validation
-::ng-deep tr.mds-row-invalid > td {
-    background-color: #f8d7da;
-}

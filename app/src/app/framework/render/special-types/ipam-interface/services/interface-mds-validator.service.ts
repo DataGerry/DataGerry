@@ -16,18 +16,17 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable, inject } from '@angular/core';
-import { UntypedFormGroup } from '@angular/forms';
-import { BehaviorSubject, Observable, Subject, Subscription, of } from 'rxjs';
-import { catchError, map, switchMap } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
 
 import { MultiDataSectionSet } from '../../../../models/cmdb-object';
 import { CmdbMultiDataSection } from '../../../../models/cmdb-type';
 import {
+    MdsCandidateValidationState,
     MdsRowValidator,
     MdsRowValidatorHandle,
     MdsRowValidatorOptions,
-    MdsValidationState,
-    VALID_MDS_STATE
+    VALID_CANDIDATE_STATE
 } from '../../../sections/multi-data-section/mds-row-validator';
 import {
     IPAM_INTERFACE_FIELD_NAMES,
@@ -56,7 +55,6 @@ export class InterfaceMdsValidatorService implements MdsRowValidator {
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public attach(
-        form: UntypedFormGroup,
         section: CmdbMultiDataSection,
         options: MdsRowValidatorOptions
     ): MdsRowValidatorHandle | null {
@@ -64,72 +62,68 @@ export class InterfaceMdsValidatorService implements MdsRowValidator {
             return null;
         }
 
+        const sectionFields = section.fields ?? [];
         for (const fieldName of IPAM_INTERFACE_REQUIRED_FIELDS) {
-            if (!form.get(fieldName)) {
+            if (!sectionFields.includes(fieldName)) {
                 return null;
             }
         }
 
-        return new InterfaceMdsValidatorHandle(this.api, options.excludeObjectId);
+        return new InterfaceCandidateValidatorHandle(this.api, options.excludeObjectId);
     }
 }
 
 
 /**
- * Holds per-section validation state and serializes API calls so a fresh row commit
- * cancels any in-flight validation for stale row state.
+ * Validates a single candidate row (the form value the user is composing in the add/edit
+ * modal) against the rest of the section's committed rows.
  */
-class InterfaceMdsValidatorHandle implements MdsRowValidatorHandle {
+class InterfaceCandidateValidatorHandle implements MdsRowValidatorHandle {
 
-    private readonly stateSubject = new BehaviorSubject<MdsValidationState>(VALID_MDS_STATE);
-    private readonly trigger = new Subject<ReadonlyArray<MultiDataSectionSet>>();
-    private readonly subscription: Subscription;
-
-    public readonly state$ = this.stateSubject.asObservable();
+    public readonly errorAnchorField: string = IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS;
 
     constructor(
         private readonly api: InterfaceIpamApiService,
         private readonly excludeObjectId: number | null
-    ) {
-        this.subscription = this.trigger.pipe(
-            switchMap(rows => this.runValidation(rows))
-        ).subscribe(state => this.stateSubject.next(state));
-    }
+    ) {}
 
 
-    public validate(rows: ReadonlyArray<MultiDataSectionSet>): void {
-        this.trigger.next(rows);
-    }
+    public validateCandidate(
+        currentRows: ReadonlyArray<MultiDataSectionSet>,
+        candidate: Record<string, unknown>,
+        editingRowId: number | null
+    ): Observable<MdsCandidateValidationState> {
+        const rows: InterfaceRowPayload[] = [];
 
-
-    public destroy(): void {
-        this.subscription.unsubscribe();
-        this.trigger.complete();
-        this.stateSubject.complete();
-    }
-
-/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
-
-    private runValidation(
-        rows: ReadonlyArray<MultiDataSectionSet>
-    ): Observable<MdsValidationState> {
-        if (!rows || rows.length === 0) {
-            return of(VALID_MDS_STATE);
+        for (const row of currentRows ?? []) {
+            if (editingRowId !== null && row.multi_data_id === editingRowId) {
+                continue;
+            }
+            rows.push(this.toRowPayloadFromSet(row));
         }
 
+        const candidateRowId = editingRowId ?? this.nextRowIndex(currentRows);
+        rows.push(this.toRowPayloadFromValues(candidate, candidateRowId));
+
         const payload: InterfaceValidationRequest = {
-            rows: rows.map(set => this.toRowPayload(set)),
+            rows,
             exclude_object_id: this.excludeObjectId
         };
 
         return this.api.validateInterface(payload).pipe(
             map(response => this.toState(response)),
-            catchError(() => of(VALID_MDS_STATE))
+            catchError(() => of(VALID_CANDIDATE_STATE))
         );
     }
 
 
-    private toRowPayload(set: MultiDataSectionSet): InterfaceRowPayload {
+    public destroy(): void {
+        /* no-op: handle holds no subscriptions */
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private toRowPayloadFromSet(set: MultiDataSectionSet): InterfaceRowPayload {
         let subnet: number | null = null;
         let ip: string | null = null;
 
@@ -149,27 +143,45 @@ class InterfaceMdsValidatorHandle implements MdsRowValidatorHandle {
     }
 
 
-    private toState(response: InterfaceValidationResponse | null): MdsValidationState {
+    private toRowPayloadFromValues(
+        values: Record<string, unknown>,
+        rowIndex: number
+    ): InterfaceRowPayload {
+        return {
+            row_index: rowIndex,
+            subnet_id: this.toObjectId(values?.[IPAM_INTERFACE_FIELD_NAMES.SUBNET]),
+            ip_address: this.toTrimmedString(values?.[IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS])
+        };
+    }
+
+
+    private toState(response: InterfaceValidationResponse | null): MdsCandidateValidationState {
         if (!response || response.valid) {
-            return VALID_MDS_STATE;
+            return VALID_CANDIDATE_STATE;
         }
 
-        const invalid = new Set<number>();
-
+        const messages: string[] = [];
         for (const err of response.errors ?? []) {
-            const details = (err.details ?? {}) as Record<string, unknown>;
-            for (const key of ['row_index', 'first_row_index', 'duplicate_row_index']) {
-                const value = details[key];
-                if (typeof value === 'number') {
-                    invalid.add(value);
-                }
+            if (err?.message) {
+                messages.push(err.message);
             }
         }
 
         return {
             valid: false,
-            invalidRowIndices: Array.from(invalid)
+            errors: messages
         };
+    }
+
+
+    private nextRowIndex(currentRows: ReadonlyArray<MultiDataSectionSet>): number {
+        let max = -1;
+        for (const row of currentRows ?? []) {
+            if (typeof row.multi_data_id === 'number' && row.multi_data_id > max) {
+                max = row.multi_data_id;
+            }
+        }
+        return max + 1;
     }
 
 

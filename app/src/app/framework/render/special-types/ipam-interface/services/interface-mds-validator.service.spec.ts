@@ -16,12 +16,14 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { TestBed } from '@angular/core/testing';
-import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
-import { Subject, of, throwError } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { CmdbMultiDataSection } from '../../../../models/cmdb-type';
 import { MultiDataSectionSet } from '../../../../models/cmdb-object';
-import { MdsRowValidatorHandle, MdsValidationState } from '../../../sections/multi-data-section/mds-row-validator';
+import {
+    MdsCandidateValidationState,
+    MdsRowValidatorHandle
+} from '../../../sections/multi-data-section/mds-row-validator';
 import {
     IPAM_INTERFACE_FIELD_NAMES,
     IPAM_INTERFACE_REQUIRED_FIELDS,
@@ -36,17 +38,6 @@ import { InterfaceMdsValidatorService } from './interface-mds-validator.service'
 describe('InterfaceMdsValidatorService', () => {
     let service: InterfaceMdsValidatorService;
     let api: jasmine.SpyObj<InterfaceIpamApiService>;
-
-    function buildIpamForm(omit?: string): UntypedFormGroup {
-        const form = new UntypedFormGroup({});
-        for (const fieldName of IPAM_INTERFACE_REQUIRED_FIELDS) {
-            if (fieldName === omit) {
-                continue;
-            }
-            form.addControl(fieldName, new UntypedFormControl(''));
-        }
-        return form;
-    }
 
     function buildIpamSection(overrides: Partial<CmdbMultiDataSection> = {}): CmdbMultiDataSection {
         return {
@@ -69,10 +60,16 @@ describe('InterfaceMdsValidatorService', () => {
         };
     }
 
-    function readState(handle: MdsRowValidatorHandle): MdsValidationState {
-        let captured: MdsValidationState | undefined;
-        const sub = handle.state$.subscribe(state => captured = state);
-        sub.unsubscribe();
+    function buildCandidate(subnet: unknown, ip: unknown): Record<string, unknown> {
+        return {
+            [IPAM_INTERFACE_FIELD_NAMES.SUBNET]: subnet,
+            [IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS]: ip
+        };
+    }
+
+    function readState(observable: ReturnType<MdsRowValidatorHandle['validateCandidate']>): MdsCandidateValidationState {
+        let captured: MdsCandidateValidationState | undefined;
+        observable.subscribe(state => captured = state).unsubscribe();
         return captured!;
     }
 
@@ -95,21 +92,21 @@ describe('InterfaceMdsValidatorService', () => {
 
     describe('attach()', () => {
         it('returns null when the section is missing', () => {
-            const result = service.attach(buildIpamForm(), undefined as any, { excludeObjectId: null });
+            const result = service.attach(undefined as any, { excludeObjectId: null });
             expect(result).toBeNull();
         });
 
         it('returns null when section.name is not the IPAM interface section', () => {
             const section = buildIpamSection({ name: 'some-other-multi-data-section' });
-            expect(service.attach(buildIpamForm(), section, { excludeObjectId: null })).toBeNull();
+            expect(service.attach(section, { excludeObjectId: null })).toBeNull();
         });
 
         // One opt-out test per required field, so future field additions auto-extend coverage
         for (const fieldName of IPAM_INTERFACE_REQUIRED_FIELDS) {
-            it(`returns null when required field '${fieldName}' is missing from the form`, () => {
+            it(`returns null when required field '${fieldName}' is missing from the section`, () => {
+                const fields = IPAM_INTERFACE_REQUIRED_FIELDS.filter(f => f !== fieldName);
                 const result = service.attach(
-                    buildIpamForm(fieldName),
-                    buildIpamSection(),
+                    buildIpamSection({ fields: [...fields] }),
                     { excludeObjectId: null }
                 );
                 expect(result).toBeNull();
@@ -117,223 +114,170 @@ describe('InterfaceMdsValidatorService', () => {
         }
 
         it('returns an active handle when the section name and full schema are present', () => {
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null });
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null });
             expect(handle).not.toBeNull();
-            expect(handle?.state$).toBeDefined();
-            expect(typeof handle?.validate).toBe('function');
+            expect(handle?.errorAnchorField).toBe(IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS);
+            expect(typeof handle?.validateCandidate).toBe('function');
             expect(typeof handle?.destroy).toBe('function');
             handle?.destroy();
         });
     });
 
 
-    describe('handle.state$', () => {
-        it('emits a permanently-valid default state on initial subscribe', () => {
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
-            const state = readState(handle);
-
-            expect(state.valid).toBeTrue();
-            expect(state.invalidRowIndices.length).toBe(0);
-
-            handle.destroy();
-        });
-    });
-
-
-    describe('handle.validate()', () => {
-        it('emits a valid state and skips the API entirely when there are no rows', () => {
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
-
-            handle.validate([]);
-
-            expect(api.validateInterface).not.toHaveBeenCalled();
-            expect(readState(handle).valid).toBeTrue();
-
-            handle.destroy();
-        });
-
-        it('builds a payload containing every row plus the excludeObjectId verbatim', () => {
+    describe('handle.validateCandidate()', () => {
+        it('sends every committed row plus the candidate (add mode) with a fresh row index', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: 24 })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: 24 })!;
 
-            handle.validate([
+            const committed = [
                 buildRow(0, 5, '10.0.0.1'),
                 buildRow(1, 5, '10.0.0.2')
-            ]);
+            ];
+
+            readState(handle.validateCandidate(
+                committed,
+                buildCandidate(5, '10.0.0.3'),
+                /* editingRowId */ null
+            ));
 
             expect(api.validateInterface).toHaveBeenCalledTimes(1);
             const payload = api.validateInterface.calls.mostRecent().args[0];
             expect(payload.exclude_object_id).toBe(24);
-            expect(payload.rows.length).toBe(2);
+            expect(payload.rows.length).toBe(3);
             expect(payload.rows[0]).toEqual({ row_index: 0, subnet_id: 5, ip_address: '10.0.0.1' });
             expect(payload.rows[1]).toEqual({ row_index: 1, subnet_id: 5, ip_address: '10.0.0.2' });
+            // Candidate gets max(existing)+1 in add mode so the backend can distinguish it.
+            expect(payload.rows[2]).toEqual({ row_index: 2, subnet_id: 5, ip_address: '10.0.0.3' });
+
+            handle.destroy();
+        });
+
+        it('uses row index 0 when there are no committed rows yet', () => {
+            api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
+
+            const payload = api.validateInterface.calls.mostRecent().args[0];
+            expect(payload.rows).toEqual([{ row_index: 0, subnet_id: 5, ip_address: '10.0.0.1' }]);
+            handle.destroy();
+        });
+
+        it('replaces the edited row in the payload when editingRowId is set', () => {
+            api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const committed = [
+                buildRow(0, 5, '10.0.0.1'),
+                buildRow(1, 5, '10.0.0.2'),
+                buildRow(2, 5, '10.0.0.3')
+            ];
+
+            readState(handle.validateCandidate(
+                committed,
+                buildCandidate(5, '10.0.0.99'),
+                /* editingRowId */ 1
+            ));
+
+            const payload = api.validateInterface.calls.mostRecent().args[0];
+            expect(payload.rows.length).toBe(3);
+            // Row 1 is excluded from the committed copies and re-added as the candidate.
+            expect(payload.rows.map(r => r.row_index).sort()).toEqual([0, 1, 2]);
+            const edited = payload.rows.find(r => r.row_index === 1);
+            expect(edited).toEqual({ row_index: 1, subnet_id: 5, ip_address: '10.0.0.99' });
 
             handle.destroy();
         });
 
         it('passes through a null excludeObjectId when in object create mode', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([buildRow(0, 5, '10.0.0.1')]);
+            readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
 
             expect(api.validateInterface.calls.mostRecent().args[0].exclude_object_id).toBeNull();
             handle.destroy();
         });
 
-        it('normalizes empty / whitespace / non-string IP values to null', () => {
+        it('normalizes empty / whitespace / non-string IPs in the candidate to null', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([
-                buildRow(0, 5, ''),
-                buildRow(1, 5, '   '),
-                buildRow(2, 5, 12345),
-                buildRow(3, 5, null)
-            ]);
-
-            const ips = api.validateInterface.calls.mostRecent().args[0].rows.map(r => r.ip_address);
-            expect(ips).toEqual([null, null, null, null]);
+            const cases: unknown[] = ['', '   ', 12345, null, undefined];
+            for (const value of cases) {
+                api.validateInterface.calls.reset();
+                readState(handle.validateCandidate([], buildCandidate(5, value), null));
+                expect(api.validateInterface.calls.mostRecent().args[0].rows[0].ip_address).toBeNull();
+            }
 
             handle.destroy();
         });
 
-        it('normalizes non-positive / non-numeric subnet refs to null', () => {
+        it('normalizes non-positive / non-numeric subnet refs in the candidate to null', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([
-                buildRow(0, 0, '10.0.0.1'),
-                buildRow(1, -1, '10.0.0.2'),
-                buildRow(2, 'abc', '10.0.0.3'),
-                buildRow(3, null, '10.0.0.4')
-            ]);
-
-            const subnets = api.validateInterface.calls.mostRecent().args[0].rows.map(r => r.subnet_id);
-            expect(subnets).toEqual([null, null, null, null]);
+            const cases: unknown[] = [0, -1, 'abc', null, undefined];
+            for (const value of cases) {
+                api.validateInterface.calls.reset();
+                readState(handle.validateCandidate([], buildCandidate(value, '10.0.0.1'), null));
+                expect(api.validateInterface.calls.mostRecent().args[0].rows[0].subnet_id).toBeNull();
+            }
 
             handle.destroy();
         });
 
-        it('keeps the state valid when the backend returns valid:true', () => {
+        it('returns valid:true and no errors when the backend says valid', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([buildRow(0, 5, '10.0.0.1')]);
-
-            const state = readState(handle);
+            const state = readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
             expect(state.valid).toBeTrue();
-            expect(state.invalidRowIndices.length).toBe(0);
+            expect(state.errors.length).toBe(0);
 
             handle.destroy();
         });
 
-        it('extracts row_index from per-row errors into invalidRowIndices', () => {
+        it('returns valid:false with all error messages from the backend response', () => {
             api.validateInterface.and.returnValue(of({
                 valid: false,
                 errors: [
-                    { code: 'ip_invalid', message: 'bad', details: { row_index: 2 } }
+                    { code: 'ip_invalid', message: 'Bad IP', details: {} },
+                    { code: 'ip_duplicate', message: 'Already in use', details: {} }
                 ]
             } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([buildRow(0, 5, '10.0.0.1'), buildRow(2, 5, 'bad')]);
-
-            const state = readState(handle);
+            const state = readState(handle.validateCandidate([], buildCandidate(5, 'bad'), null));
             expect(state.valid).toBeFalse();
-            expect(Array.from(state.invalidRowIndices)).toEqual([2]);
+            expect(Array.from(state.errors)).toEqual(['Bad IP', 'Already in use']);
 
             handle.destroy();
         });
 
-        it('extracts both first_row_index and duplicate_row_index from cross-row dupes', () => {
-            api.validateInterface.and.returnValue(of({
-                valid: false,
-                errors: [{
-                    code: 'ip_duplicate',
-                    message: 'dupe',
-                    details: { first_row_index: 0, duplicate_row_index: 3 }
-                }]
-            } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
-
-            handle.validate([buildRow(0, 5, '10.0.0.1'), buildRow(3, 5, '10.0.0.1')]);
-
-            const state = readState(handle);
-            expect(state.valid).toBeFalse();
-            expect(Array.from(state.invalidRowIndices).sort()).toEqual([0, 3]);
-
-            handle.destroy();
-        });
-
-        it('deduplicates indices when several errors flag the same row', () => {
+        it('skips errors that have no message string', () => {
             api.validateInterface.and.returnValue(of({
                 valid: false,
                 errors: [
-                    { code: 'a', message: 'a', details: { row_index: 1 } },
-                    { code: 'b', message: 'b', details: { row_index: 1 } },
-                    { code: 'c', message: 'c', details: { duplicate_row_index: 1 } }
+                    { code: 'a', message: '', details: {} },
+                    { code: 'b', message: 'real', details: {} }
                 ]
             } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([buildRow(1, 5, '10.0.0.1')]);
-
-            expect(Array.from(readState(handle).invalidRowIndices)).toEqual([1]);
-
-            handle.destroy();
-        });
-
-        it('ignores non-numeric values in details.row_index', () => {
-            api.validateInterface.and.returnValue(of({
-                valid: false,
-                errors: [
-                    { code: 'a', message: 'a', details: { row_index: 'oops' } },
-                    { code: 'b', message: 'b', details: { row_index: 2 } }
-                ]
-            } as InterfaceValidationResponse));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
-
-            handle.validate([buildRow(2, 5, 'bad')]);
-
-            expect(Array.from(readState(handle).invalidRowIndices)).toEqual([2]);
+            const state = readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
+            expect(Array.from(state.errors)).toEqual(['real']);
 
             handle.destroy();
         });
 
         it('falls back to a valid state when the API errors out', () => {
             api.validateInterface.and.returnValue(throwError(() => new Error('boom')));
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            handle.validate([buildRow(0, 5, '10.0.0.1')]);
-
-            const state = readState(handle);
+            const state = readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
             expect(state.valid).toBeTrue();
-            expect(state.invalidRowIndices.length).toBe(0);
-
-            handle.destroy();
-        });
-
-        it('cancels an in-flight request when validate() is called again (switchMap)', () => {
-            const firstCall = new Subject<InterfaceValidationResponse>();
-            const secondCall = new Subject<InterfaceValidationResponse>();
-            api.validateInterface.and.returnValues(firstCall.asObservable(), secondCall.asObservable());
-
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
-
-            handle.validate([buildRow(0, 5, '10.0.0.1')]);
-            handle.validate([buildRow(0, 5, '10.0.0.2')]);
-
-            // First call's late response must be ignored; only the second call's result wins.
-            firstCall.next({
-                valid: false,
-                errors: [{ code: 'x', message: 'x', details: { row_index: 0 } }]
-            } as InterfaceValidationResponse);
-            secondCall.next({ valid: true, errors: [] } as InterfaceValidationResponse);
-
-            const state = readState(handle);
-            expect(state.valid).toBeTrue();
-            expect(state.invalidRowIndices.length).toBe(0);
+            expect(state.errors.length).toBe(0);
 
             handle.destroy();
         });
@@ -342,20 +286,9 @@ describe('InterfaceMdsValidatorService', () => {
 
     describe('handle.destroy()', () => {
         it('does not throw when called repeatedly', () => {
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
             handle.destroy();
-            // A second destroy must be a tolerated no-op so the MDS component doesn't have to track state.
             expect(() => handle.destroy()).not.toThrow();
-        });
-
-        it('completes state$ so consumers receive a complete notification', () => {
-            const handle = service.attach(buildIpamForm(), buildIpamSection(), { excludeObjectId: null })!;
-            let completed = false;
-            handle.state$.subscribe({ complete: () => completed = true });
-
-            handle.destroy();
-
-            expect(completed).toBeTrue();
         });
     });
 });

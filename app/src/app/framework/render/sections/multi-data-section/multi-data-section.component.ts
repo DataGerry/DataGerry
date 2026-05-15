@@ -18,7 +18,8 @@
 import { Component, Inject, Input, OnDestroy, OnInit, Optional, TemplateRef, ViewChild } from '@angular/core';
 import { displayPassword, maskPassword, PasswordVisibilityMap, togglePasswordVisibility as toggleVis, ensureVisibilityBucket as ensureBucket, refreshItemsReference, getRawValueForFieldFromMds } from './password-cell.util';
 import { UntypedFormControl } from '@angular/forms';
-import { Subscription, combineLatest } from 'rxjs';
+import { Observable, combineLatest, of } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
@@ -26,7 +27,7 @@ import { ObjectService } from 'src/app/framework/services/object.service';
 
 import { BaseSectionComponent } from '../base-section/base-section.component';
 import { Column } from 'src/app/layout/table/table.types';
-import { PreviewModalComponent } from 'src/app/framework/type/builder/modals/preview-modal/preview-modal.component';
+import { PreviewModalComponent, PreviewModalValidationResult } from 'src/app/framework/type/builder/modals/preview-modal/preview-modal.component';
 import { CmdbMultiDataSection, CmdbType } from 'src/app/framework/models/cmdb-type';
 import { MultiDataSectionEntry, MultiDataSectionFieldValue, MultiDataSectionSet } from 'src/app/framework/models/cmdb-object';
 import { DeleteEntryModalComponent } from '../modals/delete-entry-modal.component';
@@ -36,10 +37,9 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import {
     MDS_ROW_VALIDATORS,
+    MdsCandidateValidationState,
     MdsRowValidator,
-    MdsRowValidatorHandle,
-    MdsValidationState,
-    VALID_MDS_STATE
+    MdsRowValidatorHandle
 } from '../multi-data-section/mds-row-validator';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -97,10 +97,11 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     // Table Template: Password cell with eye icon
     @ViewChild('passwordTemplate', { static: true }) passwordTemplate: TemplateRef<any>;
 
-    // Merged state from every MdsRowValidator that opted in for this section.
-    public validationState: MdsValidationState = VALID_MDS_STATE;
+    /**
+     * Validator handles for every {@link MdsRowValidator} that opted in for this section.
+     * Used to gate row commits from the add/edit modal before they reach the table.
+     */
     private rowValidatorHandles: MdsRowValidatorHandle[] = [];
-    private rowValidatorSub: Subscription | null = null;
 
 
 
@@ -141,7 +142,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         if (this.modalRef) {
             this.modalRef.close();
         }
-        this.rowValidatorSub?.unsubscribe();
         for (const handle of this.rowValidatorHandles) {
             handle.destroy();
         }
@@ -458,6 +458,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
         this.modalRef.componentInstance.sections = [this.modalSection];
         this.modalRef.componentInstance.saveValues = true;
+        this.applyCandidateValidatorToModal(this.modalRef, null);
 
         this.modalRef.result.then((values: any) => {
             if (values){
@@ -472,7 +473,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 this.calculateCurrentPage("create");
 
                 this.form.markAsDirty();
-                this.runMdsValidation();
             }
         });
     }
@@ -499,12 +499,12 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
         this.modalRef.componentInstance.editValues = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
+        this.applyCandidateValidatorToModal(this.modalRef, rowIndex);
 
         this.modalRef.result.then((values: any) => {
             if (values){
                 this.updateNewValues(values, rowIndex);
                 this.form.markAsDirty();
-                this.runMdsValidation();
             }
         });
     }
@@ -523,7 +523,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 this.removeDataSet(rowIndex);
                 this.calculateCurrentPage("delete");
                 this.form.markAsDirty();
-                this.runMdsValidation();
             }
         });
     }
@@ -823,14 +822,13 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
     /**
      * Asks every registered {@link MdsRowValidator} whether it wants to attach to this
-     * section, then merges the live state of every attached handle into a single
-     * {@link validationState}. Validators that don't apply return null and are skipped,
-     * so this section's behavior degrades gracefully when no plugin opts in.
+     * section. Validators that don't apply return null and are skipped, so this section's
+     * behavior degrades gracefully when no plugin opts in. The resulting handles are used
+     * to gate row commits from the add/edit modal before they reach the table.
      */
     private attachRowValidators(): void {
         for (const validator of this.rowValidators ?? []) {
             const handle = validator.attach(
-                this.form,
                 this.section as CmdbMultiDataSection,
                 { excludeObjectId: this.getCurrentObjectId() }
             );
@@ -838,70 +836,76 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 this.rowValidatorHandles.push(handle);
             }
         }
+    }
 
+
+    /**
+     * Wires the section's attached validators into a {@link PreviewModalComponent} so the
+     * modal's Add/OK button stays disabled until every validator clears the candidate row.
+     * No-ops when no validator opted in, leaving the modal in its default permissive mode.
+     */
+    private applyCandidateValidatorToModal(
+        modalRef: NgbModalRef,
+        editingRowId: number | null
+    ): void {
         if (this.rowValidatorHandles.length === 0) {
             return;
         }
 
-        this.rowValidatorSub = combineLatest(
-            this.rowValidatorHandles.map(handle => handle.state$)
-        ).subscribe(states => {
-            this.validationState = this.mergeValidationStates(states);
-        });
+        modalRef.componentInstance.externalValidator = (formValue: Record<string, unknown>)
+            : Observable<PreviewModalValidationResult> =>
+                this.runCandidateValidation(formValue, editingRowId);
 
-        if (this.shouldRunInitialValidation()) {
-            this.runMdsValidation();
+        modalRef.componentInstance.errorAnchorField = this.resolveErrorAnchorField();
+    }
+
+
+    private runCandidateValidation(
+        formValue: Record<string, unknown>,
+        editingRowId: number | null
+    ): Observable<PreviewModalValidationResult> {
+        const rows = this.formatedDataSection.values;
+        const streams = this.rowValidatorHandles.map(handle =>
+            handle.validateCandidate(rows, formValue ?? {}, editingRowId)
+        );
+
+        if (streams.length === 0) {
+            return of({ valid: true, errors: [] });
         }
+
+        return combineLatest(streams).pipe(
+            map(states => this.mergeCandidateStates(states))
+        );
     }
 
 
-    /**
-     * Re-runs every attached row validator after a row commit / edit / delete.
-     */
-    private runMdsValidation(): void {
-        for (const handle of this.rowValidatorHandles) {
-            handle.validate(this.formatedDataSection.values);
-        }
-    }
+    private mergeCandidateStates(
+        states: ReadonlyArray<MdsCandidateValidationState>
+    ): PreviewModalValidationResult {
+        const messages: string[] = [];
+        let valid = true;
 
-
-    private shouldRunInitialValidation(): boolean {
-        const editable = this.mode === CmdbMode.Edit || this.mode === CmdbMode.Create;
-        return editable && this.formatedDataSection.values.length > 0;
-    }
-
-
-    private mergeValidationStates(states: ReadonlyArray<MdsValidationState>): MdsValidationState {
-        const invalid = new Set<number>();
-        let allValid = true;
-
-        for (const state of states) {
+        for (const state of states ?? []) {
             if (!state.valid) {
-                allValid = false;
+                valid = false;
             }
-            for (const index of state.invalidRowIndices) {
-                invalid.add(index);
+            for (const message of state.errors ?? []) {
+                messages.push(message);
             }
         }
 
-        return {
-            valid: allValid,
-            invalidRowIndices: Array.from(invalid)
-        };
+        return { valid, errors: messages };
     }
 
 
-    /**
-     * Returns the CSS class the table should apply to a row, marking it red when any
-     * attached validator has flagged it. Returns a plain string because the table host
-     * uses [ngClass] in array form, which rejects object literals.
-     */
-    public rowValidationClass = (item: any): string => {
-        const rowIndex = item?.['dg-multiDataRowIndex'];
-        const invalid = typeof rowIndex === 'number'
-            && this.validationState.invalidRowIndices.includes(rowIndex);
-        return invalid ? 'mds-row-invalid' : '';
-    };
+    private resolveErrorAnchorField(): string | null {
+        for (const handle of this.rowValidatorHandles) {
+            if (handle.errorAnchorField) {
+                return handle.errorAnchorField;
+            }
+        }
+        return null;
+    }
 
 
     /**

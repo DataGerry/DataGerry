@@ -16,7 +16,6 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { InjectionToken } from '@angular/core';
-import { UntypedFormGroup } from '@angular/forms';
 import { Observable } from 'rxjs';
 
 import { MultiDataSectionSet } from '../../../models/cmdb-object';
@@ -24,13 +23,13 @@ import { CmdbMultiDataSection } from '../../../models/cmdb-type';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Snapshot of one validator's verdict on the current MDS row set.
+ * Validation verdict for a single candidate row being added/edited in the MDS modal.
  */
-export interface MdsValidationState {
-    /** True when the validator has no objection to the current row set. */
+export interface MdsCandidateValidationState {
+    /** True when the validator has no objection to the candidate row. */
     valid: boolean;
-    /** multi_data_id values the validator has flagged. Used to highlight invalid rows. */
-    invalidRowIndices: ReadonlyArray<number>;
+    /** User-facing error messages collected from the backend response. */
+    errors: ReadonlyArray<string>;
 }
 
 
@@ -42,12 +41,24 @@ export interface MdsRowValidatorOptions {
 
 /**
  * Per-section runtime returned from {@link MdsRowValidator.attach} when a validator opts in.
+ * The MDS component uses this to validate a row candidate from the add/edit modal *before*
+ * the row gets committed to the table, so the user never sees a row in an invalid state.
  */
 export interface MdsRowValidatorHandle {
-    /** Stream of validation state. Must emit a default valid state on subscribe. */
-    state$: Observable<MdsValidationState>;
-    /** Trigger validation against the current row set  */
-    validate(rows: ReadonlyArray<MultiDataSectionSet>): void;
+    readonly errorAnchorField: string | null;
+
+    /**
+     * Validate a candidate row against the existing committed rows. The candidate object
+     * is the modal form value keyed by field name. {@code editingRowId} carries the
+     * multi_data_id of the row currently being edited (so the implementation can exclude
+     * it from collision checks), or null when the user is adding a brand new row.
+     */
+    validateCandidate(
+        currentRows: ReadonlyArray<MultiDataSectionSet>,
+        candidate: Record<string, unknown>,
+        editingRowId: number | null
+    ): Observable<MdsCandidateValidationState>;
+
     /** Tear down subscriptions and resources. Called from MDS component ngOnDestroy. */
     destroy(): void;
 }
@@ -62,7 +73,6 @@ export interface MdsRowValidatorHandle {
  */
 export interface MdsRowValidator {
     attach(
-        form: UntypedFormGroup,
         section: CmdbMultiDataSection,
         options: MdsRowValidatorOptions
     ): MdsRowValidatorHandle | null;
@@ -71,19 +81,15 @@ export interface MdsRowValidator {
 
 /**
  * Multi-provider DI token. Register {@link MdsRowValidator} implementations against this
- * token to add row validation behavior; the MDS component picks them all up and merges
- * their state without changes to its own code.
+ * token to add row validation behavior; the MDS component picks them all up.
  */
 export const MDS_ROW_VALIDATORS = new InjectionToken<ReadonlyArray<MdsRowValidator>>(
     'MdsRowValidators'
 );
 
 
-/**
- * Default state used as the seed for new handles and as the merged result when no
- * validator has flagged anything.
- */
-export const VALID_MDS_STATE: MdsValidationState = Object.freeze({
+/** Seed state used when no validator has flagged anything. */
+export const VALID_CANDIDATE_STATE: MdsCandidateValidationState = Object.freeze({
     valid: true,
-    invalidRowIndices: Object.freeze([]) as ReadonlyArray<number>
+    errors: Object.freeze([]) as ReadonlyArray<string>
 });
