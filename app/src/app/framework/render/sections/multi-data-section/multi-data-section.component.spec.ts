@@ -18,8 +18,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { UntypedFormGroup } from '@angular/forms';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { BehaviorSubject, of } from 'rxjs';
+import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
+import { Observable, of } from 'rxjs';
 
 import { CmdbMode } from '../../../modes.enum';
 import { CmdbMultiDataSection } from '../../../models/cmdb-type';
@@ -28,33 +28,28 @@ import { ObjectService } from '../../../services/object.service';
 
 import {
     MDS_ROW_VALIDATORS,
+    MdsCandidateValidationState,
     MdsRowValidator,
-    MdsRowValidatorHandle,
-    MdsValidationState,
-    VALID_MDS_STATE
+    MdsRowValidatorHandle
 } from './mds-row-validator';
 import { MultiDataSectionComponent } from './multi-data-section.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
-/**
- * Stub handle that lets a test push state changes through a backing BehaviorSubject and
- * spies on validate / destroy so the MDS lifecycle can be asserted in isolation.
- */
 interface StubHandle extends MdsRowValidatorHandle {
-    pushState(state: MdsValidationState): void;
-    validate: jasmine.Spy;
+    validateCandidate: jasmine.Spy;
     destroy: jasmine.Spy;
 }
 
 
-function makeStubHandle(initialState: MdsValidationState = VALID_MDS_STATE): StubHandle {
-    const subject = new BehaviorSubject<MdsValidationState>(initialState);
+function makeStubHandle(
+    state: MdsCandidateValidationState = { valid: true, errors: [] },
+    errorAnchorField: string | null = 'dg-interface-ip-address'
+): StubHandle {
     return {
-        state$: subject.asObservable(),
-        validate: jasmine.createSpy('validate'),
-        destroy: jasmine.createSpy('destroy'),
-        pushState: (state: MdsValidationState) => subject.next(state)
+        errorAnchorField,
+        validateCandidate: jasmine.createSpy('validateCandidate').and.returnValue(of(state)),
+        destroy: jasmine.createSpy('destroy')
     };
 }
 
@@ -110,7 +105,6 @@ describe('MultiDataSectionComponent (validator integration)', () => {
         const fixture = TestBed.createComponent(MultiDataSectionComponent);
         const component = fixture.componentInstance;
 
-        // Sensible defaults so private helpers don't blow up when accessed directly.
         component.section = buildSection();
         component.fields = [];
         component.form = new UntypedFormGroup({});
@@ -132,115 +126,6 @@ describe('MultiDataSectionComponent (validator integration)', () => {
     });
 
 
-    describe('mergeValidationStates()', () => {
-        it('returns a permanently-valid state when no states are provided', () => {
-            const { component } = buildComponent();
-            const merged = (component as any).mergeValidationStates([]);
-
-            expect(merged.valid).toBeTrue();
-            expect(merged.invalidRowIndices).toEqual([]);
-        });
-
-        it('returns valid:true when every state is valid', () => {
-            const { component } = buildComponent();
-            const merged = (component as any).mergeValidationStates([
-                { valid: true, invalidRowIndices: [] },
-                { valid: true, invalidRowIndices: [] }
-            ]);
-
-            expect(merged.valid).toBeTrue();
-            expect(merged.invalidRowIndices).toEqual([]);
-        });
-
-        it('returns valid:false the moment any state is invalid', () => {
-            const { component } = buildComponent();
-            const merged = (component as any).mergeValidationStates([
-                { valid: true, invalidRowIndices: [] },
-                { valid: false, invalidRowIndices: [3] }
-            ]);
-
-            expect(merged.valid).toBeFalse();
-            expect(merged.invalidRowIndices).toEqual([3]);
-        });
-
-        it('unions invalid row indices across states without duplicates', () => {
-            const { component } = buildComponent();
-            const merged = (component as any).mergeValidationStates([
-                { valid: false, invalidRowIndices: [1, 2] },
-                { valid: false, invalidRowIndices: [2, 3] },
-                { valid: false, invalidRowIndices: [3, 4] }
-            ]);
-
-            expect(merged.valid).toBeFalse();
-            expect((merged.invalidRowIndices as number[]).sort()).toEqual([1, 2, 3, 4]);
-        });
-    });
-
-
-    describe('rowValidationClass()', () => {
-        it('returns mds-row-invalid for rows whose multi_data_id is flagged', () => {
-            const { component } = buildComponent();
-            component.validationState = { valid: false, invalidRowIndices: [2, 5] };
-
-            expect(component.rowValidationClass({ 'dg-multiDataRowIndex': 2 })).toBe('mds-row-invalid');
-            expect(component.rowValidationClass({ 'dg-multiDataRowIndex': 5 })).toBe('mds-row-invalid');
-        });
-
-        it('returns an empty string for rows that are not flagged', () => {
-            const { component } = buildComponent();
-            component.validationState = { valid: false, invalidRowIndices: [2] };
-
-            expect(component.rowValidationClass({ 'dg-multiDataRowIndex': 1 })).toBe('');
-            expect(component.rowValidationClass({ 'dg-multiDataRowIndex': 99 })).toBe('');
-        });
-
-        it('returns an empty string when the row index is missing or non-numeric', () => {
-            const { component } = buildComponent();
-            component.validationState = { valid: false, invalidRowIndices: [2] };
-
-            expect(component.rowValidationClass({})).toBe('');
-            expect(component.rowValidationClass({ 'dg-multiDataRowIndex': '2' })).toBe('');
-            expect(component.rowValidationClass(undefined)).toBe('');
-            expect(component.rowValidationClass(null)).toBe('');
-        });
-    });
-
-
-    describe('shouldRunInitialValidation()', () => {
-        it('returns false in View mode regardless of row count', () => {
-            const { component } = buildComponent();
-            component.mode = CmdbMode.View;
-            (component as any).formatedDataSection = buildEntry([{ multi_data_id: 0, data: [] }]);
-
-            expect((component as any).shouldRunInitialValidation()).toBeFalse();
-        });
-
-        it('returns false in editable modes when there are no existing rows', () => {
-            const { component } = buildComponent();
-            component.mode = CmdbMode.Edit;
-            (component as any).formatedDataSection = buildEntry([]);
-
-            expect((component as any).shouldRunInitialValidation()).toBeFalse();
-        });
-
-        it('returns true in Edit mode when rows already exist', () => {
-            const { component } = buildComponent();
-            component.mode = CmdbMode.Edit;
-            (component as any).formatedDataSection = buildEntry([{ multi_data_id: 0, data: [] }]);
-
-            expect((component as any).shouldRunInitialValidation()).toBeTrue();
-        });
-
-        it('returns true in Create mode when rows already exist', () => {
-            const { component } = buildComponent();
-            component.mode = CmdbMode.Create;
-            (component as any).formatedDataSection = buildEntry([{ multi_data_id: 0, data: [] }]);
-
-            expect((component as any).shouldRunInitialValidation()).toBeTrue();
-        });
-    });
-
-
     describe('attachRowValidators()', () => {
         it('does nothing when no validators are registered', () => {
             const { component } = buildComponent();
@@ -248,7 +133,6 @@ describe('MultiDataSectionComponent (validator integration)', () => {
             (component as any).attachRowValidators();
 
             expect((component as any).rowValidatorHandles.length).toBe(0);
-            expect(component.validationState).toEqual(VALID_MDS_STATE);
         });
 
         it('skips validators that return null (do not apply to this section)', () => {
@@ -259,10 +143,9 @@ describe('MultiDataSectionComponent (validator integration)', () => {
 
             expect(validator.attach).toHaveBeenCalledTimes(1);
             expect((component as any).rowValidatorHandles.length).toBe(0);
-            expect(component.validationState).toEqual(VALID_MDS_STATE);
         });
 
-        it('forwards form, section, and excludeObjectId derived from renderResult', () => {
+        it('forwards section and excludeObjectId derived from renderResult', () => {
             const handle = makeStubHandle();
             const validator = makeStubValidator(handle);
             const { component } = buildComponent([validator]);
@@ -274,9 +157,8 @@ describe('MultiDataSectionComponent (validator integration)', () => {
 
             expect(validator.attach).toHaveBeenCalledTimes(1);
             const callArgs = (validator.attach as jasmine.Spy).calls.mostRecent().args;
-            expect(callArgs[0]).toBe(component.form);
-            expect(callArgs[1]).toBe(component.section);
-            expect(callArgs[2]).toEqual({ excludeObjectId: 42 });
+            expect(callArgs[0]).toBe(component.section);
+            expect(callArgs[1]).toEqual({ excludeObjectId: 42 });
         });
 
         it('passes excludeObjectId:null when there is no renderResult (object create mode)', () => {
@@ -287,29 +169,12 @@ describe('MultiDataSectionComponent (validator integration)', () => {
             (component as any).attachRowValidators();
 
             const callArgs = (validator.attach as jasmine.Spy).calls.mostRecent().args;
-            expect(callArgs[2]).toEqual({ excludeObjectId: null });
+            expect(callArgs[1]).toEqual({ excludeObjectId: null });
         });
 
-        it('subscribes to the active handle and reflects its emissions in validationState', () => {
-            const handle = makeStubHandle({ valid: false, invalidRowIndices: [3] });
-            const validator = makeStubValidator(handle);
-            const { component } = buildComponent([validator]);
-
-            (component as any).attachRowValidators();
-
-            expect((component as any).rowValidatorHandles.length).toBe(1);
-            expect(component.validationState.valid).toBeFalse();
-            expect(component.validationState.invalidRowIndices).toEqual([3]);
-
-            // Push a fresh state through and verify the component picks it up live.
-            handle.pushState({ valid: true, invalidRowIndices: [] });
-            expect(component.validationState.valid).toBeTrue();
-            expect(component.validationState.invalidRowIndices).toEqual([]);
-        });
-
-        it('merges state from multiple validators into a single validationState', () => {
-            const handleA = makeStubHandle({ valid: true, invalidRowIndices: [] });
-            const handleB = makeStubHandle({ valid: false, invalidRowIndices: [7] });
+        it('keeps every active handle for later use by the modal', () => {
+            const handleA = makeStubHandle();
+            const handleB = makeStubHandle();
             const { component } = buildComponent([
                 makeStubValidator(handleA),
                 makeStubValidator(handleB)
@@ -317,75 +182,140 @@ describe('MultiDataSectionComponent (validator integration)', () => {
 
             (component as any).attachRowValidators();
 
-            expect(component.validationState.valid).toBeFalse();
-            expect(component.validationState.invalidRowIndices).toEqual([7]);
-
-            handleA.pushState({ valid: false, invalidRowIndices: [1] });
-            expect(component.validationState.valid).toBeFalse();
-            expect((component.validationState.invalidRowIndices as number[]).sort()).toEqual([1, 7]);
-        });
-
-        it('runs initial validation when there are existing rows in editable modes', () => {
-            const handle = makeStubHandle();
-            const { component } = buildComponent([makeStubValidator(handle)]);
-            component.mode = CmdbMode.Edit;
-            (component as any).formatedDataSection = buildEntry([{ multi_data_id: 0, data: [] }]);
-
-            (component as any).attachRowValidators();
-
-            expect(handle.validate).toHaveBeenCalledTimes(1);
-            expect(handle.validate).toHaveBeenCalledWith((component as any).formatedDataSection.values);
-        });
-
-        it('does NOT run initial validation when no rows exist', () => {
-            const handle = makeStubHandle();
-            const { component } = buildComponent([makeStubValidator(handle)]);
-            component.mode = CmdbMode.Edit;
-            (component as any).formatedDataSection = buildEntry([]);
-
-            (component as any).attachRowValidators();
-
-            expect(handle.validate).not.toHaveBeenCalled();
-        });
-
-        it('does NOT run initial validation in View mode', () => {
-            const handle = makeStubHandle();
-            const { component } = buildComponent([makeStubValidator(handle)]);
-            component.mode = CmdbMode.View;
-            (component as any).formatedDataSection = buildEntry([{ multi_data_id: 0, data: [] }]);
-
-            (component as any).attachRowValidators();
-
-            expect(handle.validate).not.toHaveBeenCalled();
+            expect((component as any).rowValidatorHandles).toEqual([handleA, handleB]);
         });
     });
 
 
-    describe('runMdsValidation()', () => {
-        it('calls validate on every attached handle with the current rows', () => {
+    describe('runCandidateValidation()', () => {
+        it('returns a permanently-valid result when there are no handles', (done) => {
+            const { component } = buildComponent();
+            const result$ = (component as any).runCandidateValidation({}, null) as Observable<{
+                valid: boolean;
+                errors: ReadonlyArray<string>;
+            }>;
+
+            result$.subscribe(result => {
+                expect(result.valid).toBeTrue();
+                expect(result.errors.length).toBe(0);
+                done();
+            });
+        });
+
+        it('forwards the committed rows, form value, and editingRowId to every handle', (done) => {
+            const rows: MultiDataSectionSet[] = [{ multi_data_id: 0, data: [] }];
             const handleA = makeStubHandle();
             const handleB = makeStubHandle();
             const { component } = buildComponent();
             (component as any).rowValidatorHandles = [handleA, handleB];
-            const rows: MultiDataSectionSet[] = [{ multi_data_id: 0, data: [] }];
             (component as any).formatedDataSection = buildEntry(rows);
 
-            (component as any).runMdsValidation();
+            const candidate = { foo: 'bar' };
+            const result$ = (component as any).runCandidateValidation(candidate, 7) as Observable<unknown>;
 
-            expect(handleA.validate).toHaveBeenCalledWith(rows);
-            expect(handleB.validate).toHaveBeenCalledWith(rows);
+            result$.subscribe(() => {
+                expect(handleA.validateCandidate).toHaveBeenCalledWith(rows, candidate, 7);
+                expect(handleB.validateCandidate).toHaveBeenCalledWith(rows, candidate, 7);
+                done();
+            });
         });
 
-        it('is a safe no-op when no handles have been attached', () => {
+        it('passes an empty object when the form value is null/undefined', (done) => {
+            const handle = makeStubHandle();
             const { component } = buildComponent();
+            (component as any).rowValidatorHandles = [handle];
 
-            expect(() => (component as any).runMdsValidation()).not.toThrow();
+            const result$ = (component as any).runCandidateValidation(null, null) as Observable<unknown>;
+            result$.subscribe(() => {
+                expect(handle.validateCandidate).toHaveBeenCalledWith(jasmine.any(Array), {}, null);
+                done();
+            });
+        });
+
+        it('merges results: any invalid handle makes the overall result invalid', (done) => {
+            const handleA = makeStubHandle({ valid: true, errors: [] });
+            const handleB = makeStubHandle({ valid: false, errors: ['bad ip'] });
+            const { component } = buildComponent();
+            (component as any).rowValidatorHandles = [handleA, handleB];
+
+            const result$ = (component as any).runCandidateValidation({}, null) as Observable<{
+                valid: boolean;
+                errors: ReadonlyArray<string>;
+            }>;
+
+            result$.subscribe(result => {
+                expect(result.valid).toBeFalse();
+                expect(Array.from(result.errors)).toEqual(['bad ip']);
+                done();
+            });
+        });
+
+        it('concatenates error messages across handles', (done) => {
+            const handleA = makeStubHandle({ valid: false, errors: ['a', 'b'] });
+            const handleB = makeStubHandle({ valid: false, errors: ['c'] });
+            const { component } = buildComponent();
+            (component as any).rowValidatorHandles = [handleA, handleB];
+
+            const result$ = (component as any).runCandidateValidation({}, null) as Observable<{
+                valid: boolean;
+                errors: ReadonlyArray<string>;
+            }>;
+
+            result$.subscribe(result => {
+                expect(Array.from(result.errors)).toEqual(['a', 'b', 'c']);
+                done();
+            });
+        });
+    });
+
+
+    describe('applyCandidateValidatorToModal()', () => {
+        it('is a no-op when no validators have attached', () => {
+            const { component } = buildComponent();
+            const componentInstance: any = {};
+            const modalRef = { componentInstance } as unknown as NgbModalRef;
+
+            (component as any).applyCandidateValidatorToModal(modalRef, null);
+
+            expect(componentInstance.externalValidator).toBeUndefined();
+            expect(componentInstance.errorAnchorField).toBeUndefined();
+        });
+
+        it('wires a validator function and the error anchor field onto the modal instance', () => {
+            const handle = makeStubHandle({ valid: false, errors: ['bad'] }, 'dg-interface-ip-address');
+            const { component } = buildComponent();
+            (component as any).rowValidatorHandles = [handle];
+            (component as any).formatedDataSection = buildEntry();
+
+            const componentInstance: any = {};
+            const modalRef = { componentInstance } as unknown as NgbModalRef;
+
+            (component as any).applyCandidateValidatorToModal(modalRef, 3);
+
+            expect(typeof componentInstance.externalValidator).toBe('function');
+            expect(componentInstance.errorAnchorField).toBe('dg-interface-ip-address');
+
+            // Invoke the wired validator and verify it threads editingRowId through to the handle.
+            componentInstance.externalValidator({ foo: 'bar' }).subscribe(() => {});
+            expect(handle.validateCandidate).toHaveBeenCalledWith(jasmine.any(Array), { foo: 'bar' }, 3);
+        });
+
+        it('picks the first non-null errorAnchorField across multiple handles', () => {
+            const handleA = makeStubHandle({ valid: true, errors: [] }, null);
+            const handleB = makeStubHandle({ valid: true, errors: [] }, 'dg-interface-ip-address');
+            const { component } = buildComponent();
+            (component as any).rowValidatorHandles = [handleA, handleB];
+
+            const componentInstance: any = {};
+            (component as any).applyCandidateValidatorToModal({ componentInstance } as any, null);
+
+            expect(componentInstance.errorAnchorField).toBe('dg-interface-ip-address');
         });
     });
 
 
     describe('ngOnDestroy()', () => {
-        it('destroys every attached handle and stops listening to state emissions', () => {
+        it('destroys every attached handle', () => {
             const handleA = makeStubHandle();
             const handleB = makeStubHandle();
             const { component } = buildComponent([
@@ -398,11 +328,6 @@ describe('MultiDataSectionComponent (validator integration)', () => {
 
             expect(handleA.destroy).toHaveBeenCalled();
             expect(handleB.destroy).toHaveBeenCalled();
-
-            // After destroy, late state pushes must not leak into the component.
-            const before = component.validationState;
-            handleA.pushState({ valid: false, invalidRowIndices: [99] });
-            expect(component.validationState).toBe(before);
         });
 
         it('does not throw when ngOnDestroy is called without any attached handles', () => {

@@ -52,13 +52,23 @@ export interface IpamSupernetOverviewResponse {
 
 /* ------------------------------------------------- SUBNET OVERVIEW ------------------------------------------------ */
 
-export type IpamIpStatus = 'used' | 'free';
+export type IpamIpStatus = 'used' | 'free' | 'assigned' | 'reserved' | string;
+
+export interface IpamTypeInfo {
+    public_id: number;
+    label: string;
+}
+
+export interface IpamAssignedTo {
+    public_id: number;
+    summary_line: string;
+}
 
 export interface IpamIpEntry {
     ip: string;
     status: IpamIpStatus;
-    type_info: string | null;
-    assigned_to: string | null;
+    type_info: IpamTypeInfo | null;
+    assigned_to: IpamAssignedTo | null;
     mac_address: string | null;
     last_seen?: string | null;
 }

@@ -46,24 +46,6 @@
     </div>
 
     <!-- Threats (Multi-select) Shown if risk_type = THREAT_X_VULNERABILITY or THREAT -->
-    <!-- <div class="form-group mt-3" *ngIf="showThreats()">
-      <label>Threats:</label>
-      <ng-select [items]="threatOptions" bindLabel="name" bindValue="public_id" [multiple]="true"
-        placeholder="Select one or more threats..." formControlName="threats">
-      </ng-select>
-    </div> -->
-
-
-
-    <!-- Vulnerabilities (Multi-select) Shown if risk_type = THREAT_X_VULNERABILITY -->
-    <!-- <div class="form-group mt-3" *ngIf="showVulnerabilities()">
-      <label>Vulnerabilities:</label>
-      <ng-select [items]="vulnerabilityOptions" bindLabel="name" bindValue="public_id" [multiple]="true"
-        placeholder="Select one or more vulnerabilities..." formControlName="vulnerabilities">
-      </ng-select>
-    </div> -->
-
-    <!-- Threats (Multi-select) Shown if risk_type = THREAT_X_VULNERABILITY or THREAT -->
     <div class="form-group mt-3" *ngIf="showThreats()">
       <app-form-select label="Threats:" [items]="threatOptions" bindLabel="name" bindValue="public_id" [multiple]="true" [required]="true"
         placeholder="Select one or more threats..." formControlName="threats"></app-form-select>

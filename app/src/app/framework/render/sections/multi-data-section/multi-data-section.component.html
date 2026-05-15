@@ -4,7 +4,6 @@
     @if(showAddButton()) {
         <button type="button"
                 class="btn btn-success btn-sm me-1 add-row-button"
-                [disabled]="!validationState.valid"
                 (click)="onAddRowClicked()">
             <i class="fas fa-plus"></i> Add
         </button>
@@ -20,7 +19,6 @@
         [searchEnabled]="false"
         [pageSize]="pageSizeLimit"
         [paginationEnabled]="showPagination()"
-        [reportRowValidationClass]="rowValidationClass"
         (pageChange)="onPageChange($event)"
     />
 </fieldset>

@@ -47,68 +47,6 @@
       </label>
 
       <!-- READONLY object/object group block -->
-      <!-- <ng-container *ngIf="parentForm.get('object_id')?.disabled; else editableObject">
-        <div class="form-control bg-light" style="min-height: 38px;">
-          <ng-container *ngIf="isObjectLoading">
-            <span class="spinner-border spinner-border-sm me-2 text-secondary"></span>
-            Loading object…
-          </ng-container>
-
-          <ng-container *ngIf="!isObjectLoading && selectedObjectRenderResult; else fallbackObject">
-            <i [class]="selectedObjectRenderResult.type_information?.icon" class="me-1"></i>
-            <a [routerLink]="['/framework/object/view/', selectedObjectRenderResult.object_information?.object_id]"
-               class="text-decoration-none"
-               target="_blank">
-              #{{ selectedObjectRenderResult.object_information?.object_id }}
-              {{ selectedObjectRenderResult.type_information?.type_label }}
-            </a>
-            <span *ngIf="selectedObjectRenderResult.summaries?.length">
-              – {{ selectedObjectRenderResult.summary_line }}
-            </span>
-          </ng-container>
-
-          <ng-template #fallbackObject>
-            #{{ parentForm.get('object_id')?.value }}
-            {{ objectSummary ? '– ' + objectSummary : '' }}
-          </ng-template>
-        </div>
-      </ng-container> -->
-
-
-      <!-- READONLY object/object group block -->
-      <!-- <ng-container *ngIf="parentForm.get('object_id')?.disabled; else editableObject">
-        <div class="form-control bg-light" style="min-height: 38px;"> -->
-          <!-- Spinner -->
-          <!-- <ng-container *ngIf="isObjectLoading">
-            <span class="spinner-border spinner-border-sm me-2 text-secondary"></span>
-            Loading object…
-          </ng-container> -->
-
-          <!-- For OBJECT: show render block -->
-          <!-- <ng-container *ngIf="parentForm.get('object_id_ref_type')?.value === 'OBJECT'; else showGroup">
-            <ng-container *ngIf="!isObjectLoading && selectedObjectRenderResult; else fallbackObject">
-              <i [class]="selectedObjectRenderResult.type_information?.icon" class="me-1"></i>
-              <a [routerLink]="['/framework/object/view/', selectedObjectRenderResult.object_information?.object_id]"
-                class="text-decoration-none" target="_blank">
-                #{{ selectedObjectRenderResult.object_information?.object_id }}
-                {{ selectedObjectRenderResult.type_information?.type_label }}
-              </a>
-              <span *ngIf="selectedObjectRenderResult.summaries?.length">
-                – {{ selectedObjectRenderResult.summary_line }}
-              </span>
-            </ng-container>
-          </ng-container> -->
-
-          <!-- For OBJECT_GROUP: show only fallback block -->
-          <!-- <ng-template #showGroup>
-            <ng-container>
-              #{{ parentForm.get('object_id')?.value }}
-              {{ objectSummary ? '– ' + objectSummary : '' }}
-            </ng-container>
-          </ng-template>
-        </div>
-      </ng-container> -->
-
       <ng-container *ngIf="parentForm.get('object_id')?.disabled; else editableObject">
         <div class="form-control bg-light" style="min-height: 38px;">
           <ng-container *ngIf="!isObjectLoading">

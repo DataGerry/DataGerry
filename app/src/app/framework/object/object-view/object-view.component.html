@@ -126,6 +126,14 @@
             <div *ngIf="activeRelationTabIndex === 0">
               <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult">
               </cmdb-object-view-render>
+              
+              @if (isSupernet) {
+              <hr class="ipam-section-divider" />
+              <cmdb-ipam-supernet-overview [publicId]="currentObjectID"></cmdb-ipam-supernet-overview>
+              } @else if (isSubnet) {
+              <hr class="ipam-section-divider" />
+              <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
+              }
             </div>
 
             <!-- Relation group content => activeRelationTabIndex === (i+1) -->

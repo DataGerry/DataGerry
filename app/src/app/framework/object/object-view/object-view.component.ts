@@ -34,6 +34,7 @@ import { ObjectRelationService } from 'src/app/framework/services/object-relatio
 import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
+import { SpecialType } from 'src/app/framework/models/special-type';
 import { CmdbRelation } from 'src/app/framework/models/relation.model';
 import { RelationService } from '../../services/relaion.service';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -63,6 +64,15 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   public mode: CmdbMode = CmdbMode.View;
   public renderResult: RenderResult;
   public currentObjectID: number;
+
+  public get isSupernet(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.SUPERNET;
+  }
+
+  public get isSubnet(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
+  }
+
   private unsubscribe = new Subject<void>();
   private objectViewSubject = new BehaviorSubject<RenderResult>(undefined);
 
@@ -910,11 +920,6 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   /** Sets the active nested relation tab index */
-  // public setNestedRelationTab(tabIndex: number): void {
-  //   this.activeNestedRelationTabIndex = tabIndex;
-  //   this.changesRef.markForCheck();
-  // }
-
   public setNestedRelationTab(tabIndex: number): void {
     this.activeNestedRelationTabIndex = tabIndex;
     const group = this.relationGroups[tabIndex];

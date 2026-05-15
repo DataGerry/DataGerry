@@ -34,7 +34,8 @@ import {
     IpamIpEntry,
     IpamSubnetDetail,
     IpamSubnetOverviewParams,
-    IpamSubnetOverviewResponse
+    IpamSubnetOverviewResponse,
+    IpamTypeDistributionEntry
 } from '../models/ipam-overview.types';
 import { IpamOverviewService } from '../services/ipam-overview.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -54,6 +55,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public ips: IpamIpEntry[] = [];
     public subnet: IpamSubnetDetail | null = null;
+    public typeDistribution: IpamTypeDistributionEntry[] = [];
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
     public total = 0;
@@ -149,6 +151,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     const ipsPage = response?.ips;
                     this.ips = ipsPage?.rows ?? [];
                     this.subnet = response?.subnet ?? null;
+                    this.typeDistribution = response?.type_distribution ?? [];
                     this.page = ipsPage?.page ?? this.page;
                     this.pageSize = ipsPage?.page_size ?? this.pageSize;
                     this.total = ipsPage?.total ?? 0;
@@ -159,6 +162,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     this.hasError = true;
                     this.ips = [];
                     this.subnet = null;
+                    this.typeDistribution = [];
                     this.total = 0;
                     this.hasLoadedOnce = true;
                     this.toastService.error(err?.error?.message);

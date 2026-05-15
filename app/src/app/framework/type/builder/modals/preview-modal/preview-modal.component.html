@@ -19,6 +19,15 @@
                 <div *ngFor="let field of section?.fields">
                     <cmdb-render-element [mode]="getViewMode()" [parentFormGroup]="renderForm" [data]="field">
                     </cmdb-render-element>
+                    <ng-container *ngIf="errorAnchorField && field?.name === errorAnchorField && externalErrors?.length">
+                        <div class="row mb-2">
+                            <div class="col-sm-9 offset-sm-3">
+                                <div class="invalid-feedback d-block" role="alert" aria-live="polite">
+                                    <div *ngFor="let err of externalErrors">{{ err }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </ng-container>
                 </div>
             </fieldset>
         </form>
@@ -27,11 +36,11 @@
         <button type="button" class="btn btn-outline-danger" (click)="activeModal.close(false)">Close</button>
         <div *ngIf="saveValues">
             <button type="button" class="btn btn-success" (click)="activeModal.close(renderForm.value)"
-                [disabled]="!renderForm.valid">Add</button>
+                [disabled]="!renderForm.valid || !externalValid || externalPending">Add</button>
         </div>
         <div *ngIf="editValues">
             <button type="button" class="btn btn-success" (click)="activeModal.close(renderForm.value)"
-                [disabled]="!renderForm.valid">OK</button>
+                [disabled]="!renderForm.valid || !externalValid || externalPending">OK</button>
         </div>
 
     </div>
