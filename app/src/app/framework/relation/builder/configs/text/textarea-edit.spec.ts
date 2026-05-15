@@ -19,7 +19,7 @@
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 import { TextareaEditComponent } from "./textarea-edit.component"
 import { ReactiveFormsModule } from "@angular/forms";
-import { FieldIdentifierValidationService } from "../../../services/field-identifier-validation.service";
+import { FieldIdentifierValidationService } from "src/app/framework/type/services/field-identifier-validation.service";
 
 
 

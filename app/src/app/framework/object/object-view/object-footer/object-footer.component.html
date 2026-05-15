@@ -2,7 +2,8 @@
   <div class="card-header">
     <ul class="nav nav-tabs card-header-tabs">
       <li class="nav-item">
-        <a class="nav-link active" data-bs-toggle="tab" href="#object-tab-risk-assesments-list" role="tabpanel">Risk Assessments</a>
+        <a class="nav-link active" data-bs-toggle="tab" href="#object-tab-risk-assesments-list"
+          role="tabpanel">Risk Assessments</a>
       </li>
       <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#object-tab-reference" role="tabpanel">Referenced by</a>
@@ -26,8 +27,7 @@
   </div>
   <div class="card-body tab-content">
     <div class="tab-pane fade show active" id="object-tab-risk-assesments-list" role="tabpanel">
-      <app-risk-assessment-list [objectId]="objectID" ></app-risk-assessment-list>
-
+      <app-risk-assessment-list [objectId]="objectID"></app-risk-assessment-list>
     </div>
     <div class="tab-pane fade" id="object-tab-reference" role="tabpanel">
       <cmdb-object-references [publicID]="objectID"></cmdb-object-references>

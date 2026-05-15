@@ -1,0 +1,59 @@
+<cmdb-table
+  class="ipam-ip-table"
+  [id]="'ipam-ip-table'"
+  [items]="items"
+  [columns]="columns"
+  [initialVisibleColumns]="initialVisibleColumns"
+  [totalItems]="totalItems"
+  [page]="page"
+  [pageSize]="pageSize"
+  [sort]="sort"
+  [loading]="loading"
+  [selectEnabled]="false"
+  [searchEnabled]="false"
+  [paginationEnabled]="true"
+  [pageSizeEnabled]="true"
+  [toggleable]="false"
+  [emptyMessage]="'No IP addresses to display.'"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)">
+</cmdb-table>
+
+<ng-template #typeTemplate let-item="item">
+  @if (item?.type_info?.label) {
+    <span class="ipam-badge ipam-badge--type">{{ item.type_info.label }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #statusTemplate let-item="item">
+  @if (item?.status === 'free') {
+    <span class="ipam-status ipam-status--free">
+      <span class="ipam-status__dot" aria-hidden="true"></span>
+      Free
+    </span>
+  } @else {
+    <span class="ipam-status ipam-status--used">
+      <span class="ipam-status__dot" aria-hidden="true"></span>
+      {{ statusLabel(item?.status) }}
+    </span>
+  }
+</ng-template>
+
+<ng-template #assignedToTemplate let-item="item">
+  @if (item?.assigned_to?.summary_line) {
+    <span>{{ item.assigned_to.summary_line }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #valueTemplate let-data="data">
+  @if (data) {
+    <span>{{ data }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>

@@ -165,12 +165,13 @@
             </div>
             <section 
                 *ngFor="let section of sections; let x = index"
-                dndEffectAllowed="copyMove"
+                dndEffectAllowed="move"
                 dndType="sections"
                 [dndDraggable]="section"
+                [dndDisableIf]="!canMoveSection(section)"
                 [dragData]="{ section, index: x }"
                 (dndStart)="onDragStart(x)"
-                (dndMoved)="onSectionDragged(section, sections, 'move', x)">
+                (dndMoved)="onSectionMoved(section, 'move')">
                 <div class="card" [ngStyle]="{'background-color': section.bg_color || '#ffffff'}">
                     <div class="card-header" [ngClass]="getSectionHeaderClass(section)">
                         <fa-icon [icon]="['far', 'object-group']"></fa-icon>
@@ -197,13 +198,13 @@
                             </div> -->
                             
                             <button class="btn btn-link me-1" type="button" dndHandle 
-                            (dragstart)="preventDragForAllSections($event)"
-                            [class.disabled]="disableFields">
+                            (dragstart)="preventSectionDrag($event, section)"
+                            [class.disabled]="!canMoveSection(section)">
                                 <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                             </button>
                             <button class="btn btn-link" type="button"
                              (click)="removeSection(section, x)"
-                             [class.disabled]="disableFields">
+                             [class.disabled]="!canRemoveSection(section)">
                                 <fa-icon [icon]="['far', 'window-close']"></fa-icon>
                             </button>
                         </span>
@@ -224,13 +225,13 @@
                                 <p>Fields:</p>
                                 <div
                                     [dndDropzone]="getInputType(section?.type)"
-                                    [dndDisableDropIf]="isGlobalSection(section)"
+                                    [dndDisableDropIf]="!canDropFieldsIntoSection(section)"
                                     (dndDrop)="onFieldDrop($event, section)"
                                 >
                                     <div *ngIf="section?.fields?.length == 0" class="empty-section" data-content="Drop controls here">
                                     </div>
                                     <div 
-                                        *ngIf="!isGlobalSection(section)"
+                                        *ngIf="canDropFieldsIntoSection(section)"
                                         class="field-drop-placeholder"
                                         dndPlaceholderRef>
                                         Drop field here
@@ -240,18 +241,18 @@
                                             [dndEffectAllowed]="getDnDEffectAllowedForField(field, section)"
                                             dndType="inputs"
                                             [dndDraggable]="field"
-                                            (dndMoved)="onFieldDragged(field, section)"
+                                            (dndStart)="onFieldDragStart(field, section, y)"
                                         >
                                             <div class="fields card">
                                                 <div 
                                                     class="card-header d-flex justify-content-between align-items-center"
-                                                    [ngClass]="{'global-section-item': isGlobalField(field?.name)}"
-                                                    [ngClass]="{'highlight-field-header': isFieldHighlighted(field, section?.fields)}"
+                                                    [ngClass]="{'global-section-item': isLockedField(field)}"
+                                                    [ngClass]="{'highlight-field-header': isFieldHighlighted(field)}"
                                                 >
                                                     <span>
                                                         <fa-icon [icon]="['fas', matchedType(field.type)]"></fa-icon> {{field?.label}}
                                                     </span>
-                                                    <span *ngIf="!isGlobalField(field.name)">
+                                                    <span *ngIf="!isLockedField(field)">
                                                         <button
                                                             class="btn btn-link me-1"
                                                             type="button"
@@ -263,7 +264,7 @@
                                                         </button>
                                                         <button class="btn btn-link me-1" type="button" dndHandle
                                                         (dragstart)="preventDragForAllFields($event, section)"
-                                                        [class.disabled]="isLocked() || disableFields"
+                                                        [class.disabled]="isLocked() || disableFields || !canMoveField(field)"
                                                          >    
                                                             <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                                                         </button>
@@ -275,7 +276,7 @@
                                                             [ngbTooltip]="tipContent"
                                                             [disableTooltip]="!externalLink?.links?.length"
                                                             (click)="removeField(field, section)"
-                                                            [class.disabled]="disableFields"
+                                                            [class.disabled]="disableFields || !canRemoveField(field)"
                                                         >
                                                             <fa-icon [icon]="['far', 'window-close']"></fa-icon>
                                                             <ng-template #tipContent>
@@ -293,6 +294,7 @@
                                                             <button
                                                                 class="btn btn-link"
                                                                 type="button"
+                                                                [class.disabled]="disableFields || !canRemoveField(field)"
                                                                 (click)="removeField(field, section)"
                                                             >
                                                                 <fa-icon [icon]="['far', 'window-close']"></fa-icon>

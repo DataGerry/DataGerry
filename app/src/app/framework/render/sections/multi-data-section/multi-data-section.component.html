@@ -2,7 +2,9 @@
     <legend>{{section?.label}}</legend>
 
     @if(showAddButton()) {
-        <button type="button" class="btn btn-success btn-sm me-1 add-row-button" (click)="onAddRowClicked()">
+        <button type="button"
+                class="btn btn-success btn-sm me-1 add-row-button"
+                (click)="onAddRowClicked()">
             <i class="fas fa-plus"></i> Add
         </button>
     }

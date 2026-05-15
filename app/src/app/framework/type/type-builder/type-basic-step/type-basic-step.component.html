@@ -59,6 +59,17 @@
           </button>
         </div>
       </div>
+
+      <div *ngIf="mode === modes.Create" class="col-md-12 mb-3">
+        <app-form-select
+          formControlName="special_type"
+          label="Special type"
+          [items]="specialTypeOptions"
+          bindLabel="label"
+          bindValue="value"
+          placeholder="Select a special type">
+        </app-form-select>
+      </div>
       
       <div class="col-md-12 mb-3">
         <label for="typeDescriptionInput" class="form-label">Description:</label>

@@ -1,0 +1,53 @@
+:host {
+    display: block;
+    width: 100%;
+}
+
+.ipam-ip-table {
+    display: block;
+    width: 100%;
+}
+
+.ipam-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.ipam-status__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: #9ca3af;
+}
+
+.ipam-status--used .ipam-status__dot {
+    background-color: #198754;
+}
+
+.ipam-status--free .ipam-status__dot {
+    background-color: #adb5bd;
+}
+
+.ipam-status--free {
+    color: #6b7280;
+}
+
+.ipam-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    background-color: #eef2ff;
+    color: #3730a3;
+    border: 1px solid #e0e7ff;
+}
+
+.ipam-muted {
+    color: #9ca3af;
+}

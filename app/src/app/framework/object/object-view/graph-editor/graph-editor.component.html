@@ -101,6 +101,14 @@
                 </div>
               </div>
             </div>
+
+            <app-checkbox
+              id="graph-editor-with-locations-manual"
+              label="Include locations"
+              [checked]="withLocations"
+              (checkedChange)="onWithLocationsChange($event)"
+              style="grid-column: 1 / -1;">
+            </app-checkbox>
           </div>
         </form>
       </div>
@@ -132,6 +140,13 @@
                 </app-button>
               </div>
             </div>
+
+            <app-checkbox
+              id="graph-editor-with-locations"
+              label="Include locations"
+              [checked]="withLocations"
+              (checkedChange)="onWithLocationsChange($event)">
+            </app-checkbox>
           </div>
         </div>
       </div>

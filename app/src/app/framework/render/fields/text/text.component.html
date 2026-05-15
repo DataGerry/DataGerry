@@ -32,6 +32,9 @@
         <div class="text-end" *ngIf="controller.errors?.pattern">
           {{data.value}} your input does not match the set regex pattern: {{data.regex}}
         </div>
+        <div class="text-end" *ngIf="controller.errors?.backendValidation as backendError">
+          {{ backendError.message }}
+        </div>
       </div>
     </div>
     <small class="description form-text text-muted">{{data?.description}}</small>

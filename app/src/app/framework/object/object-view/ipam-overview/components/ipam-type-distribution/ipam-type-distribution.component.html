@@ -1,0 +1,41 @@
+<section class="ipam-type-dist" [attr.aria-label]="title">
+  <header class="ipam-type-dist__header">
+    <h4 class="ipam-type-dist__title">{{ title }}</h4>
+  </header>
+
+  @if (hasData) {
+    <div class="ipam-type-dist__content" [class.ipam-type-dist__content--loading]="loading">
+      <div class="ipam-type-dist__chart">
+        <canvas #chartCanvas aria-hidden="true"></canvas>
+        @if (loading) {
+          <div class="ipam-type-dist__chart-overlay" role="status" aria-live="polite" aria-label="Refreshing distribution"></div>
+        }
+      </div>
+
+      <ul class="ipam-type-dist__legend" role="list">
+        @for (item of legendItems; track trackByLabel($index, item)) {
+          <li class="ipam-type-dist__legend-item">
+            <span
+              class="ipam-type-dist__swatch"
+              [style.background-color]="item.color"
+              aria-hidden="true">
+            </span>
+            <span class="ipam-type-dist__legend-text">
+              <span class="ipam-type-dist__legend-label">{{ item.label }}</span>
+              <span class="ipam-type-dist__legend-count">({{ item.count | number }})</span>
+            </span>
+            <span class="ipam-type-dist__legend-percent">{{ item.percentage | number:'1.0-2' }}%</span>
+          </li>
+        }
+      </ul>
+    </div>
+  } @else if (loading) {
+    <div class="ipam-type-dist__state ipam-type-dist__state--loading" role="status" aria-live="polite">
+      Loading distribution&hellip;
+    </div>
+  } @else {
+    <div class="ipam-type-dist__state ipam-type-dist__state--empty">
+      No distribution data available.
+    </div>
+  }
+</section>

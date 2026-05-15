@@ -7,11 +7,6 @@
 </div>
 
 <!-- ─── Table ──────────────────────────────────────────── -->
-<!-- <cmdb-table *ngIf="rowsLength" [items]="tableRows" [columns]="columns" [totalItems]="rowsLength" [selectEnabled]="false"
-  [pageSize]="5" [page]="page" [searchEnabled]="false" [pageSizeEnabled]="false" (pageChange)="onPageChange($event)"
-  [paginationEnabled]="rowsLength > 5" (sortChange)="onSort($event)">
-</cmdb-table> -->
-
 <cmdb-table [items]="tableRows" [columns]="columns" [totalItems]="rowsLength" [page]="page" [pageSize]="pageSize"
   [selectEnabled]="false" [searchEnabled]="false" [pageSizeEnabled]="false" [paginationEnabled]="rowsLength > pageSize"
   [infoEnabled]="rowsLength > pageSize" (pageChange)="onPageChange($event)" (sortChange)="onSort($event)">
@@ -43,9 +38,6 @@
 
         <div class="col-md-6">
           <label class="mb-1">Control <span class="required">*</span></label>
-          <!-- <app-form-select class="w-100" [items]="availableControlMeasures" bindLabel="title" bindValue="public_id"
-            formControlName="control_measure_id">
-          </app-form-select> -->
 
           <app-form-select class="w-100" [items]="availableControlMeasures" bindLabel="displayTitle"
             bindValue="public_id" formControlName="control_measure_id">

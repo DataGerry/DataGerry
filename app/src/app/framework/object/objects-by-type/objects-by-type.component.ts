@@ -100,6 +100,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
     public search_term: string;
 
     private collectionFilterParameter: any[] = [];
+    private objectRequestId: number = 0;
 
     public selectReset: Array<RenderResult> = [];
     public initialVisibleColumns: Array<string> = [];
@@ -170,9 +171,13 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * @param type
      */
     public reload(type: CmdbType): void {
+        if (!type) {
+            return;
+        }
+
         this.resetTable();
         this.setColumns(type);
-        this.filterBuilder(this.columns);
+        this.setDefaultTypeFilter(type);
 
         if (this.tableState) {
             this.page = this.tableState.page;
@@ -197,7 +202,10 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         this.page = this.initPage;
         this.limit = this.initLimit;
         this.search_term = undefined;
+        this.results = [];
+        this.totalResults = 0;
         this.selectedObjects = [];
+        this.selectedObjectsIDs = [];
     }
 
 
@@ -330,6 +338,8 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         this.loading = true;
         this.selectedObjects = [];
         this.selectedObjectsIDs = [];
+        const requestId = this.nextObjectRequestId();
+        const requestedTypeId = this.type?.public_id;
 
         const params: CollectionParameters = {
             filter: this.collectionFilterParameter,
@@ -339,11 +349,16 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             page: this.page
         };
 
-        this.objectService.getObjects(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+        this.objectService.getObjects(params).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => {
+                if (this.isCurrentObjectRequest(requestId, requestedTypeId)) {
+                    this.loaderService.hide();
+                }
+            })
+        )
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.results = apiResponse.results as Array<RenderResult>;
-                this.totalResults = apiResponse.total;
-                this.loading = false;
+                this.applyObjectResponse(apiResponse, requestId, requestedTypeId);
             });
     }
 
@@ -355,16 +370,12 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * @param columns {@link Array<Column>} are taken into account in the query.
      */
     private filterBuilder(columns: Array<Column>) {
+        this.loaderService.show();
         this.loading = true;
         let query;
         const numericValue = Number(this.search_term);
 
-        this.collectionFilterParameter = [];
-        this.collectionFilterParameter.push({
-            $match: {
-                type_id: this.type.public_id
-            }
-        });
+        this.setDefaultTypeFilter(this.type);
 
         if (this.search_term) {
             query = [];
@@ -565,12 +576,61 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             };
         }
 
-        this.objectService.getObjects(params).pipe(takeUntil(this.subscriber))
+        const requestId = this.nextObjectRequestId();
+        const requestedTypeId = this.type?.public_id;
+
+        this.objectService.getObjects(params).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => {
+                if (this.isCurrentObjectRequest(requestId, requestedTypeId)) {
+                    this.loaderService.hide();
+                }
+            })
+        )
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.results = apiResponse.results as Array<RenderResult>;
-                this.totalResults = apiResponse.total;
-                this.loading = false;
+                this.applyObjectResponse(apiResponse, requestId, requestedTypeId);
             });
+    }
+
+
+    private setDefaultTypeFilter(type: CmdbType): void {
+        this.collectionFilterParameter = [];
+
+        if (!type) {
+            return;
+        }
+
+        this.collectionFilterParameter.push({
+            $match: {
+                type_id: type.public_id
+            }
+        });
+    }
+
+
+    private nextObjectRequestId(): number {
+        this.objectRequestId += 1;
+        return this.objectRequestId;
+    }
+
+
+    private isCurrentObjectRequest(requestId: number, requestedTypeId: number | undefined): boolean {
+        return requestId === this.objectRequestId && requestedTypeId === this.type?.public_id;
+    }
+
+
+    private applyObjectResponse(
+        apiResponse: APIGetMultiResponse<RenderResult>,
+        requestId: number,
+        requestedTypeId: number | undefined
+    ): void {
+        if (!this.isCurrentObjectRequest(requestId, requestedTypeId)) {
+            return;
+        }
+
+        this.results = apiResponse.results as Array<RenderResult>;
+        this.totalResults = apiResponse.total;
+        this.loading = false;
     }
 
 

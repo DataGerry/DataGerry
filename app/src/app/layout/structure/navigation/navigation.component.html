@@ -24,33 +24,31 @@
     </ul>
 
     <div id="navbar-content" class="collapse navbar-collapse container-content clearfix">
-      <div class="row w-100 align-items-center">
-        <div [ngClass]="{
-            'col-7 col-sm-5 list-inline justify-content-center ': isCloudMode,
-            'col-12 col-sm-7 list-inline justify-content-center': !isCloudMode,
-          }">
+      <div class="row w-100 align-items-center flex-nowrap m-0">
+
+        <div class="ps-0 pe-3" style="flex: 0 1 450px; min-width: 170px;">
           <cmdb-search-bar></cmdb-search-bar>
         </div>
-        <div *ngIf="isCloudMode" class="col-5 col-md-2 d-flex align-items-center justify-content-center">
-          <div class="progress-container w-100 px-2">
+
+        <div *ngIf="isCloudMode" class="col-auto d-flex align-items-center justify-content-center px-3">
+          <div class="progress-container w-100">
             <div class="progress-label">
               <span class="label-text">Objects {{ usedObjects }} / {{ totalObjects }}</span>
               <span class="label-percent" [style.color]="getTextColor()">{{ percentage | number: '1.1-1' }}%</span>
             </div>
-        
+
             <div class="progress track-modern">
               <div class="progress-bar fill-modern" role="progressbar" [style.width.%]="percentage"
                 [style.backgroundColor]="getProgressBarColor()" [attr.aria-valuenow]="usedObjects" aria-valuemin="0"
                 [attr.aria-valuemax]="totalObjects">
               </div>
             </div>
-        
           </div>
         </div>
 
-        <div class="col-12 col-sm-5">
+        <div class="col-auto ms-auto pe-0">
           <ul
-            class="nav navbar-nav navbar-right-menu list-inline text-center d-flex justify-content-end align-items-center">
+            class="nav navbar-nav navbar-right-menu list-inline text-center d-flex flex-nowrap justify-content-end align-items-center mb-0">
             <!-- nav Framework -->
             <div class="nav-1">
               <li *permissionLink="[
@@ -120,7 +118,7 @@
                         <a class="dropdown-icon-item" *permissionLink="['base.docapi.template.view']"
                           [routerLink]="['/docapi']">
                           <fa-icon icon="file-pdf"></fa-icon>
-                          <span>Document<br/>Generator</span>
+                          <span>Document<br />Generator</span>
                         </a>
                       </div>
                       <div class="col">
@@ -152,14 +150,15 @@
                         </a>
                       </div>
                       <div class="col">
-                        <a class="dropdown-icon-item" *permissionLink="['base.framework.ciExplorer.view']" [routerLink]="['/ci-explorer']">
+                        <a class="dropdown-icon-item" *permissionLink="['base.framework.ciExplorer.view']"
+                          [routerLink]="['/ci-explorer']">
                           <i class="fas fa-project-diagram"></i>
                           <span>CI Explorer</span>
                         </a>
                       </div>
                       <div class="col" *permissionLink="'base.openCelium.connection.view'">
                         <a [routerLink]="['/automations']" class="dropdown-icon-item">
-                          <img src="/assets/img/opencelium.jpg" class="automation-icon" alt="Automations" />
+                          <img src="/assets/img/opencelium.png" class="automation-icon" alt="Automations" />
                           <span>Automations</span>
                         </a>
                       </div>
@@ -194,14 +193,11 @@
             </div>
 
             <!-- nav System -->
-      
+
             <div class="nav-notification">
               <li class="nav-item notification-nav-item">
-                <button
-                  type="button"
-                  class="nav-link notification-toggle-btn hover-trigger"
-                  aria-label="Open notifications"
-                  [attr.aria-expanded]="isNotificationDrawerOpen"
+                <button type="button" class="nav-link notification-toggle-btn hover-trigger"
+                  aria-label="Open notifications" [attr.aria-expanded]="isNotificationDrawerOpen"
                   (click)="toggleNotificationDrawer()">
                   <i class="fas fa-bell hover-trigger"></i>
                   <span class="notification-badge" *ngIf="(notificationCount$ | async) as count">
@@ -339,7 +335,5 @@
   </div>
 </nav>
 
-<cmdb-notification-drawer
-  [open]="isNotificationDrawerOpen"
-  (close)="closeNotificationDrawer()">
+<cmdb-notification-drawer [open]="isNotificationDrawerOpen" (close)="closeNotificationDrawer()">
 </cmdb-notification-drawer>

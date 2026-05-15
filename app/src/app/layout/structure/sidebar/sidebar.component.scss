@@ -168,6 +168,7 @@ $sb-speed : 200ms;
   &.sb-item--action {
     background: rgba(233, 77, 24, 0.08);
     color: $sb-accent;
+    max-width: 200px;
     font-weight: 600;
 
     &:hover {

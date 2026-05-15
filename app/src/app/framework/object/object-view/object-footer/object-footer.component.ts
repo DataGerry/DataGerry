@@ -17,13 +17,14 @@
 */
 
 import { Component, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
+
 import { RenderResult } from '../../../models/cmdb-render';
 
 @Component({
-    selector: 'cmdb-object-footer',
-    templateUrl: './object-footer.component.html',
-    styleUrls: ['./object-footer.component.scss'],
-    standalone: false
+  selector: 'cmdb-object-footer',
+  templateUrl: './object-footer.component.html',
+  styleUrls: ['./object-footer.component.scss'],
+  standalone: false
 })
 export class ObjectFooterComponent implements OnChanges {
 
@@ -42,12 +43,10 @@ export class ObjectFooterComponent implements OnChanges {
     return this.rr;
   }
 
-  constructor(private changesRef: ChangeDetectorRef) {}
+  constructor(private changesRef: ChangeDetectorRef) { }
 
   public ngOnChanges(changes: SimpleChanges): void {
     this.objectID = this.renderResult.object_information.object_id;
     this.changesRef.markForCheck();
   }
-
-
 }
