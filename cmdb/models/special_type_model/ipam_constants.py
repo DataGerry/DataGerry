@@ -18,37 +18,25 @@ Field-name and section-name constants for the IPAM SpecialTypes (SUPERNET, SUBNE
 the dg-ipam-interface section template
 
 Each enum is scoped to a single owner (one SpecialType, or the interface template) so a
-member name documents which schema the string belongs to. All enums extend (str, Enum) so
+member name documents which schema the string belongs to. All enums extend BaseStrEnum so
 members are interchangeable with their string values for dict lookup, equality and JSON
-serialization. Use these members instead of bare 'dg-*' string literals when reading or
-writing IPAM-related schemas, CmdbObject fields or MDS rows
+serialization, and inherit a shared is_valid() classmethod. Use these members instead of
+bare 'dg-*' string literals when reading or writing IPAM-related schemas, CmdbObject fields
+or MDS rows
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-class SupernetField(str, Enum):
+class SupernetField(BaseStrEnum):
     """
     Field names of the SUPERNET SpecialType
     """
     NAME = 'dg-name'
     NETWORK_RANGE = 'dg-network-range'
 
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known SupernetField
 
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing SupernetField, False otherwise
-        """
-        return value in cls._value2member_map_
-
-
-class SubnetField(str, Enum):
+class SubnetField(BaseStrEnum):
     """
     Field names of the SUBNET SpecialType
     """
@@ -56,21 +44,8 @@ class SubnetField(str, Enum):
     NETWORK_RANGE = 'dg-network-range'
     PARENT_SUPERNET = 'dg-supernet-ref'
 
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known SubnetField
 
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing SubnetField, False otherwise
-        """
-        return value in cls._value2member_map_
-
-
-class VlanField(str, Enum):
+class VlanField(BaseStrEnum):
     """
     Field names of the VLAN SpecialType
     """
@@ -78,40 +53,14 @@ class VlanField(str, Enum):
     SUBNET_REF = 'dg-subnet-ref'
     TYPE = 'dg-vlan-type'
 
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known VlanField
 
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing VlanField, False otherwise
-        """
-        return value in cls._value2member_map_
-
-
-class InterfaceField(str, Enum):
+class InterfaceField(BaseStrEnum):
     """
     Field names of one row in the dg-ipam-interface MDS section template
     """
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
     MAC = 'dg-interface-mac-address'
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known InterfaceField
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing InterfaceField, False otherwise
-        """
-        return value in cls._value2member_map_
 
 
 class IpamPrefixPolicy:
@@ -147,6 +96,21 @@ class IpamAddressFormat:
     DOTTED_QUAD_DOT_COUNT: int = 3
 
 
+class IpamPagination:
+    """
+    Page and page-size bounds shared by every IPAM overview route
+
+    MIN_PAGE and MIN_PAGE_SIZE encode the 1-based pagination policy (the first page is page 1
+    and the smallest page size is 1 item). MAX_PAGE_SIZE caps the per-request payload so a
+    single call cannot pull an unbounded number of rows. DEFAULT_PAGE_SIZE is the value used
+    when the client omits the 'page_size' query parameter
+    """
+    MIN_PAGE: int = 1
+    MIN_PAGE_SIZE: int = 1
+    DEFAULT_PAGE_SIZE: int = 50
+    MAX_PAGE_SIZE: int = 500
+
+
 class IpamDistributionLimits:
     """
     Maximum dimensions of the subnet 'IP-Verteilung' grid
@@ -160,7 +124,52 @@ class IpamDistributionLimits:
     MAX_SECTORS_PER_RANGE: int = 16
 
 
-class IpamSection(str, Enum):
+class IpamValidationDetailKey(BaseStrEnum):
+    """
+    Keys of the 'details' payload carried by IPAM validation errors
+
+    A structured validation error has the shape {code, message, details}: the envelope keys
+    are named in ValidationErrorKey, while the per-domain keys inside 'details' are named
+    here. Use these members instead of bare string literals when populating the details dict
+    so frontend and backend stay aligned on field names. Members are grouped by topic in the
+    declaration order below
+    """
+    # Identity of the candidate object / row being validated
+    CANDIDATE = 'candidate'
+    OBJECT_ID = 'object_id'
+    ROW_INDEX = 'row_index'
+
+    # Subnet / supernet references
+    SUBNET_OBJECT_ID = 'subnet_object_id'
+    SUPERNET_OBJECT_ID = 'supernet_object_id'
+    PARENT_SUPERNET_ID = 'parent_supernet_id'
+
+    # Range strings (the parsed or stored CIDR / network range)
+    NETWORK_RANGE = 'network_range'
+    SUBNET_RANGE = 'subnet_range'
+    SUPERNET_RANGE = 'supernet_range'
+    SIBLING_RANGE = 'sibling_range'
+
+    # Sibling / child references
+    SIBLING_SUBNET_ID = 'sibling_subnet_id'
+    CHILD_SUBNET_ID = 'child_subnet_id'
+    PARENT_OBJECT_ID = 'parent_object_id'
+
+    # Range-change guard payload
+    CHILD_RANGE = 'child_range'
+    NEW_RANGE = 'new_range'
+
+    # Interface row payload
+    IP_ADDRESS = 'ip_address'
+    FIRST_ROW_INDEX = 'first_row_index'
+    DUPLICATE_ROW_INDEX = 'duplicate_row_index'
+
+    # Generic fall-throughs
+    STORED_VALUE = 'stored_value'
+    REFERENCES = 'references'
+
+
+class IpamSection(BaseStrEnum):
     """
     Section names used in IPAM SpecialType schemas and the dg-ipam-interface MDS section template
 
@@ -172,16 +181,3 @@ class IpamSection(str, Enum):
     INFORMATION = 'dg-information'
     NETWORK_DETAILS = 'dg-network-details'
     VLAN_DETAILS = 'dg-vlan-details'
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known IpamSection
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing IpamSection, False otherwise
-        """
-        return value in cls._value2member_map_

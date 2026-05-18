@@ -31,11 +31,12 @@ from cmdb.models.special_type_model.ipam_constants import (
     VlanField,
     InterfaceField,
     IpamSection,
+    IpamValidationDetailKey,
 )
+from cmdb.models.object_model import extract_field_value
+from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.subnet_validator import (
     validate_subnet,
-    extract_field_value,
-    build_error,
     SubnetErrorCode,
 )
 from cmdb.framework.ipam.vlan_validator import validate_vlan
@@ -214,7 +215,7 @@ def _validate_supernet_cidr(network_range: Any) -> list[dict[str, Any]]:
         return [build_error(
             SubnetErrorCode.CIDR_INVALID,
             f"'{network_range}' is not a canonical IPv4 CIDR (host bits must be zero)",
-            {'network_range': network_range},
+            {IpamValidationDetailKey.NETWORK_RANGE: network_range},
         )]
 
     return []
@@ -362,7 +363,7 @@ def enforce_object_invariants(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  DELETE GUARDS                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-class DeleteGuardErrorCode:
+class DeleteGuardErrorCode(BaseStrEnum):
     """Stable codes for IPAM deletion-guard errors"""
     SUPERNET_HAS_REFERENCING_SUBNETS = 'supernet_has_referencing_subnets'
     SUBNET_HAS_REFERENCING_VLANS = 'subnet_has_referencing_vlans'
@@ -394,7 +395,7 @@ def _build_delete_guard_error(code: str, message: str, refs: list[dict[str, Any]
     Returns:
         dict[str, Any]: The error dict with 'code', 'message', and 'details.references'
     """
-    return build_error(code, message, {'references': refs})
+    return build_error(code, message, {IpamValidationDetailKey.REFERENCES: refs})
 
 
 def enforce_delete_guards(

@@ -22,18 +22,24 @@ from ipaddress import IPv4Network
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.object_model import CmdbObjectKey, extract_field_value
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, InterfaceField, IpamSection
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    InterfaceField,
+    IpamSection,
+    IpamValidationDetailKey,
+)
+from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ipv4, contains, ip_in_network
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import build_error, extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ERROR CODES                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-class RangeChangeErrorCode:
+class RangeChangeErrorCode(BaseStrEnum):
     """Stable codes for structured range-change guard errors"""
     CHILD_SUBNET_OUT_OF_RANGE = 'child_subnet_out_of_range'
     CHILD_INTERFACE_IP_OUT_OF_RANGE = 'child_interface_ip_out_of_range'
@@ -151,12 +157,15 @@ def _check_subnet_children_fit(
 
         errors.append(build_error(
             RangeChangeErrorCode.CHILD_SUBNET_OUT_OF_RANGE,
-            f"Child subnet {child.get('public_id')} ({child_net}) would no longer fit in new range {new_range}",
+            (
+                f"Child subnet {child.get(CmdbObjectKey.PUBLIC_ID)} ({child_net}) would no "
+                f"longer fit in new range {new_range}"
+            ),
             {
-                'parent_object_id': parent_object_id,
-                'child_subnet_id': child.get('public_id'),
-                'child_range': str(child_net),
-                'new_range': str(new_range),
+                IpamValidationDetailKey.PARENT_OBJECT_ID: parent_object_id,
+                IpamValidationDetailKey.CHILD_SUBNET_ID: child.get(CmdbObjectKey.PUBLIC_ID),
+                IpamValidationDetailKey.CHILD_RANGE: str(child_net),
+                IpamValidationDetailKey.NEW_RANGE: str(new_range),
             },
         ))
 
@@ -199,14 +208,16 @@ def _check_interface_ips_fit(
 
                 errors.append(build_error(
                     RangeChangeErrorCode.CHILD_INTERFACE_IP_OUT_OF_RANGE,
-                    f"Interface IP {ip} on object {obj.get('public_id')} (row {row_index}) "
-                    f"would no longer fit in new subnet range {new_range}",
+                    (
+                        f"Interface IP {ip} on object {obj.get(CmdbObjectKey.PUBLIC_ID)} "
+                        f"(row {row_index}) would no longer fit in new subnet range {new_range}"
+                    ),
                     {
-                        'subnet_object_id': subnet_object_id,
-                        'object_id': obj.get('public_id'),
-                        'row_index': row_index,
-                        'ip_address': str(ip),
-                        'new_range': str(new_range),
+                        IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id,
+                        IpamValidationDetailKey.OBJECT_ID: obj.get(CmdbObjectKey.PUBLIC_ID),
+                        IpamValidationDetailKey.ROW_INDEX: row_index,
+                        IpamValidationDetailKey.IP_ADDRESS: str(ip),
+                        IpamValidationDetailKey.NEW_RANGE: str(new_range),
                     },
                 ))
 

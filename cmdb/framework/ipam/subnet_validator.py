@@ -23,8 +23,14 @@ from ipaddress import IPv4Network
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey, extract_field_value
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, SupernetField
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    SupernetField,
+    IpamValidationDetailKey,
+)
+from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.cidr import parse_cidr, contains, overlaps
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,7 +39,7 @@ from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ERROR CODES                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-class SubnetErrorCode:
+class SubnetErrorCode(BaseStrEnum):
     """Stable codes for structured subnet validation errors"""
     CIDR_INVALID = 'cidr_invalid'
     PARENT_SUPERNET_TYPE_MISSING = 'parent_supernet_type_missing'
@@ -41,42 +47,6 @@ class SubnetErrorCode:
     PARENT_SUPERNET_BROKEN_STATE = 'parent_supernet_broken_state'
     NOT_IN_PARENT_SUPERNET = 'not_in_parent_supernet'
     SIBLING_OVERLAP = 'sibling_overlap'
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  PURE HELPERS                                                        #
-# -------------------------------------------------------------------------------------------------------------------- #
-def extract_field_value(obj_dict: dict[str, Any], field_name: str) -> Any:
-    """
-    Returns the 'value' of the first entry in obj_dict['fields'] whose 'name' matches
-
-    Args:
-        obj_dict (dict[str, Any]): A CmdbObject document loaded from the DB
-        field_name (str): The field name to look up
-
-    Returns:
-        Any: The field's 'value', or None if no matching field exists
-    """
-    for field in obj_dict.get('fields', []) or []:
-        if field.get('name') == field_name:
-            return field.get('value')
-
-    return None
-
-
-def build_error(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
-    """
-    Constructs a structured validation error dict
-
-    Args:
-        code (str): A stable machine-readable error code
-        message (str): A human-readable explanation
-        details (dict[str, Any] | None): Optional context fields the frontend can render
-
-    Returns:
-        dict[str, Any]: The error dict with keys 'code', 'message', and 'details' (always present)
-    """
-    return {'code': code, 'message': message, 'details': details or {}}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -93,7 +63,10 @@ def _load_object_by_id(objects_manager: ObjectsManager, object_id: int) -> dict[
     Returns:
         dict[str, Any] | None: The CmdbObject document, or None if not found
     """
-    matches: list[dict[str, Any]] = objects_manager.find_objects({'public_id': object_id}, as_dict=True)
+    matches: list[dict[str, Any]] = objects_manager.find_objects(
+        {CmdbObjectKey.PUBLIC_ID: object_id},
+        as_dict=True,
+    )
 
     return matches[0] if matches else None
 
@@ -117,11 +90,11 @@ def _find_subnets_by_field(
         list[dict[str, Any]]: Full subnet documents (not stripped) — needed for sibling overlap
     """
     criteria: dict[str, Any] = {
-        'type_id': subnet_type_id,
-        'fields': {
+        CmdbObjectKey.TYPE_ID: subnet_type_id,
+        CmdbObjectKey.FIELDS: {
             '$elemMatch': {
-                'name': field_name,
-                'value': field_value,
+                CmdbObjectFieldKey.NAME: field_name,
+                CmdbObjectFieldKey.VALUE: field_value,
             },
         },
     }
@@ -148,7 +121,7 @@ def _check_canonical_cidr(network_range: str) -> tuple[IPv4Network | None, list[
         return None, [build_error(
             SubnetErrorCode.CIDR_INVALID,
             f"'{network_range}' is not a canonical IPv4 CIDR (host bits must be zero)",
-            {'network_range': network_range},
+            {IpamValidationDetailKey.NETWORK_RANGE: network_range},
         )]
 
     return parsed, []
@@ -182,11 +155,11 @@ def _check_in_supernet(
 
     supernet_obj: dict[str, Any] | None = _load_object_by_id(objects_manager, supernet_object_id)
 
-    if not supernet_obj or supernet_obj.get('type_id') != supernet_type_id:
+    if not supernet_obj or supernet_obj.get(CmdbObjectKey.TYPE_ID) != supernet_type_id:
         return [build_error(
             SubnetErrorCode.PARENT_SUPERNET_NOT_FOUND,
             f"Supernet object with id {supernet_object_id} does not exist",
-            {'supernet_object_id': supernet_object_id},
+            {IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id},
         )]
 
     supernet_range_raw: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
@@ -196,7 +169,10 @@ def _check_in_supernet(
         return [build_error(
             SubnetErrorCode.PARENT_SUPERNET_BROKEN_STATE,
             f"Supernet object {supernet_object_id} has no valid '{SupernetField.NETWORK_RANGE.value}' value",
-            {'supernet_object_id': supernet_object_id, 'stored_value': supernet_range_raw},
+            {
+                IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
+                IpamValidationDetailKey.STORED_VALUE: supernet_range_raw,
+            },
         )]
 
     if not contains(supernet_net, candidate):
@@ -204,9 +180,9 @@ def _check_in_supernet(
             SubnetErrorCode.NOT_IN_PARENT_SUPERNET,
             f"Candidate {candidate} is not contained in supernet {supernet_net}",
             {
-                'candidate': str(candidate),
-                'supernet_object_id': supernet_object_id,
-                'supernet_range': str(supernet_net),
+                IpamValidationDetailKey.CANDIDATE: str(candidate),
+                IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
+                IpamValidationDetailKey.SUPERNET_RANGE: str(supernet_net),
             },
         )]
 
@@ -247,7 +223,7 @@ def _check_sibling_overlap(
     errors: list[dict[str, Any]] = []
 
     for sibling in siblings:
-        sibling_id: int = sibling.get('public_id')
+        sibling_id: int = sibling.get(CmdbObjectKey.PUBLIC_ID)
 
         if exclude_subnet_id is not None and sibling_id == exclude_subnet_id:
             continue
@@ -263,9 +239,9 @@ def _check_sibling_overlap(
                 SubnetErrorCode.SIBLING_OVERLAP,
                 f"Candidate {candidate} overlaps with sibling subnet {sibling_net}",
                 {
-                    'candidate': str(candidate),
-                    'sibling_subnet_id': sibling_id,
-                    'sibling_range': str(sibling_net),
+                    IpamValidationDetailKey.CANDIDATE: str(candidate),
+                    IpamValidationDetailKey.SIBLING_SUBNET_ID: sibling_id,
+                    IpamValidationDetailKey.SIBLING_RANGE: str(sibling_net),
                 },
             ))
 

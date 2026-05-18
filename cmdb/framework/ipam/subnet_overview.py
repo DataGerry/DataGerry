@@ -34,6 +34,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpamDistributionLimits,
+    IpamPagination,
 )
 from cmdb.framework.ipam.cidr import (
     parse_cidr,
@@ -43,9 +44,9 @@ from cmdb.framework.ipam.cidr import (
     assignable_address_count,
     first_assignable_int,
 )
-from cmdb.framework.ipam.pagination import DEFAULT_PAGE_SIZE, clamp_page
+from cmdb.models.object_model import extract_field_value
+from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -589,7 +590,7 @@ def build_subnet_overview(
     types_manager: TypesManager,
     public_id: int,
     page: int = 1,
-    page_size: int = DEFAULT_PAGE_SIZE,
+    page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     """
     Builds the full IP-Übersicht payload for the SUBNET CmdbObject identified by public_id
@@ -613,7 +614,8 @@ def build_subnet_overview(
         types_manager (TypesManager): db interface for CmdbTypes
         public_id (int): public_id of the subnet to summarise
         page (int): 1-based page number (clamped into the valid range)
-        page_size (int): Page size (clamped to [1, MAX_PAGE_SIZE])
+        page_size (int): Page size (clamped to [IpamPagination.MIN_PAGE_SIZE,
+            IpamPagination.MAX_PAGE_SIZE])
 
     Returns:
         dict[str, Any]: {'subnet': {public_id, cidr, ip_range, total_ips, assignable_ips,

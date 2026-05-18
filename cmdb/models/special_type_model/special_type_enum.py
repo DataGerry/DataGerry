@@ -17,28 +17,15 @@
 Implementation of all available SpecialTypes
 """
 from typing import Any, Iterable
-from enum import Enum
+
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class SpecialType(str, Enum):
+class SpecialType(BaseStrEnum):
     """Types of Events"""
     SUPERNET = 'SUPERNET'
     SUBNET = 'SUBNET'
     VLAN = 'VLAN'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid SpecialType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing SpecialType, False otherwise
-        """
-        return value in cls._value2member_map_
 
 
     @classmethod
