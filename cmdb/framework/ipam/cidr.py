@@ -14,66 +14,81 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Pure IPv4 CIDR helpers used by the IPAM validators
+Pure IPv4 CIDR helpers used across the IPAM feature
 
-Every helper is stateless and free of DB access so it can be unit-tested in isolation
+Consumers include both the validators (subnet, supernet, interface, range-change guards,
+enforcement) and the overview builders (subnet overview, supernet overview). Every helper
+here is stateless and free of DB / Flask access so it can be unit-tested in isolation.
+Prefix-length policy constants (point-to-point threshold, network/broadcast reservation)
+live in cmdb.models.special_type_model.ipam_constants.IpamPrefixPolicy
 """
-from ipaddress import IPv4Address, IPv4Network, AddressValueError, NetmaskValueError
+from ipaddress import IPv4Address, IPv4Network
+
+from cmdb.models.special_type_model.ipam_constants import (
+    IpamAddressFormat,
+    IpamPrefixPolicy,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 def parse_cidr(value: str) -> IPv4Network | None:
     """
-    Parses a string as a strict IPv4 CIDR network
+    Parses a string as a strict IPv4 CIDR network in canonical 'A.B.C.D/N' notation
 
-    'Strict' means host bits must be zero (e.g. '10.0.0.0/24' is accepted, '10.0.0.5/24' is not)
+    Strict on two axes. Host bits must be zero (e.g. '10.0.0.0/24' is accepted, '10.0.0.5/24'
+    is not). The prefix length must be a plain integer (e.g. '10.0.0.0/24'); Python's
+    IPv4Network would additionally accept '/A.B.C.D' netmask or hostmask forms ('/255.255.255.0',
+    '/0.0.0.255') and a bare address with no slash (interpreting it as a /32 host route), but
+    those forms are rejected here so stored values are always canonical CIDR
 
     Args:
         value (str): The candidate CIDR string
 
     Returns:
-        IPv4Network | None: The parsed network, or None if the string is not a strict IPv4 CIDR
+        IPv4Network | None: The parsed network, or None if the input is not canonical CIDR
     """
     if not isinstance(value, str):
         return None
 
-    try:
-        return IPv4Network(value, strict=True)
-    except (AddressValueError, NetmaskValueError, ValueError):
+    if '/' not in value:
         return None
 
+    _, _, prefix_part = value.rpartition('/')
 
-def is_canonical_cidr(value: str) -> bool:
-    """
-    Reports whether a string is a syntactically valid, canonical IPv4 CIDR
+    if not prefix_part.isdigit():
+        return None
 
-    'Canonical' means host bits are zero (network address form)
-
-    Args:
-        value (str): The candidate CIDR string
-
-    Returns:
-        bool: True if the value parses as a strict IPv4 CIDR, False otherwise
-    """
-    return parse_cidr(value) is not None
+    try:
+        return IPv4Network(value, strict=True)
+    except ValueError:
+        return None
 
 
 def parse_ipv4(value: str) -> IPv4Address | None:
     """
-    Parses a string as an IPv4 address
+    Parses a string as an IPv4 address in dotted-quad notation
+
+    Only the canonical dotted-quad form ('A.B.C.D') is accepted. Python's IPv4Address would
+    additionally accept integer-formatted strings (e.g. '3232235521' as 192.168.1.1) and bare
+    integers, but those forms are rejected here so that stored interface values are always
+    human-readable. The function returns None for any input that is not a four-octet string
 
     Args:
         value (str): The candidate IPv4 address string
 
     Returns:
-        IPv4Address | None: The parsed address, or None if the string is not a valid IPv4 address
+        IPv4Address | None: The parsed address, or None if the input is not a valid
+            dotted-quad IPv4 address
     """
     if not isinstance(value, str):
         return None
 
+    if value.count('.') != IpamAddressFormat.DOTTED_QUAD_DOT_COUNT:
+        return None
+
     try:
         return IPv4Address(value)
-    except (AddressValueError, ValueError):
+    except ValueError:
         return None
 
 
@@ -166,33 +181,31 @@ def assignable_address_count(network: IPv4Network) -> int:
     Returns:
         int: Number of addresses an interface row may legitimately claim
     """
-    if network.prefixlen >= 31:
+    if network.prefixlen >= IpamPrefixPolicy.POINT_TO_POINT_THRESHOLD:
         return network.num_addresses
 
-    return network.num_addresses - 2
+    return network.num_addresses - IpamPrefixPolicy.RESERVED_ADDRESSES_PER_NETWORK
 
 
-def first_assignable_int(network: IPv4Network) -> int | None:
+def first_assignable_int(network: IPv4Network) -> int:
     """
     Returns the integer value of the first assignable address in a network
 
-    For /31 and /32 this is the network address itself (no exclusion). For /30 and shorter the
-    network address is skipped. Returns None only when the network has zero assignable
-    addresses, which currently cannot occur for any valid IPv4 prefix
+    For /31 and /32 networks this is the network address itself (no exclusion applies). For
+    /30 and shorter the network address is skipped and the first host follows at
+    IpamPrefixPolicy.FIRST_HOST_OFFSET. Every valid IPv4 prefix has at least one assignable
+    address under the current policy, so the function always returns an int
 
     Args:
         network (IPv4Network): The parsed network
 
     Returns:
-        int | None: Integer of the first assignable address, or None if none exist
+        int: Integer of the first assignable address
     """
-    if assignable_address_count(network) == 0:
-        return None
-
-    if network.prefixlen >= 31:
+    if network.prefixlen >= IpamPrefixPolicy.POINT_TO_POINT_THRESHOLD:
         return int(network.network_address)
 
-    return int(network.network_address) + 1
+    return int(network.network_address) + IpamPrefixPolicy.FIRST_HOST_OFFSET
 
 
 def is_network_or_broadcast(address: IPv4Address, network: IPv4Network) -> bool:
@@ -208,7 +221,7 @@ def is_network_or_broadcast(address: IPv4Address, network: IPv4Network) -> bool:
     Returns:
         bool: True if 'address' is the reserved network or broadcast address, False otherwise
     """
-    if network.prefixlen >= 31:
+    if network.prefixlen >= IpamPrefixPolicy.POINT_TO_POINT_THRESHOLD:
         return False
 
     return address == network.network_address or address == network.broadcast_address

@@ -72,14 +72,10 @@ def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str
         page_size (int): Number of IPs per page
 
     Returns:
-        list[str]: IP strings for the requested page; empty when the subnet has no assignable
-            addresses or the page is past the end
+        list[str]: IP strings for the requested page; empty when the page is past the end of
+            the assignable range
     """
-    first: int | None = first_assignable_int(network)
-
-    if first is None:
-        return []
-
+    first: int = first_assignable_int(network)
     total: int = assignable_address_count(network)
     start_offset: int = (page - 1) * page_size
 
@@ -175,26 +171,6 @@ def _extract_row_fields(row: dict[str, Any]) -> tuple[Any, Any, Any]:
     return subnet_ref, ip_value, mac_value
 
 
-def _empty_ip_distribution() -> dict[str, Any]:
-    """
-    Returns the zero-shaped 'ip_distribution' payload used when the subnet's CIDR is missing
-    or unparsable
-
-    The shape mirrors a populated distribution so the frontend can render a placeholder
-    without branching on a null sentinel
-
-    Returns:
-        dict[str, Any]: ranges_count / sectors_per_range / sector_size all 0 and an empty
-            'ranges' list
-    """
-    return {
-        'ranges_count': 0,
-        'sectors_per_range': 0,
-        'sector_size': 0,
-        'ranges': [],
-    }
-
-
 def _compute_grid_dimensions(total: int) -> tuple[int, int, int]:
     """
     Computes the grid layout (ranges, sectors per range, addresses per sector) for a subnet
@@ -272,7 +248,6 @@ def _bucket_used_counts(
 
 
 def _compose_sector(
-    sector_index: int,
     first_ip_int: int,
     sector_size: int,
     used_count: int,
@@ -281,22 +256,23 @@ def _compose_sector(
     Shapes one sector entry of the 'ip_distribution' grid
 
     The percentage is the per-cell saturation ('used_count / sector_size * 100'), rounded to
-    two decimals; this matches the frontend's heatmap colouring convention
+    two decimals; this matches the frontend's heatmap colouring convention. Position-implied
+    fields (sector index, sector size) are omitted: the consumer reads the index from the
+    sector's position in its parent range's 'sectors' array, and derives the size from
+    ip_end - ip_start + 1
 
     Args:
-        sector_index (int): 0-based index of the sector within its range
         first_ip_int (int): Integer of the first address the sector covers
-        sector_size (int): Number of addresses the sector covers
+        sector_size (int): Number of addresses the sector covers (used only for the percentage
+            denominator and to compute ip_end)
         used_count (int): Number of assigned IPs inside the sector
 
     Returns:
-        dict[str, Any]: Sector entry with index, ip_start, ip_end, size, used_count, percentage
+        dict[str, Any]: Sector entry with ip_start, ip_end, used_count, percentage
     """
     return {
-        'index': sector_index,
         'ip_start': str(IPv4Address(first_ip_int)),
         'ip_end': str(IPv4Address(first_ip_int + sector_size - 1)),
-        'size': sector_size,
         'used_count': used_count,
         'percentage': round((used_count / sector_size) * 100, 2),
     }
@@ -307,15 +283,20 @@ def _build_ip_distribution(
     assigned: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """
-    Builds the 'IP-Verteilung' grid payload for one subnet
+    Builds the 'IP-Verteilung' grid payload for one subnet, or an empty dict when no grid is rendered
 
-    Splits the full address space (network + broadcast included) into at most
-    IpamDistributionLimits.MAX_RANGES rows of at most MAX_SECTORS_PER_RANGE cells each, where
-    each cell aggregates the count of assigned IPs in its address window. Cells are sized by
-    'total // (ranges * sectors)' so every cell covers an equal slice of the subnet. For
-    subnets smaller than the cap the layout shrinks so no cell drops below 1 IP. The returned
-    structure is suitable for direct rendering by the frontend, which colours each cell by its
-    'percentage' field
+    The grid is only emitted at its full size (MAX_RANGES x MAX_SECTORS_PER_RANGE = 64 cells),
+    which corresponds to /26 and shorter prefixes. For /27 and narrower subnets the resulting
+    grid would have fewer cells; in that case (and when the CIDR is missing or unparsable) the
+    function returns an empty dict so the frontend can omit the visualisation entirely. When
+    rendered, every cell covers an equal slice of the subnet (network + broadcast included)
+    and carries the count of assigned IPs plus a per-cell saturation percentage that drives
+    the heatmap colouring
+
+    The returned structure is intentionally minimal: position-implied fields (range index,
+    sector index, sector size, top-level grid dimensions) are omitted because the grid
+    dimensions are fixed and the indexes follow array order. Range-level ip_start / ip_end are
+    kept because the frontend renders them as row labels next to each range
 
     Args:
         network (IPv4Network | None): The parsed subnet network, or None when the subnet's
@@ -325,16 +306,25 @@ def _build_ip_distribution(
             here
 
     Returns:
-        dict[str, Any]: ranges_count, sectors_per_range, sector_size, and a 'ranges' list with
-            one entry per range carrying index, ip_start, ip_end, and a nested 'sectors' list;
-            the zero-shaped payload from _empty_ip_distribution when network is None
+        dict[str, Any]: {'sector_size': N, 'ranges': [...]} when the subnet qualifies for the
+            full grid, where 'sector_size' is the number of addresses each cell covers (same
+            for every cell since the grid is uniform) and each range carries ip_start, ip_end,
+            and a nested 'sectors' list of cells with ip_start, ip_end, used_count,
+            percentage. Empty dict ({}) otherwise
     """
     if network is None:
-        return _empty_ip_distribution()
+        return {}
 
     total: int = total_address_count(network)
     ranges_count, sectors_per_range, sector_size = _compute_grid_dimensions(total)
     total_cells: int = ranges_count * sectors_per_range
+    max_grid_cells: int = (
+        IpamDistributionLimits.MAX_RANGES * IpamDistributionLimits.MAX_SECTORS_PER_RANGE
+    )
+
+    if total_cells < max_grid_cells:
+        return {}
+
     counts: list[int] = _bucket_used_counts(assigned, network, sector_size, total_cells)
 
     base_int: int = int(network.network_address)
@@ -350,22 +340,18 @@ def _build_ip_distribution(
             sector_first_int: int = range_first_int + sector_index * sector_size
             global_cell: int = range_index * sectors_per_range + sector_index
             sectors.append(_compose_sector(
-                sector_index,
                 sector_first_int,
                 sector_size,
                 counts[global_cell],
             ))
 
         ranges.append({
-            'index': range_index,
             'ip_start': str(IPv4Address(range_first_int)),
             'ip_end': str(IPv4Address(range_first_int + range_span - 1)),
             'sectors': sectors,
         })
 
     return {
-        'ranges_count': ranges_count,
-        'sectors_per_range': sectors_per_range,
         'sector_size': sector_size,
         'ranges': ranges,
     }
@@ -635,12 +621,15 @@ def build_subnet_overview(
             'ips': {page, page_size, total, rows: [...]},
             'type_distribution': [{public_id, label, ci_explorer_color, count, percentage},
             ...],
-            'ip_distribution': {ranges_count, sectors_per_range, sector_size, ranges: [...]}}
-            where 'type_distribution' covers the whole subnet (not just the current page) and
-            includes 'Unknown' (when present) and 'Free' buckets after the type buckets, and
-            'ip_distribution' is the IP-Verteilung heatmap grid covering the full address
-            space (network + broadcast included). 'ips.total' equals 'assignable_ips' so the
-            table paginates exactly the rows the validator would accept
+            'ip_distribution': {'sector_size': N, 'ranges': [...]} | {}} where
+            'type_distribution' covers the
+            whole subnet (not just the current page) and includes 'Unknown' (when present)
+            and 'Free' buckets after the type buckets, and 'ip_distribution' is the
+            IP-Verteilung heatmap grid covering the full address space (network + broadcast
+            included). The grid is emitted only at its full 4 x 16 size (/26 and shorter
+            prefixes); for /27 and narrower, or when the CIDR is unparsable, ip_distribution
+            is an empty dict. 'ips.total' equals 'assignable_ips' so the table paginates
+            exactly the rows the validator would accept
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
 
@@ -666,7 +655,7 @@ def build_subnet_overview(
                 'rows': [],
             },
             'type_distribution': [],
-            'ip_distribution': _empty_ip_distribution(),
+            'ip_distribution': {},
         }
 
     total: int = total_address_count(network)
