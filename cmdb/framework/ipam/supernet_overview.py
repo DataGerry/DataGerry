@@ -109,17 +109,16 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
     """
     Shapes a single SUBNET CmdbObject + its interface-IP usage count into one overview row
 
-    Returns degenerate rows (zeroed counts, null cidr / ip_range) when the subnet's
-    'dg-network-range' field is missing or unparsable, so a broken record does not break the
-    whole view. /31 and /32 subnets also report all-zero usage per the view spec
+    Returns a degenerate row (zeroed counts, null cidr) when the subnet's 'dg-network-range'
+    field is missing or unparsable, so a broken record does not break the whole view. /31 and
+    /32 subnets also report all-zero usage per the view spec
 
     Args:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
         used_count (int): Number of dg-ipam-interface rows that reference this subnet
 
     Returns:
-        dict[str, Any]: One row with public_id, cidr, ip_range, used_ips, free_ips,
-            usage_percent
+        dict[str, Any]: One row with public_id, cidr, used_ips, free_ips, usage_percent
     """
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
     network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
@@ -128,7 +127,6 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
         return {
             'public_id': subnet_obj.get('public_id'),
             'cidr': raw_cidr if isinstance(raw_cidr, str) else None,
-            'ip_range': None,
             'used_ips': 0,
             'free_ips': 0,
             'usage_percent': 0.0,
@@ -140,7 +138,6 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
         return {
             'public_id': subnet_obj.get('public_id'),
             'cidr': str(network),
-            'ip_range': _ip_range(network),
             'used_ips': 0,
             'free_ips': 0,
             'usage_percent': 0.0,
@@ -151,7 +148,6 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
     return {
         'public_id': subnet_obj.get('public_id'),
         'cidr': str(network),
-        'ip_range': _ip_range(network),
         'used_ips': used_count,
         'free_ips': free,
         'usage_percent': _percent(used_count, usable),
