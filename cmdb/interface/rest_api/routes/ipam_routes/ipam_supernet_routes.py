@@ -102,7 +102,7 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @ipam_supernet_blueprint.route(
-    '/overview/<int:public_id>/subnets/<int:subnet_id>/children',
+    '/overview/<int:public_id>/subnets/children/<int:subnet_id>',
     methods=['GET'],
 )
 @verify_api_access(required_api_level=ApiLevel.LOCKED)

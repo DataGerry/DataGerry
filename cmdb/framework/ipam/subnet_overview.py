@@ -124,17 +124,19 @@ def _compose_assigned_row(
     """
     Shapes one 'assigned' row of the IP table
 
-    'type_info' carries the owning CmdbObject's CmdbType as a {public_id, label}
-    pair so two distinct types sharing the same label remain distinguishable on
-    the frontend. The pair is built by the orchestrator: public_id is the raw
-    type_id stored on the CmdbObject, label comes from the bulk type lookup and
-    may be None when the type can no longer be resolved (e.g. it was deleted
-    after the interface row was written)
+    'type_info' carries the owning CmdbObject's CmdbType as a
+    {public_id, label, ci_explorer_color} triple so two distinct types sharing the
+    same label remain distinguishable on the frontend and the row can be tinted
+    with the user-chosen CI-Explorer colour. The dict is built by the orchestrator:
+    public_id is the raw type_id stored on the CmdbObject, label and
+    ci_explorer_color come from the bulk type lookup and may be None when the type
+    can no longer be resolved (e.g. it was deleted after the interface row was
+    written) or when the type has no color set
 
     Args:
         ip_str (str): The IP address as canonical string
-        type_info (dict[str, Any] | None): {'public_id', 'label'} for the
-            owning CmdbObject's CmdbType, or None when the type_id is missing
+        type_info (dict[str, Any] | None): {'public_id', 'label', 'ci_explorer_color'}
+            for the owning CmdbObject's CmdbType, or None when the type_id is missing
         assigned_to (dict[str, Any]): {'public_id', 'summary_line'} for the owning CmdbObject
         mac_address (str | None): MAC stored on the interface row, or None when absent
 
@@ -199,7 +201,7 @@ def _extract_row_fields(row: dict[str, Any]) -> tuple[Any, Any, Any]:
 
 def _build_type_distribution(
     assigned: dict[str, dict[str, Any]],
-    type_labels: dict[int, str],
+    type_meta: dict[int, dict[str, Any]],
     total: int,
 ) -> list[dict[str, Any]]:
     """
@@ -216,14 +218,16 @@ def _build_type_distribution(
     Args:
         assigned (dict[str, dict[str, Any]]): {ip_str: {'object_id', 'type_id', 'mac'}} as
             produced by _load_assigned_rows_map; one entry per used IP across the whole subnet
-        type_labels (dict[int, str]): {type_id: label} for every CmdbType referenced by the
-            assigned map; type_ids absent from this mapping fall through to the Unknown bucket
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} for
+            every CmdbType referenced by the assigned map; type_ids absent from this mapping
+            fall through to the Unknown bucket
         total (int): Total usable host count of the subnet (denominator for percentages)
 
     Returns:
-        list[dict[str, Any]]: One entry per type bucket with keys public_id, label, count,
-            percentage, followed by the Unknown bucket (only when non-empty) and the Free
-            bucket; empty list when total is 0
+        list[dict[str, Any]]: One entry per type bucket with keys public_id, label,
+            ci_explorer_color, count, percentage, followed by the Unknown bucket (only when
+            non-empty) and the Free bucket; the Unknown / Free buckets carry
+            ci_explorer_color=None. Empty list when total is 0
     """
     if total <= 0:
         return []
@@ -234,7 +238,7 @@ def _build_type_distribution(
     for info in assigned.values():
         type_id: Any = info.get('type_id')
 
-        if isinstance(type_id, int) and type_id in type_labels:
+        if isinstance(type_id, int) and type_id in type_meta:
             by_type[type_id] = by_type.get(type_id, 0) + 1
         else:
             unknown_count += 1
@@ -244,7 +248,8 @@ def _build_type_distribution(
     distribution: list[dict[str, Any]] = [
         {
             'public_id': type_id,
-            'label': type_labels[type_id],
+            'label': type_meta[type_id]['label'],
+            'ci_explorer_color': type_meta[type_id].get('ci_explorer_color'),
             'count': count,
             'percentage': round((count / total) * 100, 2),
         }
@@ -255,6 +260,7 @@ def _build_type_distribution(
         distribution.append({
             'public_id': None,
             'label': UNKNOWN_BUCKET_LABEL,
+            'ci_explorer_color': None,
             'count': unknown_count,
             'percentage': round((unknown_count / total) * 100, 2),
         })
@@ -262,6 +268,7 @@ def _build_type_distribution(
     distribution.append({
         'public_id': None,
         'label': FREE_BUCKET_LABEL,
+        'ci_explorer_color': None,
         'count': free_count,
         'percentage': round((free_count / total) * 100, 2),
     })
@@ -383,26 +390,36 @@ def _load_assigned_rows_map(
     return out
 
 
-def _resolve_type_labels(
+def _resolve_type_meta(
     types_manager: TypesManager,
     type_ids: list[int],
-) -> dict[int, str]:
+) -> dict[int, dict[str, Any]]:
     """
-    Bulk-resolves a list of CmdbType public_ids to their labels
+    Bulk-resolves a list of CmdbType public_ids to the metadata the overview needs
+
+    Returns the label plus the CI-Explorer color so the frontend can render type chips and
+    pie-chart slices with the same colour the user picked under 'Type Settings'. A single bulk
+    lookup is issued and the projection happens client-side, so this stays cheap even when a
+    subnet has assignments across dozens of distinct types
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         type_ids (list[int]): The CmdbType ids to resolve (duplicates allowed)
 
     Returns:
-        dict[int, str]: {type_id: type_label}; types that no longer exist are absent
+        dict[int, dict[str, Any]]: {type_id: {'label': str, 'ci_explorer_color': str | None}};
+            types that no longer exist are absent so callers can route them into the Unknown
+            bucket
     """
     if not type_ids:
         return {}
 
     lookup = types_manager.get_types_lookup(list(set(type_ids)))
 
-    return {tid: t.label for tid, t in lookup.items()}
+    return {
+        tid: {'label': t.label, 'ci_explorer_color': t.ci_explorer_color}
+        for tid, t in lookup.items()
+    }
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -436,7 +453,8 @@ def build_subnet_overview(
     Returns:
         dict[str, Any]: {'subnet': {public_id, cidr, ip_range, total_ips, used_ips, free_ips},
             'ips': {page, page_size, total, rows: [...]},
-            'type_distribution': [{public_id, label, count, percentage}, ...]} where the
+            'type_distribution': [{public_id, label, ci_explorer_color, count, percentage},
+            ...]} where the
             distribution covers the whole subnet (not just the current page) and includes
             'Unknown' (when present) and 'Free' buckets after the type buckets
     """
@@ -475,9 +493,9 @@ def build_subnet_overview(
         for info in assigned.values()
         if isinstance(info.get('type_id'), int)
     ]
-    type_labels: dict[int, str] = _resolve_type_labels(types_manager, assigned_type_ids)
+    type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, assigned_type_ids)
 
-    type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_labels, total)
+    type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_meta, total)
 
     safe_page, safe_size = clamp_page(page, page_size, total)
     page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
@@ -494,8 +512,13 @@ def build_subnet_overview(
         summary_line: str = objects_manager.get_summary_line(info['object_id'], with_type=True)
 
         type_id: Any = info['type_id']
+        type_entry: dict[str, Any] | None = type_meta.get(type_id) if type_id is not None else None
         type_info: dict[str, Any] | None = (
-            {'public_id': type_id, 'label': type_labels.get(type_id)}
+            {
+                'public_id': type_id,
+                'label': type_entry.get('label') if type_entry else None,
+                'ci_explorer_color': type_entry.get('ci_explorer_color') if type_entry else None,
+            }
             if type_id is not None
             else None
         )
