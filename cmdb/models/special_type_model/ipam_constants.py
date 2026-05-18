@@ -114,6 +114,39 @@ class InterfaceField(str, Enum):
         return value in cls._value2member_map_
 
 
+class IpamPrefixPolicy:
+    """
+    Prefix-length thresholds that drive IPAM address-counting policy
+
+    POINT_TO_POINT_THRESHOLD is the prefix length at and above which the network and
+    broadcast addresses cease to be reserved: /31 uses both endpoints (RFC 3021
+    point-to-point) and /32 is treated as a single host route. Every helper that
+    distinguishes 'total' addresses from 'assignable' addresses consults this boundary
+
+    RESERVED_ADDRESSES_PER_NETWORK is the count of addresses removed from the host pool
+    for prefixes shorter than the point-to-point threshold (the network address plus the
+    broadcast address)
+
+    FIRST_HOST_OFFSET is the offset from the network address to the first assignable host
+    when the network/broadcast reservation applies
+    """
+    POINT_TO_POINT_THRESHOLD: int = 31
+    RESERVED_ADDRESSES_PER_NETWORK: int = 2
+    FIRST_HOST_OFFSET: int = 1
+
+
+class IpamAddressFormat:
+    """
+    Structural constants for IPv4 address notation accepted by the IPAM validators
+
+    DOTTED_QUAD_DOT_COUNT is the exact number of dots in canonical IPv4 dotted-quad form
+    (A.B.C.D). The IPAM parsers reject any string with a different dot count so that
+    integer-formatted strings such as '3232235521' (which Python's IPv4Address would silently
+    accept) cannot be stored as interface values
+    """
+    DOTTED_QUAD_DOT_COUNT: int = 3
+
+
 class IpamDistributionLimits:
     """
     Maximum dimensions of the subnet 'IP-Verteilung' grid

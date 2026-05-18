@@ -14,7 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Bulk change objects - Tests
+Functional tests for bulk CmdbObject modification through the REST API
+
+These tests run against a real MongoDB instance and the full Flask test client; they exercise
+the /objects endpoint end-to-end (routing + auth + manager + persistence) rather than any
+single pure helper, so they belong under tests/functional, not tests/unit
 """
 from logging import Logger, getLogger
 import copy
