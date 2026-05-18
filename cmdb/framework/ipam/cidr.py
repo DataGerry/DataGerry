@@ -133,6 +133,68 @@ def ip_in_network(address: IPv4Address, network: IPv4Network) -> bool:
     return address in network
 
 
+def total_address_count(network: IPv4Network) -> int:
+    """
+    Returns the total number of addresses in a network, including the network and broadcast
+    addresses
+
+    This is the denominator used by the IP-Verteilung grid and the headline 'Gesamt IPs' KPI,
+    where the address space is shown as a contiguous whole rather than split into 'usable' and
+    'reserved' subsets
+
+    Args:
+        network (IPv4Network): The parsed network
+
+    Returns:
+        int: Total address count of the network (always >= 1)
+    """
+    return network.num_addresses
+
+
+def assignable_address_count(network: IPv4Network) -> int:
+    """
+    Returns the number of addresses the interface validator would accept inside a network
+
+    /32 reports 1 (host route), /31 reports 2 (RFC 3021 point-to-point), and /30 and shorter
+    report 'num_addresses - 2' to exclude the network and broadcast addresses. This is the
+    denominator used by 'free_ips' and by the paginated IP table, which only lists addresses
+    that can actually be assigned
+
+    Args:
+        network (IPv4Network): The parsed network
+
+    Returns:
+        int: Number of addresses an interface row may legitimately claim
+    """
+    if network.prefixlen >= 31:
+        return network.num_addresses
+
+    return network.num_addresses - 2
+
+
+def first_assignable_int(network: IPv4Network) -> int | None:
+    """
+    Returns the integer value of the first assignable address in a network
+
+    For /31 and /32 this is the network address itself (no exclusion). For /30 and shorter the
+    network address is skipped. Returns None only when the network has zero assignable
+    addresses, which currently cannot occur for any valid IPv4 prefix
+
+    Args:
+        network (IPv4Network): The parsed network
+
+    Returns:
+        int | None: Integer of the first assignable address, or None if none exist
+    """
+    if assignable_address_count(network) == 0:
+        return None
+
+    if network.prefixlen >= 31:
+        return int(network.network_address)
+
+    return int(network.network_address) + 1
+
+
 def is_network_or_broadcast(address: IPv4Address, network: IPv4Network) -> bool:
     """
     Reports whether an address equals the network address or the broadcast address of a network

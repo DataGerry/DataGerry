@@ -39,7 +39,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
 )
-from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet
+from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet, total_address_count
 from cmdb.framework.ipam.pagination import DEFAULT_PAGE_SIZE, clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
 from cmdb.framework.ipam.subnet_validator import extract_field_value
@@ -68,26 +68,6 @@ def _ip_range(network: IPv4Network) -> dict[str, str]:
     }
 
 
-def _usable_count(network: IPv4Network) -> int:
-    """
-    Returns the number of IPs in a network that can be assigned to interfaces
-
-    /31 and /32 networks are reported as 0 by spec for the supernet overview, even though
-    interfaces can technically be assigned in those ranges. Other prefixes return
-    'num_addresses - 2' to exclude the network and broadcast addresses
-
-    Args:
-        network (IPv4Network): The parsed network
-
-    Returns:
-        int: Usable address count, with /31 and /32 zeroed
-    """
-    if network.prefixlen >= 31:
-        return 0
-
-    return network.num_addresses - 2
-
-
 def _percent(numerator: int, denominator: int) -> float:
     """
     Returns 'numerator / denominator * 100' rounded to 2 decimals, or 0.0 when denominator is 0
@@ -110,8 +90,10 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
     Shapes a single SUBNET CmdbObject + its interface-IP usage count into one overview row
 
     Returns a degenerate row (zeroed counts, null cidr) when the subnet's 'dg-network-range'
-    field is missing or unparsable, so a broken record does not break the whole view. /31 and
-    /32 subnets also report all-zero usage per the view spec
+    field is missing or unparsable, so a broken record does not break the whole view. All
+    counts and percentages are computed against the subnet's total address count (network and
+    broadcast included), matching the denominator used by the subnet IP-Verteilung grid and
+    the headline 'Gesamt IPs' KPI
 
     Args:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
@@ -132,25 +114,15 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
             'usage_percent': 0.0,
         }
 
-    usable: int = _usable_count(network)
-
-    if usable == 0:
-        return {
-            'public_id': subnet_obj.get('public_id'),
-            'cidr': str(network),
-            'used_ips': 0,
-            'free_ips': 0,
-            'usage_percent': 0.0,
-        }
-
-    free: int = max(0, usable - used_count)
+    total: int = total_address_count(network)
+    free: int = max(0, total - used_count)
 
     return {
         'public_id': subnet_obj.get('public_id'),
         'cidr': str(network),
         'used_ips': used_count,
         'free_ips': free,
-        'usage_percent': _percent(used_count, usable),
+        'usage_percent': _percent(used_count, total),
     }
 
 
@@ -162,10 +134,11 @@ def compute_supernet_summary(
     """
     Shapes the KPI strip values for the supernet as a whole
 
-    All percentages are computed against the supernet's own usable address count
-    ('utilization_percent' is intentionally equal to 'used_percent' under this scheme).
-    A degenerate summary with zeroed counts is returned when the supernet's CIDR is missing
-    or unparsable, or when it is /31 / /32
+    All percentages are computed against the supernet's total address count (network and
+    broadcast included), keeping the supernet KPI aligned with the per-subnet rows produced by
+    'compute_subnet_row' and with the subnet IP-Verteilung grid. 'utilization_percent' is
+    intentionally equal to 'used_percent' under this scheme. A degenerate summary with zeroed
+    counts is returned when the supernet's CIDR is missing or unparsable
 
     Args:
         supernet_network (IPv4Network | None): Parsed CIDR of the supernet, None if missing
@@ -190,21 +163,7 @@ def compute_supernet_summary(
             'subnet_count': subnet_count,
         }
 
-    total: int = _usable_count(supernet_network)
-
-    if total == 0:
-        return {
-            'cidr': str(supernet_network),
-            'ip_range': _ip_range(supernet_network),
-            'total_ips': 0,
-            'used_ips': 0,
-            'free_ips': 0,
-            'used_percent': 0.0,
-            'free_percent': 0.0,
-            'utilization_percent': 0.0,
-            'subnet_count': subnet_count,
-        }
-
+    total: int = total_address_count(supernet_network)
     free: int = max(0, total - total_used)
     used_percent: float = _percent(total_used, total)
     free_percent: float = _percent(free, total)
