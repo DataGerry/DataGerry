@@ -25,8 +25,21 @@ from ipaddress import IPv4Address, IPv4Network
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, InterfaceField, IpamSection
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    InterfaceField,
+    IpamSection,
+    IpamValidationDetailKey,
+)
+from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.cidr import (
     parse_cidr,
     parse_ipv4,
@@ -34,14 +47,13 @@ from cmdb.framework.ipam.cidr import (
     is_network_or_broadcast,
 )
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import build_error, extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ERROR CODES                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-class InterfaceErrorCode:
+class InterfaceErrorCode(BaseStrEnum):
     """Stable codes for structured interface row validation errors"""
     SUBNET_TYPE_MISSING = 'subnet_type_missing'
     SUBNET_NOT_FOUND = 'subnet_not_found'
@@ -80,7 +92,7 @@ def _load_subnet_object(
         )]
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(
-        {'public_id': subnet_object_id, 'type_id': subnet_type_id},
+        {CmdbObjectKey.PUBLIC_ID: subnet_object_id, CmdbObjectKey.TYPE_ID: subnet_type_id},
         as_dict=True,
     )
 
@@ -88,7 +100,7 @@ def _load_subnet_object(
         return None, [build_error(
             InterfaceErrorCode.SUBNET_NOT_FOUND,
             f"Subnet object with id {subnet_object_id} does not exist",
-            {'subnet_object_id': subnet_object_id},
+            {IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id},
         )]
 
     return matches[0], []
@@ -110,8 +122,14 @@ def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[IPv4Network | N
     if parsed is None:
         return None, [build_error(
             InterfaceErrorCode.SUBNET_BROKEN_STATE,
-            f"Subnet object {subnet_obj.get('public_id')} has no valid '{SubnetField.NETWORK_RANGE.value}' value",
-            {'subnet_object_id': subnet_obj.get('public_id'), 'stored_value': raw},
+            (
+                f"Subnet object {subnet_obj.get(CmdbObjectKey.PUBLIC_ID)} has no valid "
+                f"'{SubnetField.NETWORK_RANGE.value}' value"
+            ),
+            {
+                IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+                IpamValidationDetailKey.STORED_VALUE: raw,
+            },
         )]
 
     return parsed, []
@@ -136,7 +154,7 @@ def _check_ip_format(ip_address: str) -> tuple[IPv4Address | None, list[dict[str
         return None, [build_error(
             InterfaceErrorCode.IP_INVALID,
             f"'{ip_address}' is not a valid IPv4 address",
-            {'ip_address': ip_address},
+            {IpamValidationDetailKey.IP_ADDRESS: ip_address},
         )]
 
     return parsed, []
@@ -159,7 +177,10 @@ def _check_ip_membership(ip: IPv4Address, subnet_net: IPv4Network) -> list[dict[
         errors.append(build_error(
             InterfaceErrorCode.IP_NOT_IN_SUBNET,
             f"IP {ip} is not part of subnet {subnet_net}",
-            {'ip_address': str(ip), 'subnet_range': str(subnet_net)},
+            {
+                IpamValidationDetailKey.IP_ADDRESS: str(ip),
+                IpamValidationDetailKey.SUBNET_RANGE: str(subnet_net),
+            },
         ))
         return errors
 
@@ -167,7 +188,10 @@ def _check_ip_membership(ip: IPv4Address, subnet_net: IPv4Network) -> list[dict[
         errors.append(build_error(
             InterfaceErrorCode.IP_RESERVED,
             f"IP {ip} is the network or broadcast address of {subnet_net}",
-            {'ip_address': str(ip), 'subnet_range': str(subnet_net)},
+            {
+                IpamValidationDetailKey.IP_ADDRESS: str(ip),
+                IpamValidationDetailKey.SUBNET_RANGE: str(subnet_net),
+            },
         ))
 
     return errors
@@ -200,15 +224,21 @@ def _check_ip_uniqueness(
         list[dict[str, Any]]: One error per collision found, empty when the IP is unique
     """
     criteria: dict[str, Any] = {
-        'multi_data_sections': {
+        CmdbObjectKey.MULTI_DATA_SECTIONS: {
             '$elemMatch': {
-                'section_id': IpamSection.INTERFACE,
-                'values': {
+                CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+                CmdbObjectMdsKey.VALUES: {
                     '$elemMatch': {
-                        'data': {
+                        CmdbObjectMdsRowKey.DATA: {
                             '$all': [
-                                {'$elemMatch': {'name': InterfaceField.SUBNET, 'value': subnet_object_id}},
-                                {'$elemMatch': {'name': InterfaceField.IP, 'value': ip_address}},
+                                {'$elemMatch': {
+                                    CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                    CmdbObjectFieldKey.VALUE: subnet_object_id,
+                                }},
+                                {'$elemMatch': {
+                                    CmdbObjectFieldKey.NAME: InterfaceField.IP,
+                                    CmdbObjectFieldKey.VALUE: ip_address,
+                                }},
                             ],
                         },
                     },
@@ -252,13 +282,13 @@ def _collect_collision_errors(
     errors: list[dict[str, Any]] = []
 
     for candidate in candidates:
-        candidate_id: Any = candidate.get('public_id')
+        candidate_id: Any = candidate.get(CmdbObjectKey.PUBLIC_ID)
 
-        for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('section_id') != IpamSection.INTERFACE:
+        for section in candidate.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+            if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
                 continue
 
-            for row_index, row in enumerate(section.get('values', []) or []):
+            for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
                 if not _row_matches(row, subnet_object_id, ip_address):
                     continue
 
@@ -275,10 +305,10 @@ def _collect_collision_errors(
                     f"IP {ip_address} is already used in subnet {subnet_object_id} "
                     f"by object {candidate_id} (interface row {row_index})",
                     {
-                        'ip_address': ip_address,
-                        'subnet_object_id': subnet_object_id,
-                        'object_id': candidate_id,
-                        'row_index': row_index,
+                        IpamValidationDetailKey.IP_ADDRESS: ip_address,
+                        IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id,
+                        IpamValidationDetailKey.OBJECT_ID: candidate_id,
+                        IpamValidationDetailKey.ROW_INDEX: row_index,
                     },
                 ))
 
@@ -300,10 +330,13 @@ def _row_matches(row: dict[str, Any], subnet_object_id: int, ip_address: str) ->
     has_subnet: bool = False
     has_ip: bool = False
 
-    for entry in row.get('data', []) or []:
-        if entry.get('name') == InterfaceField.SUBNET and entry.get('value') == subnet_object_id:
+    for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+        entry_name: Any = entry.get(CmdbObjectFieldKey.NAME)
+        entry_value: Any = entry.get(CmdbObjectFieldKey.VALUE)
+
+        if entry_name == InterfaceField.SUBNET and entry_value == subnet_object_id:
             has_subnet = True
-        elif entry.get('name') == InterfaceField.IP and entry.get('value') == ip_address:
+        elif entry_name == InterfaceField.IP and entry_value == ip_address:
             has_ip = True
 
     return has_subnet and has_ip
@@ -390,10 +423,10 @@ def find_intra_submission_duplicates(
                 f"IP {ip} is duplicated within submitted interface rows "
                 f"(rows {seen[key]} and {row_index})",
                 {
-                    'ip_address': ip,
-                    'subnet_object_id': subnet_ref,
-                    'first_row_index': seen[key],
-                    'duplicate_row_index': row_index,
+                    IpamValidationDetailKey.IP_ADDRESS: ip,
+                    IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_ref,
+                    IpamValidationDetailKey.FIRST_ROW_INDEX: seen[key],
+                    IpamValidationDetailKey.DUPLICATE_ROW_INDEX: row_index,
                 },
             ))
             continue

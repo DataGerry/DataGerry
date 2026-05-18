@@ -38,11 +38,12 @@ from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     InterfaceField,
     IpamSection,
+    IpamPagination,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet, total_address_count
-from cmdb.framework.ipam.pagination import DEFAULT_PAGE_SIZE, clamp_page
+from cmdb.models.object_model import extract_field_value
+from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import extract_field_value
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -493,7 +494,7 @@ def build_supernet_overview(
     types_manager: TypesManager,
     public_id: int,
     page: int = 1,
-    page_size: int = DEFAULT_PAGE_SIZE,
+    page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     """
     Builds the paginated top-level supernet overview payload
@@ -515,7 +516,8 @@ def build_supernet_overview(
         public_id (int): public_id of the supernet to summarise
         page (int): 1-based page number for the top-level subnet list (clamped into the valid
             range)
-        page_size (int): Page size for the top-level subnet list (clamped to [1, MAX_PAGE_SIZE])
+        page_size (int): Page size for the top-level subnet list (clamped to
+            [IpamPagination.MIN_PAGE_SIZE, IpamPagination.MAX_PAGE_SIZE])
 
     Returns:
         dict[str, Any]: {'supernet': {public_id, ...summary over all subnets...},

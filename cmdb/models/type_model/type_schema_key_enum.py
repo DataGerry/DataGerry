@@ -16,10 +16,10 @@
 """
 Enumeration of top-level dict keys of a CmdbType / SpecialType schema
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class TypeSchemaKey(str, Enum):
+class TypeSchemaKey(BaseStrEnum):
     """
     Enumeration of top-level dict keys of a CmdbType / SpecialType schema
 
@@ -31,17 +31,3 @@ class TypeSchemaKey(str, Enum):
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
     FIELDS = 'fields'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known TypeSchemaKey
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing TypeSchemaKey, False otherwise
-        """
-        return value in cls._value2member_map_

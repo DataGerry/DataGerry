@@ -23,8 +23,15 @@ CmdbObjects
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+)
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import SubnetField, VlanField, InterfaceField
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -39,12 +46,12 @@ def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialTy
     Returns:
         int | None: The CmdbType's public_id, or None if no such CmdbType is defined
     """
-    type_doc: dict[str, Any] | None = types_manager.get_one_by({'special_type': special_type})
+    type_doc: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
 
     if not type_doc:
         return None
 
-    return type_doc.get('public_id')
+    return type_doc.get(CmdbObjectKey.PUBLIC_ID)
 
 
 def _find_objects_with_field_value(
@@ -69,18 +76,24 @@ def _find_objects_with_field_value(
         list[dict[str, Any]]: One dict per matching CmdbObject with 'public_id' and 'type_id'
     """
     criteria: dict[str, Any] = {
-        'type_id': type_id,
-        'fields': {
+        CmdbObjectKey.TYPE_ID: type_id,
+        CmdbObjectKey.FIELDS: {
             '$elemMatch': {
-                'name': field_name,
-                'value': field_value,
+                CmdbObjectFieldKey.NAME: field_name,
+                CmdbObjectFieldKey.VALUE: field_value,
             },
         },
     }
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [{'public_id': m['public_id'], 'type_id': m['type_id']} for m in matches]
+    return [
+        {
+            CmdbObjectKey.PUBLIC_ID: m[CmdbObjectKey.PUBLIC_ID],
+            CmdbObjectKey.TYPE_ID: m[CmdbObjectKey.TYPE_ID],
+        }
+        for m in matches
+    ]
 
 
 def find_subnets_referencing_supernet(
@@ -105,7 +118,12 @@ def find_subnets_referencing_supernet(
     if subnet_type_id is None:
         return []
 
-    return _find_objects_with_field_value(objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, supernet_object_id)
+    return _find_objects_with_field_value(
+        objects_manager,
+        subnet_type_id,
+        SubnetField.PARENT_SUPERNET,
+        supernet_object_id,
+    )
 
 
 def find_vlans_referencing_subnet(
@@ -152,14 +170,14 @@ def find_interfaces_referencing_subnet(
             list when no interface row references the subnet
     """
     criteria: dict[str, Any] = {
-        'multi_data_sections': {
+        CmdbObjectKey.MULTI_DATA_SECTIONS: {
             '$elemMatch': {
-                'values': {
+                CmdbObjectMdsKey.VALUES: {
                     '$elemMatch': {
-                        'data': {
+                        CmdbObjectMdsRowKey.DATA: {
                             '$elemMatch': {
-                                'name': InterfaceField.SUBNET,
-                                'value': subnet_object_id,
+                                CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                CmdbObjectFieldKey.VALUE: subnet_object_id,
                             },
                         },
                     },
@@ -170,4 +188,10 @@ def find_interfaces_referencing_subnet(
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [{'public_id': m['public_id'], 'type_id': m['type_id']} for m in matches]
+    return [
+        {
+            CmdbObjectKey.PUBLIC_ID: m[CmdbObjectKey.PUBLIC_ID],
+            CmdbObjectKey.TYPE_ID: m[CmdbObjectKey.TYPE_ID],
+        }
+        for m in matches
+    ]

@@ -30,7 +30,8 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.framework.ipam.subnet_overview import build_subnet_overview, DEFAULT_PAGE_SIZE
+from cmdb.models.special_type_model.ipam_constants import IpamPagination
+from cmdb.framework.ipam.subnet_overview import build_subnet_overview
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -69,7 +70,10 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     try:
         page: int = request.args.get('page', default=1, type=int) or 1
-        page_size: int = request.args.get('page_size', default=DEFAULT_PAGE_SIZE, type=int) or DEFAULT_PAGE_SIZE
+        page_size: int = (
+            request.args.get('page_size', default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
+            or IpamPagination.DEFAULT_PAGE_SIZE
+        )
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
