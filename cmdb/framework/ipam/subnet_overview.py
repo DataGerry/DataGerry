@@ -33,8 +33,16 @@ from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     InterfaceField,
     IpamSection,
+    IpamDistributionLimits,
 )
-from cmdb.framework.ipam.cidr import parse_cidr, parse_ipv4, ip_in_network
+from cmdb.framework.ipam.cidr import (
+    parse_cidr,
+    parse_ipv4,
+    ip_in_network,
+    total_address_count,
+    assignable_address_count,
+    first_assignable_int,
+)
 from cmdb.framework.ipam.pagination import DEFAULT_PAGE_SIZE, clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
 from cmdb.framework.ipam.subnet_validator import extract_field_value
@@ -48,47 +56,15 @@ UNKNOWN_BUCKET_LABEL: str = 'Unknown'
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _usable_count(network: IPv4Network) -> int:
-    """
-    Returns the number of usable host addresses in a network
-
-    /31 and /32 networks report 0 to match the supernet-overview policy (network and broadcast
-    are excluded for /30 and shorter; /31 and /32 have no usable hosts under this scheme)
-
-    Args:
-        network (IPv4Network): The parsed network
-
-    Returns:
-        int: Usable host count, with /31 and /32 zeroed
-    """
-    if network.prefixlen >= 31:
-        return 0
-
-    return network.num_addresses - 2
-
-
-def _first_usable_int(network: IPv4Network) -> int | None:
-    """
-    Returns the integer value of the network's first usable host, or None for /31 and /32
-
-    Args:
-        network (IPv4Network): The parsed network
-
-    Returns:
-        int | None: The integer of the first usable address, or None when no usable host exists
-    """
-    if network.prefixlen >= 31:
-        return None
-
-    return int(network.network_address) + 1
-
-
 def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str]:
     """
-    Returns the IP strings for one page of a subnet's usable addresses
+    Returns the IP strings for one page of a subnet's assignable addresses
 
-    Computes the slice in O(page_size) without iterating the whole subnet, so /16 and larger
-    subnets paginate cheaply. Network and broadcast addresses are excluded
+    The slice covers exactly the addresses the interface validator would accept: for /30 and
+    shorter the network and broadcast addresses are skipped, for /31 both endpoints are
+    included (RFC 3021 point-to-point), and for /32 the single host address is included. The
+    slice is computed in O(page_size) without iterating the whole subnet, so /16 and larger
+    subnets paginate cheaply
 
     Args:
         network (IPv4Network): The parsed subnet network
@@ -96,15 +72,15 @@ def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str
         page_size (int): Number of IPs per page
 
     Returns:
-        list[str]: IP strings for the requested page; empty when the subnet has no usable
+        list[str]: IP strings for the requested page; empty when the subnet has no assignable
             addresses or the page is past the end
     """
-    first: int | None = _first_usable_int(network)
+    first: int | None = first_assignable_int(network)
 
     if first is None:
         return []
 
-    total: int = _usable_count(network)
+    total: int = assignable_address_count(network)
     start_offset: int = (page - 1) * page_size
 
     if start_offset >= total:
@@ -199,6 +175,202 @@ def _extract_row_fields(row: dict[str, Any]) -> tuple[Any, Any, Any]:
     return subnet_ref, ip_value, mac_value
 
 
+def _empty_ip_distribution() -> dict[str, Any]:
+    """
+    Returns the zero-shaped 'ip_distribution' payload used when the subnet's CIDR is missing
+    or unparsable
+
+    The shape mirrors a populated distribution so the frontend can render a placeholder
+    without branching on a null sentinel
+
+    Returns:
+        dict[str, Any]: ranges_count / sectors_per_range / sector_size all 0 and an empty
+            'ranges' list
+    """
+    return {
+        'ranges_count': 0,
+        'sectors_per_range': 0,
+        'sector_size': 0,
+        'ranges': [],
+    }
+
+
+def _compute_grid_dimensions(total: int) -> tuple[int, int, int]:
+    """
+    Computes the grid layout (ranges, sectors per range, addresses per sector) for a subnet
+
+    The grid scales to fit the subnet while honoring the IpamDistributionLimits caps. For
+    subnets large enough to fill the cap the layout is the maximum 4 x 16 and only the sector
+    size grows; for smaller subnets the column count and then the row count shrink so that no
+    cell ever covers fewer than one address. The function assumes 'total' is a power of two
+    (which holds for every valid IPv4 prefix), so the integer divisions are exact
+
+    Args:
+        total (int): Total address count of the subnet (network + broadcast included)
+
+    Returns:
+        tuple[int, int, int]: (ranges_count, sectors_per_range, sector_size); all zero when
+            'total' is zero
+    """
+    if total <= 0:
+        return 0, 0, 0
+
+    ranges_count: int = min(IpamDistributionLimits.MAX_RANGES, total)
+    sectors_per_range: int = min(IpamDistributionLimits.MAX_SECTORS_PER_RANGE, total // ranges_count)
+    sector_size: int = total // (ranges_count * sectors_per_range)
+
+    return ranges_count, sectors_per_range, sector_size
+
+
+def _bucket_used_counts(
+    assigned: dict[str, dict[str, Any]],
+    network: IPv4Network,
+    sector_size: int,
+    total_cells: int,
+) -> list[int]:
+    """
+    Tallies how many assigned IPs fall into each grid cell, indexed by global cell position
+
+    Walks the assigned map once, computes each IP's offset from the subnet's network address,
+    and integer-divides by 'sector_size' to land in the owning cell. IPs outside the subnet
+    or unparsable are skipped defensively (the caller already filters in
+    _load_assigned_rows_map but this stays robust against future drift). Complexity is O(used)
+    not O(total_cells), so /1 stays cheap
+
+    Args:
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            _load_assigned_rows_map
+        network (IPv4Network): The parsed subnet network
+        sector_size (int): Number of addresses each cell covers
+        total_cells (int): Number of cells in the grid (ranges_count * sectors_per_range)
+
+    Returns:
+        list[int]: Used-IP count per cell, length == total_cells
+    """
+    counts: list[int] = [0] * total_cells
+
+    if total_cells == 0 or sector_size <= 0:
+        return counts
+
+    base_int: int = int(network.network_address)
+    span: int = total_cells * sector_size
+
+    for ip_str in assigned:
+        parsed: IPv4Address | None = parse_ipv4(ip_str)
+
+        if parsed is None:
+            continue
+
+        offset: int = int(parsed) - base_int
+
+        if offset < 0 or offset >= span:
+            continue
+
+        counts[offset // sector_size] += 1
+
+    return counts
+
+
+def _compose_sector(
+    sector_index: int,
+    first_ip_int: int,
+    sector_size: int,
+    used_count: int,
+) -> dict[str, Any]:
+    """
+    Shapes one sector entry of the 'ip_distribution' grid
+
+    The percentage is the per-cell saturation ('used_count / sector_size * 100'), rounded to
+    two decimals; this matches the frontend's heatmap colouring convention
+
+    Args:
+        sector_index (int): 0-based index of the sector within its range
+        first_ip_int (int): Integer of the first address the sector covers
+        sector_size (int): Number of addresses the sector covers
+        used_count (int): Number of assigned IPs inside the sector
+
+    Returns:
+        dict[str, Any]: Sector entry with index, ip_start, ip_end, size, used_count, percentage
+    """
+    return {
+        'index': sector_index,
+        'ip_start': str(IPv4Address(first_ip_int)),
+        'ip_end': str(IPv4Address(first_ip_int + sector_size - 1)),
+        'size': sector_size,
+        'used_count': used_count,
+        'percentage': round((used_count / sector_size) * 100, 2),
+    }
+
+
+def _build_ip_distribution(
+    network: IPv4Network | None,
+    assigned: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Builds the 'IP-Verteilung' grid payload for one subnet
+
+    Splits the full address space (network + broadcast included) into at most
+    IpamDistributionLimits.MAX_RANGES rows of at most MAX_SECTORS_PER_RANGE cells each, where
+    each cell aggregates the count of assigned IPs in its address window. Cells are sized by
+    'total // (ranges * sectors)' so every cell covers an equal slice of the subnet. For
+    subnets smaller than the cap the layout shrinks so no cell drops below 1 IP. The returned
+    structure is suitable for direct rendering by the frontend, which colours each cell by its
+    'percentage' field
+
+    Args:
+        network (IPv4Network | None): The parsed subnet network, or None when the subnet's
+            CIDR is missing or unparsable
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            _load_assigned_rows_map; only used to bucket-count, the row metadata is ignored
+            here
+
+    Returns:
+        dict[str, Any]: ranges_count, sectors_per_range, sector_size, and a 'ranges' list with
+            one entry per range carrying index, ip_start, ip_end, and a nested 'sectors' list;
+            the zero-shaped payload from _empty_ip_distribution when network is None
+    """
+    if network is None:
+        return _empty_ip_distribution()
+
+    total: int = total_address_count(network)
+    ranges_count, sectors_per_range, sector_size = _compute_grid_dimensions(total)
+    total_cells: int = ranges_count * sectors_per_range
+    counts: list[int] = _bucket_used_counts(assigned, network, sector_size, total_cells)
+
+    base_int: int = int(network.network_address)
+    range_span: int = sectors_per_range * sector_size
+
+    ranges: list[dict[str, Any]] = []
+
+    for range_index in range(ranges_count):
+        range_first_int: int = base_int + range_index * range_span
+        sectors: list[dict[str, Any]] = []
+
+        for sector_index in range(sectors_per_range):
+            sector_first_int: int = range_first_int + sector_index * sector_size
+            global_cell: int = range_index * sectors_per_range + sector_index
+            sectors.append(_compose_sector(
+                sector_index,
+                sector_first_int,
+                sector_size,
+                counts[global_cell],
+            ))
+
+        ranges.append({
+            'index': range_index,
+            'ip_start': str(IPv4Address(range_first_int)),
+            'ip_end': str(IPv4Address(range_first_int + range_span - 1)),
+            'sectors': sectors,
+        })
+
+    return {
+        'ranges_count': ranges_count,
+        'sectors_per_range': sectors_per_range,
+        'sector_size': sector_size,
+        'ranges': ranges,
+    }
+
+
 def _build_type_distribution(
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
@@ -208,12 +380,13 @@ def _build_type_distribution(
     Builds the whole-subnet IP-usage distribution that feeds the frontend pie chart
 
     Aggregates the assigned-IP map by owning CmdbType, appends a synthetic 'Free' bucket for
-    unused host capacity, and collapses every orphaned assignment (type_id missing on the
-    interface row or no longer resolvable because the CmdbType was deleted) into a single
-    'Unknown' bucket so the chart never grows a slice per stale type_id. Percentages are
-    computed against the subnet's total usable host count (the same denominator used by the
-    KPI counters) and rounded to two decimals. An empty list is returned when the subnet has
-    no usable hosts (/31, /32, or an unparsable CIDR) so the frontend can render a placeholder
+    unused capacity, and collapses every orphaned assignment (type_id missing on the interface
+    row or no longer resolvable because the CmdbType was deleted) into a single 'Unknown'
+    bucket so the chart never grows a slice per stale type_id. Percentages are computed
+    against the subnet's assignable address count (so the 'Free' bucket matches the
+    'free_ips' KPI and the IP table's row count) and rounded to two decimals. An empty list is
+    returned when the subnet has zero assignable addresses or the CIDR is unparsable, so the
+    frontend can render a placeholder
 
     Args:
         assigned (dict[str, dict[str, Any]]): {ip_str: {'object_id', 'type_id', 'mac'}} as
@@ -221,7 +394,7 @@ def _build_type_distribution(
         type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} for
             every CmdbType referenced by the assigned map; type_ids absent from this mapping
             fall through to the Unknown bucket
-        total (int): Total usable host count of the subnet (denominator for percentages)
+        total (int): Assignable address count of the subnet (denominator for percentages)
 
     Returns:
         list[dict[str, Any]]: One entry per type bucket with keys public_id, label,
@@ -440,6 +613,12 @@ def build_subnet_overview(
     'dg-network-range' is missing or unparsable, returns the KPI block with zeroed counters and
     an empty page (broken state is observable but does not 500)
 
+    The KPI block uses two related denominators: 'total_ips' is the full address count
+    (network + broadcast included, matching the IP-Verteilung grid) and 'assignable_ips' is
+    the subset the interface validator would accept (network and broadcast excluded for /≤30,
+    full count for /31, /32). 'free_ips' is computed against 'assignable_ips' so it matches
+    what the user sees in the paginated IP table
+
     Summary lines are resolved only for the assigned rows on the requested page, never for the
     whole subnet, so the cost is bounded by page_size
 
@@ -451,12 +630,17 @@ def build_subnet_overview(
         page_size (int): Page size (clamped to [1, MAX_PAGE_SIZE])
 
     Returns:
-        dict[str, Any]: {'subnet': {public_id, cidr, ip_range, total_ips, used_ips, free_ips},
+        dict[str, Any]: {'subnet': {public_id, cidr, ip_range, total_ips, assignable_ips,
+            used_ips, free_ips},
             'ips': {page, page_size, total, rows: [...]},
             'type_distribution': [{public_id, label, ci_explorer_color, count, percentage},
-            ...]} where the
-            distribution covers the whole subnet (not just the current page) and includes
-            'Unknown' (when present) and 'Free' buckets after the type buckets
+            ...],
+            'ip_distribution': {ranges_count, sectors_per_range, sector_size, ranges: [...]}}
+            where 'type_distribution' covers the whole subnet (not just the current page) and
+            includes 'Unknown' (when present) and 'Free' buckets after the type buckets, and
+            'ip_distribution' is the IP-Verteilung heatmap grid covering the full address
+            space (network + broadcast included). 'ips.total' equals 'assignable_ips' so the
+            table paginates exactly the rows the validator would accept
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
 
@@ -471,6 +655,7 @@ def build_subnet_overview(
                 'cidr': raw_cidr if isinstance(raw_cidr, str) else None,
                 'ip_range': None,
                 'total_ips': 0,
+                'assignable_ips': 0,
                 'used_ips': 0,
                 'free_ips': 0,
             },
@@ -481,12 +666,14 @@ def build_subnet_overview(
                 'rows': [],
             },
             'type_distribution': [],
+            'ip_distribution': _empty_ip_distribution(),
         }
 
-    total: int = _usable_count(network)
+    total: int = total_address_count(network)
+    assignable: int = assignable_address_count(network)
     assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
     used_ips: int = len(assigned)
-    free_ips: int = max(0, total - used_ips)
+    free_ips: int = max(0, assignable - used_ips)
 
     assigned_type_ids: list[int] = [
         info['type_id']
@@ -495,9 +682,10 @@ def build_subnet_overview(
     ]
     type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, assigned_type_ids)
 
-    type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_meta, total)
+    type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_meta, assignable)
+    ip_distribution: dict[str, Any] = _build_ip_distribution(network, assigned)
 
-    safe_page, safe_size = clamp_page(page, page_size, total)
+    safe_page, safe_size = clamp_page(page, page_size, assignable)
     page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
 
     rows: list[dict[str, Any]] = []
@@ -539,14 +727,16 @@ def build_subnet_overview(
                 'last': str(network.broadcast_address),
             },
             'total_ips': total,
+            'assignable_ips': assignable,
             'used_ips': used_ips,
             'free_ips': free_ips,
         },
         'ips': {
             'page': safe_page,
             'page_size': safe_size,
-            'total': total,
+            'total': assignable,
             'rows': rows,
         },
         'type_distribution': type_distribution,
+        'ip_distribution': ip_distribution,
     }

@@ -14,7 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of CollectionValidator
+First-boot bootstrap for a DataGerry tenant database
+
+CollectionValidator is invoked once per database (once per process start in local mode, once
+per tenant in cloud mode) to guarantee that every required collection exists, has its expected
+indexes, and is seeded with the predefined data the application relies on: the root location,
+the default ISMS protection goals, the default risk matrix, the predefined ISMS extendable
+options, the predefined section templates, the General report category, the fixed user groups,
+and in local mode the admin/admin user plus the AES/RSA keypair. Existing collections are
+never re-seeded; only their indexes are reconciled against the current model definitions. The
+shared cache database (DG_CACHE_DB) is created on the same pass when it is missing
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -77,17 +86,24 @@ LOGGER: Logger = getLogger(__name__)
 
 class CollectionValidator:
     """
-    The CollectionValidator makes sure that all required Collections and inital data in the Collections is created
+    Brings a DataGerry tenant database up to its required steady state on startup
+
+    On a fresh database, creates every framework and user-management collection with its
+    expected indexes and seeds the predefined data each collection needs. On an existing
+    database, leaves stored data untouched and only reconciles indexes against the current
+    model definitions. The shared cache database (DG_CACHE_DB) is created on first run, and in
+    local mode the admin/admin user and the AES/RSA keypair are generated as well
     """
 
     def __init__(self, db_name: str, dbm: MongoDatabaseManager, local_mode: bool = False) -> None:
         """
-        Initialises the CollectionValidator
+        Initialises the CollectionValidator with the target database and DB manager
 
         Args:
-            db_name (str): name of the databae for which the collections should be checked
+            db_name (str): Name of the tenant database whose collections should be validated
             dbm (MongoDatabaseManager): The database operations manager for MongoDB
-            local_mode (bool): Set this to true if DataGerry is not used in __CLOUD_MODE__
+            local_mode (bool): True when DataGerry runs in local (non-cloud) mode; gates the
+                generation of encryption keys and the default admin user
 
         Raises:
             CollectionValidatorInitError: If the CollectionValidator could not be initialised
@@ -102,13 +118,19 @@ class CollectionValidator:
 
     def validate_collections(self) -> None:
         """
-        Validates all required collections for DataGerry
+        Runs the full bootstrap pass for the configured tenant database
+
+        Executes the four init steps in order: ensure the tenant database itself exists (and
+        seed encryption keys in local mode), create / reconcile framework collections, create
+        / reconcile user-management collections, and ensure the shared cache database. Any
+        failure raised by an init step is wrapped in CollectionValidationError so callers see
+        a single error type for boot-time validation issues
 
         Raises:
-            CollectionValidationError: If validation of collections fails
+            CollectionValidationError: If any of the underlying init steps fails
         """
         try:
-            LOGGER.info("Valdating Collections for Database: %s!", self.db_name)
+            LOGGER.info("Validating Collections for Database: %s!", self.db_name)
             self.init_database()
             self.init_framework_collections()
             self.init_management_collections()
@@ -120,7 +142,11 @@ class CollectionValidator:
 
     def init_database(self) -> None:
         """
-        Initialises a database if it does not exist and sets Keys if local_mode
+        Creates the tenant database if it does not yet exist and seeds keys in local mode
+
+        Skips entirely when the database already exists; the call is therefore idempotent and
+        safe to invoke on every boot. Key generation is delegated to init_keys and only runs
+        the first time the database is created (and only in local mode)
         """
         if not self.dbm.check_database_exists(self.db_name):
             self.dbm.create_database(self.db_name)
@@ -129,7 +155,12 @@ class CollectionValidator:
 
     def init_cache_db(self) -> None:
         """
-        Created the DataGerry cache database
+        Creates the shared DataGerry cache database on first boot
+
+        DG_CACHE_DB hosts cross-tenant caches (currently the cached-user collection used by
+        token validation). When the cache database is missing it is created together with the
+        CmdbCachedUser collection and its indexes; when it already exists this method is a
+        no-op (it does not reconcile the cache collection or its indexes)
         """
         if not self.dbm.check_database_exists(DG_CACHE_DB):
             self.dbm.create_database(DG_CACHE_DB)
@@ -139,7 +170,11 @@ class CollectionValidator:
 
     def init_keys(self) -> None:
         """
-        Initialises AES and symmetric keys in the database for local DataGerry version
+        Generates the RSA keypair and the symmetric AES key for a fresh local-mode database
+
+        No-op in cloud mode: cloud-mode keys are provisioned outside the CollectionValidator
+        flow. Invoked exactly once, from init_database, right after the tenant database has
+        been created
         """
         if self.local_mode:
             kg = KeyGenerator(self.dbm)
@@ -149,10 +184,22 @@ class CollectionValidator:
 
     def init_framework_collections(self) -> None:
         """
-        Checks if all required Framework collections exist, else initialises them
+        Creates or reconciles every framework collection declared in FRAMEWORK_CLASSES
+
+        For each framework class:
+          - If its collection does not yet exist, the collection is created with its expected
+            indexes and the class-specific predefined data is seeded (the root CmdbLocation,
+            the General report category, the default IsmsProtectionGoals, the default
+            IsmsRiskMatrix, and the predefined ISMS CmdbExtendableOptions).
+          - If the collection already exists, only the indexes are reconciled via
+            ensure_indexes; per-collection index failures are logged but do not abort the
+            overall pass.
+        The predefined CmdbSectionTemplate seeding runs unconditionally on every pass (not
+        gated by the create-vs-exists branch), so newly added predefined templates are picked
+        up by existing deployments
 
         Raises:
-            CollectionInitError: If the initialisation of a collection failed
+            CollectionInitError: If any collection failed to be created or seeded
         """
         try:
             all_collections = self.get_all_db_collections(self.db_name)
@@ -215,10 +262,19 @@ class CollectionValidator:
 
     def init_management_collections(self) -> None:
         """
-        Checks if all required Management collections exist, else initialises them
+        Creates or reconciles every user-management collection declared in USER_MANAGEMENT_COLLECTION
+
+        For each management class:
+          - If its collection does not yet exist, the collection is created with its expected
+            indexes. The CmdbUserGroup collection is then seeded with the fixed user groups
+            (admin, user, etc.) defined in __FIXED_GROUPS__. The CmdbUser collection is seeded
+            with the default admin/admin user only in local mode; in cloud mode the initial
+            user is provisioned elsewhere.
+          - If the collection already exists, this method does NOT reconcile its indexes (in
+            contrast to init_framework_collections, which does).
 
         Raises:
-            CollectionInitError: If the initialisation of a collection failed
+            CollectionInitError: If any collection failed to be created or seeded
         """
         try:
             all_collections: list[str] = self.get_all_db_collections(self.db_name)
@@ -258,21 +314,33 @@ class CollectionValidator:
             LOGGER.error("[init_management_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             raise CollectionInitError(str(err)) from err
 
-# -------------------------------------------------- HELEPER METHODS ------------------------------------------------- #
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
     def get_all_db_collections(self, db_name: str) -> list[str]:
         """
-        Retrieves all collection names in the current database
+        Lists every collection name present in the given database
+
+        Args:
+            db_name (str): Name of the database to inspect
 
         Returns:
-            list[str]: List of all collection names
+            list[str]: All collection names; empty list when the database has no collections
         """
         return self.dbm.connector.get_database(db_name).list_collection_names()
 
 
     def ensure_indexes(self, collection: str, db_name: str, expected: list[IndexModel]) -> None:
         """
-        TODO: document
+        Adds any expected indexes that are missing on a collection, leaving existing ones intact
+
+        Reads the collection's current index info, computes the subset of 'expected' indexes
+        whose name is not already present, and creates only those. Existing indexes are not
+        modified, dropped, or compared field-by-field — this is purely additive
+
+        Args:
+            collection (str): Name of the collection to reconcile
+            db_name (str): Name of the database that owns the collection
+            expected (list[IndexModel]): Index models the model class currently declares
         """
         existing_indexes = self.dbm.get_index_info(collection, db_name)
 
@@ -292,18 +360,24 @@ class CollectionValidator:
 
     def set_root_location(self, collection: str, db_name: str, create: bool = False) -> UpdateResult:
         """
-        Set up the root location. If no counter for locations exists, it will be created
+        Upserts the root CmdbLocation document and ensures its public_id counter exists
+
+        Initialises the public_id counter for the collection on first creation (when 'create'
+        is True and no counter is present yet), then upserts the root location document from
+        get_root_location_data(). The 'create' flag currently affects only logging and the
+        counter-init branch — the document write itself is the same upsert in both branches
 
         Args:
-            collection (str): The framework.locations collection
-            create (bool): If true the root location will be created, else it will be updated
+            collection (str): Name of the framework.locations collection
+            db_name (str): Name of the database that owns the collection
+            create (bool): True on first-time setup (also initialises the public_id counter);
+                False when updating an existing root location
 
         Raises:
-            DocumentUpdateError: If there is an error during the root location setup, including issues with the
-                                 database operation or creation of the public ID counter
-            
+            DocumentUpdateError: If the public_id counter init or the upsert fails
+
         Returns:
-            status: status of location creation or update
+            UpdateResult: The pymongo result of the upsert operation
         """
         try:
             # If creation is requested, ensure the counter exists
@@ -328,15 +402,19 @@ class CollectionValidator:
 
     def init_predefined_templates(self, collection: str, db_name: str) -> None:
         """
-        Checks if all predefined templates are created, else creates them.
+        Inserts any predefined CmdbSectionTemplates that are not yet present in the collection
+
+        Ensures the public_id counter for the collection exists, then walks the predefined
+        templates returned by SectionTemplateCreator and inserts each one whose 'name' is not
+        already present in the collection. Existing templates with the same name are left
+        untouched; this method does not overwrite or merge predefined content into them
 
         Args:
-            collection (str): The name of the collection where templates are stored
+            collection (str): Name of the collection that stores section templates
+            db_name (str): Name of the database that owns the collection
 
         Raises:
-            DocumentInsertError: If there is an error inserting predefined templates into the collection
-            DocumentGetError: If there is an error fetching data from the collection, such as when checking
-                              for existing templates or counters
+            DocumentInsertError: If counter init, the existence lookup, or any insert fails
         """
         try:
             counter = self.dbm.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
@@ -366,13 +444,19 @@ class CollectionValidator:
 
     def create_general_report_category(self, collection: str, db_name: str) -> None:
         """
-        Creates the General Report Category if it does not already exist
+        Inserts the predefined 'General' CmdbReportCategory if it is not already present
+
+        Ensures the public_id counter for the collection exists, then looks up a category
+        document whose 'name' is 'General' and inserts one when missing. The inserted document
+        carries 'predefined: True' so the frontend can render it as system-owned and prevent
+        deletion. Existing documents with the same name are left untouched
 
         Args:
-            collection (str): The name of the collection where the general report category is stored
+            collection (str): Name of the collection that stores report categories
+            db_name (str): Name of the database that owns the collection
 
         Raises:
-            DocumentInsertError: If there is an error inserting the general report category into the collection
+            DocumentInsertError: If counter init, the existence lookup, or the insert fails
         """
         try:
             counter = self.dbm.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})

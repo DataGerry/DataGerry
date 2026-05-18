@@ -114,6 +114,19 @@ class InterfaceField(str, Enum):
         return value in cls._value2member_map_
 
 
+class IpamDistributionLimits:
+    """
+    Maximum dimensions of the subnet 'IP-Verteilung' grid
+
+    The grid divides a subnet into up to MAX_RANGES rows, each containing up to
+    MAX_SECTORS_PER_RANGE cells; for smaller subnets the layout scales down so that no cell
+    covers fewer than one address. The limits cap the visual density of the heatmap, not the
+    subnet size itself
+    """
+    MAX_RANGES: int = 4
+    MAX_SECTORS_PER_RANGE: int = 16
+
+
 class IpamSection(str, Enum):
     """
     Section names used in IPAM SpecialType schemas and the dg-ipam-interface MDS section template
