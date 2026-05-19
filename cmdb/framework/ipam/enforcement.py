@@ -33,8 +33,16 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
     IpamValidationDetailKey,
 )
-from cmdb.models.object_model import extract_field_value
-from cmdb.utils import BaseStrEnum, build_error
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.utils import BaseStrEnum, ValidationErrorKey, build_error
+from cmdb.framework.ipam.cidr import validate_canonical_cidr_value
 from cmdb.framework.ipam.subnet_validator import (
     validate_subnet,
     SubnetErrorCode,
@@ -68,7 +76,10 @@ def format_errors_for_abort(errors: list[dict[str, Any]]) -> str:
     Returns:
         str: 'IPAM validation failed: <msg1> | <msg2> | ...'
     """
-    joined: str = " | ".join(e.get('message', e.get('code', 'unknown error')) for e in errors)
+    joined: str = " | ".join(
+        e.get(ValidationErrorKey.MESSAGE, e.get(ValidationErrorKey.CODE, 'unknown error'))
+        for e in errors
+    )
 
     return f"IPAM validation failed: {joined}"
 
@@ -89,7 +100,7 @@ def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> S
     if not type_doc:
         return None
 
-    raw: Any = type_doc.get('special_type')
+    raw: Any = type_doc.get(TypeSchemaKey.SPECIAL_TYPE)
 
     if raw is None or not SpecialType.is_valid(raw):
         return None
@@ -140,7 +151,7 @@ def _enforce_subnet_object(
     """
     network_range: Any = extract_field_value(candidate_object, SubnetField.NETWORK_RANGE)
     parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUPERNET))
-    candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
+    candidate_id: int | None = _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID))
 
     errors: list[dict[str, Any]] = validate_subnet(
         objects_manager,
@@ -180,12 +191,10 @@ def _enforce_supernet_object(
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
     network_range: Any = extract_field_value(candidate_object, SupernetField.NETWORK_RANGE)
-    candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
+    candidate_id: int | None = _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID))
 
-    errors: list[dict[str, Any]] = []
-
-    parsed_errors = _validate_supernet_cidr(network_range)
-    errors.extend(parsed_errors)
+    _, parsed_errors = validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
+    errors: list[dict[str, Any]] = list(parsed_errors)
 
     if previous_object is not None and candidate_id is not None:
         previous_range: Any = extract_field_value(previous_object, SupernetField.NETWORK_RANGE)
@@ -195,30 +204,6 @@ def _enforce_supernet_object(
             ))
 
     return errors
-
-
-def _validate_supernet_cidr(network_range: Any) -> list[dict[str, Any]]:
-    """
-    Verifies the supernet's network range is a canonical IPv4 CIDR
-
-    Args:
-        network_range (Any): The raw 'dg-network-range' value from the candidate
-
-    Returns:
-        list[dict[str, Any]]: Single-element list with a CIDR_INVALID error when invalid, else []
-    """
-    from cmdb.framework.ipam.cidr import parse_cidr
-
-    parsed = parse_cidr(network_range) if isinstance(network_range, str) else None
-
-    if parsed is None:
-        return [build_error(
-            SubnetErrorCode.CIDR_INVALID,
-            f"'{network_range}' is not a canonical IPv4 CIDR (host bits must be zero)",
-            {IpamValidationDetailKey.NETWORK_RANGE: network_range},
-        )]
-
-    return []
 
 
 def _enforce_vlan_object(
@@ -260,17 +245,17 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
     """
     rows_out: list[tuple[int, int | None, str | None]] = []
 
-    for section in candidate_object.get('multi_data_sections', []) or []:
-        if section.get('section_id') != IpamSection.INTERFACE:
+    for section in candidate_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+        if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
             continue
 
-        for row_index, row in enumerate(section.get('values', []) or []):
+        for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
             subnet_ref: int | None = None
             ip_address: str | None = None
 
-            for entry in row.get('data', []) or []:
-                name: Any = entry.get('name')
-                value: Any = entry.get('value')
+            for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+                name: Any = entry.get(CmdbObjectFieldKey.NAME)
+                value: Any = entry.get(CmdbObjectFieldKey.VALUE)
 
                 if name == InterfaceField.SUBNET:
                     subnet_ref = _coerce_int(value)
@@ -307,7 +292,7 @@ def _enforce_interface_rows(
         return []
 
     exclude_object_id: int | None = (
-        _coerce_int(candidate_object.get('public_id')) if previous_object is not None else None
+        _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID)) if previous_object is not None else None
     )
 
     return validate_interface_rows(objects_manager, types_manager, rows, exclude_object_id)
@@ -339,7 +324,7 @@ def enforce_object_invariants(
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when the candidate is valid
     """
-    type_id: Any = candidate_object.get('type_id')
+    type_id: Any = candidate_object.get(CmdbObjectKey.TYPE_ID)
 
     if not isinstance(type_id, int):
         return []
@@ -380,7 +365,7 @@ def _format_id_list(refs: list[dict[str, Any]]) -> str:
     Returns:
         str: 'id, id, id'
     """
-    return ", ".join(str(r.get('public_id')) for r in refs)
+    return ", ".join(str(r.get(CmdbObjectKey.PUBLIC_ID)) for r in refs)
 
 
 def _build_delete_guard_error(code: str, message: str, refs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -418,8 +403,8 @@ def enforce_delete_guards(
     Returns:
         list[dict[str, Any]]: Structured guard errors; empty when deletion is allowed
     """
-    type_id: Any = target_object.get('type_id')
-    object_id: Any = target_object.get('public_id')
+    type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
+    object_id: Any = target_object.get(CmdbObjectKey.PUBLIC_ID)
 
     if not isinstance(type_id, int) or not isinstance(object_id, int):
         return []

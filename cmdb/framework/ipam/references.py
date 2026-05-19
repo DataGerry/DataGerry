@@ -35,6 +35,27 @@ from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+def _project_to_reference_dicts(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Projects full CmdbObject documents down to the lightweight reference shape used by the
+    deletion-guard responses
+
+    Args:
+        docs (list[dict[str, Any]]): Full CmdbObject documents (each must carry public_id and
+            type_id at the top level)
+
+    Returns:
+        list[dict[str, Any]]: One dict per input with only the 'public_id' and 'type_id' keys
+    """
+    return [
+        {
+            CmdbObjectKey.PUBLIC_ID: doc[CmdbObjectKey.PUBLIC_ID],
+            CmdbObjectKey.TYPE_ID: doc[CmdbObjectKey.TYPE_ID],
+        }
+        for doc in docs
+    ]
+
+
 def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialType) -> int | None:
     """
     Returns the public_id of the CmdbType marked with the given SpecialType, or None if none exists
@@ -87,13 +108,7 @@ def _find_objects_with_field_value(
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [
-        {
-            CmdbObjectKey.PUBLIC_ID: m[CmdbObjectKey.PUBLIC_ID],
-            CmdbObjectKey.TYPE_ID: m[CmdbObjectKey.TYPE_ID],
-        }
-        for m in matches
-    ]
+    return _project_to_reference_dicts(matches)
 
 
 def find_subnets_referencing_supernet(
@@ -188,10 +203,4 @@ def find_interfaces_referencing_subnet(
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [
-        {
-            CmdbObjectKey.PUBLIC_ID: m[CmdbObjectKey.PUBLIC_ID],
-            CmdbObjectKey.TYPE_ID: m[CmdbObjectKey.TYPE_ID],
-        }
-        for m in matches
-    ]
+    return _project_to_reference_dicts(matches)

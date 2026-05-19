@@ -31,7 +31,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamValidationDetailKey,
 )
 from cmdb.utils import BaseStrEnum, build_error
-from cmdb.framework.ipam.cidr import parse_cidr, contains, overlaps
+from cmdb.framework.ipam.cidr import parse_cidr, contains, overlaps, validate_canonical_cidr_value
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -107,7 +107,11 @@ def _find_subnets_by_field(
 # -------------------------------------------------------------------------------------------------------------------- #
 def _check_canonical_cidr(network_range: str) -> tuple[IPv4Network | None, list[dict[str, Any]]]:
     """
-    Validates the candidate CIDR is a strict (canonical) IPv4 CIDR
+    Validates the candidate CIDR is a strict (canonical) IPv4 CIDR, emitting CIDR_INVALID on
+    failure
+
+    Thin domain-specific alias over validate_canonical_cidr_value that binds the error code to
+    SubnetErrorCode.CIDR_INVALID
 
     Args:
         network_range (str): The candidate CIDR
@@ -115,16 +119,7 @@ def _check_canonical_cidr(network_range: str) -> tuple[IPv4Network | None, list[
     Returns:
         tuple[IPv4Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors)
     """
-    parsed: IPv4Network | None = parse_cidr(network_range)
-
-    if parsed is None:
-        return None, [build_error(
-            SubnetErrorCode.CIDR_INVALID,
-            f"'{network_range}' is not a canonical IPv4 CIDR (host bits must be zero)",
-            {IpamValidationDetailKey.NETWORK_RANGE: network_range},
-        )]
-
-    return parsed, []
+    return validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
 
 
 def _check_in_supernet(

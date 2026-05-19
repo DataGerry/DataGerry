@@ -23,11 +23,14 @@ Prefix-length policy constants (point-to-point threshold, network/broadcast rese
 live in cmdb.models.special_type_model.ipam_constants.IpamPrefixPolicy
 """
 from ipaddress import IPv4Address, IPv4Network
+from typing import Any
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamAddressFormat,
     IpamPrefixPolicy,
+    IpamValidationDetailKey,
 )
+from cmdb.utils import build_error
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -62,6 +65,40 @@ def parse_cidr(value: str) -> IPv4Network | None:
         return IPv4Network(value, strict=True)
     except ValueError:
         return None
+
+
+def validate_canonical_cidr_value(
+    value: Any,
+    error_code: str,
+) -> tuple[IPv4Network | None, list[dict[str, Any]]]:
+    """
+    Validates an arbitrary value is a canonical IPv4 CIDR string, surfacing a structured error
+    when it is not
+
+    Accepts Any so callers passing a raw field value (which may be None / int / something else
+    from a partially populated CmdbObject) don't have to guard the call themselves. Non-string
+    inputs and non-canonical strings both fail with the same caller-supplied error code so the
+    emitted error stays meaningful to the surrounding validator
+
+    Args:
+        value (Any): The candidate value (typically a 'dg-network-range' field value)
+        error_code (str): Error code to embed in the emitted error dict when validation fails
+            (callers pass their domain-specific code, e.g. SubnetErrorCode.CIDR_INVALID)
+
+    Returns:
+        tuple[IPv4Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors;
+            empty list when the value is canonical)
+    """
+    parsed: IPv4Network | None = parse_cidr(value) if isinstance(value, str) else None
+
+    if parsed is None:
+        return None, [build_error(
+            error_code,
+            f"'{value}' is not a canonical IPv4 CIDR (host bits must be zero)",
+            {IpamValidationDetailKey.NETWORK_RANGE: value},
+        )]
+
+    return parsed, []
 
 
 def parse_ipv4(value: str) -> IPv4Address | None:
