@@ -22,7 +22,13 @@ from ipaddress import IPv4Network
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.models.object_model import CmdbObjectKey, extract_field_value
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
@@ -83,8 +89,13 @@ def _find_child_subnets_of_supernet(
     """
     return objects_manager.find_objects(
         {
-            'type_id': subnet_type_id,
-            'fields': {'$elemMatch': {'name': SubnetField.PARENT_SUPERNET, 'value': supernet_object_id}},
+            CmdbObjectKey.TYPE_ID: subnet_type_id,
+            CmdbObjectKey.FIELDS: {
+                '$elemMatch': {
+                    CmdbObjectFieldKey.NAME: SubnetField.PARENT_SUPERNET,
+                    CmdbObjectFieldKey.VALUE: supernet_object_id,
+                },
+            },
         },
         as_dict=True,
     )
@@ -107,15 +118,15 @@ def _find_objects_with_interface_to_subnet(
     """
     return objects_manager.find_objects(
         {
-            'multi_data_sections': {
+            CmdbObjectKey.MULTI_DATA_SECTIONS: {
                 '$elemMatch': {
-                    'section_id': IpamSection.INTERFACE,
-                    'values': {
+                    CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+                    CmdbObjectMdsKey.VALUES: {
                         '$elemMatch': {
-                            'data': {
+                            CmdbObjectMdsRowKey.DATA: {
                                 '$elemMatch': {
-                                    'name': InterfaceField.SUBNET,
-                                    'value': subnet_object_id,
+                                    CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                    CmdbObjectFieldKey.VALUE: subnet_object_id,
                                 },
                             },
                         },
@@ -191,11 +202,11 @@ def _check_interface_ips_fit(
     errors: list[dict[str, Any]] = []
 
     for obj in objects_with_interfaces:
-        for section in obj.get('multi_data_sections', []) or []:
-            if section.get('section_id') != IpamSection.INTERFACE:
+        for section in obj.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+            if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
                 continue
 
-            for row_index, row in enumerate(section.get('values', []) or []):
+            for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
                 row_subnet, row_ip_raw = _extract_interface_subnet_and_ip(row)
 
                 if row_subnet != subnet_object_id or not isinstance(row_ip_raw, str):
@@ -237,12 +248,12 @@ def _extract_interface_subnet_and_ip(row: dict[str, Any]) -> tuple[Any, Any]:
     subnet_value: Any = None
     ip_value: Any = None
 
-    for entry in row.get('data', []) or []:
-        name: Any = entry.get('name')
+    for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+        name: Any = entry.get(CmdbObjectFieldKey.NAME)
         if name == InterfaceField.SUBNET:
-            subnet_value = entry.get('value')
+            subnet_value = entry.get(CmdbObjectFieldKey.VALUE)
         elif name == InterfaceField.IP:
-            ip_value = entry.get('value')
+            ip_value = entry.get(CmdbObjectFieldKey.VALUE)
 
     return subnet_value, ip_value
 

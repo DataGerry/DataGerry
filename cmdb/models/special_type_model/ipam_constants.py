@@ -169,6 +169,101 @@ class IpamValidationDetailKey(BaseStrEnum):
     REFERENCES = 'references'
 
 
+class IpamOverviewKey(BaseStrEnum):
+    """
+    Output payload keys returned by the IPAM overview routes (subnet and supernet)
+
+    Names every dict key emitted to the frontend by the overview builders, grouped by topic in
+    the declaration order below. Single shared enum because the same key name carries the same
+    meaning across scopes (e.g. 'used_ips' on a row and on the supernet summary both denote
+    interface-IP usage counts). For dict keys read from CmdbObject documents (public_id /
+    type_id) use the scope-specific CmdbObjectKey instead — those are CmdbObject-document
+    keys, not overview-output keys
+    """
+    # Top-level response envelope
+    SUPERNET = 'supernet'
+    SUBNET = 'subnet'
+    SUBNETS = 'subnets'
+    IPS = 'ips'
+    PARENT = 'parent'
+    ROWS = 'rows'
+    PAGE = 'page'
+    PAGE_SIZE = 'page_size'
+    TOTAL = 'total'
+    TYPE_DISTRIBUTION = 'type_distribution'
+    IP_DISTRIBUTION = 'ip_distribution'
+
+    # Supernet / subnet summary metrics
+    CIDR = 'cidr'
+    IP_RANGE = 'ip_range'
+    TOTAL_IPS = 'total_ips'
+    ASSIGNABLE_IPS = 'assignable_ips'
+    USED_IPS = 'used_ips'
+    FREE_IPS = 'free_ips'
+    USED_PERCENT = 'used_percent'
+    FREE_PERCENT = 'free_percent'
+    UTILIZATION_PERCENT = 'utilization_percent'
+    SUBNET_COUNT = 'subnet_count'
+
+    # Per-subnet row fields specific to the supernet row table
+    USAGE_PERCENT = 'usage_percent'
+    PARENT_ID = 'parent_id'
+    HAS_CHILDREN = 'has_children'
+
+    # IP-range sub-dict (subnet summary + supernet summary)
+    FIRST = 'first'
+    LAST = 'last'
+
+    # IP-table row (subnet overview)
+    IP = 'ip'
+    STATUS = 'status'
+    TYPE_INFO = 'type_info'
+    ASSIGNED_TO = 'assigned_to'
+    MAC_ADDRESS = 'mac_address'
+    SUMMARY_LINE = 'summary_line'
+
+    # Type metadata (type-distribution buckets and per-row type_info)
+    LABEL = 'label'
+    CI_EXPLORER_COLOR = 'ci_explorer_color'
+
+    # Distribution bucket fields (type distribution and ip distribution sectors)
+    COUNT = 'count'
+    PERCENTAGE = 'percentage'
+
+    # IP-distribution grid structure
+    SECTOR_SIZE = 'sector_size'
+    RANGES = 'ranges'
+    SECTORS = 'sectors'
+    IP_START = 'ip_start'
+    IP_END = 'ip_end'
+    USED_COUNT = 'used_count'
+
+
+class IpamRowStatus(BaseStrEnum):
+    """
+    'status' field values on each row of the subnet IP-Übersicht table
+
+    ASSIGNED indicates the IP has a dg-ipam-interface row referencing it; FREE indicates the
+    address is part of the assignable range but has no interface row. The string values are
+    the literal wire-format strings the frontend reads
+    """
+    ASSIGNED = 'assigned'
+    FREE = 'free'
+
+
+class IpamBucketLabel(BaseStrEnum):
+    """
+    'label' field values for the synthetic buckets in the type_distribution payload
+
+    FREE is the synthetic bucket for unassigned (still-free) addresses; UNKNOWN catches every
+    assigned row whose owning CmdbType cannot be resolved (the type was deleted or the
+    interface row carried no type id). Both are wire-format strings the frontend reads as
+    fixed slice labels, separate from the user-facing CmdbType labels in the type buckets
+    """
+    FREE = 'Free'
+    UNKNOWN = 'Unknown'
+
+
 class IpamSection(BaseStrEnum):
     """
     Section names used in IPAM SpecialType schemas and the dg-ipam-interface MDS section template

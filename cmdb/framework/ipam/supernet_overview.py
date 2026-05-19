@@ -39,9 +39,16 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpamPagination,
+    IpamOverviewKey,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet, total_address_count
-from cmdb.models.object_model import extract_field_value
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -64,8 +71,8 @@ def _ip_range(network: IPv4Network) -> dict[str, str]:
         dict[str, str]: {'first': <network address>, 'last': <broadcast address>}
     """
     return {
-        'first': str(network.network_address),
-        'last': str(network.broadcast_address),
+        IpamOverviewKey.FIRST: str(network.network_address),
+        IpamOverviewKey.LAST: str(network.broadcast_address),
     }
 
 
@@ -108,22 +115,22 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
 
     if network is None:
         return {
-            'public_id': subnet_obj.get('public_id'),
-            'cidr': raw_cidr if isinstance(raw_cidr, str) else None,
-            'used_ips': 0,
-            'free_ips': 0,
-            'usage_percent': 0.0,
+            CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            IpamOverviewKey.CIDR: raw_cidr if isinstance(raw_cidr, str) else None,
+            IpamOverviewKey.USED_IPS: 0,
+            IpamOverviewKey.FREE_IPS: 0,
+            IpamOverviewKey.USAGE_PERCENT: 0.0,
         }
 
     total: int = total_address_count(network)
     free: int = max(0, total - used_count)
 
     return {
-        'public_id': subnet_obj.get('public_id'),
-        'cidr': str(network),
-        'used_ips': used_count,
-        'free_ips': free,
-        'usage_percent': _percent(used_count, total),
+        CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+        IpamOverviewKey.CIDR: str(network),
+        IpamOverviewKey.USED_IPS: used_count,
+        IpamOverviewKey.FREE_IPS: free,
+        IpamOverviewKey.USAGE_PERCENT: _percent(used_count, total),
     }
 
 
@@ -153,15 +160,15 @@ def compute_supernet_summary(
     """
     if supernet_network is None:
         return {
-            'cidr': None,
-            'ip_range': None,
-            'total_ips': 0,
-            'used_ips': total_used,
-            'free_ips': 0,
-            'used_percent': 0.0,
-            'free_percent': 0.0,
-            'utilization_percent': 0.0,
-            'subnet_count': subnet_count,
+            IpamOverviewKey.CIDR: None,
+            IpamOverviewKey.IP_RANGE: None,
+            IpamOverviewKey.TOTAL_IPS: 0,
+            IpamOverviewKey.USED_IPS: total_used,
+            IpamOverviewKey.FREE_IPS: 0,
+            IpamOverviewKey.USED_PERCENT: 0.0,
+            IpamOverviewKey.FREE_PERCENT: 0.0,
+            IpamOverviewKey.UTILIZATION_PERCENT: 0.0,
+            IpamOverviewKey.SUBNET_COUNT: subnet_count,
         }
 
     total: int = total_address_count(supernet_network)
@@ -170,15 +177,15 @@ def compute_supernet_summary(
     free_percent: float = _percent(free, total)
 
     return {
-        'cidr': str(supernet_network),
-        'ip_range': _ip_range(supernet_network),
-        'total_ips': total,
-        'used_ips': total_used,
-        'free_ips': free,
-        'used_percent': used_percent,
-        'free_percent': free_percent,
-        'utilization_percent': used_percent,
-        'subnet_count': subnet_count,
+        IpamOverviewKey.CIDR: str(supernet_network),
+        IpamOverviewKey.IP_RANGE: _ip_range(supernet_network),
+        IpamOverviewKey.TOTAL_IPS: total,
+        IpamOverviewKey.USED_IPS: total_used,
+        IpamOverviewKey.FREE_IPS: free,
+        IpamOverviewKey.USED_PERCENT: used_percent,
+        IpamOverviewKey.FREE_PERCENT: free_percent,
+        IpamOverviewKey.UTILIZATION_PERCENT: used_percent,
+        IpamOverviewKey.SUBNET_COUNT: subnet_count,
     }
 
 
@@ -226,11 +233,11 @@ def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, A
     unsortable: list[dict[str, Any]] = []
 
     for row in subnet_rows:
-        cidr: Any = row.get('cidr')
+        cidr: Any = row.get(IpamOverviewKey.CIDR)
         network: IPv4Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
 
         if network is None:
-            row['parent_id'] = None
+            row[IpamOverviewKey.PARENT_ID] = None
             unsortable.append(row)
         else:
             sortable.append((network, row))
@@ -243,8 +250,8 @@ def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, A
         while stack and not is_strict_subnet(stack[-1][0], network):
             stack.pop()
 
-        row['parent_id'] = stack[-1][1] if stack else None
-        stack.append((network, row.get('public_id')))
+        row[IpamOverviewKey.PARENT_ID] = stack[-1][1] if stack else None
+        stack.append((network, row.get(CmdbObjectKey.PUBLIC_ID)))
 
     return [row for _, row in sortable] + unsortable
 
@@ -268,7 +275,7 @@ def _index_children_by_parent(rows: list[dict[str, Any]]) -> dict[Any, list[dict
     index: dict[Any, list[dict[str, Any]]] = {}
 
     for row in rows:
-        parent_id: Any = row.get('parent_id')
+        parent_id: Any = row.get(IpamOverviewKey.PARENT_ID)
         index.setdefault(parent_id, []).append(row)
 
     return index
@@ -292,8 +299,8 @@ def _annotate_has_children(
             ``_index_children_by_parent`` against the same row set
     """
     for row in rows:
-        public_id: Any = row.get('public_id')
-        row['has_children'] = bool(public_id is not None and children_index.get(public_id))
+        public_id: Any = row.get(CmdbObjectKey.PUBLIC_ID)
+        row[IpamOverviewKey.HAS_CHILDREN] = bool(public_id is not None and children_index.get(public_id))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -323,7 +330,7 @@ def _load_supernet_object(
         abort(400, "No SUPERNET CmdbType is defined; cannot build supernet overview!")
 
     candidates: list[dict[str, Any]] = objects_manager.find_objects(
-        {'public_id': public_id},
+        {CmdbObjectKey.PUBLIC_ID: public_id},
         as_dict=True,
     )
 
@@ -332,7 +339,7 @@ def _load_supernet_object(
 
     candidate: dict[str, Any] = candidates[0]
 
-    if candidate.get('type_id') != supernet_type_id:
+    if candidate.get(CmdbObjectKey.TYPE_ID) != supernet_type_id:
         abort(400, f"Object with public_id {public_id} is not a SUPERNET!")
 
     return candidate
@@ -362,11 +369,11 @@ def _load_subnets_for_supernet(
         return []
 
     criteria: dict[str, Any] = {
-        'type_id': subnet_type_id,
-        'fields': {
+        CmdbObjectKey.TYPE_ID: subnet_type_id,
+        CmdbObjectKey.FIELDS: {
             '$elemMatch': {
-                'name': SubnetField.PARENT_SUPERNET,
-                'value': supernet_public_id,
+                CmdbObjectFieldKey.NAME: SubnetField.PARENT_SUPERNET,
+                CmdbObjectFieldKey.VALUE: supernet_public_id,
             },
         },
     }
@@ -399,15 +406,15 @@ def _count_used_ips_per_subnet(
         return counts
 
     criteria: dict[str, Any] = {
-        'multi_data_sections': {
+        CmdbObjectKey.MULTI_DATA_SECTIONS: {
             '$elemMatch': {
-                'section_id': IpamSection.INTERFACE,
-                'values': {
+                CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+                CmdbObjectMdsKey.VALUES: {
                     '$elemMatch': {
-                        'data': {
+                        CmdbObjectMdsRowKey.DATA: {
                             '$elemMatch': {
-                                'name': InterfaceField.SUBNET,
-                                'value': {'$in': subnet_ids},
+                                CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
                             },
                         },
                     },
@@ -419,11 +426,11 @@ def _count_used_ips_per_subnet(
     candidates: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
     for candidate in candidates:
-        for section in candidate.get('multi_data_sections', []) or []:
-            if section.get('section_id') != IpamSection.INTERFACE:
+        for section in candidate.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+            if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
                 continue
 
-            for row in section.get('values', []) or []:
+            for row in section.get(CmdbObjectMdsKey.VALUES, []) or []:
                 row_subnet_id: Any = _row_subnet_ref(row)
 
                 if row_subnet_id in counts:
@@ -442,9 +449,9 @@ def _row_subnet_ref(row: dict[str, Any]) -> Any:
     Returns:
         Any: The referenced subnet's public_id, or None if the row has no such field
     """
-    for entry in row.get('data', []) or []:
-        if entry.get('name') == InterfaceField.SUBNET:
-            return entry.get('value')
+    for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+        if entry.get(CmdbObjectFieldKey.NAME) == InterfaceField.SUBNET:
+            return entry.get(CmdbObjectFieldKey.VALUE)
 
     return None
 
@@ -477,12 +484,12 @@ def _build_linked_subnet_rows(
     subnet_objs: list[dict[str, Any]] = _load_subnets_for_supernet(
         objects_manager, types_manager, supernet_public_id,
     )
-    subnet_ids: list[int] = [s['public_id'] for s in subnet_objs if 'public_id' in s]
+    subnet_ids: list[int] = [s[CmdbObjectKey.PUBLIC_ID] for s in subnet_objs if CmdbObjectKey.PUBLIC_ID in s]
 
     used_per_subnet: dict[int, int] = _count_used_ips_per_subnet(objects_manager, subnet_ids)
 
     subnet_rows: list[dict[str, Any]] = [
-        compute_subnet_row(s, used_per_subnet.get(s.get('public_id'), 0))
+        compute_subnet_row(s, used_per_subnet.get(s.get(CmdbObjectKey.PUBLIC_ID), 0))
         for s in subnet_objs
     ]
 
@@ -537,7 +544,7 @@ def build_supernet_overview(
     children_index: dict[Any, list[dict[str, Any]]] = _index_children_by_parent(ordered_subnets)
     _annotate_has_children(ordered_subnets, children_index)
 
-    total_used: int = sum(row['used_ips'] for row in ordered_subnets)
+    total_used: int = sum(row[IpamOverviewKey.USED_IPS] for row in ordered_subnets)
 
     summary: dict[str, Any] = compute_supernet_summary(
         supernet_network,
@@ -545,7 +552,9 @@ def build_supernet_overview(
         len(ordered_subnets),
     )
 
-    top_level: list[dict[str, Any]] = [row for row in ordered_subnets if row.get('parent_id') is None]
+    top_level: list[dict[str, Any]] = [
+        row for row in ordered_subnets if row.get(IpamOverviewKey.PARENT_ID) is None
+    ]
     total_top_level: int = len(top_level)
 
     safe_page, safe_size = clamp_page(page, page_size, total_top_level)
@@ -554,15 +563,15 @@ def build_supernet_overview(
     page_rows: list[dict[str, Any]] = top_level[start:end]
 
     return {
-        'supernet': {
-            'public_id': supernet_obj.get('public_id'),
+        IpamOverviewKey.SUPERNET: {
+            CmdbObjectKey.PUBLIC_ID: supernet_obj.get(CmdbObjectKey.PUBLIC_ID),
             **summary,
         },
-        'subnets': {
-            'page': safe_page,
-            'page_size': safe_size,
-            'total': total_top_level,
-            'rows': page_rows,
+        IpamOverviewKey.SUBNETS: {
+            IpamOverviewKey.PAGE: safe_page,
+            IpamOverviewKey.PAGE_SIZE: safe_size,
+            IpamOverviewKey.TOTAL: total_top_level,
+            IpamOverviewKey.ROWS: page_rows,
         },
     }
 
@@ -601,7 +610,9 @@ def build_supernet_subnet_children(
         objects_manager, types_manager, supernet_public_id,
     )
 
-    parent_present: bool = any(row.get('public_id') == subnet_public_id for row in ordered_subnets)
+    parent_present: bool = any(
+        row.get(CmdbObjectKey.PUBLIC_ID) == subnet_public_id for row in ordered_subnets
+    )
 
     if not parent_present:
         abort(
@@ -616,6 +627,6 @@ def build_supernet_subnet_children(
     children: list[dict[str, Any]] = children_index.get(subnet_public_id, [])
 
     return {
-        'parent': {'public_id': subnet_public_id},
-        'rows': children,
+        IpamOverviewKey.PARENT: {CmdbObjectKey.PUBLIC_ID: subnet_public_id},
+        IpamOverviewKey.ROWS: children,
     }

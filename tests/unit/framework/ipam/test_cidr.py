@@ -27,6 +27,8 @@ from ipaddress import IPv4Address, IPv4Network
 
 import pytest
 
+from cmdb.utils import ValidationErrorKey
+from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
 from cmdb.framework.ipam.cidr import (
     parse_cidr,
     parse_ipv4,
@@ -34,6 +36,7 @@ from cmdb.framework.ipam.cidr import (
     is_network_or_broadcast,
     assignable_address_count,
     first_assignable_int,
+    validate_canonical_cidr_value,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -287,3 +290,60 @@ def test_first_assignable_int(cidr: str, expected_first_address: str) -> None:
     expected_int: int = int(IPv4Address(expected_first_address))
 
     assert first_assignable_int(network) == expected_int
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_canonical_cidr_value                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+SAMPLE_ERROR_CODE: str = 'sample_cidr_invalid'
+
+
+def test_validate_canonical_cidr_value_returns_network_and_no_errors_for_canonical_input() -> None:
+    """A canonical CIDR string yields the parsed network and an empty error list"""
+    network, errors = validate_canonical_cidr_value('10.0.0.0/24', SAMPLE_ERROR_CODE)
+
+    assert network == IPv4Network('10.0.0.0/24')
+    assert errors == []
+
+
+@pytest.mark.parametrize('invalid_value', [
+    'not-a-cidr',
+    '10.0.0.5/24',       # host bits set, non-canonical
+    '10.0.0.0',          # missing prefix
+    '10.0.0.0/255.255.255.0',  # netmask form rejected by strict parser
+])
+def test_validate_canonical_cidr_value_emits_error_for_invalid_string(invalid_value: str) -> None:
+    """Any non-canonical or non-CIDR string yields (None, [error]) with the caller's error code"""
+    network, errors = validate_canonical_cidr_value(invalid_value, SAMPLE_ERROR_CODE)
+
+    assert network is None
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SAMPLE_ERROR_CODE
+
+
+@pytest.mark.parametrize('non_string_value', [None, 42, 10.5, [], {}])
+def test_validate_canonical_cidr_value_emits_error_for_non_string_input(non_string_value: Any) -> None:
+    """Non-string inputs are rejected with the same error code (no TypeError raised)"""
+    network, errors = validate_canonical_cidr_value(non_string_value, SAMPLE_ERROR_CODE)
+
+    assert network is None
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SAMPLE_ERROR_CODE
+
+
+def test_validate_canonical_cidr_value_captures_input_in_error_details() -> None:
+    """The raw input value is preserved under IpamValidationDetailKey.NETWORK_RANGE in details"""
+    network, errors = validate_canonical_cidr_value('garbage-value', SAMPLE_ERROR_CODE)
+
+    assert network is None
+    details = errors[0][ValidationErrorKey.DETAILS]
+    assert details[IpamValidationDetailKey.NETWORK_RANGE] == 'garbage-value'
+
+
+def test_validate_canonical_cidr_value_uses_caller_supplied_error_code() -> None:
+    """The error code is parameterized; different callers see different codes for the same input"""
+    _, first_errors = validate_canonical_cidr_value('bad', 'code_a')
+    _, second_errors = validate_canonical_cidr_value('bad', 'code_b')
+
+    assert first_errors[0][ValidationErrorKey.CODE] == 'code_a'
+    assert second_errors[0][ValidationErrorKey.CODE] == 'code_b'
