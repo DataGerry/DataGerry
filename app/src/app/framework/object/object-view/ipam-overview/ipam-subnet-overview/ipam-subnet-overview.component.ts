@@ -32,6 +32,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Sort, SortDirection } from '../../../../../layout/table/table.types';
 import {
     IpamIpEntry,
+    IpamIpDistribution,
     IpamSubnetDetail,
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
@@ -55,6 +56,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public ips: IpamIpEntry[] = [];
     public subnet: IpamSubnetDetail | null = null;
+    public ipDistribution: IpamIpDistribution | null = null;
     public typeDistribution: IpamTypeDistributionEntry[] = [];
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
@@ -123,7 +125,26 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         return this.subnet !== null;
     }
 
+    public get usedPercent(): number | null {
+        return this.computeShare(this.subnet?.used_ips);
+    }
+
+    public get freePercent(): number | null {
+        return this.computeShare(this.subnet?.free_ips);
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private computeShare(part: number | null | undefined): number | null {
+        if (part == null) {
+            return null;
+        }
+        const denominator = this.subnet?.assignable_ips ?? this.subnet?.total_ips;
+        if (!denominator || denominator <= 0) {
+            return null;
+        }
+        return (part / denominator) * 100;
+    }
 
     private loadOverview(): void {
         if (this.publicId == null) {
@@ -151,6 +172,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     const ipsPage = response?.ips;
                     this.ips = ipsPage?.rows ?? [];
                     this.subnet = response?.subnet ?? null;
+                    this.ipDistribution = response?.ip_distribution ?? null;
                     this.typeDistribution = response?.type_distribution ?? [];
                     this.page = ipsPage?.page ?? this.page;
                     this.pageSize = ipsPage?.page_size ?? this.pageSize;
@@ -162,6 +184,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     this.hasError = true;
                     this.ips = [];
                     this.subnet = null;
+                    this.ipDistribution = null;
                     this.typeDistribution = [];
                     this.total = 0;
                     this.hasLoadedOnce = true;

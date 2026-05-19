@@ -12,20 +12,20 @@
       </article>
 
       <article class="ipam-subnet-card">
-        <span class="ipam-subnet-card__label">IP Range</span>
-        <span class="ipam-subnet-card__value ipam-subnet-card__value--mono ipam-subnet-card__value--range">
-          @if (subnet?.ip_range?.first && subnet?.ip_range?.last) {
-            {{ subnet.ip_range.first }} <span class="ipam-subnet-card__range-sep">–</span> {{ subnet.ip_range.last }}
-          } @else {
-            <span class="ipam-subnet-card__placeholder">—</span>
-          }
+        <span class="ipam-subnet-card__label">Total IPs</span>
+        <span class="ipam-subnet-card__value">
+          {{ (subnet?.total_ips ?? total) | number }}
         </span>
       </article>
 
       <article class="ipam-subnet-card">
-        <span class="ipam-subnet-card__label">Total IPs</span>
+        <span class="ipam-subnet-card__label">Assignable IPs</span>
         <span class="ipam-subnet-card__value">
-          {{ (subnet?.total_ips ?? total) | number }}
+          @if (subnet?.assignable_ips != null) {
+            {{ subnet.assignable_ips | number }}
+          } @else {
+            <span class="ipam-subnet-card__placeholder">—</span>
+          }
         </span>
       </article>
 
@@ -34,9 +34,9 @@
         <span class="ipam-subnet-card__value">
           @if (subnet?.used_ips != null) {
             {{ subnet.used_ips | number }}
-            @if (subnet?.used_percent != null) {
+            @if (usedPercent != null) {
               <span class="ipam-subnet-card__suffix">
-                ({{ subnet.used_percent | number:'1.0-1' }}%)
+                ({{ usedPercent | number:'1.0-1' }}%)
               </span>
             }
           } @else {
@@ -50,9 +50,9 @@
         <span class="ipam-subnet-card__value">
           @if (subnet?.free_ips != null) {
             {{ subnet.free_ips | number }}
-            @if (subnet?.free_percent != null) {
+            @if (freePercent != null) {
               <span class="ipam-subnet-card__suffix">
-                ({{ subnet.free_percent | number:'1.0-1' }}%)
+                ({{ freePercent | number:'1.0-1' }}%)
               </span>
             }
           } @else {
@@ -64,6 +64,11 @@
 
     <div class="ipam-subnet__main">
       <aside class="ipam-subnet__sidebar">
+        <cmdb-ipam-ip-distribution
+          [ipDistribution]="ipDistribution"
+          [loading]="(isLoading$ | async) === true">
+        </cmdb-ipam-ip-distribution>
+
         <cmdb-ipam-type-distribution
           [typeDistribution]="typeDistribution"
           [loading]="(isLoading$ | async) === true">

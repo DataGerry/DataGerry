@@ -46,6 +46,7 @@ import { ObjectFooterComponent } from './object-view/object-footer/object-footer
 import { IpamSupernetOverviewComponent } from './object-view/ipam-overview/ipam-supernet-overview/ipam-supernet-overview.component';
 import { IpamSubnetOverviewComponent } from './object-view/ipam-overview/ipam-subnet-overview/ipam-subnet-overview.component';
 import { IpamIpTableComponent } from './object-view/ipam-overview/components/ipam-ip-table/ipam-ip-table.component';
+import { IpamIpDistributionComponent } from './object-view/ipam-overview/components/ipam-ip-distribution/ipam-ip-distribution.component';
 import { IpamTypeDistributionComponent } from './object-view/ipam-overview/components/ipam-type-distribution/ipam-type-distribution.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
@@ -97,6 +98,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         IpamSupernetOverviewComponent,
         IpamSubnetOverviewComponent,
         IpamIpTableComponent,
+        IpamIpDistributionComponent,
         IpamTypeDistributionComponent,
         ObjectActionsComponent,
         ObjectViewRenderComponent,

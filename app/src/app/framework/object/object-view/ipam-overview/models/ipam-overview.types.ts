@@ -76,13 +76,11 @@ export interface IpamIpEntry {
 export interface IpamSubnetDetail {
     public_id?: number;
     cidr?: string;
-    subnetmask?: string;
     ip_range?: IpamIpRange;
     total_ips?: number;
+    assignable_ips?: number;
     used_ips?: number;
     free_ips?: number;
-    used_percent?: number;
-    free_percent?: number;
 }
 
 export interface IpamIpListPage {
@@ -95,14 +93,34 @@ export interface IpamIpListPage {
 export interface IpamTypeDistributionEntry {
     public_id: number | null;
     label: string;
+    ci_explorer_color?: string | null;
     count: number;
     percentage: number;
+}
+
+export interface IpamIpDistributionSector {
+    ip_start: string;
+    ip_end: string;
+    used_count: number;
+    percentage: number;
+}
+
+export interface IpamIpDistributionRange {
+    ip_start: string;
+    ip_end: string;
+    sectors: IpamIpDistributionSector[];
+}
+
+export interface IpamIpDistribution {
+    sector_size: number;
+    ranges: IpamIpDistributionRange[];
 }
 
 export interface IpamSubnetOverviewResponse {
     subnet: IpamSubnetDetail;
     ips: IpamIpListPage;
     type_distribution?: IpamTypeDistributionEntry[];
+    ip_distribution?: IpamIpDistribution | null;
 }
 
 export interface IpamSubnetOverviewParams {
