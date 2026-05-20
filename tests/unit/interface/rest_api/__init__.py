@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the cmdb package
+Unit tests for the cmdb.interface.rest_api package
 
-Subpackages mirror the cmdb/ layout. Tests at this tier are pure: no Mongo, no real Flask
-app, no fixtures beyond pytest.mark.parametrize tables and small in-file factories. Anything
-needing a database or a live REST app belongs under tests/integration/ or tests/functional/
+Each module here mirrors a single route module under cmdb/interface/rest_api/routes/. Tests
+unwrap the route function (peeling off authentication decorators) and call it inside a Flask
+test-request context, with the orchestrator layer patched so the test only verifies the route
+glue
 """

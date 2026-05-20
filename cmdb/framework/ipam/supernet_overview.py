@@ -37,8 +37,10 @@ from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
     SubnetField,
     InterfaceField,
+    VlanField,
     IpamSection,
     IpamPagination,
+    IpamSearch,
     IpamOverviewKey,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet, total_address_count
@@ -281,6 +283,41 @@ def _index_children_by_parent(rows: list[dict[str, Any]]) -> dict[Any, list[dict
     return index
 
 
+def _filter_rows_by_network_substring(
+    rows: list[dict[str, Any]],
+    query: str,
+) -> list[dict[str, Any]]:
+    """
+    Returns the rows whose 'cidr' (the subnet's network property) contains ``query`` as a
+    case-insensitive substring
+
+    The query is matched literally against the row's already-shaped CIDR string, so user input
+    like '10.0' surfaces both '10.0.0.0/24' and '192.10.0.0/16'. Rows whose 'cidr' is missing
+    or not a string never match, so unparsable subnets drop out of search results without
+    erroring. Input row order is preserved among matches, which - because callers pass rows
+    produced by ``sort_and_link_subnets`` - keeps matches in ascending CIDR order
+
+    Args:
+        rows (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets`` (or any list
+            whose entries carry a string 'cidr' field)
+        query (str): Substring to match; the caller is expected to have already stripped
+            whitespace and decided that a non-empty filter applies
+
+    Returns:
+        list[dict[str, Any]]: Matching rows in their original relative order
+    """
+    needle: str = query.lower()
+    matches: list[dict[str, Any]] = []
+
+    for row in rows:
+        cidr: Any = row.get(IpamOverviewKey.CIDR)
+
+        if isinstance(cidr, str) and needle in cidr.lower():
+            matches.append(row)
+
+    return matches
+
+
 def _annotate_has_children(
     rows: list[dict[str, Any]],
     children_index: dict[Any, list[dict[str, Any]]],
@@ -301,6 +338,66 @@ def _annotate_has_children(
     for row in rows:
         public_id: Any = row.get(CmdbObjectKey.PUBLIC_ID)
         row[IpamOverviewKey.HAS_CHILDREN] = bool(public_id is not None and children_index.get(public_id))
+
+
+def _select_listed_rows(
+    ordered_subnets: list[dict[str, Any]],
+    search: str,
+) -> list[dict[str, Any]]:
+    """
+    Picks the rows to expose in the supernet overview's 'subnets' block
+
+    Encapsulates the search-vs-tree branch and the search-input normalization. The supplied
+    ``search`` value is stripped of surrounding whitespace; if at least IpamSearch.MIN_QUERY_LENGTH
+    characters remain the rows are filtered to every subnet whose 'network' property contains
+    the query as a case-insensitive substring (regardless of nesting depth). Otherwise the
+    function falls back to the top-level tree view, returning only rows whose 'parent_id' is
+    None - the same set the overview surfaces when no search is active
+
+    Args:
+        ordered_subnets (list[dict[str, Any]]): All rows produced by ``sort_and_link_subnets``
+            for the supernet under inspection
+        search (str): Raw search query as received by the caller; may be empty, whitespace or
+            shorter than the minimum query length
+
+    Returns:
+        list[dict[str, Any]]: Rows to list in the overview, preserving the input row order
+    """
+    needle: str = (search or '').strip()
+
+    if len(needle) >= IpamSearch.MIN_QUERY_LENGTH:
+        return _filter_rows_by_network_substring(ordered_subnets, needle)
+
+    return [row for row in ordered_subnets if row.get(IpamOverviewKey.PARENT_ID) is None]
+
+
+def _paginate_rows(
+    rows: list[dict[str, Any]],
+    page: int,
+    page_size: int,
+) -> tuple[int, int, list[dict[str, Any]]]:
+    """
+    Slices a flat row list into one page using the standard IPAM page / page_size policy
+
+    Delegates clamping to ``clamp_page`` so the same bounds (1-based pages, page_size in
+    [IpamPagination.MIN_PAGE_SIZE, IpamPagination.MAX_PAGE_SIZE]) apply across every overview
+    route. The slice indices are derived from the clamped values, so a caller asking for a
+    page past the end receives the last valid page rather than an empty one
+
+    Args:
+        rows (list[dict[str, Any]]): Flat list of rows to paginate
+        page (int): Requested 1-based page number; clamped server-side
+        page_size (int): Requested page size; clamped server-side
+
+    Returns:
+        tuple[int, int, list[dict[str, Any]]]: (safe_page, safe_size, page_rows) where
+            page_rows is the rows that fall on the resolved page
+    """
+    safe_page, safe_size = clamp_page(page, page_size, len(rows))
+    start: int = (safe_page - 1) * safe_size
+    end: int = start + safe_size
+
+    return safe_page, safe_size, rows[start:end]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -343,6 +440,28 @@ def _load_supernet_object(
         abort(400, f"Object with public_id {public_id} is not a SUPERNET!")
 
     return candidate
+
+
+def _parse_supernet_cidr(supernet_obj: dict[str, Any]) -> IPv4Network | None:
+    """
+    Returns the parsed IPv4Network of a SUPERNET CmdbObject, or None when unparsable / missing
+
+    Reads the supernet's 'dg-network-range' field via ``extract_field_value`` and runs
+    ``parse_cidr`` over it when the value is a string. Returns None when the field is missing,
+    not a string, or fails to parse, so a degenerate supernet does not crash the overview build
+
+    Args:
+        supernet_obj (dict[str, Any]): The supernet CmdbObject document
+
+    Returns:
+        IPv4Network | None: Parsed network, or None when the CIDR is missing or unparsable
+    """
+    raw_cidr: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
+
+    if not isinstance(raw_cidr, str):
+        return None
+
+    return parse_cidr(raw_cidr)
 
 
 def _load_subnets_for_supernet(
@@ -456,6 +575,95 @@ def _row_subnet_ref(row: dict[str, Any]) -> Any:
     return None
 
 
+def _load_vlans_by_subnet(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    subnet_ids: list[int],
+) -> dict[int, list[dict[str, Any]]]:
+    """
+    Groups VLAN CmdbObjects by the subnet their 'dg-subnet-ref' field points at
+
+    A single Mongo query selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
+    ``subnet_ids``; bucketing happens in Python to keep the pipeline portable (Cosmos Mongo API
+    friendly: no aggregation stages required). Each VLAN that references one of the supplied
+    subnets contributes a {'public_id': <vlan id>, 'name': <vlan dg-name or None>} entry to the
+    bucket for that subnet. Per-bucket entries are sorted by ascending public_id so the order
+    is deterministic across re-queries
+
+    Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
+    subnets without referencing VLANs do not appear in the returned dict (callers should treat
+    a missing key as an empty list)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        subnet_ids (list[int]): The subnet public_ids whose referencing VLANs should be loaded
+
+    Returns:
+        dict[int, list[dict[str, Any]]]: {subnet_id: [{public_id, name}, ...]} with each list
+            sorted ascending by public_id
+    """
+    if not subnet_ids:
+        return {}
+
+    vlan_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.VLAN)
+
+    if vlan_type_id is None:
+        return {}
+
+    subnet_id_set: set[int] = set(subnet_ids)
+
+    criteria: dict[str, Any] = {
+        CmdbObjectKey.TYPE_ID: vlan_type_id,
+        CmdbObjectKey.FIELDS: {
+            '$elemMatch': {
+                CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
+                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+            },
+        },
+    }
+
+    vlan_objs: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
+    buckets: dict[int, list[dict[str, Any]]] = {}
+
+    for vlan_obj in vlan_objs:
+        subnet_ref: Any = extract_field_value(vlan_obj, VlanField.SUBNET_REF)
+
+        if subnet_ref not in subnet_id_set:
+            continue
+
+        buckets.setdefault(subnet_ref, []).append({
+            CmdbObjectKey.PUBLIC_ID: vlan_obj[CmdbObjectKey.PUBLIC_ID],
+            IpamOverviewKey.NAME: extract_field_value(vlan_obj, VlanField.NAME),
+        })
+
+    for bucket in buckets.values():
+        bucket.sort(key=lambda entry: entry[CmdbObjectKey.PUBLIC_ID])
+
+    return buckets
+
+
+def _attach_vlans_to_rows(
+    rows: list[dict[str, Any]],
+    vlans_by_subnet: dict[int, list[dict[str, Any]]],
+) -> None:
+    """
+    Sets a 'vlans' list on every row from the supplied per-subnet VLAN buckets
+
+    Rows are mutated in place. A row whose public_id has no bucket receives an empty list so
+    the FE can iterate the field unconditionally without nullability checks. Each row gets a
+    shallow copy of its bucket list so downstream mutations of 'vlans' on one row cannot bleed
+    into the original buckets or into sibling rows
+
+    Args:
+        rows (list[dict[str, Any]]): Overview rows; each row must carry a 'public_id' key
+        vlans_by_subnet (dict[int, list[dict[str, Any]]]): Output of ``_load_vlans_by_subnet``
+            (or any equivalent map of subnet_id → VLAN dicts)
+    """
+    for row in rows:
+        row[IpamOverviewKey.VLANS] = list(vlans_by_subnet.get(row[CmdbObjectKey.PUBLIC_ID], []))
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   ORCHESTRATOR                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -468,9 +676,10 @@ def _build_linked_subnet_rows(
     Loads every SUBNET under the supernet, shapes overview rows and links parents by CIDR
 
     Encapsulates the DB-and-link step that both orchestrators share: load the subnet objects,
-    count interface IPs per subnet, shape one row per subnet, then run ``sort_and_link_subnets``
-    so each row carries a ``parent_id`` pointing at its most-specific CIDR-enclosing sibling
-    (or None when top-level)
+    count interface IPs per subnet, batch-load VLANs referencing those subnets, shape one row
+    per subnet, run ``sort_and_link_subnets`` so each row carries a ``parent_id`` pointing at
+    its most-specific CIDR-enclosing sibling (or None when top-level), and attach the per-row
+    VLAN list (empty when no VLAN references the subnet)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -478,8 +687,8 @@ def _build_linked_subnet_rows(
         supernet_public_id (int): public_id of the supernet to load subnets for
 
     Returns:
-        list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set;
-            rows with unparsable CIDRs trail the sorted block
+        list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set and
+            ``vlans`` populated; rows with unparsable CIDRs trail the sorted block
     """
     subnet_objs: list[dict[str, Any]] = _load_subnets_for_supernet(
         objects_manager, types_manager, supernet_public_id,
@@ -487,13 +696,45 @@ def _build_linked_subnet_rows(
     subnet_ids: list[int] = [s[CmdbObjectKey.PUBLIC_ID] for s in subnet_objs if CmdbObjectKey.PUBLIC_ID in s]
 
     used_per_subnet: dict[int, int] = _count_used_ips_per_subnet(objects_manager, subnet_ids)
+    vlans_by_subnet: dict[int, list[dict[str, Any]]] = _load_vlans_by_subnet(
+        objects_manager, types_manager, subnet_ids,
+    )
 
     subnet_rows: list[dict[str, Any]] = [
         compute_subnet_row(s, used_per_subnet.get(s.get(CmdbObjectKey.PUBLIC_ID), 0))
         for s in subnet_objs
     ]
 
-    return sort_and_link_subnets(subnet_rows)
+    ordered: list[dict[str, Any]] = sort_and_link_subnets(subnet_rows)
+    _attach_vlans_to_rows(ordered, vlans_by_subnet)
+
+    return ordered
+
+
+def _summarize_supernet(
+    ordered_subnets: list[dict[str, Any]],
+    supernet_network: IPv4Network | None,
+) -> dict[str, Any]:
+    """
+    Builds the supernet KPI strip from already-shaped subnet rows and the supernet network
+
+    Sums the per-row 'used_ips' across every subnet under the supernet (regardless of nesting
+    depth) and passes the total, the subnet count, and the parsed supernet network through
+    ``compute_supernet_summary``. Keeping this sum-and-summarize step in one function lets the
+    overview orchestrator stay free of intermediate locals
+
+    Args:
+        ordered_subnets (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets``
+            (and already annotated with 'has_children'); every row must carry 'used_ips'
+        supernet_network (IPv4Network | None): Parsed CIDR of the supernet, None if missing
+            or unparsable
+
+    Returns:
+        dict[str, Any]: KPI strip dict as produced by ``compute_supernet_summary``
+    """
+    total_used: int = sum(row[IpamOverviewKey.USED_IPS] for row in ordered_subnets)
+
+    return compute_supernet_summary(supernet_network, total_used, len(ordered_subnets))
 
 
 def build_supernet_overview(
@@ -502,17 +743,24 @@ def build_supernet_overview(
     public_id: int,
     page: int = 1,
     page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
+    search: str = '',
 ) -> dict[str, Any]:
     """
-    Builds the paginated top-level supernet overview payload
+    Builds the paginated supernet overview payload
 
     The KPI strip in 'supernet' covers every subnet under the supernet (regardless of nesting
-    depth), so the totals stay stable as the user paginates or expands rows. The 'subnets'
-    block lists only top-level subnets - those whose CIDR is not strictly contained by any
-    sibling - paginated with the same page / page_size semantics used by the subnet overview.
-    Each returned row carries 'has_children: bool' so the frontend can render an expand caret
-    without a probe request; the direct children themselves are fetched via
-    ``build_supernet_subnet_children``
+    depth), so the totals stay stable as the user paginates, expands rows or filters by search.
+    The 'subnets' block lists rows paginated with the same page / page_size semantics used by
+    the subnet overview. Each returned row carries 'has_children: bool' so the frontend can
+    render an expand caret without a probe request; the direct children themselves are fetched
+    via ``build_supernet_subnet_children``
+
+    When ``search`` is empty / whitespace, the 'subnets' block lists only top-level subnets -
+    those whose CIDR is not strictly contained by any sibling. When ``search`` is non-empty,
+    the tree shape is dropped and the block instead returns a flat list of every subnet under
+    the supernet (any nesting depth) whose 'network' property contains ``search`` as a
+    case-insensitive substring, still paginated. Each row keeps its 'parent_id' / 'has_children'
+    so the frontend can link back to the tree when the user clears the search
 
     Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the public_id refers
     to a non-supernet CmdbObject or no SUPERNET CmdbType is defined
@@ -521,46 +769,29 @@ def build_supernet_overview(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         public_id (int): public_id of the supernet to summarise
-        page (int): 1-based page number for the top-level subnet list (clamped into the valid
-            range)
-        page_size (int): Page size for the top-level subnet list (clamped to
+        page (int): 1-based page number for the subnet list (clamped into the valid range)
+        page_size (int): Page size for the subnet list (clamped to
             [IpamPagination.MIN_PAGE_SIZE, IpamPagination.MAX_PAGE_SIZE])
+        search (str): Optional case-insensitive substring filter against each subnet's
+            'network' property; empty / whitespace and queries shorter than
+            IpamSearch.MIN_QUERY_LENGTH after stripping are ignored and restore the top-level
+            tree view
 
     Returns:
         dict[str, Any]: {'supernet': {public_id, ...summary over all subnets...},
-            'subnets': {page, page_size, total, rows: [...top-level rows with has_children]}}
+            'subnets': {page, page_size, total, rows: [...subnet rows with has_children]}}
     """
     supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
-
-    raw_supernet_cidr: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
-    supernet_network: IPv4Network | None = (
-        parse_cidr(raw_supernet_cidr) if isinstance(raw_supernet_cidr, str) else None
-    )
 
     ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
         objects_manager, types_manager, public_id,
     )
+    _annotate_has_children(ordered_subnets, _index_children_by_parent(ordered_subnets))
 
-    children_index: dict[Any, list[dict[str, Any]]] = _index_children_by_parent(ordered_subnets)
-    _annotate_has_children(ordered_subnets, children_index)
+    summary: dict[str, Any] = _summarize_supernet(ordered_subnets, _parse_supernet_cidr(supernet_obj))
 
-    total_used: int = sum(row[IpamOverviewKey.USED_IPS] for row in ordered_subnets)
-
-    summary: dict[str, Any] = compute_supernet_summary(
-        supernet_network,
-        total_used,
-        len(ordered_subnets),
-    )
-
-    top_level: list[dict[str, Any]] = [
-        row for row in ordered_subnets if row.get(IpamOverviewKey.PARENT_ID) is None
-    ]
-    total_top_level: int = len(top_level)
-
-    safe_page, safe_size = clamp_page(page, page_size, total_top_level)
-    start: int = (safe_page - 1) * safe_size
-    end: int = start + safe_size
-    page_rows: list[dict[str, Any]] = top_level[start:end]
+    listed_rows: list[dict[str, Any]] = _select_listed_rows(ordered_subnets, search)
+    safe_page, safe_size, page_rows = _paginate_rows(listed_rows, page, page_size)
 
     return {
         IpamOverviewKey.SUPERNET: {
@@ -570,7 +801,7 @@ def build_supernet_overview(
         IpamOverviewKey.SUBNETS: {
             IpamOverviewKey.PAGE: safe_page,
             IpamOverviewKey.PAGE_SIZE: safe_size,
-            IpamOverviewKey.TOTAL: total_top_level,
+            IpamOverviewKey.TOTAL: len(listed_rows),
             IpamOverviewKey.ROWS: page_rows,
         },
     }

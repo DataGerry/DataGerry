@@ -111,6 +111,19 @@ class IpamPagination:
     MAX_PAGE_SIZE: int = 500
 
 
+class IpamSearch:
+    """
+    Query-string bounds shared by every IPAM overview search field
+
+    MIN_QUERY_LENGTH is the minimum length (after stripping whitespace) the framework treats as
+    an active filter; a shorter value is ignored so the response falls back to the unfiltered
+    view. MAX_QUERY_LENGTH caps the value the route accepts from the client, truncating beyond
+    that point so a runaway payload cannot drive arbitrarily large substring scans
+    """
+    MIN_QUERY_LENGTH: int = 2
+    MAX_QUERY_LENGTH: int = 200
+
+
 class IpamDistributionLimits:
     """
     Maximum dimensions of the subnet 'IP-Verteilung' grid
@@ -189,6 +202,7 @@ class IpamOverviewKey(BaseStrEnum):
     ROWS = 'rows'
     PAGE = 'page'
     PAGE_SIZE = 'page_size'
+    SEARCH = 'search'
     TOTAL = 'total'
     TYPE_DISTRIBUTION = 'type_distribution'
     IP_DISTRIBUTION = 'ip_distribution'
@@ -209,6 +223,8 @@ class IpamOverviewKey(BaseStrEnum):
     USAGE_PERCENT = 'usage_percent'
     PARENT_ID = 'parent_id'
     HAS_CHILDREN = 'has_children'
+    VLANS = 'vlans'
+    NAME = 'name'
 
     # IP-range sub-dict (subnet summary + supernet summary)
     FIRST = 'first'
