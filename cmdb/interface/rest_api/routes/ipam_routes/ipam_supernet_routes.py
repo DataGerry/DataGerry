@@ -30,7 +30,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.special_type_model.ipam_constants import IpamPagination
+from cmdb.models.special_type_model.ipam_constants import IpamPagination, IpamSearch, IpamOverviewKey
 from cmdb.framework.ipam.supernet_overview import (
     build_supernet_overview,
     build_supernet_subnet_children,
@@ -51,18 +51,26 @@ ipam_supernet_blueprint = APIBlueprint('ipam_supernet', __name__)
 @insert_request_user
 def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route returning the paginated top-level supernet overview payload
+    HTTP `GET` route returning the paginated supernet overview payload
 
     The KPI strip in 'supernet' is computed against every subnet under the supernet regardless
-    of nesting depth, so totals stay stable as the user paginates. The 'subnets' block lists
-    only top-level subnets - those whose CIDR is not strictly contained by any sibling -
-    paginated with the same page / page_size semantics used by the subnet overview. Every row
-    carries 'has_children: bool' so the frontend can render an expand caret without a probe
-    request
+    of nesting depth, so totals stay stable as the user paginates or filters. The 'subnets'
+    block lists rows paginated with the same page / page_size semantics used by the subnet
+    overview. Every row carries 'has_children: bool' so the frontend can render an expand
+    caret without a probe request
+
+    Without 'search' the block lists only top-level subnets - those whose CIDR is not strictly
+    contained by any sibling. With a non-empty 'search', the tree shape is dropped and the
+    block returns a flat list of every subnet under the supernet (any nesting depth) whose
+    'network' property contains the query as a case-insensitive substring, still paginated
 
     Query params:
         page (int, default=1): 1-based page number; clamped into the valid range server-side
         page_size (int, default=50): page size; clamped into [1, 500] server-side
+        search (str, optional): case-insensitive substring filter against each subnet's
+            'network' property; empty / whitespace and queries shorter than
+            IpamSearch.MIN_QUERY_LENGTH are ignored, queries longer than
+            IpamSearch.MAX_QUERY_LENGTH are truncated at the route boundary
 
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject to summarise
@@ -70,14 +78,16 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
 
     Returns:
         Response: {'supernet': {...summary, public_id}, 'subnets': {page, page_size, total,
-            rows: [...top-level rows with has_children]}}
+            rows: [...subnet rows with has_children]}}
     """
     try:
-        page: int = request.args.get('page', default=1, type=int) or 1
+        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
         page_size: int = (
-            request.args.get('page_size', default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
+            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
             or IpamPagination.DEFAULT_PAGE_SIZE
         )
+        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
+        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -88,6 +98,7 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
             public_id,
             page=page,
             page_size=page_size,
+            search=search,
         )
 
         return DefaultResponse(overview).make_response()
