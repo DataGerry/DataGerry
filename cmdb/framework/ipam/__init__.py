@@ -22,6 +22,7 @@ Modules:
   - cidr: pure IPv4 helpers (parsing, containment, address-count policy)
   - pagination: page/page_size clamping shared by the overview routes
   - references: SpecialType id resolution
+  - search: search-input normalization helpers shared by the overview routes
   - subnet_validator / interface_validator / vlan_validator: structured per-row
       validation invoked at save time and from the inline pre-validation REST routes
   - range_change_guards: guards against subnet/supernet range edits that would orphan

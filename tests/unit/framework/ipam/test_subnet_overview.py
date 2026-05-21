@@ -30,7 +30,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.models.object_model import (
     CmdbObjectKey,
@@ -52,9 +52,11 @@ from cmdb.framework.ipam.subnet_overview import (
     _AssignedField,
     _bucket_used_counts,
     _build_ip_distribution,
+    _build_ips_block,
     _build_type_distribution,
     _compose_assigned_row,
     _compose_free_row,
+    _compose_ip_row,
     _compose_sector,
     _compute_grid_dimensions,
     _extract_row_fields,
@@ -63,6 +65,7 @@ from cmdb.framework.ipam.subnet_overview import (
     _page_slice_ips,
     _resolve_type_meta,
     build_subnet_overview,
+    list_assignable_ips_matching_substring,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -192,6 +195,82 @@ def test_page_slice_ips_returns_single_address_for_slash_32() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                    list_assignable_ips_matching_substring                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_list_assignable_ips_matching_substring_returns_empty_when_no_ip_matches() -> None:
+    """A needle with no occurrences in the assignable range yields an empty list"""
+    network = IPv4Network('10.0.0.0/24')
+
+    assert list_assignable_ips_matching_substring(network, '99.99') == []
+
+
+def test_list_assignable_ips_matching_substring_returns_all_matching_in_ascending_order() -> None:
+    """A common-prefix needle returns every match in ascending IP order"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = list_assignable_ips_matching_substring(network, '10.0.0.1')
+
+    assert result[:3] == ['10.0.0.1', '10.0.0.10', '10.0.0.11']
+    assert all(ip.startswith('10.0.0.') for ip in result)
+
+
+def test_list_assignable_ips_matching_substring_matches_anywhere_in_the_canonical_string() -> None:
+    """Substring is matched anywhere in the dotted-quad string, not just as a prefix"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = list_assignable_ips_matching_substring(network, '.0.42')
+
+    assert result == ['10.0.0.42']
+
+
+def test_list_assignable_ips_matching_substring_is_case_insensitive() -> None:
+    """Both the needle and the IP string are lowered before the substring check"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result_lower = list_assignable_ips_matching_substring(network, '10.0.0.5')
+    result_upper = list_assignable_ips_matching_substring(network, '10.0.0.5'.upper())
+
+    assert result_lower == result_upper == ['10.0.0.5', '10.0.0.50', '10.0.0.51', '10.0.0.52', '10.0.0.53',
+                                            '10.0.0.54', '10.0.0.55', '10.0.0.56', '10.0.0.57', '10.0.0.58',
+                                            '10.0.0.59']
+
+
+def test_list_assignable_ips_matching_substring_skips_network_and_broadcast_for_slash_24() -> None:
+    """The same address-skipping policy _page_slice_ips uses: /24 skips .0 and .255"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = list_assignable_ips_matching_substring(network, '10.0.0.')
+
+    assert '10.0.0.0' not in result
+    assert '10.0.0.255' not in result
+    assert '10.0.0.1' in result
+    assert '10.0.0.254' in result
+
+
+def test_list_assignable_ips_matching_substring_includes_both_endpoints_for_slash_31() -> None:
+    """/31 includes both endpoints (RFC 3021 point-to-point)"""
+    network = IPv4Network('10.0.0.0/31')
+
+    result = list_assignable_ips_matching_substring(network, '10.0.0.')
+
+    assert result == ['10.0.0.0', '10.0.0.1']
+
+
+def test_list_assignable_ips_matching_substring_includes_single_host_for_slash_32() -> None:
+    """/32 covers exactly one address; a matching needle includes it"""
+    network = IPv4Network('10.0.0.5/32')
+
+    assert list_assignable_ips_matching_substring(network, '10.0.0.5') == ['10.0.0.5']
+
+
+def test_list_assignable_ips_matching_substring_returns_empty_for_unmatched_single_host() -> None:
+    """A /32 whose single address does not contain the needle yields an empty list"""
+    network = IPv4Network('10.0.0.5/32')
+
+    assert list_assignable_ips_matching_substring(network, '99') == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                            _compose_assigned_row                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_compose_assigned_row_pins_full_shape() -> None:
@@ -228,6 +307,80 @@ def test_compose_free_row_pins_full_shape_with_nulled_assignment_fields() -> Non
         IpamOverviewKey.ASSIGNED_TO: None,
         IpamOverviewKey.MAC_ADDRESS: None,
     }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _compose_ip_row                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_compose_ip_row_returns_free_row_when_ip_not_in_assigned_map() -> None:
+    """An IP absent from the assigned map yields the free-row shape; no summary lookup happens"""
+    objects_manager = MagicMock()
+
+    row = _compose_ip_row('10.0.0.1', assigned={}, type_meta={}, objects_manager=objects_manager)
+
+    assert row[IpamOverviewKey.STATUS] == IpamRowStatus.FREE
+    assert row[IpamOverviewKey.ASSIGNED_TO] is None
+    objects_manager.get_summary_line.assert_not_called()
+
+
+def test_compose_ip_row_returns_assigned_row_with_resolved_type_info_and_summary() -> None:
+    """An IP present in the assigned map resolves summary line and type metadata into the row"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'aa:bb:cc:dd:ee:ff')}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000'}}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    row = _compose_ip_row('10.0.0.1', assigned=assigned, type_meta=type_meta, objects_manager=objects_manager)
+
+    assert row[IpamOverviewKey.STATUS] == IpamRowStatus.ASSIGNED
+    assert row[IpamOverviewKey.ASSIGNED_TO] == {
+        CmdbObjectKey.PUBLIC_ID: OWNER_OBJECT_ID,
+        IpamOverviewKey.SUMMARY_LINE: 'Server: web01',
+    }
+    assert row[IpamOverviewKey.TYPE_INFO] == {
+        CmdbObjectKey.PUBLIC_ID: OWNER_TYPE_ID,
+        IpamOverviewKey.LABEL: 'Server',
+        IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000',
+    }
+    assert row[IpamOverviewKey.MAC_ADDRESS] == 'aa:bb:cc:dd:ee:ff'
+    objects_manager.get_summary_line.assert_called_once_with(OWNER_OBJECT_ID, with_type=True)
+
+
+def test_compose_ip_row_sets_type_info_to_none_when_type_id_is_none() -> None:
+    """An assigned entry whose type_id is None yields type_info=None on the row"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, None, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    row = _compose_ip_row('10.0.0.1', assigned=assigned, type_meta={}, objects_manager=objects_manager)
+
+    assert row[IpamOverviewKey.TYPE_INFO] is None
+
+
+def test_compose_ip_row_sets_type_info_with_none_label_and_color_when_type_meta_missing() -> None:
+    """An assigned entry whose type_id has no entry in type_meta still emits the type_info envelope"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    row = _compose_ip_row('10.0.0.1', assigned=assigned, type_meta={}, objects_manager=objects_manager)
+
+    assert row[IpamOverviewKey.TYPE_INFO] == {
+        CmdbObjectKey.PUBLIC_ID: OWNER_TYPE_ID,
+        IpamOverviewKey.LABEL: None,
+        IpamOverviewKey.CI_EXPLORER_COLOR: None,
+    }
+
+
+def test_compose_ip_row_carries_none_mac_when_assigned_entry_lacks_mac() -> None:
+    """A MAC value of None in the assigned entry surfaces as mac_address=None on the row"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    row = _compose_ip_row('10.0.0.1', assigned=assigned, type_meta={}, objects_manager=objects_manager)
+
+    assert row[IpamOverviewKey.MAC_ADDRESS] is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -710,12 +863,97 @@ def test_resolve_type_meta_projects_to_label_and_ci_explorer_color() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                              _build_ips_block                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_ips_block_lists_full_assignable_range_when_search_is_inactive() -> None:
+    """No search → ips.total equals assignable; one row per assignable address on the page"""
+    network = IPv4Network('10.0.0.0/24')
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=5,
+        search='', assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert block[IpamOverviewKey.TOTAL] == 254
+    assert len(block[IpamOverviewKey.ROWS]) == 5
+    assert block[IpamOverviewKey.ROWS][0][IpamOverviewKey.IP] == '10.0.0.1'
+
+
+def test_build_ips_block_falls_back_to_full_range_for_search_below_min_length() -> None:
+    """A 1-char query is below MIN_QUERY_LENGTH and is treated as no search"""
+    network = IPv4Network('10.0.0.0/24')
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=5,
+        search='1', assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert block[IpamOverviewKey.TOTAL] == 254
+
+
+def test_build_ips_block_filters_rows_to_substring_match_when_search_active() -> None:
+    """Active search shrinks both ips.total and ips.rows to the matching subset"""
+    network = IPv4Network('10.0.0.0/24')
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=50,
+        search='10.0.0.5', assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    matching_ips = [r[IpamOverviewKey.IP] for r in block[IpamOverviewKey.ROWS]]
+    assert all('10.0.0.5' in ip for ip in matching_ips)
+    assert block[IpamOverviewKey.TOTAL] == len(matching_ips)
+
+
+def test_build_ips_block_paginates_search_results_against_match_count() -> None:
+    """page_size shrinks the rows page; ips.total still reflects the full match count"""
+    network = IPv4Network('10.0.0.0/24')
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=3,
+        search='10.0.0.5', assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert len(block[IpamOverviewKey.ROWS]) == 3
+    assert block[IpamOverviewKey.TOTAL] > 3
+
+
+def test_build_ips_block_returns_empty_rows_when_search_has_no_matches() -> None:
+    """An active search that matches nothing yields an empty rows list and total=0"""
+    network = IPv4Network('10.0.0.0/24')
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=10,
+        search='99.99.99', assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert block[IpamOverviewKey.TOTAL] == 0
+    assert block[IpamOverviewKey.ROWS] == []
+
+
+def test_build_ips_block_shapes_assigned_rows_through_compose_ip_row() -> None:
+    """An assigned IP on the page is shaped via _compose_ip_row (status='assigned', summary set)"""
+    network = IPv4Network('10.0.0.0/24')
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'aa:bb')}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000'}}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=1,
+        search='', assigned=assigned, type_meta=type_meta, objects_manager=objects_manager,
+    )
+
+    [first_row] = block[IpamOverviewKey.ROWS]
+    assert first_row[IpamOverviewKey.STATUS] == IpamRowStatus.ASSIGNED
+    assert first_row[IpamOverviewKey.ASSIGNED_TO][IpamOverviewKey.SUMMARY_LINE] == 'Server: web01'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                            build_subnet_overview                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_subnet_overview_propagates_load_subnet_aborts() -> None:
     """An abort raised by _load_subnet_object propagates out of the orchestrator"""
-    from werkzeug.exceptions import NotFound
-
     with patch(f'{PATH}._load_subnet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
@@ -808,6 +1046,77 @@ def test_build_subnet_overview_total_equals_assignable_for_paginated_ip_table() 
          patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
          patch(f'{PATH}._resolve_type_meta', return_value={}):
         payload = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=5)
+
+    assert (
+        payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL]
+        == payload[IpamOverviewKey.SUBNET][IpamOverviewKey.ASSIGNABLE_IPS]
+    )
+
+
+def test_build_subnet_overview_search_filters_ips_total_below_assignable() -> None:
+    """Active search shrinks ips.total to the match count; assignable_ips stays the full count"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=50, search='10.0.0.5',
+        )
+
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] < payload[
+        IpamOverviewKey.SUBNET
+    ][IpamOverviewKey.ASSIGNABLE_IPS]
+    assert all('10.0.0.5' in row[IpamOverviewKey.IP]
+               for row in payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS])
+
+
+def test_build_subnet_overview_kpi_block_is_invariant_under_search() -> None:
+    """KPI counters (total / assignable / used / free) are unaffected by an active search"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        no_search = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+        with_search = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, search='10.0.0.5',
+        )
+
+    assert no_search[IpamOverviewKey.SUBNET] == with_search[IpamOverviewKey.SUBNET]
+
+
+def test_build_subnet_overview_distributions_are_invariant_under_search() -> None:
+    """type_distribution and ip_distribution are computed over the whole subnet, not the search match"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000'}}
+
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta):
+        no_search = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+        with_search = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, search='10.0.0.5',
+        )
+
+    assert no_search[IpamOverviewKey.TYPE_DISTRIBUTION] == with_search[IpamOverviewKey.TYPE_DISTRIBUTION]
+    assert no_search[IpamOverviewKey.IP_DISTRIBUTION] == with_search[IpamOverviewKey.IP_DISTRIBUTION]
+
+
+def test_build_subnet_overview_search_below_min_length_is_treated_as_no_search() -> None:
+    """A 1-char query (below MIN_QUERY_LENGTH) restores the full assignable-range table"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=5, search='1',
+        )
 
     assert (
         payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL]

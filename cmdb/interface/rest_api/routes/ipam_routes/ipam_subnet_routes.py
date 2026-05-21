@@ -17,7 +17,9 @@
 REST routes for SUBNET-centric IPAM views
 
 Currently exposes the subnet IP-Übersicht payload that powers the per-subnet IP table view in
-the frontend
+the frontend. The IP table is paginated and supports an optional case-insensitive substring
+search against the canonical IP strings; the search filter does not affect the KPI block or
+the distributions
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -30,7 +32,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.special_type_model.ipam_constants import IpamPagination
+from cmdb.models.special_type_model.ipam_constants import IpamPagination, IpamSearch, IpamOverviewKey
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -59,6 +61,11 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     Query params:
         page (int, default=1): 1-based page number; clamped into the valid range server-side
         page_size (int, default=50): page size; clamped into [1, 500] server-side
+        search (str, optional): case-insensitive substring filter against each canonical IP
+            string; empty / whitespace and queries shorter than IpamSearch.MIN_QUERY_LENGTH
+            are ignored, queries longer than IpamSearch.MAX_QUERY_LENGTH are truncated at the
+            route boundary. The filter applies to both assigned and free IPs; the KPI block,
+            type_distribution, and ip_distribution stay invariant under search
 
     Args:
         public_id (int): public_id of the SUBNET CmdbObject to summarise
@@ -69,11 +76,13 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
             'type_distribution': [{public_id, label, count, percentage}, ...]}
     """
     try:
-        page: int = request.args.get('page', default=1, type=int) or 1
+        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
         page_size: int = (
-            request.args.get('page_size', default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
+            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
             or IpamPagination.DEFAULT_PAGE_SIZE
         )
+        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
+        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -84,6 +93,7 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
             public_id,
             page=page,
             page_size=page_size,
+            search=search,
         )
 
         return DefaultResponse(overview).make_response()
