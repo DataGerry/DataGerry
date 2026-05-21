@@ -40,7 +40,6 @@ from cmdb.models.special_type_model.ipam_constants import (
     VlanField,
     IpamSection,
     IpamPagination,
-    IpamSearch,
     IpamOverviewKey,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet, total_address_count
@@ -53,6 +52,7 @@ from cmdb.models.object_model import (
 )
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -410,31 +410,6 @@ def _select_invalid_rows(ordered_subnets: list[dict[str, Any]]) -> list[dict[str
     return [row for row in ordered_subnets if not row.get(IpamOverviewKey.IS_VALID, False)]
 
 
-def _active_search(search: str) -> str | None:
-    """
-    Normalizes a raw search query and reports whether it is active
-
-    A query is active when, after stripping surrounding whitespace, it carries at least
-    IpamSearch.MIN_QUERY_LENGTH characters. Active queries are returned as the stripped
-    string callers should pass to ``_filter_rows_by_network_substring``; inactive queries
-    (None / empty / whitespace / too short) return None so callers can keep the "no filter"
-    branch as a simple ``is None`` check. The IpamSearch.MAX_QUERY_LENGTH truncation is the
-    route's responsibility - this helper does not re-clip
-
-    Args:
-        search (str): Raw search query as received by the caller
-
-    Returns:
-        str | None: The stripped query when active, None otherwise
-    """
-    needle: str = (search or '').strip()
-
-    if len(needle) >= IpamSearch.MIN_QUERY_LENGTH:
-        return needle
-
-    return None
-
-
 def _select_listed_rows(
     ordered_subnets: list[dict[str, Any]],
     search: str,
@@ -443,7 +418,7 @@ def _select_listed_rows(
     Picks the rows to expose in the supernet overview's 'subnets' block
 
     Encapsulates the search-vs-tree branch. When the search query is active (see
-    ``_active_search``) the rows are filtered to every subnet whose 'network' property contains
+    ``active_search``) the rows are filtered to every subnet whose 'network' property contains
     the query as a case-insensitive substring (regardless of nesting depth). Otherwise the
     function falls back to the top-level tree view, returning only rows whose 'parent_id' is
     None - the same set the overview surfaces when no search is active
@@ -457,7 +432,7 @@ def _select_listed_rows(
     Returns:
         list[dict[str, Any]]: Rows to list in the overview, preserving the input row order
     """
-    needle: str | None = _active_search(search)
+    needle: str | None = active_search(search)
 
     if needle is not None:
         return _filter_rows_by_network_substring(ordered_subnets, needle)
@@ -474,7 +449,7 @@ def _select_invalid_listed_rows(
 
     Parallel to ``_select_listed_rows`` but scoped to the invalid subset: always restricts to
     rows whose 'is_valid' annotation is False, then applies the shared search activation rule
-    via ``_active_search``. With an active search the result is further filtered to entries
+    via ``active_search``. With an active search the result is further filtered to entries
     whose 'network' (cidr) property contains the query as a case-insensitive substring;
     otherwise every invalid row is returned. The tree shape is intentionally dropped: this
     view is a flat list at every depth
@@ -488,7 +463,7 @@ def _select_invalid_listed_rows(
         list[dict[str, Any]]: Invalid rows to list, preserving the input row order
     """
     invalid: list[dict[str, Any]] = _select_invalid_rows(ordered_subnets)
-    needle: str | None = _active_search(search)
+    needle: str | None = active_search(search)
 
     if needle is not None:
         return _filter_rows_by_network_substring(invalid, needle)

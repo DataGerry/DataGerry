@@ -56,6 +56,7 @@ from cmdb.models.object_model import (
 )
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -104,6 +105,168 @@ def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str
     end_offset: int = min(start_offset + page_size, total)
 
     return [str(IPv4Address(first + i)) for i in range(start_offset, end_offset)]
+
+
+def _compose_ip_row(
+    ip_str: str,
+    assigned: dict[str, dict[str, Any]],
+    type_meta: dict[int, dict[str, Any]],
+    objects_manager: ObjectsManager,
+) -> dict[str, Any]:
+    """
+    Shapes one IP-table row, returning either the assigned or the free variant
+
+    Branches once on the presence of the IP in the assigned map. For an assigned IP the
+    helper resolves the summary line via ``objects_manager.get_summary_line`` and shapes the
+    type_info triple from ``type_meta`` (any missing label / color comes through as None).
+    For a free IP it returns the free-row shape directly. Keeping this composition in one
+    function lets ``build_subnet_overview`` build the page-rows as a single list comprehension
+
+    Args:
+        ip_str (str): The canonical IP string this row represents
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by ``_resolve_type_meta``
+        objects_manager (ObjectsManager): db interface for CmdbObjects (used to fetch the
+            summary line for assigned rows)
+
+    Returns:
+        dict[str, Any]: An assigned or free row shape as produced by ``_compose_assigned_row``
+            / ``_compose_free_row``
+    """
+    info: dict[str, Any] | None = assigned.get(ip_str)
+
+    if info is None:
+        return _compose_free_row(ip_str)
+
+    summary_line: str = objects_manager.get_summary_line(info[_AssignedField.OBJECT_ID], with_type=True)
+
+    type_id: Any = info[_AssignedField.TYPE_ID]
+    type_entry: dict[str, Any] | None = type_meta.get(type_id) if type_id is not None else None
+    type_info: dict[str, Any] | None = (
+        {
+            CmdbObjectKey.PUBLIC_ID: type_id,
+            IpamOverviewKey.LABEL: type_entry.get(IpamOverviewKey.LABEL) if type_entry else None,
+            IpamOverviewKey.CI_EXPLORER_COLOR: (
+                type_entry.get(IpamOverviewKey.CI_EXPLORER_COLOR) if type_entry else None
+            ),
+        }
+        if type_id is not None
+        else None
+    )
+
+    return _compose_assigned_row(
+        ip_str,
+        type_info,
+        {
+            CmdbObjectKey.PUBLIC_ID: info[_AssignedField.OBJECT_ID],
+            IpamOverviewKey.SUMMARY_LINE: summary_line,
+        },
+        info[_AssignedField.MAC],
+    )
+
+
+def _build_ips_block(
+    network: IPv4Network,
+    assignable: int,
+    page: int,
+    page_size: int,
+    search: str,
+    assigned: dict[str, dict[str, Any]],
+    type_meta: dict[int, dict[str, Any]],
+    objects_manager: ObjectsManager,
+) -> dict[str, Any]:
+    """
+    Builds the 'ips' page block (page, page_size, total, rows) for the IP-Übersicht payload
+
+    Branches on whether ``search`` is active (per ``active_search``). With no active search the
+    block lists every assignable address in ascending order using ``_page_slice_ips`` so a
+    large subnet does not materialize its full IP list; 'total' is the subnet's assignable
+    address count. With an active search the block lists the matching IPs only (substring
+    match against canonical IP strings via ``list_assignable_ips_matching_substring``);
+    'total' is the match count and pagination clamps against that smaller denominator. Rows
+    are shaped one-per-IP through ``_compose_ip_row`` so the assigned/free branch and the
+    summary-line resolution stay encapsulated
+
+    Args:
+        network (IPv4Network): The parsed subnet network
+        assignable (int): Assignable address count of the subnet
+        page (int): 1-based page number; clamped server-side
+        page_size (int): Page size; clamped server-side
+        search (str): Raw search query as received by the caller
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by ``_resolve_type_meta``
+        objects_manager (ObjectsManager): db interface for CmdbObjects (used by
+            ``_compose_ip_row`` for assigned-row summary lines)
+
+    Returns:
+        dict[str, Any]: {page, page_size, total, rows} block ready to drop under the 'ips'
+            key of the overview payload
+    """
+    needle: str | None = active_search(search)
+
+    if needle is None:
+        safe_page, safe_size = clamp_page(page, page_size, assignable)
+        page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
+        ips_total: int = assignable
+    else:
+        matching_ips: list[str] = list_assignable_ips_matching_substring(network, needle)
+        safe_page, safe_size = clamp_page(page, page_size, len(matching_ips))
+        start: int = (safe_page - 1) * safe_size
+        page_ips = matching_ips[start:start + safe_size]
+        ips_total = len(matching_ips)
+
+    return {
+        IpamOverviewKey.PAGE: safe_page,
+        IpamOverviewKey.PAGE_SIZE: safe_size,
+        IpamOverviewKey.TOTAL: ips_total,
+        IpamOverviewKey.ROWS: [
+            _compose_ip_row(ip, assigned, type_meta, objects_manager) for ip in page_ips
+        ],
+    }
+
+
+def list_assignable_ips_matching_substring(network: IPv4Network, needle: str) -> list[str]:
+    """
+    Returns the canonical IP strings of a subnet's assignable addresses that contain ``needle``
+
+    Walks the subnet's assignable range exactly once. The same address-skipping policy
+    ``_page_slice_ips`` uses applies here: for /30 and shorter the network and broadcast
+    addresses are skipped, /31 includes both endpoints, /32 includes the single host. The
+    matcher is a case-insensitive substring test against the canonical dotted-quad string,
+    so "10.0.0" matches every 10.0.0.x address and also any other address whose canonical
+    form contains "10.0.0" as a substring
+
+    For a /16 the scan is ~65k iterations, sub-millisecond on modern hardware; very large
+    subnets pay proportional cost but the matcher is only invoked when search is active.
+    The caller is responsible for stripping / length-gating the raw search query (see
+    ``active_search``) - this helper takes the already-normalized needle
+
+    Args:
+        network (IPv4Network): The parsed subnet network
+        needle (str): The substring to match against canonical IP strings; already stripped
+            and known to be active
+
+    Returns:
+        list[str]: Matching canonical IP strings in ascending IP order; empty when no
+            assignable address contains the needle
+    """
+    first: int = first_assignable_int(network)
+    total: int = assignable_address_count(network)
+    lowered_needle: str = needle.lower()
+
+    matches: list[str] = []
+
+    for offset in range(total):
+        ip_str: str = str(IPv4Address(first + offset))
+
+        if lowered_needle in ip_str.lower():
+            matches.append(ip_str)
+
+    return matches
 
 
 def _compose_assigned_row(
@@ -609,6 +772,7 @@ def build_subnet_overview(
     public_id: int,
     page: int = 1,
     page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
+    search: str = '',
 ) -> dict[str, Any]:
     """
     Builds the full IP-Übersicht payload for the SUBNET CmdbObject identified by public_id
@@ -627,6 +791,15 @@ def build_subnet_overview(
     Summary lines are resolved only for the assigned rows on the requested page, never for the
     whole subnet, so the cost is bounded by page_size
 
+    When ``search`` is empty / whitespace or shorter than IpamSearch.MIN_QUERY_LENGTH after
+    stripping, the IP table paginates every assignable address in ascending order ('ips.total'
+    equals 'assignable_ips'). When ``search`` is active, the IP table lists only the
+    assignable addresses whose canonical dotted-quad string contains the query as a case-
+    insensitive substring; 'ips.total' shrinks to the match count, but the 'subnet' KPI block,
+    'type_distribution', and 'ip_distribution' are unaffected - they always cover the whole
+    subnet. Both assigned and free rows can match: search is over the IP string itself, not
+    over assignment metadata
+
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
@@ -634,6 +807,9 @@ def build_subnet_overview(
         page (int): 1-based page number (clamped into the valid range)
         page_size (int): Page size (clamped to [IpamPagination.MIN_PAGE_SIZE,
             IpamPagination.MAX_PAGE_SIZE])
+        search (str): Optional case-insensitive substring filter against each canonical IP
+            string; empty / whitespace and queries shorter than IpamSearch.MIN_QUERY_LENGTH
+            after stripping are ignored and restore the unfiltered page
 
     Returns:
         dict[str, Any]: {'subnet': {public_id, cidr, total_ips, assignable_ips,
@@ -648,8 +824,8 @@ def build_subnet_overview(
             IP-Verteilung heatmap grid covering the full address space (network + broadcast
             included). The grid is emitted only at its full 4 x 16 size (/26 and shorter
             prefixes); for /27 and narrower, or when the CIDR is unparsable, ip_distribution
-            is an empty dict. 'ips.total' equals 'assignable_ips' so the table paginates
-            exactly the rows the validator would accept
+            is an empty dict. 'ips.total' equals 'assignable_ips' under no search, or the
+            match count when search is active
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
 
@@ -677,75 +853,29 @@ def build_subnet_overview(
             IpamOverviewKey.IP_DISTRIBUTION: {},
         }
 
-    total: int = total_address_count(network)
     assignable: int = assignable_address_count(network)
     assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
     used_ips: int = len(assigned)
-    free_ips: int = max(0, assignable - used_ips)
 
-    assigned_type_ids: list[int] = [
+    type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, [
         info[_AssignedField.TYPE_ID]
         for info in assigned.values()
         if isinstance(info.get(_AssignedField.TYPE_ID), int)
-    ]
-    type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, assigned_type_ids)
-
-    type_distribution: list[dict[str, Any]] = _build_type_distribution(assigned, type_meta, assignable)
-    ip_distribution: dict[str, Any] = _build_ip_distribution(network, assigned)
-
-    safe_page, safe_size = clamp_page(page, page_size, assignable)
-    page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
-
-    rows: list[dict[str, Any]] = []
-
-    for ip in page_ips:
-        info: dict[str, Any] | None = assigned.get(ip)
-
-        if info is None:
-            rows.append(_compose_free_row(ip))
-            continue
-
-        summary_line: str = objects_manager.get_summary_line(info[_AssignedField.OBJECT_ID], with_type=True)
-
-        type_id: Any = info[_AssignedField.TYPE_ID]
-        type_entry: dict[str, Any] | None = type_meta.get(type_id) if type_id is not None else None
-        type_info: dict[str, Any] | None = (
-            {
-                CmdbObjectKey.PUBLIC_ID: type_id,
-                IpamOverviewKey.LABEL: type_entry.get(IpamOverviewKey.LABEL) if type_entry else None,
-                IpamOverviewKey.CI_EXPLORER_COLOR: (
-                    type_entry.get(IpamOverviewKey.CI_EXPLORER_COLOR) if type_entry else None
-                ),
-            }
-            if type_id is not None
-            else None
-        )
-
-        rows.append(_compose_assigned_row(
-            ip,
-            type_info,
-            {
-                CmdbObjectKey.PUBLIC_ID: info[_AssignedField.OBJECT_ID],
-                IpamOverviewKey.SUMMARY_LINE: summary_line,
-            },
-            info[_AssignedField.MAC],
-        ))
+    ])
 
     return {
         IpamOverviewKey.SUBNET: {
             CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
             IpamOverviewKey.CIDR: str(network),
-            IpamOverviewKey.TOTAL_IPS: total,
+            IpamOverviewKey.TOTAL_IPS: total_address_count(network),
             IpamOverviewKey.ASSIGNABLE_IPS: assignable,
             IpamOverviewKey.USED_IPS: used_ips,
-            IpamOverviewKey.FREE_IPS: free_ips,
+            IpamOverviewKey.FREE_IPS: max(0, assignable - used_ips),
         },
-        IpamOverviewKey.IPS: {
-            IpamOverviewKey.PAGE: safe_page,
-            IpamOverviewKey.PAGE_SIZE: safe_size,
-            IpamOverviewKey.TOTAL: assignable,
-            IpamOverviewKey.ROWS: rows,
-        },
-        IpamOverviewKey.TYPE_DISTRIBUTION: type_distribution,
-        IpamOverviewKey.IP_DISTRIBUTION: ip_distribution,
+        IpamOverviewKey.IPS: _build_ips_block(
+            network, assignable, page, page_size, search,
+            assigned, type_meta, objects_manager,
+        ),
+        IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
+        IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned),
     }

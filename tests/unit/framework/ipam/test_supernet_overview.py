@@ -50,8 +50,8 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.search import active_search
 from cmdb.framework.ipam.supernet_overview import (
-    _active_search,
     _annotate_has_children,
     _annotate_is_valid,
     _attach_vlans_to_rows,
@@ -699,44 +699,44 @@ def test_filter_rows_by_network_substring_matches_unparsable_string_cidr() -> No
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               _active_search                                                         #
+#                                               active_search                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_active_search_returns_none_for_none_input() -> None:
+def testactive_search_returns_none_for_none_input() -> None:
     """None coerces to '' and falls below the min-length gate"""
-    assert _active_search(None) is None  # type: ignore[arg-type]
+    assert active_search(None) is None  # type: ignore[arg-type]
 
 
-def test_active_search_returns_none_for_empty_string() -> None:
+def testactive_search_returns_none_for_empty_string() -> None:
     """An empty string is never active"""
-    assert _active_search('') is None
+    assert active_search('') is None
 
 
-def test_active_search_returns_none_for_whitespace_only_input() -> None:
+def testactive_search_returns_none_for_whitespace_only_input() -> None:
     """Whitespace strips to empty -> not active"""
-    assert _active_search('   ') is None
+    assert active_search('   ') is None
 
 
-def test_active_search_returns_none_for_query_below_min_length() -> None:
+def testactive_search_returns_none_for_query_below_min_length() -> None:
     """A 1-char query (with MIN_QUERY_LENGTH=2) is not yet active"""
     assert IpamSearch.MIN_QUERY_LENGTH == 2  # pinning the policy this test depends on
-    assert _active_search('1') is None
+    assert active_search('1') is None
 
 
-def test_active_search_returns_stripped_needle_at_min_length() -> None:
+def testactive_search_returns_stripped_needle_at_min_length() -> None:
     """A query exactly at MIN_QUERY_LENGTH becomes active and is returned stripped"""
-    assert _active_search('  ab  ') == 'ab'
+    assert active_search('  ab  ') == 'ab'
 
 
-def test_active_search_returns_stripped_needle_above_min_length() -> None:
+def testactive_search_returns_stripped_needle_above_min_length() -> None:
     """A longer query is returned stripped of surrounding whitespace"""
-    assert _active_search('  10.0  ') == '10.0'
+    assert active_search('  10.0  ') == '10.0'
 
 
-def test_active_search_does_not_truncate_at_max_query_length() -> None:
+def testactive_search_does_not_truncate_at_max_query_length() -> None:
     """MAX_QUERY_LENGTH clipping is the route's job, not the helper's"""
     long_query: str = 'x' * (IpamSearch.MAX_QUERY_LENGTH + 50)
 
-    assert _active_search(long_query) == long_query
+    assert active_search(long_query) == long_query
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
