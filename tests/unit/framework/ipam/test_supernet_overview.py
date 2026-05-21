@@ -30,7 +30,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.models.object_model import (
     CmdbObjectKey,
@@ -51,9 +51,12 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.supernet_overview import (
+    _active_search,
     _annotate_has_children,
+    _annotate_is_valid,
     _attach_vlans_to_rows,
     _build_linked_subnet_rows,
+    _count_invalid_rows,
     _count_used_ips_per_subnet,
     _filter_rows_by_network_substring,
     _index_children_by_parent,
@@ -64,9 +67,13 @@ from cmdb.framework.ipam.supernet_overview import (
     _paginate_rows,
     _parse_supernet_cidr,
     _percent,
+    _prepare_supernet_view,
     _row_subnet_ref,
+    _select_invalid_listed_rows,
+    _select_invalid_rows,
     _select_listed_rows,
     _summarize_supernet,
+    build_invalid_subnet_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
     compute_subnet_row,
@@ -493,6 +500,150 @@ def test_annotate_has_children_sets_false_for_row_with_missing_public_id() -> No
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                             _annotate_is_valid                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_annotate_is_valid_sets_true_for_row_strictly_inside_supernet() -> None:
+    """A row whose CIDR sits strictly inside the supernet network gets is_valid=True"""
+    row = _make_row(1, SUBNET_RANGE_A)
+
+    _annotate_is_valid([row], IPv4Network(SUPERNET_RANGE))
+
+    assert row[IpamOverviewKey.IS_VALID] is True
+
+
+def test_annotate_is_valid_sets_false_for_row_equal_to_supernet() -> None:
+    """A row whose CIDR exactly matches the supernet is NOT strictly contained -> False"""
+    row = _make_row(1, SUPERNET_RANGE)
+
+    _annotate_is_valid([row], IPv4Network(SUPERNET_RANGE))
+
+    assert row[IpamOverviewKey.IS_VALID] is False
+
+
+def test_annotate_is_valid_sets_false_for_row_outside_supernet() -> None:
+    """A row whose CIDR falls outside the supernet network gets is_valid=False"""
+    row = _make_row(1, '192.168.1.0/24')
+
+    _annotate_is_valid([row], IPv4Network(SUPERNET_RANGE))
+
+    assert row[IpamOverviewKey.IS_VALID] is False
+
+
+def test_annotate_is_valid_sets_false_for_row_with_unparsable_cidr() -> None:
+    """A row whose 'cidr' is not a canonical CIDR string is invalid"""
+    row = _make_row(1, 'not-a-cidr')
+
+    _annotate_is_valid([row], IPv4Network(SUPERNET_RANGE))
+
+    assert row[IpamOverviewKey.IS_VALID] is False
+
+
+def test_annotate_is_valid_sets_false_for_row_with_non_string_cidr() -> None:
+    """A row whose 'cidr' is None (or any non-string) is invalid"""
+    row = _make_row(1, None)
+
+    _annotate_is_valid([row], IPv4Network(SUPERNET_RANGE))
+
+    assert row[IpamOverviewKey.IS_VALID] is False
+
+
+def test_annotate_is_valid_sets_false_for_every_row_when_supernet_network_is_none() -> None:
+    """A supernet network of None (CIDR missing or unparsable) flips every row to False"""
+    row_inside = _make_row(1, SUBNET_RANGE_A)
+    row_outside = _make_row(2, '192.168.1.0/24')
+
+    _annotate_is_valid([row_inside, row_outside], None)
+
+    assert row_inside[IpamOverviewKey.IS_VALID] is False
+    assert row_outside[IpamOverviewKey.IS_VALID] is False
+
+
+def test_annotate_is_valid_mutates_rows_in_place() -> None:
+    """The annotator mutates each row directly; the IS_VALID key is set on every supplied dict"""
+    row = _make_row(1, SUBNET_RANGE_A)
+
+    _annotate_is_valid([row], IPv4Network(SUPERNET_RANGE))
+
+    assert IpamOverviewKey.IS_VALID in row
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             _count_invalid_rows                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_count_invalid_rows_returns_zero_for_empty_list() -> None:
+    """No rows -> zero invalid"""
+    assert _count_invalid_rows([]) == 0
+
+
+def test_count_invalid_rows_returns_zero_when_every_row_is_valid() -> None:
+    """All rows marked valid -> zero invalid"""
+    rows = [
+        {**_make_row(1, SUBNET_RANGE_A), IpamOverviewKey.IS_VALID: True},
+        {**_make_row(2, SUBNET_RANGE_B), IpamOverviewKey.IS_VALID: True},
+    ]
+
+    assert _count_invalid_rows(rows) == 0
+
+
+def test_count_invalid_rows_counts_only_invalid_rows_in_mixed_input() -> None:
+    """Mixed valid/invalid rows -> exact invalid count"""
+    rows = [
+        {**_make_row(1, SUBNET_RANGE_A), IpamOverviewKey.IS_VALID: True},
+        {**_make_row(2, SUBNET_RANGE_B), IpamOverviewKey.IS_VALID: False},
+        {**_make_row(3, '192.168.1.0/24'), IpamOverviewKey.IS_VALID: False},
+    ]
+
+    assert _count_invalid_rows(rows) == 2
+
+
+def test_count_invalid_rows_counts_rows_missing_the_key_as_invalid() -> None:
+    """A row without the is_valid key is counted as invalid (defensive against unannotated input)"""
+    rows = [
+        {**_make_row(1, SUBNET_RANGE_A), IpamOverviewKey.IS_VALID: True},
+        _make_row(2, SUBNET_RANGE_B),
+    ]
+
+    assert _count_invalid_rows(rows) == 1
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             _select_invalid_rows                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_select_invalid_rows_returns_empty_for_empty_input() -> None:
+    """No rows -> empty list"""
+    assert _select_invalid_rows([]) == []
+
+
+def test_select_invalid_rows_returns_empty_when_every_row_is_valid() -> None:
+    """All-valid input -> empty list"""
+    rows = [
+        {**_make_row(1, SUBNET_RANGE_A), IpamOverviewKey.IS_VALID: True},
+        {**_make_row(2, SUBNET_RANGE_B), IpamOverviewKey.IS_VALID: True},
+    ]
+
+    assert _select_invalid_rows(rows) == []
+
+
+def test_select_invalid_rows_returns_invalid_subset_preserving_input_order() -> None:
+    """Mixed input -> only invalid rows come back, in their original order"""
+    valid_a = {**_make_row(1, SUBNET_RANGE_A), IpamOverviewKey.IS_VALID: True}
+    invalid_b = {**_make_row(2, SUBNET_RANGE_B), IpamOverviewKey.IS_VALID: False}
+    invalid_c = {**_make_row(3, '192.168.1.0/24'), IpamOverviewKey.IS_VALID: False}
+
+    result = _select_invalid_rows([invalid_b, valid_a, invalid_c])
+
+    assert result == [invalid_b, invalid_c]
+
+
+def test_select_invalid_rows_includes_rows_missing_the_key() -> None:
+    """A row without the is_valid key is included (defensive against unannotated input)"""
+    annotated_valid = {**_make_row(1, SUBNET_RANGE_A), IpamOverviewKey.IS_VALID: True}
+    unannotated = _make_row(2, SUBNET_RANGE_B)
+
+    assert _select_invalid_rows([annotated_valid, unannotated]) == [unannotated]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                       _filter_rows_by_network_substring                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_filter_rows_by_network_substring_returns_empty_for_empty_input() -> None:
@@ -545,6 +696,47 @@ def test_filter_rows_by_network_substring_matches_unparsable_string_cidr() -> No
     rows = [{CmdbObjectKey.PUBLIC_ID: 1, IpamOverviewKey.CIDR: 'not-a-cidr'}]
 
     assert _filter_rows_by_network_substring(rows, 'cidr') == rows
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               _active_search                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_active_search_returns_none_for_none_input() -> None:
+    """None coerces to '' and falls below the min-length gate"""
+    assert _active_search(None) is None  # type: ignore[arg-type]
+
+
+def test_active_search_returns_none_for_empty_string() -> None:
+    """An empty string is never active"""
+    assert _active_search('') is None
+
+
+def test_active_search_returns_none_for_whitespace_only_input() -> None:
+    """Whitespace strips to empty -> not active"""
+    assert _active_search('   ') is None
+
+
+def test_active_search_returns_none_for_query_below_min_length() -> None:
+    """A 1-char query (with MIN_QUERY_LENGTH=2) is not yet active"""
+    assert IpamSearch.MIN_QUERY_LENGTH == 2  # pinning the policy this test depends on
+    assert _active_search('1') is None
+
+
+def test_active_search_returns_stripped_needle_at_min_length() -> None:
+    """A query exactly at MIN_QUERY_LENGTH becomes active and is returned stripped"""
+    assert _active_search('  ab  ') == 'ab'
+
+
+def test_active_search_returns_stripped_needle_above_min_length() -> None:
+    """A longer query is returned stripped of surrounding whitespace"""
+    assert _active_search('  10.0  ') == '10.0'
+
+
+def test_active_search_does_not_truncate_at_max_query_length() -> None:
+    """MAX_QUERY_LENGTH clipping is the route's job, not the helper's"""
+    long_query: str = 'x' * (IpamSearch.MAX_QUERY_LENGTH + 50)
+
+    assert _active_search(long_query) == long_query
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -603,6 +795,65 @@ def test_select_listed_rows_strips_search_before_min_length_check() -> None:
     nested = _make_nested_row(2, '10.0.0.0/25', parent_id=1)
 
     assert _select_listed_rows([top, nested], '  1  ') == [top]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           _select_invalid_listed_rows                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _make_annotated_row(public_id: int, cidr: str, is_valid: bool) -> dict[str, Any]:
+    """Returns an overview row pre-annotated with parent_id=None and is_valid for selection tests."""
+    return {
+        **_make_row(public_id, cidr),
+        IpamOverviewKey.PARENT_ID: None,
+        IpamOverviewKey.IS_VALID: is_valid,
+    }
+
+
+def test_select_invalid_listed_rows_returns_only_invalid_when_search_is_empty() -> None:
+    """No search -> every invalid row, in input order; valid rows never leak through"""
+    valid = _make_annotated_row(1, SUBNET_RANGE_A, is_valid=True)
+    invalid_a = _make_annotated_row(2, '192.168.0.0/24', is_valid=False)
+    invalid_b = _make_annotated_row(3, '192.168.1.0/24', is_valid=False)
+
+    assert _select_invalid_listed_rows([valid, invalid_a, invalid_b], '') == [invalid_a, invalid_b]
+
+
+def test_select_invalid_listed_rows_returns_all_invalid_for_whitespace_only_search() -> None:
+    """A whitespace search strips to empty and falls back to the full invalid set"""
+    invalid_a = _make_annotated_row(1, '192.168.0.0/24', is_valid=False)
+    invalid_b = _make_annotated_row(2, '192.168.1.0/24', is_valid=False)
+
+    assert _select_invalid_listed_rows([invalid_a, invalid_b], '   ') == [invalid_a, invalid_b]
+
+
+def test_select_invalid_listed_rows_falls_back_when_search_below_min_length() -> None:
+    """A 1-char query is below MIN_QUERY_LENGTH and is ignored - full invalid set is returned"""
+    invalid_a = _make_annotated_row(1, '192.168.0.0/24', is_valid=False)
+    invalid_b = _make_annotated_row(2, '10.0.5.0/24', is_valid=False)
+
+    assert _select_invalid_listed_rows([invalid_a, invalid_b], '1') == [invalid_a, invalid_b]
+
+
+def test_select_invalid_listed_rows_substring_filters_within_invalid_subset_only() -> None:
+    """Active search filters by substring AGAINST THE INVALID SUBSET; valid matches never leak"""
+    valid_match = _make_annotated_row(1, '10.0.0.0/24', is_valid=True)
+    invalid_match = _make_annotated_row(2, '10.0.5.0/24', is_valid=False)
+    invalid_no_match = _make_annotated_row(3, '192.168.0.0/24', is_valid=False)
+
+    result = _select_invalid_listed_rows([valid_match, invalid_match, invalid_no_match], '10.0')
+
+    assert result == [invalid_match]
+
+
+def test_select_invalid_listed_rows_returns_empty_when_no_invalid_rows() -> None:
+    """An all-valid input yields an empty list regardless of search activation"""
+    rows = [
+        _make_annotated_row(1, SUBNET_RANGE_A, is_valid=True),
+        _make_annotated_row(2, SUBNET_RANGE_B, is_valid=True),
+    ]
+
+    assert _select_invalid_listed_rows(rows, '') == []
+    assert _select_invalid_listed_rows(rows, '10.0') == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1178,12 +1429,90 @@ def test_summarize_supernet_forwards_none_network_unchanged() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                            _prepare_supernet_view                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_prepare_supernet_view_propagates_load_supernet_aborts() -> None:
+    """An abort raised by _load_supernet_object propagates out of the prep helper"""
+    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+         pytest.raises(HTTPException) as exc_info:
+        _prepare_supernet_view(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert exc_info.value.code == 404
+
+
+def test_prepare_supernet_view_returns_four_tuple_with_expected_types() -> None:
+    """Tuple shape: (supernet doc, annotated rows list, summary dict, invalid count int)"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_in = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_in]):
+        returned_doc, rows, summary, invalid_count = _prepare_supernet_view(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
+        )
+
+    assert returned_doc is supernet_doc
+    assert rows == [row_in]
+    assert isinstance(summary, dict)
+    assert isinstance(invalid_count, int)
+
+
+def test_prepare_supernet_view_annotates_rows_with_has_children_and_is_valid_before_returning() -> None:
+    """Every returned row carries both annotations regardless of CIDR validity"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
+    row_outside = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid, row_outside]):
+        _, rows, _summary, _invalid = _prepare_supernet_view(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
+        )
+
+    for row in rows:
+        assert IpamOverviewKey.HAS_CHILDREN in row
+        assert IpamOverviewKey.IS_VALID in row
+
+
+def test_prepare_supernet_view_returns_invalid_count_matching_annotated_rows() -> None:
+    """invalid_count is the number of rows whose is_valid annotation came out False"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
+    row_outside = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.USED_IPS: 0}
+    row_unparsable = {**_make_row(99, 'not-a-cidr'), IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(
+             f'{PATH}._build_linked_subnet_rows',
+             return_value=[row_valid, row_outside, row_unparsable],
+         ):
+        _, _rows, _summary, invalid_count = _prepare_supernet_view(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
+        )
+
+    assert invalid_count == 2
+
+
+def test_prepare_supernet_view_marks_every_row_invalid_when_supernet_cidr_unparsable() -> None:
+    """A supernet with a missing or unparsable CIDR makes every row invalid"""
+    broken_supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')
+    row_in = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=broken_supernet), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_in]):
+        _, rows, _summary, invalid_count = _prepare_supernet_view(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
+        )
+
+    assert invalid_count == 1
+    assert rows[0][IpamOverviewKey.IS_VALID] is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                          build_supernet_overview                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_supernet_overview_propagates_load_supernet_aborts() -> None:
     """An abort raised by _load_supernet_object propagates out of the orchestrator"""
-    from werkzeug.exceptions import NotFound
-
     with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
@@ -1205,7 +1534,11 @@ def test_build_supernet_overview_returns_payload_with_supernet_and_subnets_block
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_nested, row_b]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
-    assert set(payload.keys()) == {IpamOverviewKey.SUPERNET, IpamOverviewKey.SUBNETS}
+    assert set(payload.keys()) == {
+        IpamOverviewKey.SUPERNET,
+        IpamOverviewKey.SUBNETS,
+        IpamOverviewKey.INVALID_COUNT,
+    }
     assert payload[IpamOverviewKey.SUPERNET][CmdbObjectKey.PUBLIC_ID] == SUPERNET_OBJECT_ID
     top_rows = payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]
     top_ids = {r[CmdbObjectKey.PUBLIC_ID] for r in top_rows}
@@ -1394,13 +1727,68 @@ def test_build_supernet_overview_paginates_flat_search_results() -> None:
     assert len(subnets_block[IpamOverviewKey.ROWS]) == 1
 
 
+def test_build_supernet_overview_annotates_is_valid_on_top_level_rows() -> None:
+    """Every row in the page carries an is_valid boolean populated against the supernet network"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_inside = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
+                  IpamOverviewKey.USED_IPS: 0}
+    row_outside = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.PARENT_ID: None,
+                   IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_inside, row_outside]):
+        payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    rows_by_id = {r[CmdbObjectKey.PUBLIC_ID]: r for r in payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]}
+    assert rows_by_id[SUBNET_OBJECT_ID_A][IpamOverviewKey.IS_VALID] is True
+    assert rows_by_id[SUBNET_OBJECT_ID_B][IpamOverviewKey.IS_VALID] is False
+
+
+def test_build_supernet_overview_invalid_count_reflects_all_nesting_depths() -> None:
+    """invalid_count is computed over all subnets, including nested ones not on the top-level page"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_top_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
+                     IpamOverviewKey.USED_IPS: 0}
+    row_nested_invalid = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, '192.168.0.0/25'),
+                          IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
+    row_top_invalid = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'),
+                       IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(
+             f'{PATH}._build_linked_subnet_rows',
+             return_value=[row_top_valid, row_nested_invalid, row_top_invalid],
+         ):
+        payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 2
+
+
+def test_build_supernet_overview_invalid_count_is_invariant_under_search() -> None:
+    """invalid_count is global; an active search shrinks subnets.total but not invalid_count"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_invalid_a = {**_make_row(SUBNET_OBJECT_ID_A, '192.168.0.0/24'),
+                     IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+    row_invalid_b = {**_make_row(SUBNET_OBJECT_ID_B, '172.16.0.0/24'),
+                     IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_invalid_a, row_invalid_b]):
+        no_search = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        with_search = build_supernet_overview(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='192.168',
+        )
+
+    assert no_search[IpamOverviewKey.INVALID_COUNT] == 2
+    assert with_search[IpamOverviewKey.INVALID_COUNT] == 2
+    assert with_search[IpamOverviewKey.SUBNETS][IpamOverviewKey.TOTAL] == 1
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       build_supernet_subnet_children                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_supernet_subnet_children_propagates_load_supernet_aborts() -> None:
     """An abort raised by _load_supernet_object propagates out of the children orchestrator"""
-    from werkzeug.exceptions import NotFound
-
     with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         build_supernet_subnet_children(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A)
@@ -1453,3 +1841,164 @@ def test_build_supernet_subnet_children_returns_empty_rows_when_subnet_has_no_ch
         )
 
     assert payload[IpamOverviewKey.ROWS] == []
+
+
+def test_build_supernet_subnet_children_annotates_is_valid_on_child_rows() -> None:
+    """Each child row carries is_valid against the supernet's network"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
+             IpamOverviewKey.USED_IPS: 0}
+    child_inside = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
+                    IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, child_inside]):
+        payload = build_supernet_subnet_children(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
+        )
+
+    child_rows = payload[IpamOverviewKey.ROWS]
+    assert all(IpamOverviewKey.IS_VALID in r for r in child_rows)
+    assert child_rows[0][IpamOverviewKey.IS_VALID] is True
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       build_invalid_subnet_overview                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_invalid_subnet_overview_propagates_load_supernet_aborts() -> None:
+    """An abort raised by _load_supernet_object propagates out of the orchestrator"""
+    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+         pytest.raises(HTTPException) as exc_info:
+        build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert exc_info.value.code == 404
+
+
+def test_build_invalid_subnet_overview_returns_envelope_keys_matching_main_overview() -> None:
+    """Same top-level keys as build_supernet_overview: supernet, subnets, invalid_count"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_invalid = {**_make_row(SUBNET_OBJECT_ID_A, '192.168.0.0/24'),
+                   IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_invalid]):
+        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert set(payload.keys()) == {
+        IpamOverviewKey.SUPERNET,
+        IpamOverviewKey.SUBNETS,
+        IpamOverviewKey.INVALID_COUNT,
+    }
+    assert payload[IpamOverviewKey.SUPERNET][CmdbObjectKey.PUBLIC_ID] == SUPERNET_OBJECT_ID
+
+
+def test_build_invalid_subnet_overview_returns_only_invalid_subnets_in_rows() -> None:
+    """Rows are the flat list of subnets whose CIDR does not sit inside the supernet"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+                 IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+    row_invalid_top = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.0.0/24'),
+                       IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+    row_invalid_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, '172.16.0.0/24'),
+                          IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A,
+                          IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(
+             f'{PATH}._build_linked_subnet_rows',
+             return_value=[row_valid, row_invalid_top, row_invalid_nested],
+         ):
+        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    rows = payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]
+    assert [r[CmdbObjectKey.PUBLIC_ID] for r in rows] == [SUBNET_OBJECT_ID_B, SUBNET_OBJECT_ID_NESTED_IN_A]
+    assert all(r[IpamOverviewKey.IS_VALID] is False for r in rows)
+
+
+def test_build_invalid_subnet_overview_returns_empty_rows_when_every_subnet_is_valid() -> None:
+    """An entirely-valid input yields total=0 and an empty rows list; envelope still emits"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+                 IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid]):
+        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.TOTAL] == 0
+    assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS] == []
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 0
+
+
+def test_build_invalid_subnet_overview_kpi_summary_matches_main_overview() -> None:
+    """The 'supernet' KPI block is computed over ALL subnets, identical to build_supernet_overview"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+                 IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 4}
+    row_invalid = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.0.0/24'),
+                   IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 2}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid, row_invalid]):
+        main_payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        invalid_payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert main_payload[IpamOverviewKey.SUPERNET] == invalid_payload[IpamOverviewKey.SUPERNET]
+
+
+def test_build_invalid_subnet_overview_paginates_the_invalid_list() -> None:
+    """page / page_size clamp the rows slice; subnets.total reflects the full invalid count"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    invalid_rows = [
+        {**_make_row(201, '192.168.0.0/24'), IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0},
+        {**_make_row(202, '192.168.1.0/24'), IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0},
+        {**_make_row(203, '192.168.2.0/24'), IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0},
+    ]
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=invalid_rows):
+        payload = build_invalid_subnet_overview(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, page=1, page_size=2,
+        )
+
+    subnets_block = payload[IpamOverviewKey.SUBNETS]
+    assert subnets_block[IpamOverviewKey.PAGE_SIZE] == 2
+    assert subnets_block[IpamOverviewKey.TOTAL] == 3
+    assert len(subnets_block[IpamOverviewKey.ROWS]) == 2
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 3
+
+
+def test_build_invalid_subnet_overview_search_filters_subnets_total_but_not_invalid_count() -> None:
+    """Active search shrinks subnets.total to substring-matching invalid rows; invalid_count stays global"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    invalid_192 = {**_make_row(201, '192.168.0.0/24'),
+                   IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+    invalid_172 = {**_make_row(202, '172.16.0.0/24'),
+                   IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[invalid_192, invalid_172]):
+        payload = build_invalid_subnet_overview(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='192.168',
+        )
+
+    subnets_block = payload[IpamOverviewKey.SUBNETS]
+    assert subnets_block[IpamOverviewKey.TOTAL] == 1
+    assert [r[CmdbObjectKey.PUBLIC_ID] for r in subnets_block[IpamOverviewKey.ROWS]] == [201]
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 2
+
+
+def test_build_invalid_subnet_overview_marks_every_row_invalid_when_supernet_cidr_missing() -> None:
+    """A supernet with an unparsable CIDR makes every subnet invalid (rows == every subnet)"""
+    broken_supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')
+    row_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+             IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+    row_b = {**_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B),
+             IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}._load_supernet_object', return_value=broken_supernet), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_b]):
+        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 2
+    assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.TOTAL] == 2

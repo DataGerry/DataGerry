@@ -340,6 +340,101 @@ def _annotate_has_children(
         row[IpamOverviewKey.HAS_CHILDREN] = bool(public_id is not None and children_index.get(public_id))
 
 
+def _annotate_is_valid(
+    rows: list[dict[str, Any]],
+    supernet_network: IPv4Network | None,
+) -> None:
+    """
+    Sets an 'is_valid' boolean on every row based on whether the row's CIDR sits strictly
+    inside the supernet's network
+
+    Rows are mutated in place. 'Valid' uses strict containment: the subnet's network must be
+    contained in the supernet network AND not be equal to it, so a subnet whose CIDR exactly
+    matches the supernet is reported as invalid. Rows with a missing or unparsable 'cidr'
+    field are always invalid (the field is the only authoritative signal of the subnet's
+    range). When the supernet network is None (its own CIDR is missing or unparsable) every
+    row is invalid - the FE then shows the orphan-all state until the supernet CIDR is fixed
+
+    Args:
+        rows (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets``
+        supernet_network (IPv4Network | None): Parsed CIDR of the supernet, or None when the
+            supernet's CIDR is missing or unparsable
+    """
+    for row in rows:
+        if supernet_network is None:
+            row[IpamOverviewKey.IS_VALID] = False
+            continue
+
+        cidr: Any = row.get(IpamOverviewKey.CIDR)
+        network: IPv4Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
+
+        if network is None:
+            row[IpamOverviewKey.IS_VALID] = False
+            continue
+
+        row[IpamOverviewKey.IS_VALID] = is_strict_subnet(supernet_network, network)
+
+
+def _count_invalid_rows(rows: list[dict[str, Any]]) -> int:
+    """
+    Returns how many rows carry 'is_valid' = False
+
+    Rows without an 'is_valid' key are counted as invalid: a caller that did not run
+    ``_annotate_is_valid`` against the same supernet network should not get a misleadingly
+    low count. The function does not mutate the input
+
+    Args:
+        rows (list[dict[str, Any]]): Rows that have been through ``_annotate_is_valid``
+
+    Returns:
+        int: Number of rows whose 'is_valid' is False (or absent)
+    """
+    return sum(1 for row in rows if not row.get(IpamOverviewKey.IS_VALID, False))
+
+
+def _select_invalid_rows(ordered_subnets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Returns every row whose 'is_valid' annotation is False, preserving input order
+
+    Used by the invalid-only orchestrator to surface the flat list of orphaned subnets after
+    ``_annotate_is_valid`` has run. A row missing the 'is_valid' key is treated as invalid
+    so that a caller that forgot to run the annotator does not get a misleadingly empty list
+
+    Args:
+        ordered_subnets (list[dict[str, Any]]): Rows that have been through ``_annotate_is_valid``
+
+    Returns:
+        list[dict[str, Any]]: The subset of ``ordered_subnets`` carrying is_valid=False,
+            in their original relative order (ascending CIDR, with unsortable rows trailing)
+    """
+    return [row for row in ordered_subnets if not row.get(IpamOverviewKey.IS_VALID, False)]
+
+
+def _active_search(search: str) -> str | None:
+    """
+    Normalizes a raw search query and reports whether it is active
+
+    A query is active when, after stripping surrounding whitespace, it carries at least
+    IpamSearch.MIN_QUERY_LENGTH characters. Active queries are returned as the stripped
+    string callers should pass to ``_filter_rows_by_network_substring``; inactive queries
+    (None / empty / whitespace / too short) return None so callers can keep the "no filter"
+    branch as a simple ``is None`` check. The IpamSearch.MAX_QUERY_LENGTH truncation is the
+    route's responsibility - this helper does not re-clip
+
+    Args:
+        search (str): Raw search query as received by the caller
+
+    Returns:
+        str | None: The stripped query when active, None otherwise
+    """
+    needle: str = (search or '').strip()
+
+    if len(needle) >= IpamSearch.MIN_QUERY_LENGTH:
+        return needle
+
+    return None
+
+
 def _select_listed_rows(
     ordered_subnets: list[dict[str, Any]],
     search: str,
@@ -347,9 +442,8 @@ def _select_listed_rows(
     """
     Picks the rows to expose in the supernet overview's 'subnets' block
 
-    Encapsulates the search-vs-tree branch and the search-input normalization. The supplied
-    ``search`` value is stripped of surrounding whitespace; if at least IpamSearch.MIN_QUERY_LENGTH
-    characters remain the rows are filtered to every subnet whose 'network' property contains
+    Encapsulates the search-vs-tree branch. When the search query is active (see
+    ``_active_search``) the rows are filtered to every subnet whose 'network' property contains
     the query as a case-insensitive substring (regardless of nesting depth). Otherwise the
     function falls back to the top-level tree view, returning only rows whose 'parent_id' is
     None - the same set the overview surfaces when no search is active
@@ -363,12 +457,43 @@ def _select_listed_rows(
     Returns:
         list[dict[str, Any]]: Rows to list in the overview, preserving the input row order
     """
-    needle: str = (search or '').strip()
+    needle: str | None = _active_search(search)
 
-    if len(needle) >= IpamSearch.MIN_QUERY_LENGTH:
+    if needle is not None:
         return _filter_rows_by_network_substring(ordered_subnets, needle)
 
     return [row for row in ordered_subnets if row.get(IpamOverviewKey.PARENT_ID) is None]
+
+
+def _select_invalid_listed_rows(
+    ordered_subnets: list[dict[str, Any]],
+    search: str,
+) -> list[dict[str, Any]]:
+    """
+    Picks the rows to expose in the invalid-subnets-only overview's 'subnets' block
+
+    Parallel to ``_select_listed_rows`` but scoped to the invalid subset: always restricts to
+    rows whose 'is_valid' annotation is False, then applies the shared search activation rule
+    via ``_active_search``. With an active search the result is further filtered to entries
+    whose 'network' (cidr) property contains the query as a case-insensitive substring;
+    otherwise every invalid row is returned. The tree shape is intentionally dropped: this
+    view is a flat list at every depth
+
+    Args:
+        ordered_subnets (list[dict[str, Any]]): Rows that have been through ``_annotate_is_valid``
+        search (str): Raw search query as received by the caller; may be empty, whitespace or
+            shorter than the minimum query length
+
+    Returns:
+        list[dict[str, Any]]: Invalid rows to list, preserving the input row order
+    """
+    invalid: list[dict[str, Any]] = _select_invalid_rows(ordered_subnets)
+    needle: str | None = _active_search(search)
+
+    if needle is not None:
+        return _filter_rows_by_network_substring(invalid, needle)
+
+    return invalid
 
 
 def _paginate_rows(
@@ -737,6 +862,48 @@ def _summarize_supernet(
     return compute_supernet_summary(supernet_network, total_used, len(ordered_subnets))
 
 
+def _prepare_supernet_view(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], int]:
+    """
+    Loads the supernet and builds the fully-annotated subnet row list shared by the
+    paginated-view orchestrators
+
+    Encapsulates the pipeline that ``build_supernet_overview`` and
+    ``build_invalid_subnet_overview`` both need before they diverge into their own row-
+    selection logic: load the supernet (aborts 400/404 on failure), parse its CIDR, build
+    the linked subnet rows, annotate 'has_children' and 'is_valid', compute the KPI summary,
+    and count the invalid rows. Returning the supernet doc, the annotated row list, the
+    summary and the invalid count lets each consumer assemble its response envelope with one
+    line of work and keeps the O(n) invalid-count scan in exactly one place
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the supernet to prepare
+
+    Returns:
+        tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], int]:
+            (supernet CmdbObject document, annotated rows in CIDR order, KPI summary dict,
+            total number of invalid rows across the full row set)
+    """
+    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
+    supernet_network: IPv4Network | None = _parse_supernet_cidr(supernet_obj)
+
+    ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
+        objects_manager, types_manager, public_id,
+    )
+    _annotate_has_children(ordered_subnets, _index_children_by_parent(ordered_subnets))
+    _annotate_is_valid(ordered_subnets, supernet_network)
+
+    summary: dict[str, Any] = _summarize_supernet(ordered_subnets, supernet_network)
+    invalid_count: int = _count_invalid_rows(ordered_subnets)
+
+    return supernet_obj, ordered_subnets, summary, invalid_count
+
+
 def build_supernet_overview(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -753,7 +920,14 @@ def build_supernet_overview(
     The 'subnets' block lists rows paginated with the same page / page_size semantics used by
     the subnet overview. Each returned row carries 'has_children: bool' so the frontend can
     render an expand caret without a probe request; the direct children themselves are fetched
-    via ``build_supernet_subnet_children``
+    via ``build_supernet_subnet_children``. Each row also carries 'is_valid: bool' - true when
+    the subnet's CIDR sits strictly inside the supernet's CIDR, false when the subnet's range
+    no longer fits (e.g. the supernet's CIDR was edited and orphaned the subnet) or when the
+    subnet / supernet CIDR is missing or unparsable
+
+    The top-level 'invalid_count' is the total number of invalid subnets under the supernet
+    regardless of pagination, search or nesting depth; the FE uses it to render a banner that
+    deep-links to the dedicated invalid-only view (``build_invalid_subnet_overview``)
 
     When ``search`` is empty / whitespace, the 'subnets' block lists only top-level subnets -
     those whose CIDR is not strictly contained by any sibling. When ``search`` is non-empty,
@@ -779,16 +953,12 @@ def build_supernet_overview(
 
     Returns:
         dict[str, Any]: {'supernet': {public_id, ...summary over all subnets...},
-            'subnets': {page, page_size, total, rows: [...subnet rows with has_children]}}
+            'subnets': {page, page_size, total, rows: [...subnet rows with has_children, is_valid]},
+            'invalid_count': total invalid subnets under the supernet}
     """
-    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
-
-    ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
+    supernet_obj, ordered_subnets, summary, invalid_count = _prepare_supernet_view(
         objects_manager, types_manager, public_id,
     )
-    _annotate_has_children(ordered_subnets, _index_children_by_parent(ordered_subnets))
-
-    summary: dict[str, Any] = _summarize_supernet(ordered_subnets, _parse_supernet_cidr(supernet_obj))
 
     listed_rows: list[dict[str, Any]] = _select_listed_rows(ordered_subnets, search)
     safe_page, safe_size, page_rows = _paginate_rows(listed_rows, page, page_size)
@@ -804,6 +974,7 @@ def build_supernet_overview(
             IpamOverviewKey.TOTAL: len(listed_rows),
             IpamOverviewKey.ROWS: page_rows,
         },
+        IpamOverviewKey.INVALID_COUNT: invalid_count,
     }
 
 
@@ -818,8 +989,10 @@ def build_supernet_subnet_children(
 
     Returns every subnet whose closest CIDR-enclosing sibling under the same supernet is
     ``subnet_public_id`` - i.e. one level of nesting only. Children are returned in ascending
-    CIDR order (inherited from ``sort_and_link_subnets``). Each child row also carries
+    CIDR order (inherited from ``sort_and_link_subnets``). Each child row carries
     ``has_children`` so the frontend can render nested expand carets without follow-up probes
+    and ``is_valid`` so the FE can flag children that fall outside the supernet's current CIDR
+    (e.g. after a range edit that orphaned them)
 
     Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the supernet id
     refers to a non-supernet CmdbObject, when no SUPERNET / SUBNET CmdbType is defined, or
@@ -835,7 +1008,9 @@ def build_supernet_subnet_children(
     Returns:
         dict[str, Any]: {'parent': {'public_id': subnet_public_id}, 'rows': [child_row, ...]}
     """
-    _load_supernet_object(objects_manager, types_manager, supernet_public_id)
+    supernet_obj: dict[str, Any] = _load_supernet_object(
+        objects_manager, types_manager, supernet_public_id,
+    )
 
     ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
         objects_manager, types_manager, supernet_public_id,
@@ -854,10 +1029,82 @@ def build_supernet_subnet_children(
 
     children_index: dict[Any, list[dict[str, Any]]] = _index_children_by_parent(ordered_subnets)
     _annotate_has_children(ordered_subnets, children_index)
+    _annotate_is_valid(ordered_subnets, _parse_supernet_cidr(supernet_obj))
 
     children: list[dict[str, Any]] = children_index.get(subnet_public_id, [])
 
     return {
         IpamOverviewKey.PARENT: {CmdbObjectKey.PUBLIC_ID: subnet_public_id},
         IpamOverviewKey.ROWS: children,
+    }
+
+
+def build_invalid_subnet_overview(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+    page: int = 1,
+    page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
+    search: str = '',
+) -> dict[str, Any]:
+    """
+    Builds the paginated invalid-subnets-only overview payload
+
+    Same envelope as ``build_supernet_overview`` (``supernet`` summary block, ``subnets`` page
+    block, top-level ``invalid_count``), with one intentional difference in the ``subnets``
+    block: the tree shape is dropped. The block is a flat list of every subnet under the
+    supernet whose 'is_valid' annotation is False, regardless of nesting depth. Each row still
+    carries 'parent_id' / 'has_children' / 'is_valid' / 'vlans' so the FE can render the same
+    row template it uses for the main overview
+
+    Search semantics mirror ``build_supernet_overview``: when ``search`` is empty / whitespace
+    or shorter than IpamSearch.MIN_QUERY_LENGTH after stripping, every invalid row is returned;
+    otherwise the invalid set is filtered to entries whose 'network' property contains
+    ``search`` as a case-insensitive substring. ``subnets.total`` reflects the search-filtered
+    count, while the top-level ``invalid_count`` and the 'supernet' KPI strip are computed over
+    every subnet under the supernet (not just the page or the search match), so those metrics
+    stay stable as the user paginates or filters
+
+    Rows are ordered ascending by CIDR (inherited from ``sort_and_link_subnets``); rows with
+    unparsable CIDR are also invalid and trail the sorted block
+
+    Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the public_id refers
+    to a non-supernet CmdbObject or no SUPERNET CmdbType is defined
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the supernet whose invalid subnets are listed
+        page (int): 1-based page number for the subnet list (clamped into the valid range)
+        page_size (int): Page size for the subnet list (clamped to
+            [IpamPagination.MIN_PAGE_SIZE, IpamPagination.MAX_PAGE_SIZE])
+        search (str): Optional case-insensitive substring filter against each invalid subnet's
+            'network' property; empty / whitespace and queries shorter than
+            IpamSearch.MIN_QUERY_LENGTH after stripping are ignored and restore the unfiltered
+            invalid list
+
+    Returns:
+        dict[str, Any]: {'supernet': {public_id, ...summary over all subnets...},
+            'subnets': {page, page_size, total, rows: [...invalid rows in CIDR order]},
+            'invalid_count': total invalid subnets under the supernet}
+    """
+    supernet_obj, ordered_subnets, summary, invalid_count = _prepare_supernet_view(
+        objects_manager, types_manager, public_id,
+    )
+
+    listed_rows: list[dict[str, Any]] = _select_invalid_listed_rows(ordered_subnets, search)
+    safe_page, safe_size, page_rows = _paginate_rows(listed_rows, page, page_size)
+
+    return {
+        IpamOverviewKey.SUPERNET: {
+            CmdbObjectKey.PUBLIC_ID: supernet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            **summary,
+        },
+        IpamOverviewKey.SUBNETS: {
+            IpamOverviewKey.PAGE: safe_page,
+            IpamOverviewKey.PAGE_SIZE: safe_size,
+            IpamOverviewKey.TOTAL: len(listed_rows),
+            IpamOverviewKey.ROWS: page_rows,
+        },
+        IpamOverviewKey.INVALID_COUNT: invalid_count,
     }

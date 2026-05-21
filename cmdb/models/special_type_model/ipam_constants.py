@@ -218,11 +218,13 @@ class IpamOverviewKey(BaseStrEnum):
     FREE_PERCENT = 'free_percent'
     UTILIZATION_PERCENT = 'utilization_percent'
     SUBNET_COUNT = 'subnet_count'
+    INVALID_COUNT = 'invalid_count'
 
     # Per-subnet row fields specific to the supernet row table
     USAGE_PERCENT = 'usage_percent'
     PARENT_ID = 'parent_id'
     HAS_CHILDREN = 'has_children'
+    IS_VALID = 'is_valid'
     VLANS = 'vlans'
     NAME = 'name'
 
@@ -265,6 +267,19 @@ class IpamRowStatus(BaseStrEnum):
     """
     ASSIGNED = 'assigned'
     FREE = 'free'
+
+
+class IpamUnassignKey(BaseStrEnum):
+    """
+    Request and response payload keys for the supernet 'unassign subnets' route
+
+    SUBNET_IDS is the request-body field carrying the list of subnet public_ids the caller
+    asks to detach from the supernet. UNASSIGNED_COUNT is the response field echoing how
+    many subnets the route actually cleared. Both are scoped to the unassign route alone -
+    keys shared with the read-side overview payload live in IpamOverviewKey instead
+    """
+    SUBNET_IDS = 'subnet_ids'
+    UNASSIGNED_COUNT = 'unassigned_count'
 
 
 class IpamBucketLabel(BaseStrEnum):

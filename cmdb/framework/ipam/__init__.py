@@ -28,6 +28,8 @@ Modules:
       child rows
   - enforcement: cross-row enforcement helpers used by the validator orchestrators
   - subnet_overview / supernet_overview: payload builders for the IPAM overview views
+  - supernet_membership: write-side mutations against the SUBNET <-> SUPERNET relation
+      (currently the batch 'unassign subnets from supernet' flow used by the overview)
 
 Prefix-policy constants and field/section name enums are imported from
 cmdb.models.special_type_model.ipam_constants
