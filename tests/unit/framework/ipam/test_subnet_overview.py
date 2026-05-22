@@ -1401,6 +1401,7 @@ def test_build_broken_state_payload_returns_full_envelope_key_set() -> None:
         IpamOverviewKey.IPS,
         IpamOverviewKey.TYPE_DISTRIBUTION,
         IpamOverviewKey.IP_DISTRIBUTION,
+        IpamOverviewKey.VLANS,
     }
 
 
@@ -1473,6 +1474,7 @@ def test_build_subnet_overview_returns_degenerate_payload_when_cidr_unparsable()
     assert payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS] == []
     assert payload[IpamOverviewKey.TYPE_DISTRIBUTION] == []
     assert payload[IpamOverviewKey.IP_DISTRIBUTION] == {}
+    assert payload[IpamOverviewKey.VLANS] == []
 
 
 def test_build_subnet_overview_omits_ip_range_from_subnet_block() -> None:
@@ -1490,14 +1492,15 @@ def test_build_subnet_overview_omits_ip_range_from_subnet_block() -> None:
 
 
 def test_build_subnet_overview_emits_full_payload_envelope_on_happy_path() -> None:
-    """Happy path payload carries subnet summary / ips / type_distribution / ip_distribution"""
+    """Happy path payload carries subnet summary / ips / type_distribution / ip_distribution / vlans"""
     subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
     objects_manager = MagicMock()
     objects_manager.get_summary_line.return_value = 'Server: web01'
 
     with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
          patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
-         patch(f'{PATH}._resolve_type_meta', return_value={}):
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
         payload = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
 
     assert set(payload.keys()) == {
@@ -1505,6 +1508,7 @@ def test_build_subnet_overview_emits_full_payload_envelope_on_happy_path() -> No
         IpamOverviewKey.IPS,
         IpamOverviewKey.TYPE_DISTRIBUTION,
         IpamOverviewKey.IP_DISTRIBUTION,
+        IpamOverviewKey.VLANS,
     }
 
 
@@ -1749,3 +1753,89 @@ def test_build_subnet_overview_sort_combines_with_search() -> None:
 
     assert all('10.0.0.5' in ip for ip in ips)
     assert ips == sorted(ips, key=lambda ip: int(IPv4Address(ip)), reverse=True)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            build_subnet_overview - vlans                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+VLAN_OBJECT_ID_X: int = 501
+VLAN_OBJECT_ID_Y: int = 502
+VLAN_NAME_X: str = 'VLAN-X'
+VLAN_NAME_Y: str = 'VLAN-Y'
+
+
+def test_build_subnet_overview_vlans_carries_referenced_vlans_for_this_subnet() -> None:
+    """The top-level 'vlans' list carries the bucket the lifted helper returns for this subnet"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    vlan_bucket = [
+        {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X},
+        {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_Y, IpamOverviewKey.NAME: VLAN_NAME_Y},
+    ]
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={SUBNET_OBJECT_ID: vlan_bucket}):
+        payload = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.VLANS] == vlan_bucket
+
+
+def test_build_subnet_overview_vlans_is_empty_list_when_no_vlan_references_subnet() -> None:
+    """No bucket for this subnet → empty list (not missing key, so FE can iterate unconditionally)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
+        payload = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.VLANS] == []
+
+
+def test_build_subnet_overview_invokes_vlan_helper_with_single_subnet_id_list() -> None:
+    """The orchestrator queries the VLAN helper with exactly [public_id]"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}) as vlan_loader:
+        build_subnet_overview(objects_manager, types_manager, SUBNET_OBJECT_ID)
+
+    vlan_loader.assert_called_once_with(objects_manager, types_manager, [SUBNET_OBJECT_ID])
+
+
+def test_build_subnet_overview_vlans_is_empty_list_on_degenerate_cidr_path() -> None:
+    """Broken-state payload (unparsable CIDR) carries an empty vlans list, mirroring the happy-path envelope"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc):
+        payload = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.VLANS] == []
+
+
+def test_build_subnet_overview_vlans_is_invariant_under_search_and_sort() -> None:
+    """The 'vlans' list covers the whole subnet, unaffected by search / sort query params"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    vlan_bucket = [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X}]
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={SUBNET_OBJECT_ID: vlan_bucket}):
+        unsorted = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+        searched = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, search='10.0.0.5',
+        )
+        sorted_desc = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, sort='ip', order='-1',
+        )
+
+    assert unsorted[IpamOverviewKey.VLANS] == vlan_bucket
+    assert searched[IpamOverviewKey.VLANS] == vlan_bucket
+    assert sorted_desc[IpamOverviewKey.VLANS] == vlan_bucket

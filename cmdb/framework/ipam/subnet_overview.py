@@ -57,7 +57,7 @@ from cmdb.models.object_model import (
     extract_field_value,
 )
 from cmdb.framework.ipam.pagination import clamp_page
-from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.references import resolve_special_type_id, load_vlans_by_subnets
 from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -1089,9 +1089,9 @@ def _build_broken_state_payload(
 
     Mirrors the happy-path envelope so the FE can render the response unconditionally: every
     counter is zeroed, the 'ips' block ships an empty page (page / page_size clamped via
-    ``clamp_page(..., 0)``), and both distributions are empty. The 'cidr' field echoes the
-    raw value when it is a string (so the user can see the broken input they need to fix)
-    and is None otherwise
+    ``clamp_page(..., 0)``), both distributions are empty, and the 'vlans' list is empty.
+    The 'cidr' field echoes the raw value when it is a string (so the user can see the broken
+    input they need to fix) and is None otherwise
 
     Args:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
@@ -1121,6 +1121,7 @@ def _build_broken_state_payload(
         },
         IpamOverviewKey.TYPE_DISTRIBUTION: [],
         IpamOverviewKey.IP_DISTRIBUTION: {},
+        IpamOverviewKey.VLANS: [],
     }
 
 
@@ -1162,8 +1163,12 @@ def build_subnet_overview(
 
     When ``sort`` is provided the candidate IPs are ordered by the chosen column and
     direction with NULLS LAST (rows missing a value for the column trail in either direction).
-    The 'subnet' KPI block, 'type_distribution', and 'ip_distribution' are invariant under
-    both search and sort - they always cover the whole subnet
+    The 'subnet' KPI block, 'type_distribution', 'ip_distribution', and 'vlans' are invariant
+    under both search and sort - they always cover the whole subnet
+
+    The 'vlans' list carries every VLAN CmdbObject whose 'dg-subnet-ref' points at this subnet
+    as a {'public_id', 'name'} dict, sorted by ascending public_id. Empty list when no VLAN
+    references the subnet or when no VLAN CmdbType is defined yet
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -1188,15 +1193,18 @@ def build_subnet_overview(
             'ips': {page, page_size, total, rows: [...]},
             'type_distribution': [{public_id, label, ci_explorer_color, count, percentage},
             ...],
-            'ip_distribution': {'sector_size': N, 'ranges': [...]} | {}} where
+            'ip_distribution': {'sector_size': N, 'ranges': [...]} | {},
+            'vlans': [{public_id, name}, ...]} where
             'type_distribution' covers the
             whole subnet (not just the current page) and includes 'Unknown' (when present)
-            and 'Free' buckets after the type buckets, and 'ip_distribution' is the
+            and 'Free' buckets after the type buckets, 'ip_distribution' is the
             IP-Verteilung heatmap grid covering the full address space (network + broadcast
             included). The grid is emitted only at its full 4 x 16 size (/26 and shorter
             prefixes); for /27 and narrower, or when the CIDR is unparsable, ip_distribution
             is an empty dict. 'ips.total' equals 'assignable_ips' under no search and no
-            sort (lazy path), or the candidate-list length otherwise
+            sort (lazy path), or the candidate-list length otherwise. 'vlans' lists every
+            VLAN whose 'dg-subnet-ref' points at this subnet, sorted by ascending public_id;
+            empty when no VLAN references the subnet
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
     sort_col, sort_dir = _parse_sort_args(sort, order)
@@ -1230,4 +1238,7 @@ def build_subnet_overview(
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
         IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned),
+        IpamOverviewKey.VLANS: load_vlans_by_subnets(
+            objects_manager, types_manager, [public_id],
+        ).get(public_id, []),
     }

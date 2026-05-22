@@ -63,7 +63,6 @@ from cmdb.framework.ipam.supernet_overview import (
     _ip_range,
     _load_subnets_for_supernet,
     _load_supernet_object,
-    _load_vlans_by_subnet,
     _paginate_rows,
     _parse_supernet_cidr,
     _percent,
@@ -1183,124 +1182,6 @@ def test_row_subnet_ref_returns_none_when_data_key_missing() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            _load_vlans_by_subnet                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_load_vlans_by_subnet_returns_empty_dict_for_empty_subnet_ids() -> None:
-    """No subnet ids in → empty dict, no DB query, no type lookup"""
-    objects_manager = MagicMock()
-    types_manager = MagicMock()
-
-    result = _load_vlans_by_subnet(objects_manager, types_manager, [])
-
-    assert result == {}
-    objects_manager.find_objects.assert_not_called()
-    types_manager.get_one_by.assert_not_called()
-
-
-def test_load_vlans_by_subnet_returns_empty_dict_when_vlan_type_not_defined() -> None:
-    """No VLAN CmdbType → empty dict, no DB query against objects"""
-    objects_manager = MagicMock()
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = None
-
-    result = _load_vlans_by_subnet(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
-
-    assert result == {}
-    objects_manager.find_objects.assert_not_called()
-
-
-def test_load_vlans_by_subnet_buckets_vlans_under_their_referenced_subnet() -> None:
-    """Each VLAN appears under the bucket for the subnet its dg-subnet-ref points at"""
-    vlan_x = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_X)
-    vlan_y = _make_vlan_doc(VLAN_OBJECT_ID_Y, subnet_ref=SUBNET_OBJECT_ID_B, name=VLAN_NAME_Y)
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [vlan_x, vlan_y]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = _load_vlans_by_subnet(
-        objects_manager, types_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
-    )
-
-    assert result == {
-        SUBNET_OBJECT_ID_A: [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X}],
-        SUBNET_OBJECT_ID_B: [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_Y, IpamOverviewKey.NAME: VLAN_NAME_Y}],
-    }
-
-
-def test_load_vlans_by_subnet_sorts_each_bucket_by_ascending_public_id() -> None:
-    """Within a bucket, entries are ordered by ascending public_id regardless of DB order"""
-    vlan_higher = _make_vlan_doc(VLAN_OBJECT_ID_Z, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_Z)
-    vlan_lower = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_X)
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [vlan_higher, vlan_lower]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = _load_vlans_by_subnet(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
-
-    public_ids = [entry[CmdbObjectKey.PUBLIC_ID] for entry in result[SUBNET_OBJECT_ID_A]]
-    assert public_ids == [VLAN_OBJECT_ID_X, VLAN_OBJECT_ID_Z]
-
-
-def test_load_vlans_by_subnet_ignores_vlans_whose_subnet_ref_is_outside_target_set() -> None:
-    """A VLAN whose dg-subnet-ref drifts outside subnet_ids is dropped, not bucketed"""
-    in_scope = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_X)
-    out_of_scope = _make_vlan_doc(VLAN_OBJECT_ID_Y, subnet_ref=9_999, name=VLAN_NAME_Y)
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [in_scope, out_of_scope]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = _load_vlans_by_subnet(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
-
-    assert set(result.keys()) == {SUBNET_OBJECT_ID_A}
-    assert [e[CmdbObjectKey.PUBLIC_ID] for e in result[SUBNET_OBJECT_ID_A]] == [VLAN_OBJECT_ID_X]
-
-
-def test_load_vlans_by_subnet_uses_in_filter_to_scope_the_db_query() -> None:
-    """Mongo filter pins TYPE_ID plus FIELDS $elemMatch on SUBNET_REF with $in over subnet ids"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    _load_vlans_by_subnet(
-        objects_manager, types_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
-    )
-
-    objects_manager.find_objects.assert_called_once_with(
-        {
-            CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID,
-            CmdbObjectKey.FIELDS: {
-                '$elemMatch': {
-                    CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
-                    CmdbObjectFieldKey.VALUE: {'$in': [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]},
-                },
-            },
-        },
-        as_dict=True,
-    )
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN})
-
-
-def test_load_vlans_by_subnet_preserves_null_vlan_name() -> None:
-    """A VLAN object whose dg-name field is missing/None flows through as 'name': None"""
-    vlan = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=None)
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [vlan]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = _load_vlans_by_subnet(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
-
-    assert result[SUBNET_OBJECT_ID_A] == [{
-        CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X,
-        IpamOverviewKey.NAME: None,
-    }]
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                           _attach_vlans_to_rows                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_attach_vlans_to_rows_copies_bucket_list_onto_matching_row() -> None:
@@ -1376,7 +1257,7 @@ def test_build_linked_subnet_rows_shapes_rows_and_links_parents() -> None:
 
     with patch(f'{PATH}._load_subnets_for_supernet', return_value=subnet_objs), \
          patch(f'{PATH}._count_used_ips_per_subnet', return_value=used_counts), \
-         patch(f'{PATH}._load_vlans_by_subnet', return_value=vlans_by_subnet):
+         patch(f'{PATH}.load_vlans_by_subnets', return_value=vlans_by_subnet):
         result = _build_linked_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     by_id = {r[CmdbObjectKey.PUBLIC_ID]: r for r in result}
