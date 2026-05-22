@@ -46,10 +46,13 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
     IpamRowStatus,
     IpamBucketLabel,
+    IpamSortColumn,
+    IpamSortDirection,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.subnet_overview import (
     _AssignedField,
+    _build_broken_state_payload,
     _bucket_used_counts,
     _build_ip_distribution,
     _build_ips_block,
@@ -59,12 +62,19 @@ from cmdb.framework.ipam.subnet_overview import (
     _compose_ip_row,
     _compose_sector,
     _compute_grid_dimensions,
+    _compute_sort_key,
     _extract_row_fields,
     _load_assigned_rows_map,
     _load_subnet_object,
     _page_slice_ips,
+    _parse_sort_args,
+    _parse_subnet_network,
+    _resolve_assigned_summary_lines,
+    _resolve_candidate_ips,
     _resolve_type_meta,
+    _sort_candidate_ips,
     build_subnet_overview,
+    list_all_assignable_ips,
     list_assignable_ips_matching_substring,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -156,6 +166,58 @@ def _make_assigned_entry(object_id: int, type_id: int | None, mac: str | None) -
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                _parse_sort_args                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_parse_sort_args_returns_none_when_sort_is_empty() -> None:
+    """Empty sort yields (None, ASC) so the orchestrator stays on the lazy path"""
+    assert _parse_sort_args('', '') == (None, IpamSortDirection.ASC)
+
+
+def test_parse_sort_args_returns_none_for_whitespace_only_sort() -> None:
+    """A whitespace-only sort value strips to empty and is treated as no sort"""
+    assert _parse_sort_args('   ', '-1') == (None, IpamSortDirection.ASC)
+
+
+def test_parse_sort_args_returns_asc_default_when_order_is_empty() -> None:
+    """sort present, order missing → defaults to ASC"""
+    assert _parse_sort_args('ip', '') == (IpamSortColumn.IP, IpamSortDirection.ASC)
+
+
+def test_parse_sort_args_returns_explicit_direction_when_order_is_desc() -> None:
+    """sort + explicit '-1' parses to the DESC direction (Mongo convention)"""
+    assert _parse_sort_args('ip', '-1') == (IpamSortColumn.IP, IpamSortDirection.DESC)
+
+
+@pytest.mark.parametrize('col', list(IpamSortColumn))
+def test_parse_sort_args_accepts_every_sort_column(col: IpamSortColumn) -> None:
+    """Every IpamSortColumn member is accepted by the parser"""
+    parsed_col, parsed_dir = _parse_sort_args(col.value, '1')
+    assert parsed_col == col
+    assert parsed_dir == IpamSortDirection.ASC
+
+
+def test_parse_sort_args_aborts_400_for_unknown_sort_column() -> None:
+    """Unknown sort column → HTTP 400 with the offending value in the message"""
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_sort_args('foo', '1')
+
+    assert exc_info.value.code == 400
+
+
+def test_parse_sort_args_aborts_400_for_unknown_sort_direction() -> None:
+    """Unknown order value → HTTP 400 with the offending value in the message"""
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_sort_args('ip', 'sideways')
+
+    assert exc_info.value.code == 400
+
+
+def test_parse_sort_args_ignores_unknown_order_when_sort_is_empty() -> None:
+    """When sort is empty the order is irrelevant and never validated"""
+    assert _parse_sort_args('', 'sideways') == (None, IpamSortDirection.ASC)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                _page_slice_ips                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_page_slice_ips_returns_first_page_of_assignable_addresses_for_slash_24() -> None:
@@ -192,6 +254,33 @@ def test_page_slice_ips_returns_single_address_for_slash_32() -> None:
     ips = _page_slice_ips(IPv4Network('10.0.0.5/32'), page=1, page_size=5)
 
     assert ips == ['10.0.0.5']
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          list_all_assignable_ips                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_list_all_assignable_ips_returns_full_range_for_slash_24() -> None:
+    """A /24 yields 254 entries (.0 and .255 skipped) in ascending integer order"""
+    result = list_all_assignable_ips(IPv4Network('10.0.0.0/24'))
+
+    assert len(result) == 254
+    assert result[0] == '10.0.0.1'
+    assert result[-1] == '10.0.0.254'
+
+
+def test_list_all_assignable_ips_includes_both_endpoints_for_slash_31() -> None:
+    """/31 includes both endpoints (RFC 3021 point-to-point)"""
+    assert list_all_assignable_ips(IPv4Network('10.0.0.0/31')) == ['10.0.0.0', '10.0.0.1']
+
+
+def test_list_all_assignable_ips_includes_single_host_for_slash_32() -> None:
+    """/32 covers exactly the one host address"""
+    assert list_all_assignable_ips(IPv4Network('10.0.0.5/32')) == ['10.0.0.5']
+
+
+def test_list_all_assignable_ips_skips_network_and_broadcast_for_slash_30() -> None:
+    """/30 has 4 addresses but only 2 assignable; .0 and .3 are skipped"""
+    assert list_all_assignable_ips(IPv4Network('10.0.0.0/30')) == ['10.0.0.1', '10.0.0.2']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -381,6 +470,333 @@ def test_compose_ip_row_carries_none_mac_when_assigned_entry_lacks_mac() -> None
     row = _compose_ip_row('10.0.0.1', assigned=assigned, type_meta={}, objects_manager=objects_manager)
 
     assert row[IpamOverviewKey.MAC_ADDRESS] is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       _resolve_assigned_summary_lines                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_resolve_assigned_summary_lines_returns_empty_for_no_assigned_candidates() -> None:
+    """When no candidate IP is in the assigned map, no batch call is issued"""
+    objects_manager = MagicMock()
+
+    result = _resolve_assigned_summary_lines(
+        ['10.0.0.1', '10.0.0.2'], assigned={}, objects_manager=objects_manager,
+    )
+
+    assert result == {}
+    objects_manager.get_summary_lines_lookup.assert_not_called()
+
+
+def test_resolve_assigned_summary_lines_maps_summary_to_each_assigned_ip() -> None:
+    """An assigned candidate IP gets the resolved summary line keyed by its IP"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {
+        OWNER_OBJECT_ID: 'Server: web01',
+        OWNER_OBJECT_ID + 1: 'Server: web02',
+    }
+
+    result = _resolve_assigned_summary_lines(
+        ['10.0.0.1', '10.0.0.5'], assigned=assigned, objects_manager=objects_manager,
+    )
+
+    assert result == {'10.0.0.1': 'Server: web01', '10.0.0.5': 'Server: web02'}
+
+
+def test_resolve_assigned_summary_lines_skips_free_candidates() -> None:
+    """Candidates not present in the assigned map are absent from the result"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {OWNER_OBJECT_ID: 'Server: web01'}
+
+    result = _resolve_assigned_summary_lines(
+        ['10.0.0.1', '10.0.0.2'], assigned=assigned, objects_manager=objects_manager,
+    )
+
+    assert '10.0.0.2' not in result
+    assert result == {'10.0.0.1': 'Server: web01'}
+
+
+def test_resolve_assigned_summary_lines_omits_ip_when_owner_unresolvable() -> None:
+    """Owner missing from the manager's lookup → IP absent from the result (treated as NULL)"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {}
+
+    result = _resolve_assigned_summary_lines(
+        ['10.0.0.1'], assigned=assigned, objects_manager=objects_manager,
+    )
+
+    assert result == {}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _compute_sort_key                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_compute_sort_key_returns_integer_for_ip_column() -> None:
+    """The IP column returns the integer value of the address for numeric sorting"""
+    result = _compute_sort_key('10.0.0.5', IpamSortColumn.IP, assigned={}, type_meta={}, summary_lines={})
+
+    assert result == int(IPv4Address('10.0.0.5'))
+
+
+def test_compute_sort_key_returns_assigned_status_for_assigned_ip() -> None:
+    """STATUS column returns 'assigned' when the IP is in the assigned map"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    result = _compute_sort_key('10.0.0.1', IpamSortColumn.STATUS, assigned=assigned, type_meta={}, summary_lines={})
+
+    assert result == IpamRowStatus.ASSIGNED
+
+
+def test_compute_sort_key_returns_free_status_for_unassigned_ip() -> None:
+    """STATUS column returns 'free' when the IP is NOT in the assigned map"""
+    result = _compute_sort_key('10.0.0.1', IpamSortColumn.STATUS, assigned={}, type_meta={}, summary_lines={})
+
+    assert result == IpamRowStatus.FREE
+
+
+def test_compute_sort_key_returns_lowercased_label_for_type_column() -> None:
+    """TYPE column returns the lowercase type label so the sort is case-insensitive"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    result = _compute_sort_key(
+        '10.0.0.1', IpamSortColumn.TYPE,
+        assigned=assigned, type_meta=type_meta, summary_lines={},
+    )
+
+    assert result == 'server'
+
+
+def test_compute_sort_key_returns_none_for_type_on_free_ip() -> None:
+    """A free IP has no type → key is None (NULLS LAST partition)"""
+    result = _compute_sort_key('10.0.0.1', IpamSortColumn.TYPE, assigned={}, type_meta={}, summary_lines={})
+
+    assert result is None
+
+
+def test_compute_sort_key_returns_none_for_type_when_type_meta_missing() -> None:
+    """Assigned IP whose type_id has no meta entry → None (treated as NULL)"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    result = _compute_sort_key('10.0.0.1', IpamSortColumn.TYPE, assigned=assigned, type_meta={}, summary_lines={})
+
+    assert result is None
+
+
+def test_compute_sort_key_returns_lowercased_summary_for_assigned_to_column() -> None:
+    """ASSIGNED_TO column reads the lowercase summary line from summary_lines"""
+    result = _compute_sort_key(
+        '10.0.0.1', IpamSortColumn.ASSIGNED_TO,
+        assigned={'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)},
+        type_meta={},
+        summary_lines={'10.0.0.1': 'Server: WEB01'},
+    )
+
+    assert result == 'server: web01'
+
+
+def test_compute_sort_key_returns_none_for_assigned_to_when_summary_missing() -> None:
+    """No summary line for the IP → None (NULLS LAST partition)"""
+    result = _compute_sort_key(
+        '10.0.0.1', IpamSortColumn.ASSIGNED_TO, assigned={}, type_meta={}, summary_lines={},
+    )
+
+    assert result is None
+
+
+def test_compute_sort_key_returns_lowercased_mac_for_mac_address_column() -> None:
+    """MAC_ADDRESS column returns the lowercase MAC string"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'AA:BB:CC:DD:EE:FF')}
+
+    result = _compute_sort_key(
+        '10.0.0.1', IpamSortColumn.MAC_ADDRESS, assigned=assigned, type_meta={}, summary_lines={},
+    )
+
+    assert result == 'aa:bb:cc:dd:ee:ff'
+
+
+def test_compute_sort_key_returns_none_for_mac_when_assigned_entry_lacks_mac() -> None:
+    """An assigned IP without a MAC value yields None for MAC_ADDRESS sort"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    result = _compute_sort_key(
+        '10.0.0.1', IpamSortColumn.MAC_ADDRESS, assigned=assigned, type_meta={}, summary_lines={},
+    )
+
+    assert result is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _sort_candidate_ips                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_sort_candidate_ips_ip_asc_uses_numeric_order_not_lexicographic() -> None:
+    """IP+ASC sorts by integer value: 10.0.0.2 < 10.0.0.10 numerically (vs lexicographic)"""
+    candidates = ['10.0.0.10', '10.0.0.2', '10.0.0.1']
+
+    result = _sort_candidate_ips(
+        candidates, IpamSortColumn.IP, IpamSortDirection.ASC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert result == ['10.0.0.1', '10.0.0.2', '10.0.0.10']
+
+
+def test_sort_candidate_ips_ip_desc_reverses_numeric_order() -> None:
+    """IP+DESC reverses the numeric IP order"""
+    candidates = ['10.0.0.1', '10.0.0.10', '10.0.0.2']
+
+    result = _sort_candidate_ips(
+        candidates, IpamSortColumn.IP, IpamSortDirection.DESC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert result == ['10.0.0.10', '10.0.0.2', '10.0.0.1']
+
+
+def test_sort_candidate_ips_ip_path_does_not_call_resolve_summary_lines() -> None:
+    """The IP fast path bypasses both the partition and the summary-line batch"""
+    candidates = ['10.0.0.2', '10.0.0.1']
+    objects_manager = MagicMock()
+
+    _sort_candidate_ips(
+        candidates, IpamSortColumn.IP, IpamSortDirection.ASC,
+        assigned={}, type_meta={}, objects_manager=objects_manager,
+    )
+
+    objects_manager.get_summary_lines_lookup.assert_not_called()
+
+
+def test_sort_candidate_ips_type_places_assigned_before_free_in_asc() -> None:
+    """Assigned IPs with a type label sort before free IPs (NULLS LAST in ASC)"""
+    assigned = {'10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    result = _sort_candidate_ips(
+        ['10.0.0.1', '10.0.0.5'], IpamSortColumn.TYPE, IpamSortDirection.ASC,
+        assigned=assigned, type_meta=type_meta, objects_manager=MagicMock(),
+    )
+
+    assert result == ['10.0.0.5', '10.0.0.1']
+
+
+def test_sort_candidate_ips_type_places_null_keyed_rows_last_in_desc_too() -> None:
+    """NULLS always trail - even in DESC the assigned IPs come before the free ones"""
+    assigned = {
+        '10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.6': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+    }
+    type_meta = {
+        OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        OTHER_OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Printer', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+    }
+
+    result = _sort_candidate_ips(
+        ['10.0.0.5', '10.0.0.6', '10.0.0.1'], IpamSortColumn.TYPE, IpamSortDirection.DESC,
+        assigned=assigned, type_meta=type_meta, objects_manager=MagicMock(),
+    )
+
+    # 'server' > 'printer' lexicographically (case-insensitive), so DESC puts server first
+    assert result == ['10.0.0.5', '10.0.0.6', '10.0.0.1']
+
+
+def test_sort_candidate_ips_assigned_to_short_circuits_when_no_candidate_is_assigned() -> None:
+    """When no candidate is in the assigned map, the summary-line batch is never called"""
+    objects_manager = MagicMock()
+
+    result = _sort_candidate_ips(
+        ['10.0.0.1', '10.0.0.2'], IpamSortColumn.ASSIGNED_TO, IpamSortDirection.ASC,
+        assigned={}, type_meta={}, objects_manager=objects_manager,
+    )
+
+    objects_manager.get_summary_lines_lookup.assert_not_called()
+    # All NULL keys → preserves input order
+    assert result == ['10.0.0.1', '10.0.0.2']
+
+
+def test_sort_candidate_ips_assigned_to_calls_summary_batch_when_assigned_present() -> None:
+    """An assigned candidate IP triggers the summary-line batch fetch"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {OWNER_OBJECT_ID: 'Server: web01'}
+
+    _sort_candidate_ips(
+        ['10.0.0.1', '10.0.0.2'], IpamSortColumn.ASSIGNED_TO, IpamSortDirection.ASC,
+        assigned=assigned, type_meta={}, objects_manager=objects_manager,
+    )
+
+    objects_manager.get_summary_lines_lookup.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            _resolve_candidate_ips                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_resolve_candidate_ips_returns_none_for_no_search_and_no_sort() -> None:
+    """No search and no sort → None signals the lazy path"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = _resolve_candidate_ips(
+        network, search='', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert result is None
+
+
+def test_resolve_candidate_ips_returns_none_for_default_ip_asc_sort_with_no_search() -> None:
+    """Default ip+asc with no search is equivalent to no sort - lazy path still applies"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = _resolve_candidate_ips(
+        network, search='', sort_col=IpamSortColumn.IP, sort_dir=IpamSortDirection.ASC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert result is None
+
+
+def test_resolve_candidate_ips_returns_full_list_for_ip_desc_with_no_search() -> None:
+    """Non-default sort forces materialization even without an active search"""
+    network = IPv4Network('10.0.0.0/30')
+
+    result = _resolve_candidate_ips(
+        network, search='', sort_col=IpamSortColumn.IP, sort_dir=IpamSortDirection.DESC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert result == ['10.0.0.2', '10.0.0.1']
+
+
+def test_resolve_candidate_ips_filters_by_search_then_sorts() -> None:
+    """Active search builds the matching list which is then sorted (search ∩ sort)"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = _resolve_candidate_ips(
+        network, search='10.0.0.5', sort_col=IpamSortColumn.IP, sort_dir=IpamSortDirection.DESC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    # Same set as no-sort search result, but reversed
+    assert result[0] == '10.0.0.59'
+    assert result[-1] == '10.0.0.5'
+
+
+def test_resolve_candidate_ips_returns_matching_list_for_search_with_no_sort() -> None:
+    """Search active but no sort → returns the substring-matched list in natural order"""
+    network = IPv4Network('10.0.0.0/24')
+
+    result = _resolve_candidate_ips(
+        network, search='10.0.0.5', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert result is not None
+    assert all('10.0.0.5' in ip for ip in result)
+    assert result[0] == '10.0.0.5'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -865,13 +1281,13 @@ def test_resolve_type_meta_projects_to_label_and_ci_explorer_color() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              _build_ips_block                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_build_ips_block_lists_full_assignable_range_when_search_is_inactive() -> None:
-    """No search → ips.total equals assignable; one row per assignable address on the page"""
+def test_build_ips_block_uses_lazy_path_when_candidates_is_none() -> None:
+    """candidates=None → ips.total equals assignable; rows come from the lazy IP slice"""
     network = IPv4Network('10.0.0.0/24')
 
     block = _build_ips_block(
         network, assignable=254, page=1, page_size=5,
-        search='', assigned={}, type_meta={}, objects_manager=MagicMock(),
+        candidates=None, assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
     assert block[IpamOverviewKey.TOTAL] == 254
@@ -879,56 +1295,44 @@ def test_build_ips_block_lists_full_assignable_range_when_search_is_inactive() -
     assert block[IpamOverviewKey.ROWS][0][IpamOverviewKey.IP] == '10.0.0.1'
 
 
-def test_build_ips_block_falls_back_to_full_range_for_search_below_min_length() -> None:
-    """A 1-char query is below MIN_QUERY_LENGTH and is treated as no search"""
+def test_build_ips_block_paginates_candidate_list_when_provided() -> None:
+    """Non-None candidates list → ips.total equals len(candidates); rows are the page slice"""
     network = IPv4Network('10.0.0.0/24')
+    candidates = ['10.0.0.5', '10.0.0.50', '10.0.0.51', '10.0.0.52']
 
     block = _build_ips_block(
-        network, assignable=254, page=1, page_size=5,
-        search='1', assigned={}, type_meta={}, objects_manager=MagicMock(),
+        network, assignable=254, page=1, page_size=2,
+        candidates=candidates, assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
-    assert block[IpamOverviewKey.TOTAL] == 254
+    assert block[IpamOverviewKey.TOTAL] == 4
+    assert [r[IpamOverviewKey.IP] for r in block[IpamOverviewKey.ROWS]] == ['10.0.0.5', '10.0.0.50']
 
 
-def test_build_ips_block_filters_rows_to_substring_match_when_search_active() -> None:
-    """Active search shrinks both ips.total and ips.rows to the matching subset"""
-    network = IPv4Network('10.0.0.0/24')
-
-    block = _build_ips_block(
-        network, assignable=254, page=1, page_size=50,
-        search='10.0.0.5', assigned={}, type_meta={}, objects_manager=MagicMock(),
-    )
-
-    matching_ips = [r[IpamOverviewKey.IP] for r in block[IpamOverviewKey.ROWS]]
-    assert all('10.0.0.5' in ip for ip in matching_ips)
-    assert block[IpamOverviewKey.TOTAL] == len(matching_ips)
-
-
-def test_build_ips_block_paginates_search_results_against_match_count() -> None:
-    """page_size shrinks the rows page; ips.total still reflects the full match count"""
-    network = IPv4Network('10.0.0.0/24')
-
-    block = _build_ips_block(
-        network, assignable=254, page=1, page_size=3,
-        search='10.0.0.5', assigned={}, type_meta={}, objects_manager=MagicMock(),
-    )
-
-    assert len(block[IpamOverviewKey.ROWS]) == 3
-    assert block[IpamOverviewKey.TOTAL] > 3
-
-
-def test_build_ips_block_returns_empty_rows_when_search_has_no_matches() -> None:
-    """An active search that matches nothing yields an empty rows list and total=0"""
+def test_build_ips_block_returns_empty_rows_when_candidates_list_is_empty() -> None:
+    """An empty candidates list yields total=0 and an empty rows list"""
     network = IPv4Network('10.0.0.0/24')
 
     block = _build_ips_block(
         network, assignable=254, page=1, page_size=10,
-        search='99.99.99', assigned={}, type_meta={}, objects_manager=MagicMock(),
+        candidates=[], assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
     assert block[IpamOverviewKey.TOTAL] == 0
     assert block[IpamOverviewKey.ROWS] == []
+
+
+def test_build_ips_block_preserves_candidate_order_in_rows() -> None:
+    """The rows on the page mirror the candidates list order verbatim (no re-sorting)"""
+    network = IPv4Network('10.0.0.0/24')
+    candidates = ['10.0.0.10', '10.0.0.1', '10.0.0.42']
+
+    block = _build_ips_block(
+        network, assignable=254, page=1, page_size=10,
+        candidates=candidates, assigned={}, type_meta={}, objects_manager=MagicMock(),
+    )
+
+    assert [r[IpamOverviewKey.IP] for r in block[IpamOverviewKey.ROWS]] == candidates
 
 
 def test_build_ips_block_shapes_assigned_rows_through_compose_ip_row() -> None:
@@ -941,12 +1345,106 @@ def test_build_ips_block_shapes_assigned_rows_through_compose_ip_row() -> None:
 
     block = _build_ips_block(
         network, assignable=254, page=1, page_size=1,
-        search='', assigned=assigned, type_meta=type_meta, objects_manager=objects_manager,
+        candidates=None, assigned=assigned, type_meta=type_meta, objects_manager=objects_manager,
     )
 
     [first_row] = block[IpamOverviewKey.ROWS]
     assert first_row[IpamOverviewKey.STATUS] == IpamRowStatus.ASSIGNED
     assert first_row[IpamOverviewKey.ASSIGNED_TO][IpamOverviewKey.SUMMARY_LINE] == 'Server: web01'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            _parse_subnet_network                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_parse_subnet_network_returns_ipv4network_for_valid_cidr() -> None:
+    """A canonical CIDR string parses to the corresponding IPv4Network"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    result = _parse_subnet_network(doc)
+
+    assert isinstance(result, IPv4Network)
+    assert str(result) == SUBNET_RANGE
+
+
+def test_parse_subnet_network_returns_none_when_field_missing() -> None:
+    """A subnet doc without the network-range field yields None"""
+    doc = _make_cmdb_object(SUBNET_OBJECT_ID, SUBNET_TYPE_ID, fields=[])
+
+    assert _parse_subnet_network(doc) is None
+
+
+def test_parse_subnet_network_returns_none_for_non_string_value() -> None:
+    """A network-range field carrying a non-string value (e.g. None) yields None"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, network_range=None)
+
+    assert _parse_subnet_network(doc) is None
+
+
+def test_parse_subnet_network_returns_none_for_unparsable_string() -> None:
+    """A garbled CIDR string yields None rather than raising"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, network_range='not-a-cidr')
+
+    assert _parse_subnet_network(doc) is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         _build_broken_state_payload                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_broken_state_payload_returns_full_envelope_key_set() -> None:
+    """Degenerate payload still ships every top-level key the FE expects"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    payload = _build_broken_state_payload(doc, page=1, page_size=10)
+
+    assert set(payload.keys()) == {
+        IpamOverviewKey.SUBNET,
+        IpamOverviewKey.IPS,
+        IpamOverviewKey.TYPE_DISTRIBUTION,
+        IpamOverviewKey.IP_DISTRIBUTION,
+    }
+
+
+def test_build_broken_state_payload_zeroes_kpi_counters() -> None:
+    """All counters are zeroed when the CIDR is broken"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    payload = _build_broken_state_payload(doc, page=1, page_size=10)
+
+    subnet_block = payload[IpamOverviewKey.SUBNET]
+    assert subnet_block[IpamOverviewKey.TOTAL_IPS] == 0
+    assert subnet_block[IpamOverviewKey.ASSIGNABLE_IPS] == 0
+    assert subnet_block[IpamOverviewKey.USED_IPS] == 0
+    assert subnet_block[IpamOverviewKey.FREE_IPS] == 0
+
+
+def test_build_broken_state_payload_echoes_raw_cidr_string_back() -> None:
+    """The raw CIDR string is echoed under 'cidr' so the FE shows the broken input"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    payload = _build_broken_state_payload(doc, page=1, page_size=10)
+
+    assert payload[IpamOverviewKey.SUBNET][IpamOverviewKey.CIDR] == 'not-a-cidr'
+
+
+def test_build_broken_state_payload_emits_null_cidr_for_non_string_value() -> None:
+    """A non-string field value becomes cidr=None on the wire"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, None)
+
+    payload = _build_broken_state_payload(doc, page=1, page_size=10)
+
+    assert payload[IpamOverviewKey.SUBNET][IpamOverviewKey.CIDR] is None
+
+
+def test_build_broken_state_payload_emits_empty_ips_block_and_distributions() -> None:
+    """Empty rows / total=0 / empty distributions so the FE can render unconditionally"""
+    doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    payload = _build_broken_state_payload(doc, page=1, page_size=10)
+
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 0
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS] == []
+    assert payload[IpamOverviewKey.TYPE_DISTRIBUTION] == []
+    assert payload[IpamOverviewKey.IP_DISTRIBUTION] == {}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1122,3 +1620,132 @@ def test_build_subnet_overview_search_below_min_length_is_treated_as_no_search()
         payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL]
         == payload[IpamOverviewKey.SUBNET][IpamOverviewKey.ASSIGNABLE_IPS]
     )
+
+
+def test_build_subnet_overview_aborts_400_on_unknown_sort_column() -> None:
+    """An invalid ?sort= value propagates as HTTP 400 out of the orchestrator"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, sort='foo')
+
+    assert exc_info.value.code == 400
+
+
+def test_build_subnet_overview_aborts_400_on_unknown_sort_direction() -> None:
+    """An invalid ?order= value propagates as HTTP 400 out of the orchestrator"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, sort='ip', order='sideways')
+
+    assert exc_info.value.code == 400
+
+
+def test_build_subnet_overview_sorts_rows_by_ip_descending_when_order_desc() -> None:
+    """sort=ip & order=desc reverses the natural ascending order on the page"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID,
+            page=1, page_size=3, sort='ip', order='-1',
+        )
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    assert [r[IpamOverviewKey.IP] for r in rows] == ['10.0.0.254', '10.0.0.253', '10.0.0.252']
+
+
+def test_build_subnet_overview_sort_default_ip_asc_uses_lazy_path() -> None:
+    """sort=ip + no order keeps the lazy ascending IP path (ips.total == assignable)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=3, sort='ip',
+        )
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    assert [r[IpamOverviewKey.IP] for r in rows] == ['10.0.0.1', '10.0.0.2', '10.0.0.3']
+    assert (
+        payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL]
+        == payload[IpamOverviewKey.SUBNET][IpamOverviewKey.ASSIGNABLE_IPS]
+    )
+
+
+def test_build_subnet_overview_kpi_block_is_invariant_under_sort() -> None:
+    """KPI counters are unaffected by sort direction"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        unsorted = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+        sorted_desc = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, sort='ip', order='-1',
+        )
+
+    assert unsorted[IpamOverviewKey.SUBNET] == sorted_desc[IpamOverviewKey.SUBNET]
+
+
+def test_build_subnet_overview_distributions_are_invariant_under_sort() -> None:
+    """type_distribution and ip_distribution cover the whole subnet, unaffected by sort"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000'}}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta):
+        no_sort = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+        with_sort = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, sort='type', order='-1',
+        )
+
+    assert no_sort[IpamOverviewKey.TYPE_DISTRIBUTION] == with_sort[IpamOverviewKey.TYPE_DISTRIBUTION]
+    assert no_sort[IpamOverviewKey.IP_DISTRIBUTION] == with_sort[IpamOverviewKey.IP_DISTRIBUTION]
+
+
+def test_build_subnet_overview_sort_assigned_to_calls_summary_batch_when_any_assigned() -> None:
+    """sort=assigned_to triggers the batch summary-line fetch on the ObjectsManager"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {OWNER_OBJECT_ID: 'Server: web01'}
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, sort='assigned_to',
+        )
+
+    objects_manager.get_summary_lines_lookup.assert_called_once()
+
+
+def test_build_subnet_overview_sort_combines_with_search() -> None:
+    """search + sort: matching IPs are filtered first, then ordered by the chosen column"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID,
+            page=1, page_size=50, search='10.0.0.5', sort='ip', order='-1',
+        )
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    ips = [r[IpamOverviewKey.IP] for r in rows]
+
+    assert all('10.0.0.5' in ip for ip in ips)
+    assert ips == sorted(ips, key=lambda ip: int(IPv4Address(ip)), reverse=True)

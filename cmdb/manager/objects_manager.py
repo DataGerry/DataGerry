@@ -1094,6 +1094,69 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerCheckError(err) from err
 
 
+    def _compose_summary_line(
+        self,
+        target_object: dict[str, Any],
+        target_object_type: Any,
+        with_type: bool = True,
+    ) -> str:
+        """
+        Composes the summary line for a CmdbObject that has already been loaded
+
+        Pure composition over already-loaded data: the object as a dict and its CmdbType
+        instance. The 'type label + public_id' prefix is built first, then the configured
+        summary fields are appended in declaration order (separator '-' before the first
+        field, '|' between fields). If anything goes wrong while walking the configured
+        fields the helper falls back to the default prefix line and logs at debug level -
+        a partially broken type definition should not block the caller. Centralizing this
+        composition lets `get_summary_line` and `get_summary_lines_lookup` share one body
+
+        Args:
+            target_object (dict[str, Any]): The CmdbObject document (as_dict=True shape)
+            target_object_type: The CmdbType instance of the object
+            with_type (bool): If True the type label is included in the prefix
+
+        Returns:
+            str: The composed summary line
+        """
+        if with_type:
+            default_line = f"{target_object_type.label} #{target_object.get('public_id')}"
+        else:
+            default_line = f"#{target_object.get('public_id')}"
+
+        if not target_object_type.has_summaries():
+            return default_line
+
+        summary_line = default_line
+
+        try:
+            summary_fields = target_object_type.get_summary().fields
+            first = True
+
+            line: dict
+            for line in summary_fields:
+                field_name = line.get('name')
+                field_value = next(
+                    (field['value'] for field in target_object['fields'] if field['name'] == field_name), None
+                )
+
+                if first:
+                    summary_line += f' - {field_value}'
+                    first = False
+                else:
+                    summary_line += f' | {field_value}'
+        except Exception as err:
+            LOGGER.debug(
+                "Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
+                target_object.get('public_id'),
+                target_object_type.public_id,
+                err
+            )
+            summary_line = default_line
+
+        return summary_line
+
+
     def get_summary_line(self, public_id: int, with_type: bool = True) -> str:
         """
         Retrieves the summary line of an CmdbObject
@@ -1123,44 +1186,106 @@ class ObjectsManager(BaseManager):
             if not target_object_type:
                 return default_line
 
-            if with_type:
-                default_line = f"{target_object_type.label} #{target_object.get('public_id')}"
-            else:
-                default_line = f"#{target_object.get('public_id')}"
-
-            if not target_object_type.has_summaries():
-                return default_line
-
-            summary_line = default_line
-
-            try:
-                summary_fields = target_object_type.get_summary().fields
-                first = True
-
-                line:dict
-                for line in summary_fields:
-                    field_name = line.get('name')
-                    field_value = next(
-                        (field['value'] for field in target_object['fields'] if field['name'] == field_name), None
-                    )
-
-                    if first:
-                        summary_line += f' - {field_value}'
-                        first = False
-                    else:
-                        summary_line += f' | {field_value}'
-            except Exception as err:
-                LOGGER.debug(
-                    "Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
-                    target_object.get('public_id'),
-                    target_object_type.public_id,
-                    err
-                )
-                summary_line = default_line
-
-            return summary_line
+            return self._compose_summary_line(target_object, target_object_type, with_type=with_type)
         except Exception as err:
             raise ObjectsManagerSummaryLineError(err) from err
+
+
+    def _load_types_lookup(self, type_ids: list[int]) -> dict[int, CmdbType]:
+        """
+        Batch-loads the CmdbTypes whose public_id is in ``type_ids`` and returns them by id
+
+        One ``get_many_from_other_collection`` call followed by per-row deserialization. Rows
+        that fail to deserialize are skipped with a debug-level log so a single drifted type
+        document does not break the entire batch
+
+        Args:
+            type_ids (list[int]): The CmdbType public_ids to resolve
+
+        Returns:
+            dict[int, CmdbType]: {type_id: CmdbType} for every type that loaded successfully
+        """
+        if not type_ids:
+            return {}
+
+        type_docs: list[dict[str, Any]] = self.get_many_from_other_collection(
+            CmdbType.COLLECTION, public_id={'$in': type_ids},
+        )
+        lookup: dict[int, CmdbType] = {}
+
+        for type_doc in type_docs:
+            try:
+                type_instance: CmdbType = CmdbType.from_data(type_doc)
+            except Exception as err:
+                LOGGER.debug(
+                    "Failed to load CmdbType with ID: %s. Error: %s",
+                    type_doc.get('public_id'), err,
+                )
+                continue
+
+            lookup[type_instance.public_id] = type_instance
+
+        return lookup
+
+
+    def get_summary_lines_lookup(
+        self,
+        public_ids: list[int],
+        with_type: bool = True,
+    ) -> dict[int, str]:
+        """
+        Batch-resolves summary lines for many CmdbObjects in a single round-trip pair
+
+        Used by callers that need summary lines for a known list of public_ids and would
+        otherwise issue O(N) per-object lookups via ``get_summary_line``. Issues exactly two
+        bulk queries: one ``find_objects`` over the requested ids, then one
+        ``get_types_lookup`` over the distinct type ids referenced by those objects. Summary
+        lines are composed locally via ``_compose_summary_line`` so the wire-format matches
+        ``get_summary_line`` byte-for-byte. Duplicates in ``public_ids`` are collapsed before
+        the bulk fetch
+
+        Objects that cannot be resolved (deleted, no longer matching their type id, etc.) are
+        absent from the returned dict - callers should treat a missing key as "no summary
+        line available" rather than as a hard error
+
+        Args:
+            public_ids (list[int]): public_ids to resolve; duplicates are allowed
+            with_type (bool): If True the type label is included in each prefix
+
+        Returns:
+            dict[int, str]: {public_id: summary_line} for every public_id whose object and
+                type both resolved
+        """
+        if not public_ids:
+            return {}
+
+        unique_ids: list[int] = list(set(public_ids))
+        object_docs: list[dict[str, Any]] = self.find_objects(
+            criteria={'public_id': {'$in': unique_ids}},
+            as_dict=True,
+        )
+
+        types_lookup: dict[int, CmdbType] = self._load_types_lookup(list({
+            doc.get('type_id') for doc in object_docs if isinstance(doc.get('type_id'), int)
+        }))
+
+        result: dict[int, str] = {}
+
+        for doc in object_docs:
+            doc_id: Any = doc.get('public_id')
+            doc_type_id: Any = doc.get('type_id')
+
+            if not isinstance(doc_id, int):
+                continue
+
+            doc_type: CmdbType | None = types_lookup.get(doc_type_id) if isinstance(doc_type_id, int) else None
+
+            if doc_type is None:
+                continue
+
+            result[doc_id] = self._compose_summary_line(doc, doc_type, with_type=with_type)
+
+        return result
 
 
     # def get_reference_field_names_from_type(self, type_schema: dict) -> set[str]:

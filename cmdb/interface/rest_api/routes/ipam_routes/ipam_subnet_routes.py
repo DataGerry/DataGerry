@@ -66,6 +66,13 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
             are ignored, queries longer than IpamSearch.MAX_QUERY_LENGTH are truncated at the
             route boundary. The filter applies to both assigned and free IPs; the KPI block,
             type_distribution, and ip_distribution stay invariant under search
+        sort (str, optional): IpamSortColumn value (ip / status / type / assigned_to /
+            mac_address); empty restores the natural ascending-IP order
+        order (str, optional): IpamSortDirection value ('1' for ascending, '-1' for
+            descending - matches the project-wide Mongo direction convention). Defaults to
+            '1' when sort is provided without an explicit order. Rows missing a value for
+            the chosen column trail in either direction (NULLS LAST). Aborts 400 on unknown
+            sort or order values
 
     Args:
         public_id (int): public_id of the SUBNET CmdbObject to summarise
@@ -83,6 +90,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         )
         raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
         search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        sort: str = request.args.get(IpamOverviewKey.SORT, default='', type=str) or ''
+        order: str = request.args.get(IpamOverviewKey.ORDER, default='', type=str) or ''
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -94,6 +103,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
             page=page,
             page_size=page_size,
             search=search,
+            sort=sort,
+            order=order,
         )
 
         return DefaultResponse(overview).make_response()
