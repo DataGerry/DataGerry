@@ -38,6 +38,8 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
     IpamRowStatus,
     IpamBucketLabel,
+    IpamSortColumn,
+    IpamSortDirection,
 )
 from cmdb.framework.ipam.cidr import (
     parse_cidr,
@@ -107,6 +109,234 @@ def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str
     return [str(IPv4Address(first + i)) for i in range(start_offset, end_offset)]
 
 
+def _resolve_assigned_summary_lines(
+    candidate_ips: list[str],
+    assigned: dict[str, dict[str, Any]],
+    objects_manager: ObjectsManager,
+) -> dict[str, str]:
+    """
+    Batch-resolves summary lines for the assigned IPs among the candidates, keyed by IP
+
+    Pulled out as its own helper because the bulk lookup is only needed when sort by
+    assigned_to is active. Collects the distinct owner public_ids referenced by the assigned
+    candidates and forwards them to ``ObjectsManager.get_summary_lines_lookup`` in one
+    round-trip, then maps the resolved summary line back onto every IP that pointed at the
+    same owner. Free IPs are skipped silently. Owners that no longer resolve (deleted /
+    drifted) leave the IP out of the returned mapping; callers downstream treat a missing
+    key as "no summary line available", which slots into the NULLS-LAST sort policy
+
+    Args:
+        candidate_ips (list[str]): Canonical IP strings under consideration
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+
+    Returns:
+        dict[str, str]: {ip_str: summary_line} for every candidate IP whose owner resolved
+    """
+    owner_ids: list[int] = [
+        assigned[ip][_AssignedField.OBJECT_ID]
+        for ip in candidate_ips
+        if ip in assigned and isinstance(assigned[ip].get(_AssignedField.OBJECT_ID), int)
+    ]
+
+    if not owner_ids:
+        return {}
+
+    summaries: dict[int, str] = objects_manager.get_summary_lines_lookup(owner_ids, with_type=True)
+
+    return {
+        ip: summaries[assigned[ip][_AssignedField.OBJECT_ID]]
+        for ip in candidate_ips
+        if ip in assigned and assigned[ip].get(_AssignedField.OBJECT_ID) in summaries
+    }
+
+
+def _compute_sort_key(
+    ip_str: str,
+    sort_col: IpamSortColumn,
+    assigned: dict[str, dict[str, Any]],
+    type_meta: dict[int, dict[str, Any]],
+    summary_lines: dict[str, str],
+) -> Any:
+    """
+    Returns the comparison key for one IP under the chosen sort column, or None when absent
+
+    Returning None signals "this row has no value for the requested column" - the calling
+    sorter places those rows in the NULLS LAST partition regardless of direction. String
+    keys (type label, summary line, MAC) are lower-cased so the alphabetic sort is case-
+    insensitive; IP and STATUS keys preserve their natural comparable form (IP as integer
+    so 10.0.0.10 sorts after 10.0.0.2, STATUS as the wire-format string)
+
+    Args:
+        ip_str (str): Canonical IP string of the row being keyed
+        sort_col (IpamSortColumn): The chosen sort column (must not be None - the orchestrator
+            short-circuits before calling this helper when sort is off)
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by ``_resolve_type_meta``
+        summary_lines (dict[str, str]): {ip_str: summary_line} produced by
+            ``_resolve_assigned_summary_lines``; empty when the sort column is not ASSIGNED_TO
+
+    Returns:
+        Any: Comparable key value, or None when the row has no value for the requested column
+    """
+    info: dict[str, Any] | None = assigned.get(ip_str)
+
+    if sort_col == IpamSortColumn.IP:
+        return int(IPv4Address(ip_str))
+
+    if sort_col == IpamSortColumn.STATUS:
+        return IpamRowStatus.ASSIGNED if info is not None else IpamRowStatus.FREE
+
+    if sort_col == IpamSortColumn.TYPE:
+        if info is None:
+            return None
+
+        type_id: Any = info.get(_AssignedField.TYPE_ID)
+        meta: dict[str, Any] | None = type_meta.get(type_id) if isinstance(type_id, int) else None
+        label: Any = meta.get(IpamOverviewKey.LABEL) if meta else None
+
+        return label.lower() if isinstance(label, str) else None
+
+    if sort_col == IpamSortColumn.ASSIGNED_TO:
+        summary: Any = summary_lines.get(ip_str)
+
+        return summary.lower() if isinstance(summary, str) and summary else None
+
+    if sort_col == IpamSortColumn.MAC_ADDRESS:
+        if info is None:
+            return None
+
+        mac: Any = info.get(_AssignedField.MAC)
+
+        return mac.lower() if isinstance(mac, str) and mac else None
+
+    return None
+
+
+def _sort_candidate_ips(
+    candidate_ips: list[str],
+    sort_col: IpamSortColumn,
+    sort_dir: IpamSortDirection,
+    assigned: dict[str, dict[str, Any]],
+    type_meta: dict[int, dict[str, Any]],
+    objects_manager: ObjectsManager,
+) -> list[str]:
+    """
+    Sorts the candidate IPs by the chosen column and direction, NULLS LAST in either direction
+
+    The generic path computes the sort key for every candidate once, splits the candidates
+    into a 'has value' partition and a 'no value' partition, sorts the first by its key
+    (reversed when DESC), then concatenates so rows missing a value always trail. Two
+    optimizations short-circuit the generic path:
+
+      * Sort by IP uses a direct ``sorted(..., key=int(IPv4Address(ip)))`` call. Every
+        candidate IP is by definition a valid canonical address, so no NULLS LAST split is
+        needed and the per-IP integer conversion happens exactly once
+      * Sort by ASSIGNED_TO skips the summary-line batch fetch entirely when no candidate
+        is currently assigned. The batch call (and the find_objects /
+        get_many_from_other_collection pair it issues) is bypassed - the generic loop then
+        produces an all-NULL partition that sorts to the same final order
+
+    For other columns the keys are answered from the in-memory ``assigned`` / ``type_meta``
+    maps so no extra DB work happens
+
+    Args:
+        candidate_ips (list[str]): Canonical IP strings to order
+        sort_col (IpamSortColumn): The chosen sort column
+        sort_dir (IpamSortDirection): The chosen sort direction
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by ``_resolve_type_meta``
+        objects_manager (ObjectsManager): db interface for CmdbObjects, used only to batch
+            summary lines when sort_col == ASSIGNED_TO and at least one candidate is assigned
+
+    Returns:
+        list[str]: Candidate IPs ordered by key with NULL-keyed rows trailing the partition
+    """
+    reverse: bool = sort_dir == IpamSortDirection.DESC
+
+    if sort_col == IpamSortColumn.IP:
+        return sorted(candidate_ips, key=lambda ip: int(IPv4Address(ip)), reverse=reverse)
+
+    summary_lines: dict[str, str] = (
+        _resolve_assigned_summary_lines(candidate_ips, assigned, objects_manager)
+        if sort_col == IpamSortColumn.ASSIGNED_TO and any(ip in assigned for ip in candidate_ips)
+        else {}
+    )
+
+    has_value: list[tuple[Any, str]] = []
+    no_value: list[str] = []
+
+    for ip in candidate_ips:
+        key: Any = _compute_sort_key(ip, sort_col, assigned, type_meta, summary_lines)
+
+        if key is None:
+            no_value.append(ip)
+        else:
+            has_value.append((key, ip))
+
+    has_value.sort(key=lambda kv: kv[0], reverse=reverse)
+
+    return [ip for _, ip in has_value] + no_value
+
+
+def _resolve_candidate_ips(
+    network: IPv4Network,
+    search: str,
+    sort_col: IpamSortColumn | None,
+    sort_dir: IpamSortDirection,
+    assigned: dict[str, dict[str, Any]],
+    type_meta: dict[int, dict[str, Any]],
+    objects_manager: ObjectsManager,
+) -> list[str] | None:
+    """
+    Selects the candidate IP list for the IP-table page, or None to signal the lazy path
+
+    Returning None means "no search is active AND the chosen sort is the natural ascending IP
+    order (or no sort is requested)" - the orchestrator then paginates straight from
+    ``_page_slice_ips`` without materializing the full assignable range. Otherwise the helper
+    builds the candidate list explicitly (search-filtered if a search is active, otherwise
+    the full assignable list) and applies the sort when ``sort_col`` is not None
+
+    Args:
+        network (IPv4Network): The parsed subnet network
+        search (str): Raw search query as received by the caller
+        sort_col (IpamSortColumn | None): Chosen sort column, or None when no sort is requested
+        sort_dir (IpamSortDirection): Chosen sort direction (ASC when sort_col is None)
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by ``_resolve_type_meta``
+        objects_manager (ObjectsManager): db interface for CmdbObjects (used by the
+            assigned_to summary-line batch when that sort is active)
+
+    Returns:
+        list[str] | None: Candidate IPs in final order, or None to signal the lazy path
+    """
+    needle: str | None = active_search(search)
+    natural_order: bool = sort_col is None or (
+        sort_col == IpamSortColumn.IP and sort_dir == IpamSortDirection.ASC
+    )
+
+    if needle is None and natural_order:
+        return None
+
+    candidates: list[str] = (
+        list_assignable_ips_matching_substring(network, needle)
+        if needle is not None
+        else list_all_assignable_ips(network)
+    )
+
+    if sort_col is None:
+        return candidates
+
+    return _sort_candidate_ips(candidates, sort_col, sort_dir, assigned, type_meta, objects_manager)
+
+
 def _compose_ip_row(
     ip_str: str,
     assigned: dict[str, dict[str, Any]],
@@ -172,7 +402,7 @@ def _build_ips_block(
     assignable: int,
     page: int,
     page_size: int,
-    search: str,
+    candidates: list[str] | None,
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
@@ -180,21 +410,21 @@ def _build_ips_block(
     """
     Builds the 'ips' page block (page, page_size, total, rows) for the IP-Übersicht payload
 
-    Branches on whether ``search`` is active (per ``active_search``). With no active search the
-    block lists every assignable address in ascending order using ``_page_slice_ips`` so a
-    large subnet does not materialize its full IP list; 'total' is the subnet's assignable
-    address count. With an active search the block lists the matching IPs only (substring
-    match against canonical IP strings via ``list_assignable_ips_matching_substring``);
-    'total' is the match count and pagination clamps against that smaller denominator. Rows
-    are shaped one-per-IP through ``_compose_ip_row`` so the assigned/free branch and the
-    summary-line resolution stay encapsulated
+    Splits on whether the caller pre-resolved the candidate IP list. ``candidates is None``
+    signals the lazy path: pagination uses ``_page_slice_ips`` against the full assignable
+    range so a large subnet does not materialize its IPs in memory, and 'total' equals the
+    subnet's assignable count. A non-None ``candidates`` is the final candidate order
+    (after search filtering and / or sort) and pagination slices it directly with 'total'
+    set to the candidate count. Either way each IP on the page is shaped via
+    ``_compose_ip_row`` so the assigned-vs-free row composition stays encapsulated
 
     Args:
         network (IPv4Network): The parsed subnet network
-        assignable (int): Assignable address count of the subnet
+        assignable (int): Assignable address count of the subnet (used only on the lazy path)
         page (int): 1-based page number; clamped server-side
         page_size (int): Page size; clamped server-side
-        search (str): Raw search query as received by the caller
+        candidates (list[str] | None): Pre-resolved candidate IP list (search-filtered and / or
+            sorted) or None to signal the lazy ascending-IP path
         assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
             ``_load_assigned_rows_map``
         type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
@@ -206,18 +436,15 @@ def _build_ips_block(
         dict[str, Any]: {page, page_size, total, rows} block ready to drop under the 'ips'
             key of the overview payload
     """
-    needle: str | None = active_search(search)
-
-    if needle is None:
+    if candidates is None:
         safe_page, safe_size = clamp_page(page, page_size, assignable)
         page_ips: list[str] = _page_slice_ips(network, safe_page, safe_size)
         ips_total: int = assignable
     else:
-        matching_ips: list[str] = list_assignable_ips_matching_substring(network, needle)
-        safe_page, safe_size = clamp_page(page, page_size, len(matching_ips))
+        safe_page, safe_size = clamp_page(page, page_size, len(candidates))
         start: int = (safe_page - 1) * safe_size
-        page_ips = matching_ips[start:start + safe_size]
-        ips_total = len(matching_ips)
+        page_ips = candidates[start:start + safe_size]
+        ips_total = len(candidates)
 
     return {
         IpamOverviewKey.PAGE: safe_page,
@@ -227,6 +454,70 @@ def _build_ips_block(
             _compose_ip_row(ip, assigned, type_meta, objects_manager) for ip in page_ips
         ],
     }
+
+
+def _parse_sort_args(
+    raw_sort: str,
+    raw_order: str,
+) -> tuple[IpamSortColumn | None, IpamSortDirection]:
+    """
+    Validates and normalizes the route's 'sort' and 'order' query parameter strings
+
+    Empty / whitespace ``raw_sort`` means "no sort param provided" - the helper returns
+    ``(None, ASC)`` so the orchestrator stays on the lazy IP-ascending path. When a sort
+    column is provided the order defaults to ASC if ``raw_order`` is empty / whitespace.
+    Unknown sort column or unknown direction values are rejected with HTTP 400 so a FE
+    typo surfaces immediately rather than silently degrading
+
+    Args:
+        raw_sort (str): Raw value of the ?sort= query param
+        raw_order (str): Raw value of the ?order= query param
+
+    Returns:
+        tuple[IpamSortColumn | None, IpamSortDirection]: (sort column, sort direction).
+            sort column is None when ``raw_sort`` is empty / whitespace; direction is the
+            parsed value otherwise ASC
+    """
+    sort_value: str = (raw_sort or '').strip()
+    order_value: str = (raw_order or '').strip()
+
+    if not sort_value:
+        return None, IpamSortDirection.ASC
+
+    if not IpamSortColumn.is_valid(sort_value):
+        abort(400, f"Unknown sort column: '{sort_value}'!")
+
+    if order_value and not IpamSortDirection.is_valid(order_value):
+        abort(400, f"Unknown sort direction: '{order_value}'!")
+
+    direction: IpamSortDirection = (
+        IpamSortDirection(order_value) if order_value else IpamSortDirection.ASC
+    )
+
+    return IpamSortColumn(sort_value), direction
+
+
+def list_all_assignable_ips(network: IPv4Network) -> list[str]:
+    """
+    Returns every assignable IP address of a subnet as a canonical string in ascending order
+
+    Same address-skipping policy as ``_page_slice_ips`` and
+    ``list_assignable_ips_matching_substring``: /30 and shorter skip the network and
+    broadcast addresses, /31 includes both endpoints, /32 includes the single host. The
+    returned list materializes the full range; callers should reach for this only when sort
+    or other operations need the whole set in memory
+
+    Args:
+        network (IPv4Network): The parsed subnet network
+
+    Returns:
+        list[str]: Canonical IP strings in ascending order; length equals
+            ``assignable_address_count(network)``
+    """
+    first: int = first_assignable_int(network)
+    total: int = assignable_address_count(network)
+
+    return [str(IPv4Address(first + offset)) for offset in range(total)]
 
 
 def list_assignable_ips_matching_substring(network: IPv4Network, needle: str) -> list[str]:
@@ -766,6 +1057,73 @@ def _resolve_type_meta(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   ORCHESTRATOR                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _parse_subnet_network(subnet_obj: dict[str, Any]) -> IPv4Network | None:
+    """
+    Returns the parsed IPv4Network of a SUBNET CmdbObject, or None when unparsable / missing
+
+    Reads the subnet's 'dg-network-range' field via ``extract_field_value`` and runs
+    ``parse_cidr`` over it only when the value is a string, so a degenerate field value
+    (None / non-string) does not crash the orchestrator
+
+    Args:
+        subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
+
+    Returns:
+        IPv4Network | None: Parsed network, or None when the CIDR is missing or unparsable
+    """
+    raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
+
+    if not isinstance(raw_cidr, str):
+        return None
+
+    return parse_cidr(raw_cidr)
+
+
+def _build_broken_state_payload(
+    subnet_obj: dict[str, Any],
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    """
+    Builds the degenerate payload returned when the subnet's CIDR is missing or unparsable
+
+    Mirrors the happy-path envelope so the FE can render the response unconditionally: every
+    counter is zeroed, the 'ips' block ships an empty page (page / page_size clamped via
+    ``clamp_page(..., 0)``), and both distributions are empty. The 'cidr' field echoes the
+    raw value when it is a string (so the user can see the broken input they need to fix)
+    and is None otherwise
+
+    Args:
+        subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
+        page (int): 1-based page number requested by the caller
+        page_size (int): Page size requested by the caller
+
+    Returns:
+        dict[str, Any]: Degenerate payload matching the happy-path key set
+    """
+    raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
+    safe_page, safe_size = clamp_page(page, page_size, 0)
+
+    return {
+        IpamOverviewKey.SUBNET: {
+            CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            IpamOverviewKey.CIDR: raw_cidr if isinstance(raw_cidr, str) else None,
+            IpamOverviewKey.TOTAL_IPS: 0,
+            IpamOverviewKey.ASSIGNABLE_IPS: 0,
+            IpamOverviewKey.USED_IPS: 0,
+            IpamOverviewKey.FREE_IPS: 0,
+        },
+        IpamOverviewKey.IPS: {
+            IpamOverviewKey.PAGE: safe_page,
+            IpamOverviewKey.PAGE_SIZE: safe_size,
+            IpamOverviewKey.TOTAL: 0,
+            IpamOverviewKey.ROWS: [],
+        },
+        IpamOverviewKey.TYPE_DISTRIBUTION: [],
+        IpamOverviewKey.IP_DISTRIBUTION: {},
+    }
+
+
 def build_subnet_overview(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -773,14 +1131,17 @@ def build_subnet_overview(
     page: int = 1,
     page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
     search: str = '',
+    sort: str = '',
+    order: str = '',
 ) -> dict[str, Any]:
     """
     Builds the full IP-Übersicht payload for the SUBNET CmdbObject identified by public_id
 
     Aborts HTTP 404 when the subnet does not exist and HTTP 400 when the public_id refers to a
-    non-subnet CmdbObject or no SUBNET CmdbType is defined. When the subnet's
-    'dg-network-range' is missing or unparsable, returns the KPI block with zeroed counters and
-    an empty page (broken state is observable but does not 500)
+    non-subnet CmdbObject or no SUBNET CmdbType is defined, an unknown sort column, or an
+    unknown sort direction. When the subnet's 'dg-network-range' is missing or unparsable,
+    returns the KPI block with zeroed counters and an empty page (broken state is observable
+    but does not 500)
 
     The KPI block uses two related denominators: 'total_ips' is the full address count
     (network + broadcast included, matching the IP-Verteilung grid) and 'assignable_ips' is
@@ -788,17 +1149,21 @@ def build_subnet_overview(
     full count for /31, /32). 'free_ips' is computed against 'assignable_ips' so it matches
     what the user sees in the paginated IP table
 
-    Summary lines are resolved only for the assigned rows on the requested page, never for the
-    whole subnet, so the cost is bounded by page_size
+    Summary lines for the page are resolved one-per-IP through ``_compose_ip_row``. When
+    ``sort`` is ASSIGNED_TO they are additionally batch-resolved up front via
+    ``ObjectsManager.get_summary_lines_lookup`` so the ordering decision uses the visible
+    label
 
     When ``search`` is empty / whitespace or shorter than IpamSearch.MIN_QUERY_LENGTH after
-    stripping, the IP table paginates every assignable address in ascending order ('ips.total'
-    equals 'assignable_ips'). When ``search`` is active, the IP table lists only the
-    assignable addresses whose canonical dotted-quad string contains the query as a case-
-    insensitive substring; 'ips.total' shrinks to the match count, but the 'subnet' KPI block,
-    'type_distribution', and 'ip_distribution' are unaffected - they always cover the whole
-    subnet. Both assigned and free rows can match: search is over the IP string itself, not
-    over assignment metadata
+    stripping, the IP table paginates every assignable address ('ips.total' equals
+    'assignable_ips'). When ``search`` is active, the IP table lists only the assignable
+    addresses whose canonical dotted-quad string contains the query as a case-insensitive
+    substring; 'ips.total' shrinks to the match count
+
+    When ``sort`` is provided the candidate IPs are ordered by the chosen column and
+    direction with NULLS LAST (rows missing a value for the column trail in either direction).
+    The 'subnet' KPI block, 'type_distribution', and 'ip_distribution' are invariant under
+    both search and sort - they always cover the whole subnet
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -810,6 +1175,12 @@ def build_subnet_overview(
         search (str): Optional case-insensitive substring filter against each canonical IP
             string; empty / whitespace and queries shorter than IpamSearch.MIN_QUERY_LENGTH
             after stripping are ignored and restore the unfiltered page
+        sort (str): Optional sort column name; one of IpamSortColumn values. Empty or
+            whitespace keeps the natural ascending-IP order
+        order (str): Optional sort direction ('1' for ascending, '-1' for descending);
+            ignored when ``sort`` is empty, defaults to '1' when ``sort`` is provided
+            without an explicit order. Matches the project-wide Mongo direction convention
+            used by CollectionParameters and the base managers
 
     Returns:
         dict[str, Any]: {'subnet': {public_id, cidr, total_ips, assignable_ips,
@@ -824,38 +1195,18 @@ def build_subnet_overview(
             IP-Verteilung heatmap grid covering the full address space (network + broadcast
             included). The grid is emitted only at its full 4 x 16 size (/26 and shorter
             prefixes); for /27 and narrower, or when the CIDR is unparsable, ip_distribution
-            is an empty dict. 'ips.total' equals 'assignable_ips' under no search, or the
-            match count when search is active
+            is an empty dict. 'ips.total' equals 'assignable_ips' under no search and no
+            sort (lazy path), or the candidate-list length otherwise
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
-
-    raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
-    network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
+    sort_col, sort_dir = _parse_sort_args(sort, order)
+    network: IPv4Network | None = _parse_subnet_network(subnet_obj)
 
     if network is None:
-        safe_page, safe_size = clamp_page(page, page_size, 0)
-        return {
-            IpamOverviewKey.SUBNET: {
-                CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
-                IpamOverviewKey.CIDR: raw_cidr if isinstance(raw_cidr, str) else None,
-                IpamOverviewKey.TOTAL_IPS: 0,
-                IpamOverviewKey.ASSIGNABLE_IPS: 0,
-                IpamOverviewKey.USED_IPS: 0,
-                IpamOverviewKey.FREE_IPS: 0,
-            },
-            IpamOverviewKey.IPS: {
-                IpamOverviewKey.PAGE: safe_page,
-                IpamOverviewKey.PAGE_SIZE: safe_size,
-                IpamOverviewKey.TOTAL: 0,
-                IpamOverviewKey.ROWS: [],
-            },
-            IpamOverviewKey.TYPE_DISTRIBUTION: [],
-            IpamOverviewKey.IP_DISTRIBUTION: {},
-        }
+        return _build_broken_state_payload(subnet_obj, page, page_size)
 
     assignable: int = assignable_address_count(network)
     assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
-    used_ips: int = len(assigned)
 
     type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, [
         info[_AssignedField.TYPE_ID]
@@ -869,11 +1220,12 @@ def build_subnet_overview(
             IpamOverviewKey.CIDR: str(network),
             IpamOverviewKey.TOTAL_IPS: total_address_count(network),
             IpamOverviewKey.ASSIGNABLE_IPS: assignable,
-            IpamOverviewKey.USED_IPS: used_ips,
-            IpamOverviewKey.FREE_IPS: max(0, assignable - used_ips),
+            IpamOverviewKey.USED_IPS: len(assigned),
+            IpamOverviewKey.FREE_IPS: max(0, assignable - len(assigned)),
         },
         IpamOverviewKey.IPS: _build_ips_block(
-            network, assignable, page, page_size, search,
+            network, assignable, page, page_size,
+            _resolve_candidate_ips(network, search, sort_col, sort_dir, assigned, type_meta, objects_manager),
             assigned, type_meta, objects_manager,
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),

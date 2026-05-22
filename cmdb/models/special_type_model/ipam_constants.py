@@ -203,6 +203,8 @@ class IpamOverviewKey(BaseStrEnum):
     PAGE = 'page'
     PAGE_SIZE = 'page_size'
     SEARCH = 'search'
+    SORT = 'sort'
+    ORDER = 'order'
     TOTAL = 'total'
     TYPE_DISTRIBUTION = 'type_distribution'
     IP_DISTRIBUTION = 'ip_distribution'
@@ -293,6 +295,37 @@ class IpamBucketLabel(BaseStrEnum):
     """
     FREE = 'Free'
     UNKNOWN = 'Unknown'
+
+
+class IpamSortColumn(BaseStrEnum):
+    """
+    Allowed values of the 'sort' query parameter for the subnet IP-Übersicht route
+
+    Each member names one column of the IP-table row that can be the sort key. The values
+    are the exact strings the FE places in the URL, so any rename here must be paired with
+    a FE adjustment. Free rows (status='free') have no type / assigned_to / mac_address;
+    the sort logic places those rows after the rows with values regardless of direction
+    """
+    IP = 'ip'
+    STATUS = 'status'
+    TYPE = 'type'
+    ASSIGNED_TO = 'assigned_to'
+    MAC_ADDRESS = 'mac_address'
+
+
+class IpamSortDirection(BaseStrEnum):
+    """
+    Allowed values of the 'order' query parameter for the subnet IP-Übersicht route
+
+    Values are the integer-encoded sort direction the rest of the codebase uses with Mongo
+    ('1' for ascending, '-1' for descending; see CollectionParameters, BaseManager). The FE
+    sends the value as a query-string token so the enum stores the string form. ASC is the
+    default when 'sort' is given without an explicit 'order'. DESC reverses the comparison
+    on rows that carry a value but leaves the 'no value' partition trailing (NULLS LAST
+    regardless of direction)
+    """
+    ASC = '1'
+    DESC = '-1'
 
 
 class IpamSection(BaseStrEnum):
