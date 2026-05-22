@@ -273,14 +273,18 @@ class IpamRowStatus(BaseStrEnum):
 
 class IpamUnassignKey(BaseStrEnum):
     """
-    Request and response payload keys for the supernet 'unassign subnets' route
+    Request and response payload keys for the IPAM 'unassign' routes
 
-    SUBNET_IDS is the request-body field carrying the list of subnet public_ids the caller
-    asks to detach from the supernet. UNASSIGNED_COUNT is the response field echoing how
-    many subnets the route actually cleared. Both are scoped to the unassign route alone -
-    keys shared with the read-side overview payload live in IpamOverviewKey instead
+    SUBNET_IDS is the request-body field of the supernet route carrying the list of subnet
+    public_ids the caller asks to detach from the supernet. IPS is the request-body field of
+    the subnet route carrying the list of canonical IPv4 strings whose dg-ipam-interface rows
+    should be removed from their owner CmdbObjects. UNASSIGNED_COUNT is the response field
+    echoing how many entries the route actually cleared. All three are scoped to the unassign
+    routes alone - keys shared with the read-side overview payload live in IpamOverviewKey
+    instead
     """
     SUBNET_IDS = 'subnet_ids'
+    IPS = 'ips'
     UNASSIGNED_COUNT = 'unassigned_count'
 
 

@@ -37,7 +37,6 @@ from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
     SubnetField,
     InterfaceField,
-    VlanField,
     IpamSection,
     IpamPagination,
     IpamOverviewKey,
@@ -51,7 +50,7 @@ from cmdb.models.object_model import (
     extract_field_value,
 )
 from cmdb.framework.ipam.pagination import clamp_page
-from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.references import resolve_special_type_id, load_vlans_by_subnets
 from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -675,74 +674,6 @@ def _row_subnet_ref(row: dict[str, Any]) -> Any:
     return None
 
 
-def _load_vlans_by_subnet(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    subnet_ids: list[int],
-) -> dict[int, list[dict[str, Any]]]:
-    """
-    Groups VLAN CmdbObjects by the subnet their 'dg-subnet-ref' field points at
-
-    A single Mongo query selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
-    ``subnet_ids``; bucketing happens in Python to keep the pipeline portable (Cosmos Mongo API
-    friendly: no aggregation stages required). Each VLAN that references one of the supplied
-    subnets contributes a {'public_id': <vlan id>, 'name': <vlan dg-name or None>} entry to the
-    bucket for that subnet. Per-bucket entries are sorted by ascending public_id so the order
-    is deterministic across re-queries
-
-    Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
-    subnets without referencing VLANs do not appear in the returned dict (callers should treat
-    a missing key as an empty list)
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        subnet_ids (list[int]): The subnet public_ids whose referencing VLANs should be loaded
-
-    Returns:
-        dict[int, list[dict[str, Any]]]: {subnet_id: [{public_id, name}, ...]} with each list
-            sorted ascending by public_id
-    """
-    if not subnet_ids:
-        return {}
-
-    vlan_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.VLAN)
-
-    if vlan_type_id is None:
-        return {}
-
-    subnet_id_set: set[int] = set(subnet_ids)
-
-    criteria: dict[str, Any] = {
-        CmdbObjectKey.TYPE_ID: vlan_type_id,
-        CmdbObjectKey.FIELDS: {
-            '$elemMatch': {
-                CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
-                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
-            },
-        },
-    }
-
-    vlan_objs: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
-    buckets: dict[int, list[dict[str, Any]]] = {}
-
-    for vlan_obj in vlan_objs:
-        subnet_ref: Any = extract_field_value(vlan_obj, VlanField.SUBNET_REF)
-
-        if subnet_ref not in subnet_id_set:
-            continue
-
-        buckets.setdefault(subnet_ref, []).append({
-            CmdbObjectKey.PUBLIC_ID: vlan_obj[CmdbObjectKey.PUBLIC_ID],
-            IpamOverviewKey.NAME: extract_field_value(vlan_obj, VlanField.NAME),
-        })
-
-    for bucket in buckets.values():
-        bucket.sort(key=lambda entry: entry[CmdbObjectKey.PUBLIC_ID])
-
-    return buckets
-
-
 def _attach_vlans_to_rows(
     rows: list[dict[str, Any]],
     vlans_by_subnet: dict[int, list[dict[str, Any]]],
@@ -796,7 +727,7 @@ def _build_linked_subnet_rows(
     subnet_ids: list[int] = [s[CmdbObjectKey.PUBLIC_ID] for s in subnet_objs if CmdbObjectKey.PUBLIC_ID in s]
 
     used_per_subnet: dict[int, int] = _count_used_ips_per_subnet(objects_manager, subnet_ids)
-    vlans_by_subnet: dict[int, list[dict[str, Any]]] = _load_vlans_by_subnet(
+    vlans_by_subnet: dict[int, list[dict[str, Any]]] = load_vlans_by_subnets(
         objects_manager, types_manager, subnet_ids,
     )
 

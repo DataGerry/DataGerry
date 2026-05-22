@@ -16,10 +16,11 @@
 """
 REST routes for SUBNET-centric IPAM views
 
-Currently exposes the subnet IP-Übersicht payload that powers the per-subnet IP table view in
-the frontend. The IP table is paginated and supports an optional case-insensitive substring
-search against the canonical IP strings; the search filter does not affect the KPI block or
-the distributions
+Exposes the subnet IP-Übersicht read-side payload that powers the per-subnet IP table view in
+the frontend, plus the bulk 'unassign IPs' write-side route that clears the subnet reference
+on one or more dg-ipam-interface rows. The IP table is paginated and supports an optional
+case-insensitive substring search against the canonical IP strings; the search filter does
+not affect the KPI block or the distributions
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -32,8 +33,14 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.special_type_model.ipam_constants import IpamPagination, IpamSearch, IpamOverviewKey
+from cmdb.models.special_type_model.ipam_constants import (
+    IpamPagination,
+    IpamSearch,
+    IpamOverviewKey,
+    IpamUnassignKey,
+)
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview
+from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -118,4 +125,68 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         abort(
             500,
             f"An internal server error occured while building the overview for Subnet with ID: {public_id}!",
+        )
+
+
+@ipam_subnet_blueprint.route('/overview/<int:public_id>/unassign', methods=['POST'])
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@insert_request_user
+def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `POST` route that clears the subnet reference on one or more dg-ipam-interface rows
+
+    Each entry in the request's ``ips`` list identifies one currently-assigned IP of the
+    subnet; the route locates its owner CmdbObject, flips the row's ``dg-interface-subnet``
+    value to None and writes the owner back through ``ObjectsManager.update_object`` so ACL,
+    versioning and post-update hooks all run per-owner. The row itself stays on the owner
+    along with its IP and MAC values - only the subnet reference is cleared. Other interface
+    rows on the same owner (referencing other subnets or non-target IPs of the same subnet)
+    are left untouched
+
+    Validate-all-or-nothing: if any requested IP is not currently assigned within the subnet,
+    the route aborts 400 with the offending IPs and no write happens. Bad input shape (missing
+    list, empty list, non-string entry, non-canonical IPv4, IP outside the subnet) also aborts
+    400 before any database read. Aborts 404 when the subnet does not exist and 400 when the
+    public_id refers to a non-subnet object, no SUBNET CmdbType is defined, or the subnet's
+    network-range field is missing / unparsable
+
+    Body:
+        ips (list[str]): canonical IPv4 dotted-quad strings whose row should have its subnet
+            reference cleared; must be non-empty, each parseable, each within the subnet.
+            Duplicates are silently collapsed while preserving input order
+
+    Args:
+        public_id (int): public_id of the SUBNET CmdbObject to unassign rows from
+        request_user (CmdbUser): CmdbUser making the request
+
+    Returns:
+        Response: {'ips': [str, ...], 'unassigned_count': int}; 'ips' echoes the deduplicated
+            request order and 'unassigned_count' is the number of dg-ipam-interface rows
+            whose subnet reference was cleared across all touched owners
+    """
+    try:
+        payload: dict[str, Any] = request.get_json(silent=True) or {}
+
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        result: dict[str, Any] = unassign_ips_from_subnet(
+            objects_manager,
+            types_manager,
+            public_id,
+            payload.get(IpamUnassignKey.IPS),
+            request_user,
+        )
+
+        return DefaultResponse(result).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        LOGGER.error(
+            "[unassign_ips_route] Exception: %s. Type: %s",
+            err, type(err).__name__, exc_info=True,
+        )
+        abort(
+            500,
+            f"An internal server error occured while unassigning IPs from Subnet with ID: {public_id}!",
         )
