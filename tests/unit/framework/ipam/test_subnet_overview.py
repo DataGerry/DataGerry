@@ -52,6 +52,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.subnet_overview import (
     _AssignedField,
+    _apply_candidate_filter,
     _build_broken_state_payload,
     _bucket_used_counts,
     _build_ip_distribution,
@@ -67,12 +68,15 @@ from cmdb.framework.ipam.subnet_overview import (
     _load_assigned_rows_map,
     _load_subnet_object,
     _page_slice_ips,
+    _parse_filter_args,
     _parse_sort_args,
     _parse_subnet_network,
     _resolve_assigned_summary_lines,
     _resolve_candidate_ips,
     _resolve_type_meta,
     _sort_candidate_ips,
+    _sorted_invalid_ips,
+    build_invalid_subnet_overview,
     build_subnet_overview,
     list_all_assignable_ips,
     list_assignable_ips_matching_substring,
@@ -156,12 +160,18 @@ def _make_interface_carrier(
     }
 
 
-def _make_assigned_entry(object_id: int, type_id: int | None, mac: str | None) -> dict[str, Any]:
+def _make_assigned_entry(
+    object_id: int,
+    type_id: int | None,
+    mac: str | None,
+    is_valid: bool = True,
+) -> dict[str, Any]:
     """Builds one value of the assigned map (the shape _load_assigned_rows_map produces)."""
     return {
         _AssignedField.OBJECT_ID: object_id,
         _AssignedField.TYPE_ID: type_id,
         _AssignedField.MAC: mac,
+        _AssignedField.IS_VALID: is_valid,
     }
 
 
@@ -215,6 +225,179 @@ def test_parse_sort_args_aborts_400_for_unknown_sort_direction() -> None:
 def test_parse_sort_args_ignores_unknown_order_when_sort_is_empty() -> None:
     """When sort is empty the order is irrelevant and never validated"""
     assert _parse_sort_args('', 'sideways') == (None, IpamSortDirection.ASC)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               _parse_filter_args                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_parse_filter_args_returns_none_and_empty_list_when_both_empty() -> None:
+    """Both inputs empty → (None, []) and the orchestrator skips filtering"""
+    assert _parse_filter_args('', '') == (None, [])
+
+
+def test_parse_filter_args_treats_whitespace_only_values_as_empty() -> None:
+    """Whitespace-only strings strip to empty and are treated as 'no filter'"""
+    assert _parse_filter_args('   ', '   ') == (None, [])
+
+
+def test_parse_filter_args_parses_assigned_status() -> None:
+    """A valid 'assigned' status value parses to IpamRowStatus.ASSIGNED"""
+    status_filter, type_filter = _parse_filter_args('assigned', '')
+
+    assert status_filter == IpamRowStatus.ASSIGNED
+    assert type_filter == []
+
+
+def test_parse_filter_args_parses_free_status() -> None:
+    """A valid 'free' status value parses to IpamRowStatus.FREE"""
+    status_filter, type_filter = _parse_filter_args('free', '')
+
+    assert status_filter == IpamRowStatus.FREE
+    assert type_filter == []
+
+
+def test_parse_filter_args_parses_single_type_as_list_of_one_int() -> None:
+    """A single numeric value wraps in a one-element list"""
+    status_filter, type_filter = _parse_filter_args('', '50')
+
+    assert status_filter is None
+    assert type_filter == [50]
+
+
+def test_parse_filter_args_parses_multi_type_preserving_input_order() -> None:
+    """Comma-separated values produce a list in input order"""
+    _, type_filter = _parse_filter_args('', '50,51,52')
+
+    assert type_filter == [50, 51, 52]
+
+
+def test_parse_filter_args_strips_whitespace_around_type_elements() -> None:
+    """Whitespace around each comma-separated element is stripped before parsing"""
+    _, type_filter = _parse_filter_args('', '  50 , 51 ,52  ')
+
+    assert type_filter == [50, 51, 52]
+
+
+def test_parse_filter_args_skips_empty_type_elements() -> None:
+    """Empty elements from doubled commas / trailing commas are silently skipped"""
+    _, type_filter = _parse_filter_args('', '50,,51,')
+
+    assert type_filter == [50, 51]
+
+
+def test_parse_filter_args_dedupes_repeated_type_elements_preserving_first_position() -> None:
+    """Duplicates are collapsed and the first occurrence's position is preserved"""
+    _, type_filter = _parse_filter_args('', '52,50,52,51,50')
+
+    assert type_filter == [52, 50, 51]
+
+
+def test_parse_filter_args_returns_both_when_both_provided() -> None:
+    """Status and type are independent; both populated produces both populated"""
+    status_filter, type_filter = _parse_filter_args('assigned', '50,51')
+
+    assert status_filter == IpamRowStatus.ASSIGNED
+    assert type_filter == [50, 51]
+
+
+def test_parse_filter_args_aborts_400_on_unknown_status() -> None:
+    """An unknown status value aborts HTTP 400 with the offending value in the message"""
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_filter_args('partial', '')
+
+    assert exc_info.value.code == 400
+
+
+def test_parse_filter_args_aborts_400_on_non_integer_type_element() -> None:
+    """A non-integer element anywhere in the comma-separated list aborts HTTP 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_filter_args('', '50,server,52')
+
+    assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             _apply_candidate_filter                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_apply_candidate_filter_returns_input_when_both_filters_inactive() -> None:
+    """No status and no type → list passes through unchanged (no copy required)"""
+    candidates = ['10.0.0.1', '10.0.0.2']
+
+    assert _apply_candidate_filter(candidates, None, [], {}) is candidates
+
+
+def test_apply_candidate_filter_status_assigned_keeps_only_assigned_ips() -> None:
+    """status=ASSIGNED keeps IPs present in the assigned map; free IPs drop"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    result = _apply_candidate_filter(['10.0.0.1', '10.0.0.2'], IpamRowStatus.ASSIGNED, [], assigned)
+
+    assert result == ['10.0.0.1']
+
+
+def test_apply_candidate_filter_status_free_keeps_only_unassigned_ips() -> None:
+    """status=FREE keeps IPs absent from the assigned map; assigned IPs drop"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    result = _apply_candidate_filter(['10.0.0.1', '10.0.0.2'], IpamRowStatus.FREE, [], assigned)
+
+    assert result == ['10.0.0.2']
+
+
+def test_apply_candidate_filter_single_type_keeps_only_assigned_rows_of_that_type() -> None:
+    """type filter with one element keeps only IPs whose assigned owner type matches"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.2': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+    }
+
+    result = _apply_candidate_filter(
+        ['10.0.0.1', '10.0.0.2', '10.0.0.3'], None, [OWNER_TYPE_ID], assigned,
+    )
+
+    assert result == ['10.0.0.1']
+
+
+def test_apply_candidate_filter_multi_type_keeps_rows_in_the_set_via_or() -> None:
+    """type filter with multiple elements is OR-combined: any matching type passes"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.2': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+        '10.0.0.4': _make_assigned_entry(OWNER_OBJECT_ID + 2, 9_999, None),
+    }
+
+    result = _apply_candidate_filter(
+        ['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4'],
+        None, [OWNER_TYPE_ID, OTHER_OWNER_TYPE_ID], assigned,
+    )
+
+    assert result == ['10.0.0.1', '10.0.0.2']
+
+
+def test_apply_candidate_filter_combines_status_and_type_via_and() -> None:
+    """Both filters apply together: only assigned IPs of one of the named types pass"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.2': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+    }
+
+    result = _apply_candidate_filter(
+        ['10.0.0.1', '10.0.0.2', '10.0.0.3'],
+        IpamRowStatus.ASSIGNED, [OWNER_TYPE_ID], assigned,
+    )
+
+    assert result == ['10.0.0.1']
+
+
+def test_apply_candidate_filter_free_with_type_is_always_empty() -> None:
+    """status=FREE + any non-empty type filter yields an empty list (free rows have no type)"""
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    result = _apply_candidate_filter(
+        ['10.0.0.1', '10.0.0.2'], IpamRowStatus.FREE, [OWNER_TYPE_ID], assigned,
+    )
+
+    assert result == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -363,7 +546,7 @@ def test_list_assignable_ips_matching_substring_returns_empty_for_unmatched_sing
 #                                            _compose_assigned_row                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_compose_assigned_row_pins_full_shape() -> None:
-    """Output dict carries ip, status='assigned', type_info, assigned_to, mac_address keys"""
+    """Output dict carries ip, status, type_info, assigned_to, mac_address, is_valid keys"""
     type_info = {
         CmdbObjectKey.PUBLIC_ID: OWNER_TYPE_ID,
         IpamOverviewKey.LABEL: 'Server',
@@ -371,7 +554,9 @@ def test_compose_assigned_row_pins_full_shape() -> None:
     }
     assigned_to = {CmdbObjectKey.PUBLIC_ID: OWNER_OBJECT_ID, IpamOverviewKey.SUMMARY_LINE: 'Server: web01'}
 
-    row = _compose_assigned_row('10.0.0.5', type_info, assigned_to, 'aa:bb:cc:dd:ee:ff')
+    row = _compose_assigned_row(
+        '10.0.0.5', type_info, assigned_to, 'aa:bb:cc:dd:ee:ff', is_valid=True,
+    )
 
     assert row == {
         IpamOverviewKey.IP: '10.0.0.5',
@@ -379,7 +564,19 @@ def test_compose_assigned_row_pins_full_shape() -> None:
         IpamOverviewKey.TYPE_INFO: type_info,
         IpamOverviewKey.ASSIGNED_TO: assigned_to,
         IpamOverviewKey.MAC_ADDRESS: 'aa:bb:cc:dd:ee:ff',
+        IpamOverviewKey.IS_VALID: True,
     }
+
+
+def test_compose_assigned_row_carries_is_valid_false_when_ip_outside_cidr() -> None:
+    """A row built from an out-of-CIDR row carries is_valid=False so the FE can flag the conflict"""
+    type_info = {CmdbObjectKey.PUBLIC_ID: OWNER_TYPE_ID, IpamOverviewKey.LABEL: None,
+                 IpamOverviewKey.CI_EXPLORER_COLOR: None}
+    assigned_to = {CmdbObjectKey.PUBLIC_ID: OWNER_OBJECT_ID, IpamOverviewKey.SUMMARY_LINE: 'x'}
+
+    row = _compose_assigned_row('10.0.0.5', type_info, assigned_to, None, is_valid=False)
+
+    assert row[IpamOverviewKey.IS_VALID] is False
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -741,6 +938,7 @@ def test_resolve_candidate_ips_returns_none_for_no_search_and_no_sort() -> None:
 
     result = _resolve_candidate_ips(
         network, search='', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        status_filter=None, type_filter=[],
         assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
@@ -753,6 +951,7 @@ def test_resolve_candidate_ips_returns_none_for_default_ip_asc_sort_with_no_sear
 
     result = _resolve_candidate_ips(
         network, search='', sort_col=IpamSortColumn.IP, sort_dir=IpamSortDirection.ASC,
+        status_filter=None, type_filter=[],
         assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
@@ -765,6 +964,7 @@ def test_resolve_candidate_ips_returns_full_list_for_ip_desc_with_no_search() ->
 
     result = _resolve_candidate_ips(
         network, search='', sort_col=IpamSortColumn.IP, sort_dir=IpamSortDirection.DESC,
+        status_filter=None, type_filter=[],
         assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
@@ -777,6 +977,7 @@ def test_resolve_candidate_ips_filters_by_search_then_sorts() -> None:
 
     result = _resolve_candidate_ips(
         network, search='10.0.0.5', sort_col=IpamSortColumn.IP, sort_dir=IpamSortDirection.DESC,
+        status_filter=None, type_filter=[],
         assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
@@ -791,6 +992,7 @@ def test_resolve_candidate_ips_returns_matching_list_for_search_with_no_sort() -
 
     result = _resolve_candidate_ips(
         network, search='10.0.0.5', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        status_filter=None, type_filter=[],
         assigned={}, type_meta={}, objects_manager=MagicMock(),
     )
 
@@ -1129,7 +1331,7 @@ def test_load_assigned_rows_map_returns_empty_when_no_objects_match() -> None:
 
 
 def test_load_assigned_rows_map_indexes_matching_rows_by_canonical_ip() -> None:
-    """Each in-range matching row contributes one entry keyed by its parsed IP"""
+    """Each in-range matching row contributes one entry keyed by its parsed IP, tagged is_valid=True"""
     candidate = _make_interface_carrier(
         public_id=OWNER_OBJECT_ID,
         type_id=OWNER_TYPE_ID,
@@ -1145,6 +1347,7 @@ def test_load_assigned_rows_map_indexes_matching_rows_by_canonical_ip() -> None:
             _AssignedField.OBJECT_ID: OWNER_OBJECT_ID,
             _AssignedField.TYPE_ID: OWNER_TYPE_ID,
             _AssignedField.MAC: 'aa:bb:cc:dd:ee:ff',
+            _AssignedField.IS_VALID: True,
         },
     }
 
@@ -1194,8 +1397,8 @@ def test_load_assigned_rows_map_skips_rows_with_unparseable_ip() -> None:
     assert result == {}
 
 
-def test_load_assigned_rows_map_skips_rows_outside_the_subnet_range() -> None:
-    """Rows with IPs outside the given network are filtered out defensively"""
+def test_load_assigned_rows_map_keeps_out_of_range_rows_tagged_is_valid_false() -> None:
+    """Rows with IPs outside the given network are kept and tagged is_valid=False as conflicts"""
     candidate = _make_interface_carrier(
         public_id=OWNER_OBJECT_ID,
         type_id=OWNER_TYPE_ID,
@@ -1206,7 +1409,8 @@ def test_load_assigned_rows_map_skips_rows_outside_the_subnet_range() -> None:
 
     result = _load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'))
 
-    assert result == {}
+    assert result['192.168.1.5'][_AssignedField.IS_VALID] is False
+    assert result['192.168.1.5'][_AssignedField.OBJECT_ID] == OWNER_OBJECT_ID
 
 
 def test_load_assigned_rows_map_uses_nested_elem_match_filter() -> None:
@@ -1402,7 +1606,9 @@ def test_build_broken_state_payload_returns_full_envelope_key_set() -> None:
         IpamOverviewKey.TYPE_DISTRIBUTION,
         IpamOverviewKey.IP_DISTRIBUTION,
         IpamOverviewKey.VLANS,
+        IpamOverviewKey.INVALID_COUNT,
     }
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 0
 
 
 def test_build_broken_state_payload_zeroes_kpi_counters() -> None:
@@ -1509,6 +1715,7 @@ def test_build_subnet_overview_emits_full_payload_envelope_on_happy_path() -> No
         IpamOverviewKey.TYPE_DISTRIBUTION,
         IpamOverviewKey.IP_DISTRIBUTION,
         IpamOverviewKey.VLANS,
+        IpamOverviewKey.INVALID_COUNT,
     }
 
 
@@ -1839,3 +2046,443 @@ def test_build_subnet_overview_vlans_is_invariant_under_search_and_sort() -> Non
     assert unsorted[IpamOverviewKey.VLANS] == vlan_bucket
     assert searched[IpamOverviewKey.VLANS] == vlan_bucket
     assert sorted_desc[IpamOverviewKey.VLANS] == vlan_bucket
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          build_subnet_overview - filters                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_subnet_overview_status_assigned_narrows_rows_to_assigned_ips_only() -> None:
+    """?status=assigned narrows ips.rows to assigned IPs and shrinks ips.total to match"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, status='assigned',
+        )
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    assert [r[IpamOverviewKey.IP] for r in rows] == ['10.0.0.1']
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 1
+
+
+def test_build_subnet_overview_status_free_drops_assigned_rows() -> None:
+    """?status=free narrows ips.rows to free IPs and excludes assigned ones"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=500, status='free',
+        )
+
+    ips = [r[IpamOverviewKey.IP] for r in payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]]
+    assert '10.0.0.1' not in ips
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 253
+
+
+def test_build_subnet_overview_type_filter_narrows_to_matching_type_only() -> None:
+    """?type=X narrows ips.rows to assigned rows of that owning type"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.2': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+    }
+    type_meta = {
+        OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        OTHER_OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Printer', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, type_filter=str(OWNER_TYPE_ID),
+        )
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    assert [r[IpamOverviewKey.IP] for r in rows] == ['10.0.0.1']
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 1
+
+
+def test_build_subnet_overview_status_free_combined_with_type_is_empty() -> None:
+    """?status=free&type=X yields an empty page since free rows have no owner type"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID,
+            status='free', type_filter=str(OWNER_TYPE_ID),
+        )
+
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS] == []
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 0
+
+
+def test_build_subnet_overview_kpi_block_is_invariant_under_filter() -> None:
+    """KPI counters cover the whole subnet, unaffected by status / type filters"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        no_filter = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+        with_filter = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, status='assigned',
+        )
+
+    assert no_filter[IpamOverviewKey.SUBNET] == with_filter[IpamOverviewKey.SUBNET]
+
+
+def test_build_subnet_overview_distributions_and_vlans_invariant_under_filter() -> None:
+    """type_distribution / ip_distribution / vlans cover the whole subnet, unaffected by filter"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
+        no_filter = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+        with_filter = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, status='free',
+        )
+
+    assert no_filter[IpamOverviewKey.TYPE_DISTRIBUTION] == with_filter[IpamOverviewKey.TYPE_DISTRIBUTION]
+    assert no_filter[IpamOverviewKey.IP_DISTRIBUTION] == with_filter[IpamOverviewKey.IP_DISTRIBUTION]
+    assert no_filter[IpamOverviewKey.VLANS] == with_filter[IpamOverviewKey.VLANS]
+
+
+def test_build_subnet_overview_filter_combines_with_search() -> None:
+    """search + filter: substring match is intersected with the status/type filter"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID,
+            page=1, page_size=50, search='10.0.0.5', status='assigned',
+        )
+
+    ips = [r[IpamOverviewKey.IP] for r in payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]]
+    assert ips == ['10.0.0.5']
+
+
+def test_build_subnet_overview_aborts_400_on_unknown_status_filter() -> None:
+    """An invalid ?status= value propagates as HTTP 400 out of the orchestrator"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, status='partial')
+
+    assert exc_info.value.code == 400
+
+
+def test_build_subnet_overview_aborts_400_on_non_integer_type_filter() -> None:
+    """An invalid ?type= value propagates as HTTP 400 out of the orchestrator"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, type_filter='Server')
+
+    assert exc_info.value.code == 400
+
+
+def test_build_subnet_overview_multi_value_type_filter_keeps_all_listed_types() -> None:
+    """?type=A,B keeps assigned rows whose owner type is in the set (OR within type filter)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.2': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+        '10.0.0.3': _make_assigned_entry(OWNER_OBJECT_ID + 2, 9_999, None),
+    }
+    type_meta = {
+        OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        OTHER_OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Printer', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        9_999: {IpamOverviewKey.LABEL: 'Router', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'summary'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID,
+            type_filter=f'{OWNER_TYPE_ID},{OTHER_OWNER_TYPE_ID}',
+        )
+
+    ips = [r[IpamOverviewKey.IP] for r in payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]]
+    assert ips == ['10.0.0.1', '10.0.0.2']
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _sorted_invalid_ips                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_sorted_invalid_ips_returns_empty_when_all_rows_are_valid() -> None:
+    """An assigned map with no invalid rows yields an empty list (steady-state)"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.2': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None),
+    }
+
+    assert _sorted_invalid_ips(assigned) == []
+
+
+def test_sorted_invalid_ips_returns_invalid_ips_in_ascending_ip_order() -> None:
+    """Invalid rows are returned sorted by integer IP value (not lexicographic)"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '192.168.1.10': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+        '192.168.1.2':  _make_assigned_entry(OWNER_OBJECT_ID + 2, OWNER_TYPE_ID, None, is_valid=False),
+    }
+
+    assert _sorted_invalid_ips(assigned) == ['192.168.1.2', '192.168.1.10']
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                _build_type_distribution - validity exclusion                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_type_distribution_excludes_invalid_rows_from_type_counts() -> None:
+    """Invalid (out-of-CIDR) rows do not contribute to any type bucket - percentages stay bounded"""
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    distribution = _build_type_distribution(assigned, type_meta, total=254)
+
+    server_bucket = next(b for b in distribution if b[CmdbObjectKey.PUBLIC_ID] == OWNER_TYPE_ID)
+    free_bucket = next(b for b in distribution if b[IpamOverviewKey.LABEL] == IpamBucketLabel.FREE)
+    assert server_bucket[IpamOverviewKey.COUNT] == 1
+    assert free_bucket[IpamOverviewKey.COUNT] == 253
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       build_subnet_overview - invalid handling                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_subnet_overview_used_ips_counts_valid_plus_invalid() -> None:
+    """KPI used_ips includes both in-range and out-of-range rows referencing this subnet"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    subnet_block = payload[IpamOverviewKey.SUBNET]
+    assert subnet_block[IpamOverviewKey.USED_IPS] == 2
+    assert subnet_block[IpamOverviewKey.FREE_IPS] == 253
+
+
+def test_build_subnet_overview_carries_invalid_count_top_level() -> None:
+    """The top-level invalid_count equals the number of out-of-CIDR rows"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+        '192.168.1.6': _make_assigned_entry(OWNER_OBJECT_ID + 2, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 2
+
+
+def test_build_subnet_overview_appends_invalid_rows_after_assignable_in_default_order() -> None:
+    """Default (no sort) order shows assignable IPs first, then invalid IPs trailing"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=500,
+        )
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    # 254 assignable IPs + 1 invalid trailing
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 255
+    assert rows[0][IpamOverviewKey.IP] == '10.0.0.1'
+    assert rows[-1][IpamOverviewKey.IP] == '192.168.1.5'
+    assert rows[-1][IpamOverviewKey.IS_VALID] is False
+
+
+def test_build_subnet_overview_assigned_rows_carry_is_valid_true_when_in_cidr() -> None:
+    """In-range assigned rows carry is_valid=True so the FE can distinguish them from conflicts"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, page=1, page_size=1,
+        )
+
+    [first_row] = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    assert first_row[IpamOverviewKey.IS_VALID] is True
+
+
+def test_build_subnet_overview_search_matches_invalid_ips_too() -> None:
+    """An active search filters both assignable and invalid IPs by substring"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID,
+            page=1, page_size=50, search='192.168',
+        )
+
+    ips = [r[IpamOverviewKey.IP] for r in payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]]
+    assert ips == ['192.168.1.5']
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       build_invalid_subnet_overview                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_invalid_subnet_overview_emits_same_envelope_keys() -> None:
+    """Same top-level key set as the main overview"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
+        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert set(payload.keys()) == {
+        IpamOverviewKey.SUBNET,
+        IpamOverviewKey.IPS,
+        IpamOverviewKey.TYPE_DISTRIBUTION,
+        IpamOverviewKey.IP_DISTRIBUTION,
+        IpamOverviewKey.VLANS,
+        IpamOverviewKey.INVALID_COUNT,
+    }
+
+
+def test_build_invalid_subnet_overview_returns_only_invalid_rows() -> None:
+    """ips.rows contains only out-of-CIDR rows; in-range assigned rows are excluded"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '10.0.0.1':   _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+        '172.16.0.9':  _make_assigned_entry(OWNER_OBJECT_ID + 2, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_invalid_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    ips = [r[IpamOverviewKey.IP] for r in rows]
+    assert ips == ['172.16.0.9', '192.168.1.5']
+    assert all(r[IpamOverviewKey.IS_VALID] is False for r in rows)
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 2
+
+
+def test_build_invalid_subnet_overview_kpi_block_matches_main_view() -> None:
+    """KPI block covers the whole subnet, same shape as the main overview"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '10.0.0.1':   _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        main_payload = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+        invalid_payload = build_invalid_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    assert main_payload[IpamOverviewKey.SUBNET] == invalid_payload[IpamOverviewKey.SUBNET]
+    assert main_payload[IpamOverviewKey.INVALID_COUNT] == invalid_payload[IpamOverviewKey.INVALID_COUNT]
+
+
+def test_build_invalid_subnet_overview_search_filters_invalid_rows() -> None:
+    """search narrows ips.rows / ips.total but leaves invalid_count covering the whole subnet"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {
+        '192.168.1.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=False),
+        '172.16.0.9':  _make_assigned_entry(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, None, is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'x'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_invalid_subnet_overview(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, search='192.168',
+        )
+
+    ips = [r[IpamOverviewKey.IP] for r in payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]]
+    assert ips == ['192.168.1.5']
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 1
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 2
+
+
+def test_build_invalid_subnet_overview_returns_degenerate_payload_when_cidr_unparsable() -> None:
+    """Broken CIDR yields the degenerate envelope (mirrors build_subnet_overview)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc):
+        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS] == []
+    assert payload[IpamOverviewKey.INVALID_COUNT] == 0

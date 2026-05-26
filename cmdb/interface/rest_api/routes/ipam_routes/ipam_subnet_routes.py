@@ -39,7 +39,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
     IpamUnassignKey,
 )
-from cmdb.framework.ipam.subnet_overview import build_subnet_overview
+from cmdb.framework.ipam.subnet_overview import build_subnet_overview, build_invalid_subnet_overview
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -80,6 +80,17 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
             '1' when sort is provided without an explicit order. Rows missing a value for
             the chosen column trail in either direction (NULLS LAST). Aborts 400 on unknown
             sort or order values
+        status (str, optional): IpamRowStatus value ('assigned' / 'free') filtering the IP
+            table to rows of the chosen status; empty / whitespace skips the status filter.
+            Aborts 400 on unknown values
+        type (str, optional): Comma-separated list of CmdbType public_ids filtering the IP
+            table to assigned rows whose owning type is in the set (e.g. ``type=50,51,52``).
+            Whitespace around elements is stripped, empty entries are skipped and duplicates
+            are collapsed. Empty or whitespace skips the type filter. Combines with
+            ``status`` via AND; ``status=free`` with any non-empty ``type`` yields an empty
+            page since free rows carry no owner type. Aborts 400 on a non-integer element.
+            The KPI block, type_distribution, ip_distribution and vlans stay invariant under
+            both filters
 
     Args:
         public_id (int): public_id of the SUBNET CmdbObject to summarise
@@ -99,6 +110,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
         sort: str = request.args.get(IpamOverviewKey.SORT, default='', type=str) or ''
         order: str = request.args.get(IpamOverviewKey.ORDER, default='', type=str) or ''
+        status: str = request.args.get(IpamOverviewKey.STATUS, default='', type=str) or ''
+        type_filter: str = request.args.get(IpamOverviewKey.TYPE, default='', type=str) or ''
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -112,6 +125,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
             search=search,
             sort=sort,
             order=order,
+            status=status,
+            type_filter=type_filter,
         )
 
         return DefaultResponse(overview).make_response()
@@ -189,4 +204,70 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
         abort(
             500,
             f"An internal server error occured while unassigning IPs from Subnet with ID: {public_id}!",
+        )
+
+
+@ipam_subnet_blueprint.route('/overview/<int:public_id>/invalid', methods=['GET'])
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@insert_request_user
+def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET` route returning the invalid-IPs-only subnet overview payload
+
+    Same envelope as ``get_subnet_overview`` ('subnet' KPI block, 'ips' page block,
+    'type_distribution', 'ip_distribution', 'vlans', top-level 'invalid_count'), but the
+    'ips.rows' list is restricted to dg-ipam-interface rows whose IP falls outside the
+    subnet's current CIDR (each row carries is_valid=False). The KPI block, distributions
+    and vlans stay invariant - they always cover the whole subnet so the FE can render the
+    same chrome on either view
+
+    Query params:
+        page (int, default=1): 1-based page number; clamped into the valid range server-side
+        page_size (int, default=50): page size; clamped into [1, 500] server-side
+        search (str, optional): case-insensitive substring filter against each invalid IP's
+            canonical dotted-quad string; empty / whitespace and queries shorter than
+            IpamSearch.MIN_QUERY_LENGTH are ignored, queries longer than
+            IpamSearch.MAX_QUERY_LENGTH are truncated at the route boundary
+
+    Args:
+        public_id (int): public_id of the SUBNET CmdbObject whose invalid rows are listed
+        request_user (CmdbUser): CmdbUser making the request
+
+    Returns:
+        Response: same envelope as ``get_subnet_overview`` with ips.rows filtered to invalid
+            rows only and ips.total equal to the invalid count after the search filter
+    """
+    try:
+        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
+        page_size: int = (
+            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
+            or IpamPagination.DEFAULT_PAGE_SIZE
+        )
+        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
+        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        overview: dict[str, Any] = build_invalid_subnet_overview(
+            objects_manager,
+            types_manager,
+            public_id,
+            page=page,
+            page_size=page_size,
+            search=search,
+        )
+
+        return DefaultResponse(overview).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        LOGGER.error(
+            "[get_invalid_subnet_overview] Exception: %s. Type: %s",
+            err, type(err).__name__, exc_info=True,
+        )
+        abort(
+            500,
+            f"An internal server error occured while building the invalid-only overview"
+            f" for Subnet with ID: {public_id}!",
         )

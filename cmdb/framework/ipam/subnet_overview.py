@@ -73,6 +73,7 @@ class _AssignedField:
     OBJECT_ID: str = 'object_id'
     TYPE_ID: str = 'type_id'
     MAC: str = 'mac'
+    IS_VALID: str = 'is_valid'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -284,11 +285,87 @@ def _sort_candidate_ips(
     return [ip for _, ip in has_value] + no_value
 
 
+def _apply_candidate_filter(
+    candidates: list[str],
+    status_filter: IpamRowStatus | None,
+    type_filter: list[int],
+    assigned: dict[str, dict[str, Any]],
+) -> list[str]:
+    """
+    Narrows a candidate IP list to rows matching the status and type filters (AND-combined)
+
+    ``status_filter`` selects assigned-vs-free rows: ASSIGNED keeps IPs present in
+    ``assigned``, FREE keeps IPs absent from ``assigned``. ``type_filter`` (a list of CmdbType
+    public_ids) keeps only assigned rows whose stored type_id is in the set; the elements
+    combine via OR within the type filter and the whole filter combines with status via AND,
+    so status=FREE + any non-empty type_filter produces an empty list (free rows carry no
+    owner type). Both filters are optional - status=None and an empty type_filter return the
+    candidate list unchanged
+
+    Args:
+        candidates (list[str]): Canonical IP strings under consideration (already search-filtered
+            if a search is active)
+        status_filter (IpamRowStatus | None): Chosen status filter, or None to skip
+        type_filter (list[int]): Chosen CmdbType public_id list; empty list to skip
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+
+    Returns:
+        list[str]: Candidate IPs that match every active filter, in input order
+    """
+    if status_filter is None and not type_filter:
+        return candidates
+
+    type_filter_set: set[int] = set(type_filter)
+    result: list[str] = []
+
+    for ip in candidates:
+        info: dict[str, Any] | None = assigned.get(ip)
+        is_assigned: bool = info is not None
+
+        if status_filter == IpamRowStatus.ASSIGNED and not is_assigned:
+            continue
+
+        if status_filter == IpamRowStatus.FREE and is_assigned:
+            continue
+
+        if type_filter_set:
+            if not is_assigned or info.get(_AssignedField.TYPE_ID) not in type_filter_set:
+                continue
+
+        result.append(ip)
+
+    return result
+
+
+def _sorted_invalid_ips(assigned: dict[str, dict[str, Any]]) -> list[str]:
+    """
+    Returns the canonical IP strings of the assigned map's invalid (out-of-CIDR) rows
+
+    The returned list is sorted by ascending integer IP so the trailing block of the default
+    IP table has a deterministic order. Empty list when no row in the assigned map is tagged
+    invalid - the common steady-state case before any CIDR edit
+
+    Args:
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+
+    Returns:
+        list[str]: Invalid IPs in ascending IP order
+    """
+    return sorted(
+        (ip for ip, info in assigned.items() if not info[_AssignedField.IS_VALID]),
+        key=lambda ip: int(IPv4Address(ip)),
+    )
+
+
 def _resolve_candidate_ips(
     network: IPv4Network,
     search: str,
     sort_col: IpamSortColumn | None,
     sort_dir: IpamSortDirection,
+    status_filter: IpamRowStatus | None,
+    type_filter: list[int],
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
@@ -296,17 +373,26 @@ def _resolve_candidate_ips(
     """
     Selects the candidate IP list for the IP-table page, or None to signal the lazy path
 
-    Returning None means "no search is active AND the chosen sort is the natural ascending IP
-    order (or no sort is requested)" - the orchestrator then paginates straight from
-    ``_page_slice_ips`` without materializing the full assignable range. Otherwise the helper
-    builds the candidate list explicitly (search-filtered if a search is active, otherwise
-    the full assignable list) and applies the sort when ``sort_col`` is not None
+    Returning None means "no search, no row filter, no invalid rows AND the chosen sort is
+    the natural ascending IP order (or no sort is requested)" - the orchestrator then
+    paginates straight from ``_page_slice_ips`` without materializing the full assignable
+    range. Otherwise the helper materializes the candidate list: assignable IPs first (search-
+    filtered if active, otherwise full), then the invalid IPs (also search-filtered),
+    preserving the "assignable then invalid" two-tier order in the default case. The status /
+    type filters are then applied across the combined list, and finally the sort if
+    ``sort_col`` is not None
+
+    When sort is explicitly requested, the chosen sort applies uniformly to the combined
+    list - invalid rows are not kept in a separate trailing tier under explicit sort. Default
+    order (no sort) keeps invalid rows trailing
 
     Args:
         network (IPv4Network): The parsed subnet network
         search (str): Raw search query as received by the caller
         sort_col (IpamSortColumn | None): Chosen sort column, or None when no sort is requested
         sort_dir (IpamSortDirection): Chosen sort direction (ASC when sort_col is None)
+        status_filter (IpamRowStatus | None): Chosen status filter, or None to skip
+        type_filter (list[int]): Chosen CmdbType public_id list; empty to skip
         assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
             ``_load_assigned_rows_map``
         type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
@@ -321,15 +407,26 @@ def _resolve_candidate_ips(
     natural_order: bool = sort_col is None or (
         sort_col == IpamSortColumn.IP and sort_dir == IpamSortDirection.ASC
     )
+    filter_active: bool = status_filter is not None or bool(type_filter)
+    invalid_ips: list[str] = _sorted_invalid_ips(assigned)
 
-    if needle is None and natural_order:
+    if needle is None and natural_order and not filter_active and not invalid_ips:
         return None
 
-    candidates: list[str] = (
+    assignable_candidates: list[str] = (
         list_assignable_ips_matching_substring(network, needle)
         if needle is not None
         else list_all_assignable_ips(network)
     )
+
+    if needle is not None and invalid_ips:
+        lowered_needle: str = needle.lower()
+        invalid_ips = [ip for ip in invalid_ips if lowered_needle in ip.lower()]
+
+    candidates: list[str] = assignable_candidates + invalid_ips
+
+    if filter_active:
+        candidates = _apply_candidate_filter(candidates, status_filter, type_filter, assigned)
 
     if sort_col is None:
         return candidates
@@ -394,6 +491,7 @@ def _compose_ip_row(
             IpamOverviewKey.SUMMARY_LINE: summary_line,
         },
         info[_AssignedField.MAC],
+        info[_AssignedField.IS_VALID],
     )
 
 
@@ -454,6 +552,63 @@ def _build_ips_block(
             _compose_ip_row(ip, assigned, type_meta, objects_manager) for ip in page_ips
         ],
     }
+
+
+def _parse_filter_args(
+    raw_status: str,
+    raw_type: str,
+) -> tuple[IpamRowStatus | None, list[int]]:
+    """
+    Validates and normalizes the route's 'status' and 'type' query parameter strings
+
+    Empty / whitespace ``raw_status`` returns None for the status component so the orchestrator
+    skips the status filter; otherwise the value must be a valid IpamRowStatus member (HTTP 400
+    on unknown). ``raw_type`` accepts a comma-separated list of CmdbType public_ids: each
+    element is whitespace-stripped, empty elements are skipped, duplicates are collapsed while
+    preserving the first occurrence's position. A non-integer element aborts HTTP 400. An
+    empty list (raw value empty / whitespace / only commas) means no type filter. The two
+    components are independent - either, both, or neither may be active
+
+    Args:
+        raw_status (str): Raw value of the ?status= query param
+        raw_type (str): Raw value of the ?type= query param (comma-separated)
+
+    Returns:
+        tuple[IpamRowStatus | None, list[int]]: (status filter, type filter list). The status
+            component is None when its raw value is empty / whitespace. The type component is
+            an empty list when no usable public_id is present; otherwise the deduplicated
+            integer public_ids in input order
+    """
+    status_value: str = (raw_status or '').strip()
+    status_filter: IpamRowStatus | None = None
+
+    if status_value:
+        if not IpamRowStatus.is_valid(status_value):
+            abort(400, f"Unknown status filter: '{status_value}'!")
+
+        status_filter = IpamRowStatus(status_value)
+
+    type_filter: list[int] = []
+    seen: set[int] = set()
+
+    for entry in (raw_type or '').split(','):
+        token: str = entry.strip()
+
+        if not token:
+            continue
+
+        try:
+            parsed: int = int(token)
+        except ValueError:
+            abort(400, f"Type filter must be a comma-separated list of integer public_ids, got: '{token}'!")
+
+        if parsed in seen:
+            continue
+
+        seen.add(parsed)
+        type_filter.append(parsed)
+
+    return status_filter, type_filter
 
 
 def _parse_sort_args(
@@ -565,6 +720,7 @@ def _compose_assigned_row(
     type_info: dict[str, Any] | None,
     assigned_to: dict[str, Any],
     mac_address: str | None,
+    is_valid: bool,
 ) -> dict[str, Any]:
     """
     Shapes one 'assigned' row of the IP table
@@ -578,15 +734,20 @@ def _compose_assigned_row(
     can no longer be resolved (e.g. it was deleted after the interface row was
     written) or when the type has no color set
 
+    'is_valid' is True when the row's IP falls inside the subnet's current CIDR and False
+    when the row references this subnet but the IP is outside the (now-edited) CIDR.
+    Invalid rows are surfaced so the FE can flag conflicts after a CIDR change
+
     Args:
         ip_str (str): The IP address as canonical string
         type_info (dict[str, Any] | None): {'public_id', 'label', 'ci_explorer_color'}
             for the owning CmdbObject's CmdbType, or None when the type_id is missing
         assigned_to (dict[str, Any]): {'public_id', 'summary_line'} for the owning CmdbObject
         mac_address (str | None): MAC stored on the interface row, or None when absent
+        is_valid (bool): True when the row's IP is inside the subnet's CIDR, False otherwise
 
     Returns:
-        dict[str, Any]: Row with keys ip, status, type_info, assigned_to, mac_address
+        dict[str, Any]: Row with keys ip, status, type_info, assigned_to, mac_address, is_valid
     """
     return {
         IpamOverviewKey.IP: ip_str,
@@ -594,6 +755,7 @@ def _compose_assigned_row(
         IpamOverviewKey.TYPE_INFO: type_info,
         IpamOverviewKey.ASSIGNED_TO: assigned_to,
         IpamOverviewKey.MAC_ADDRESS: mac_address,
+        IpamOverviewKey.IS_VALID: is_valid,
     }
 
 
@@ -841,15 +1003,18 @@ def _build_type_distribution(
     Aggregates the assigned-IP map by owning CmdbType, appends a synthetic 'Free' bucket for
     unused capacity, and collapses every orphaned assignment (type_id missing on the interface
     row or no longer resolvable because the CmdbType was deleted) into a single 'Unknown'
-    bucket so the chart never grows a slice per stale type_id. Percentages are computed
-    against the subnet's assignable address count (so the 'Free' bucket matches the
-    'free_ips' KPI and the IP table's row count) and rounded to two decimals. An empty list is
-    returned when the subnet has zero assignable addresses or the CIDR is unparsable, so the
-    frontend can render a placeholder
+    bucket so the chart never grows a slice per stale type_id. Only rows whose
+    ``is_valid`` flag is True contribute - invalid (out-of-CIDR) rows are excluded so the
+    percentages stay bounded by the assignable address count; the FE surfaces those via the
+    top-level ``invalid_count`` instead. Percentages are computed against the subnet's
+    assignable address count and rounded to two decimals. An empty list is returned when the
+    subnet has zero assignable addresses or the CIDR is unparsable, so the frontend can
+    render a placeholder
 
     Args:
-        assigned (dict[str, dict[str, Any]]): {ip_str: {'object_id', 'type_id', 'mac'}} as
-            produced by _load_assigned_rows_map; one entry per used IP across the whole subnet
+        assigned (dict[str, dict[str, Any]]): {ip_str: {'object_id', 'type_id', 'mac',
+            'is_valid'}} as produced by _load_assigned_rows_map; one entry per dg-ipam-interface
+            row referencing this subnet (valid + invalid)
         type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} for
             every CmdbType referenced by the assigned map; type_ids absent from this mapping
             fall through to the Unknown bucket
@@ -866,8 +1031,13 @@ def _build_type_distribution(
 
     by_type: dict[int, int] = {}
     unknown_count: int = 0
+    valid_count: int = 0
 
     for info in assigned.values():
+        if not info.get(_AssignedField.IS_VALID):
+            continue
+
+        valid_count += 1
         type_id: Any = info.get(_AssignedField.TYPE_ID)
 
         if isinstance(type_id, int) and type_id in type_meta:
@@ -875,7 +1045,7 @@ def _build_type_distribution(
         else:
             unknown_count += 1
 
-    free_count: int = max(0, total - len(assigned))
+    free_count: int = max(0, total - valid_count)
 
     distribution: list[dict[str, Any]] = [
         {
@@ -958,19 +1128,23 @@ def _load_assigned_rows_map(
     """
     Loads every dg-ipam-interface row referencing the subnet and indexes them by canonical IP
 
-    Returns one entry per assigned IP. Rows whose IP is unparsable or falls outside the given
-    network are skipped (defensive against legacy / drifted state). Per the interface
+    Returns one entry per assigned IP. Rows whose IP value is unparsable as a dotted-quad IPv4
+    string are dropped (corrupted state). Rows whose parsed IP falls outside ``network`` are
+    kept and tagged ``is_valid=False`` so the overview can surface them as conflicts after a
+    CIDR change; rows inside the network are tagged ``is_valid=True``. Per the interface
     validator's pre-save uniqueness check there is at most one row per IP within a subnet, so
     the map is well-defined
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         subnet_object_id (int): public_id of the subnet
-        network (IPv4Network): The parsed subnet network, used to filter out-of-range rows
+        network (IPv4Network): The parsed subnet network, used to compute the per-row
+            is_valid flag (rows whose IP is outside the network become is_valid=False)
 
     Returns:
-        dict[str, dict[str, Any]]: {ip_str: {'object_id', 'type_id', 'mac'}}; mac is None when
-            the field is absent or empty
+        dict[str, dict[str, Any]]: {ip_str: {'object_id', 'type_id', 'mac', 'is_valid'}};
+            mac is None when the field is absent or empty; is_valid is False for rows whose
+            parsed IP falls outside ``network``
     """
     criteria: dict[str, Any] = {
         CmdbObjectKey.MULTI_DATA_SECTIONS: {
@@ -1010,13 +1184,14 @@ def _load_assigned_rows_map(
 
                 parsed_ip: IPv4Address | None = parse_ipv4(row_ip)
 
-                if parsed_ip is None or not ip_in_network(parsed_ip, network):
+                if parsed_ip is None:
                     continue
 
                 out[str(parsed_ip)] = {
                     _AssignedField.OBJECT_ID: candidate_id,
                     _AssignedField.TYPE_ID: candidate_type_id,
                     _AssignedField.MAC: row_mac if isinstance(row_mac, str) and row_mac else None,
+                    _AssignedField.IS_VALID: ip_in_network(parsed_ip, network),
                 }
 
     return out
@@ -1088,10 +1263,10 @@ def _build_broken_state_payload(
     Builds the degenerate payload returned when the subnet's CIDR is missing or unparsable
 
     Mirrors the happy-path envelope so the FE can render the response unconditionally: every
-    counter is zeroed, the 'ips' block ships an empty page (page / page_size clamped via
-    ``clamp_page(..., 0)``), both distributions are empty, and the 'vlans' list is empty.
-    The 'cidr' field echoes the raw value when it is a string (so the user can see the broken
-    input they need to fix) and is None otherwise
+    counter is zeroed (including the top-level ``invalid_count``), the 'ips' block ships an
+    empty page (page / page_size clamped via ``clamp_page(..., 0)``), both distributions are
+    empty, and the 'vlans' list is empty. The 'cidr' field echoes the raw value when it is a
+    string (so the user can see the broken input they need to fix) and is None otherwise
 
     Args:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
@@ -1122,6 +1297,7 @@ def _build_broken_state_payload(
         IpamOverviewKey.TYPE_DISTRIBUTION: [],
         IpamOverviewKey.IP_DISTRIBUTION: {},
         IpamOverviewKey.VLANS: [],
+        IpamOverviewKey.INVALID_COUNT: 0,
     }
 
 
@@ -1134,6 +1310,8 @@ def build_subnet_overview(
     search: str = '',
     sort: str = '',
     order: str = '',
+    status: str = '',
+    type_filter: str = '',
 ) -> dict[str, Any]:
     """
     Builds the full IP-Übersicht payload for the SUBNET CmdbObject identified by public_id
@@ -1164,7 +1342,16 @@ def build_subnet_overview(
     When ``sort`` is provided the candidate IPs are ordered by the chosen column and
     direction with NULLS LAST (rows missing a value for the column trail in either direction).
     The 'subnet' KPI block, 'type_distribution', 'ip_distribution', and 'vlans' are invariant
-    under both search and sort - they always cover the whole subnet
+    under search, sort, and filter - they always cover the whole subnet
+
+    When ``status`` or ``type_filter`` is active the candidate IPs are narrowed to rows that
+    match every active filter (AND-combined). ``status`` accepts IpamRowStatus values
+    ('assigned' / 'free'); ``type_filter`` is a comma-separated list of CmdbType public_ids
+    where each element is parsed to int (whitespace stripped, empty entries skipped,
+    duplicates collapsed). A row passes the type filter when its owning type is in the set
+    (logical OR within the type filter). ``status=free`` with any non-empty ``type_filter``
+    yields an empty page because free rows carry no owner type. Unknown ``status`` or a
+    non-integer element in ``type_filter`` aborts 400
 
     The 'vlans' list carries every VLAN CmdbObject whose 'dg-subnet-ref' points at this subnet
     as a {'public_id', 'name'} dict, sorted by ascending public_id. Empty list when no VLAN
@@ -1186,6 +1373,15 @@ def build_subnet_overview(
             ignored when ``sort`` is empty, defaults to '1' when ``sort`` is provided
             without an explicit order. Matches the project-wide Mongo direction convention
             used by CollectionParameters and the base managers
+        status (str): Optional row-status filter; one of IpamRowStatus values
+            ('assigned' / 'free'). Empty / whitespace skips the status filter. Aborts 400
+            on unknown values
+        type_filter (str): Optional comma-separated list of CmdbType public_ids (e.g.
+            "50,51,52"). Each element parses to int; whitespace is stripped, empty elements
+            are skipped, duplicates are collapsed. A row passes when its owning type is in
+            the set (OR within the type filter); intrinsically excludes free rows when any
+            element is present. Empty / whitespace skips the type filter. Aborts 400 on a
+            non-integer element. Combines with ``status`` via AND
 
     Returns:
         dict[str, Any]: {'subnet': {public_id, cidr, total_ips, assignable_ips,
@@ -1208,6 +1404,7 @@ def build_subnet_overview(
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
     sort_col, sort_dir = _parse_sort_args(sort, order)
+    status_filter, type_filter_ids = _parse_filter_args(status, type_filter)
     network: IPv4Network | None = _parse_subnet_network(subnet_obj)
 
     if network is None:
@@ -1215,6 +1412,8 @@ def build_subnet_overview(
 
     assignable: int = assignable_address_count(network)
     assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
+    valid_used: int = sum(1 for info in assigned.values() if info[_AssignedField.IS_VALID])
+    invalid_count: int = len(assigned) - valid_used
 
     type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, [
         info[_AssignedField.TYPE_ID]
@@ -1229,11 +1428,15 @@ def build_subnet_overview(
             IpamOverviewKey.TOTAL_IPS: total_address_count(network),
             IpamOverviewKey.ASSIGNABLE_IPS: assignable,
             IpamOverviewKey.USED_IPS: len(assigned),
-            IpamOverviewKey.FREE_IPS: max(0, assignable - len(assigned)),
+            IpamOverviewKey.FREE_IPS: max(0, assignable - valid_used),
         },
         IpamOverviewKey.IPS: _build_ips_block(
             network, assignable, page, page_size,
-            _resolve_candidate_ips(network, search, sort_col, sort_dir, assigned, type_meta, objects_manager),
+            _resolve_candidate_ips(
+                network, search, sort_col, sort_dir,
+                status_filter, type_filter_ids,
+                assigned, type_meta, objects_manager,
+            ),
             assigned, type_meta, objects_manager,
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
@@ -1241,4 +1444,97 @@ def build_subnet_overview(
         IpamOverviewKey.VLANS: load_vlans_by_subnets(
             objects_manager, types_manager, [public_id],
         ).get(public_id, []),
+        IpamOverviewKey.INVALID_COUNT: invalid_count,
+    }
+
+
+def build_invalid_subnet_overview(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+    page: int = 1,
+    page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
+    search: str = '',
+) -> dict[str, Any]:
+    """
+    Builds the invalid-IPs-only IP-Übersicht payload for the SUBNET identified by public_id
+
+    Same envelope as ``build_subnet_overview`` ('subnet' summary block, 'ips' page block,
+    'type_distribution', 'ip_distribution', 'vlans', top-level 'invalid_count'), but
+    'ips.rows' is a flat list of every dg-ipam-interface row referencing this subnet whose IP
+    falls outside the subnet's current CIDR. Each row carries the same shape as the main
+    overview rows so the FE can reuse its row template; ``is_valid`` on these rows is always
+    False. 'ips.total' equals the invalid count (after the optional search filter)
+
+    The 'subnet' KPI block, 'type_distribution', 'ip_distribution' and 'vlans' stay invariant
+    under this view - they always cover the whole subnet so the FE can render the same KPI
+    strip and charts whether the user is looking at the full table or the invalid-only view.
+    The top-level ``invalid_count`` is the total invalid count for the subnet and is unchanged
+    by the ``search`` filter (which only narrows ``ips.rows`` / ``ips.total``)
+
+    Aborts mirror ``build_subnet_overview``: 404 when the subnet does not exist, 400 when the
+    public_id refers to a non-subnet object or no SUBNET CmdbType is defined. When the
+    subnet's 'dg-network-range' is missing or unparsable, returns the degenerate broken-state
+    payload (zeroed counters, empty rows, ``invalid_count`` = 0)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the subnet to summarise
+        page (int): 1-based page number (clamped into the valid range)
+        page_size (int): Page size (clamped to [IpamPagination.MIN_PAGE_SIZE,
+            IpamPagination.MAX_PAGE_SIZE])
+        search (str): Optional case-insensitive substring filter against each invalid row's
+            canonical IP string; empty / whitespace and queries shorter than
+            IpamSearch.MIN_QUERY_LENGTH after stripping are ignored
+
+    Returns:
+        dict[str, Any]: Same envelope as ``build_subnet_overview`` with 'ips.rows' filtered
+            to invalid rows only (each carrying is_valid=False); 'ips.total' is the count
+            after the search filter; 'invalid_count' is the whole-subnet invalid count
+    """
+    subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
+    network: IPv4Network | None = _parse_subnet_network(subnet_obj)
+
+    if network is None:
+        return _build_broken_state_payload(subnet_obj, page, page_size)
+
+    assignable: int = assignable_address_count(network)
+    assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
+    valid_used: int = sum(1 for info in assigned.values() if info[_AssignedField.IS_VALID])
+    invalid_count: int = len(assigned) - valid_used
+
+    type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, [
+        info[_AssignedField.TYPE_ID]
+        for info in assigned.values()
+        if isinstance(info.get(_AssignedField.TYPE_ID), int)
+    ])
+
+    invalid_candidates: list[str] = _sorted_invalid_ips(assigned)
+    needle: str | None = active_search(search)
+
+    if needle is not None:
+        lowered: str = needle.lower()
+        invalid_candidates = [ip for ip in invalid_candidates if lowered in ip.lower()]
+
+    return {
+        IpamOverviewKey.SUBNET: {
+            CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            IpamOverviewKey.CIDR: str(network),
+            IpamOverviewKey.TOTAL_IPS: total_address_count(network),
+            IpamOverviewKey.ASSIGNABLE_IPS: assignable,
+            IpamOverviewKey.USED_IPS: len(assigned),
+            IpamOverviewKey.FREE_IPS: max(0, assignable - valid_used),
+        },
+        IpamOverviewKey.IPS: _build_ips_block(
+            network, assignable, page, page_size,
+            invalid_candidates,
+            assigned, type_meta, objects_manager,
+        ),
+        IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
+        IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned),
+        IpamOverviewKey.VLANS: load_vlans_by_subnets(
+            objects_manager, types_manager, [public_id],
+        ).get(public_id, []),
+        IpamOverviewKey.INVALID_COUNT: invalid_count,
     }
