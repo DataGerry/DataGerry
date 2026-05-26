@@ -45,6 +45,7 @@ from cmdb.framework.ipam.interface_validator import (
     _collect_collision_errors,
     _row_matches,
     find_intra_submission_duplicates,
+    find_subnet_without_ip,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -371,3 +372,90 @@ def test_find_intra_submission_duplicates_treats_different_subnets_as_distinct()
 def test_find_intra_submission_duplicates_returns_empty_for_empty_input() -> None:
     """No rows submitted means no errors"""
     assert find_intra_submission_duplicates([]) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           find_subnet_without_ip                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_find_subnet_without_ip_returns_empty_for_empty_input() -> None:
+    """No rows submitted means no errors"""
+    assert find_subnet_without_ip([]) == []
+
+
+def test_find_subnet_without_ip_accepts_complete_row() -> None:
+    """A row with both subnet_ref and ip set produces no error"""
+    rows = [(0, 1, '10.0.0.1')]
+
+    assert find_subnet_without_ip(rows) == []
+
+
+def test_find_subnet_without_ip_accepts_empty_placeholder_row() -> None:
+    """A row with neither subnet_ref nor ip set is treated as an empty placeholder and accepted"""
+    rows = [(0, None, None)]
+
+    assert find_subnet_without_ip(rows) == []
+
+
+def test_find_subnet_without_ip_accepts_ip_only_row_per_literal_scope() -> None:
+    """A row with ip set but no subnet is allowed (inverse case is not in scope)"""
+    rows = [(0, None, '10.0.0.1')]
+
+    assert find_subnet_without_ip(rows) == []
+
+
+def test_find_subnet_without_ip_flags_row_with_subnet_but_no_ip() -> None:
+    """A row with subnet_ref set and ip None produces one SUBNET_WITHOUT_IP error"""
+    rows = [(3, 42, None)]
+
+    errors = find_subnet_without_ip(rows)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_WITHOUT_IP
+    details = errors[0][ValidationErrorKey.DETAILS]
+    assert details[IpamValidationDetailKey.ROW_INDEX] == 3
+    assert details[IpamValidationDetailKey.SUBNET_OBJECT_ID] == 42
+
+
+def test_find_subnet_without_ip_flags_multiple_offending_rows_in_order() -> None:
+    """Each offending row produces its own error; emission order matches input order"""
+    rows = [
+        (0, 1, None),
+        (1, 1, '10.0.0.1'),
+        (2, 2, None),
+    ]
+
+    errors = find_subnet_without_ip(rows)
+
+    assert len(errors) == 2
+    reported_rows = [err[ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] for err in errors]
+    assert reported_rows == [0, 2]
+
+
+def test_find_subnet_without_ip_flags_only_offending_rows_in_mixed_batch() -> None:
+    """A mixed batch produces errors only for the subnet-without-ip rows, leaving valid + empty rows alone"""
+    rows = [
+        (0, 1, '10.0.0.1'),  # valid
+        (1, None, None),     # empty placeholder
+        (2, 2, None),        # offending
+        (3, None, '10.0.0.2'),  # ip-only, literal-scope passes
+    ]
+
+    errors = find_subnet_without_ip(rows)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 2
+
+
+def test_find_subnet_without_ip_error_envelope_carries_code_message_and_details() -> None:
+    """The structured error envelope exposes code + a non-empty message + the documented detail keys"""
+    rows = [(7, 99, None)]
+
+    error = find_subnet_without_ip(rows)[0]
+
+    assert error[ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_WITHOUT_IP
+    assert isinstance(error[ValidationErrorKey.MESSAGE], str)
+    assert error[ValidationErrorKey.MESSAGE]  # non-empty
+    assert set(error[ValidationErrorKey.DETAILS].keys()) == {
+        IpamValidationDetailKey.ROW_INDEX,
+        IpamValidationDetailKey.SUBNET_OBJECT_ID,
+    }

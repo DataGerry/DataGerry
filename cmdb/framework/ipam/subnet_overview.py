@@ -833,20 +833,24 @@ def _compute_grid_dimensions(total: int) -> tuple[int, int, int]:
     return ranges_count, sectors_per_range, sector_size
 
 
-def _bucket_used_counts(
+def _bucket_used_by_type(
     assigned: dict[str, dict[str, Any]],
     network: IPv4Network,
     sector_size: int,
     total_cells: int,
-) -> list[int]:
+) -> list[dict[int | None, int]]:
     """
-    Tallies how many assigned IPs fall into each grid cell, indexed by global cell position
+    Tallies assigned IPs per grid cell, broken down by the owning CmdbType id
 
     Walks the assigned map once, computes each IP's offset from the subnet's network address,
-    and integer-divides by 'sector_size' to land in the owning cell. IPs outside the subnet
-    or unparsable are skipped defensively (the caller already filters in
-    _load_assigned_rows_map but this stays robust against future drift). Complexity is O(used)
-    not O(total_cells), so /1 stays cheap
+    and integer-divides by 'sector_size' to land in the owning cell. IPs outside the subnet or
+    unparsable are skipped defensively (the caller already filters in _load_assigned_rows_map
+    but this stays robust against future drift). Within each cell the count is bucketed by the
+    row's type_id: int type_ids are kept as-is, anything else (missing, non-int) collapses into
+    a single ``None`` key so the consumer can route it through the Unknown bucket without a
+    second pass. Resolving the ``None`` key against the live type_meta is the caller's job -
+    this helper only records what the row claims. Complexity is O(used), not O(total_cells), so
+    /1 stays cheap
 
     Args:
         assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
@@ -856,17 +860,19 @@ def _bucket_used_counts(
         total_cells (int): Number of cells in the grid (ranges_count * sectors_per_range)
 
     Returns:
-        list[int]: Used-IP count per cell, length == total_cells
+        list[dict[int | None, int]]: Per-cell {type_id_or_None: count} breakdowns, indexed by
+            global cell position; length == total_cells. Each breakdown is empty when the cell
+            has no assigned IPs. Summing a breakdown's values yields the cell's used count
     """
-    counts: list[int] = [0] * total_cells
+    breakdowns: list[dict[int | None, int]] = [{} for _ in range(total_cells)]
 
     if total_cells == 0 or sector_size <= 0:
-        return counts
+        return breakdowns
 
     base_int: int = int(network.network_address)
     span: int = total_cells * sector_size
 
-    for ip_str in assigned:
+    for ip_str, info in assigned.items():
         parsed: IPv4Address | None = parse_ipv4(ip_str)
 
         if parsed is None:
@@ -877,45 +883,136 @@ def _bucket_used_counts(
         if offset < 0 or offset >= span:
             continue
 
-        counts[offset // sector_size] += 1
+        raw_type_id: Any = info.get(_AssignedField.TYPE_ID)
+        key: int | None = raw_type_id if isinstance(raw_type_id, int) else None
 
-    return counts
+        cell: dict[int | None, int] = breakdowns[offset // sector_size]
+        cell[key] = cell.get(key, 0) + 1
+
+    return breakdowns
+
+
+def _compose_sector_type_stats(
+    breakdown: dict[int | None, int],
+    type_meta: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Shapes the 'type_stats' list for one sector of the 'ip_distribution' grid
+
+    Translates a raw per-cell {type_id_or_None: count} breakdown into the wire-format bucket
+    list emitted next to each sector. Type ids that are int AND present in type_meta become
+    real buckets (carrying public_id, label, ci_explorer_color); anything else (None, or an
+    int that no longer resolves because the CmdbType was deleted) collapses into a single
+    Unknown bucket with public_id=None and ci_explorer_color=None so the chart never grows a
+    slice per stale type_id. Mirrors the Unknown-collapsing rule of _build_type_distribution
+    so the per-sector and whole-subnet payloads stay consistent
+
+    Percentages are computed against the sector's used count (the sum of all values in the
+    breakdown) and rounded to two decimals. Buckets are sorted by count descending, then by
+    public_id ascending as a tiebreak; the Unknown bucket is always emitted last so its
+    position is stable regardless of size
+
+    Precondition: every count value in ``breakdown`` is positive. ``_bucket_used_by_type``
+    upholds this by only inserting via ``cell[key] = cell.get(key, 0) + 1`` so the helper
+    short-circuits on ``used_count <= 0`` rather than guarding each division
+
+    Args:
+        breakdown (dict[int | None, int]): Per-cell {type_id_or_None: count} as produced by
+            _bucket_used_by_type for one cell
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by _resolve_type_meta; type_ids absent from this mapping fall through to
+            the Unknown bucket
+
+    Returns:
+        list[dict[str, Any]]: One entry per known type bucket with keys public_id, label,
+            ci_explorer_color, count, percentage, followed by the Unknown bucket (only when
+            non-empty). Empty list when the cell has no assigned IPs
+    """
+    used_count: int = sum(breakdown.values())
+
+    if used_count <= 0:
+        return []
+
+    known_counts: dict[int, int] = {}
+    unknown_count: int = 0
+
+    for raw_key, count in breakdown.items():
+        if isinstance(raw_key, int) and raw_key in type_meta:
+            known_counts[raw_key] = known_counts.get(raw_key, 0) + count
+        else:
+            unknown_count += count
+
+    known_buckets: list[dict[str, Any]] = [
+        {
+            CmdbObjectKey.PUBLIC_ID: type_id,
+            IpamOverviewKey.LABEL: type_meta[type_id][IpamOverviewKey.LABEL],
+            IpamOverviewKey.CI_EXPLORER_COLOR: type_meta[type_id].get(IpamOverviewKey.CI_EXPLORER_COLOR),
+            IpamOverviewKey.COUNT: count,
+            IpamOverviewKey.PERCENTAGE: round((count / used_count) * 100, 2),
+        }
+        for type_id, count in known_counts.items()
+    ]
+
+    known_buckets.sort(key=lambda bucket: (-bucket[IpamOverviewKey.COUNT], bucket[CmdbObjectKey.PUBLIC_ID]))
+
+    if unknown_count > 0:
+        known_buckets.append({
+            CmdbObjectKey.PUBLIC_ID: None,
+            IpamOverviewKey.LABEL: IpamBucketLabel.UNKNOWN,
+            IpamOverviewKey.CI_EXPLORER_COLOR: None,
+            IpamOverviewKey.COUNT: unknown_count,
+            IpamOverviewKey.PERCENTAGE: round((unknown_count / used_count) * 100, 2),
+        })
+
+    return known_buckets
 
 
 def _compose_sector(
     first_ip_int: int,
     sector_size: int,
-    used_count: int,
+    breakdown: dict[int | None, int],
+    type_meta: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
     """
     Shapes one sector entry of the 'ip_distribution' grid
 
-    The percentage is the per-cell saturation ('used_count / sector_size * 100'), rounded to
-    two decimals; this matches the frontend's heatmap colouring convention. Position-implied
-    fields (sector index, sector size) are omitted: the consumer reads the index from the
-    sector's position in its parent range's 'sectors' array, and derives the size from
+    The sector's used_count is derived from the breakdown (sum of all per-type counts) so the
+    same source of truth feeds both the heatmap saturation and the per-type pie. ``percentage``
+    is the per-cell saturation ('used_count / sector_size * 100'), rounded to two decimals;
+    this matches the frontend's heatmap colouring convention. ``type_stats`` is the per-type
+    pie data delegated to _compose_sector_type_stats; it is always present (empty list when
+    the sector has no assigned IPs) so the FE never has to null-check. Position-implied fields
+    (sector index, sector size) are omitted: the consumer reads the index from the sector's
+    position in its parent range's 'sectors' array, and derives the size from
     ip_end - ip_start + 1
 
     Args:
         first_ip_int (int): Integer of the first address the sector covers
         sector_size (int): Number of addresses the sector covers (used only for the percentage
             denominator and to compute ip_end)
-        used_count (int): Number of assigned IPs inside the sector
+        breakdown (dict[int | None, int]): Per-cell {type_id_or_None: count} as produced by
+            _bucket_used_by_type for this cell
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by _resolve_type_meta
 
     Returns:
-        dict[str, Any]: Sector entry with ip_start, ip_end, used_count, percentage
+        dict[str, Any]: Sector entry with ip_start, ip_end, used_count, percentage, type_stats
     """
+    used_count: int = sum(breakdown.values())
+
     return {
         IpamOverviewKey.IP_START: str(IPv4Address(first_ip_int)),
         IpamOverviewKey.IP_END: str(IPv4Address(first_ip_int + sector_size - 1)),
         IpamOverviewKey.USED_COUNT: used_count,
         IpamOverviewKey.PERCENTAGE: round((used_count / sector_size) * 100, 2),
+        IpamOverviewKey.TYPE_STATS: _compose_sector_type_stats(breakdown, type_meta),
     }
 
 
 def _build_ip_distribution(
     network: IPv4Network | None,
     assigned: dict[str, dict[str, Any]],
+    type_meta: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
     """
     Builds the 'IP-Verteilung' grid payload for one subnet, or an empty dict when no grid is rendered
@@ -925,8 +1022,8 @@ def _build_ip_distribution(
     grid would have fewer cells; in that case (and when the CIDR is missing or unparsable) the
     function returns an empty dict so the frontend can omit the visualisation entirely. When
     rendered, every cell covers an equal slice of the subnet (network + broadcast included)
-    and carries the count of assigned IPs plus a per-cell saturation percentage that drives
-    the heatmap colouring
+    and carries the count of assigned IPs, a per-cell saturation percentage that drives the
+    heatmap colouring, and a per-type breakdown of the assigned IPs inside the cell
 
     The returned structure is intentionally minimal: position-implied fields (range index,
     sector index, sector size, top-level grid dimensions) are omitted because the grid
@@ -937,15 +1034,18 @@ def _build_ip_distribution(
         network (IPv4Network | None): The parsed subnet network, or None when the subnet's
             CIDR is missing or unparsable
         assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
-            _load_assigned_rows_map; only used to bucket-count, the row metadata is ignored
-            here
+            _load_assigned_rows_map; both the bucket counts and the per-cell type_stats are
+            derived from it
+        type_meta (dict[int, dict[str, Any]]): {type_id: {'label', 'ci_explorer_color'}} as
+            produced by _resolve_type_meta; used to label per-cell type buckets and to decide
+            which type_ids fall through to Unknown
 
     Returns:
         dict[str, Any]: {'sector_size': N, 'ranges': [...]} when the subnet qualifies for the
             full grid, where 'sector_size' is the number of addresses each cell covers (same
             for every cell since the grid is uniform) and each range carries ip_start, ip_end,
-            and a nested 'sectors' list of cells with ip_start, ip_end, used_count,
-            percentage. Empty dict ({}) otherwise
+            and a nested 'sectors' list of cells with ip_start, ip_end, used_count, percentage,
+            type_stats. Empty dict ({}) otherwise
     """
     if network is None:
         return {}
@@ -960,7 +1060,9 @@ def _build_ip_distribution(
     if total_cells < max_grid_cells:
         return {}
 
-    counts: list[int] = _bucket_used_counts(assigned, network, sector_size, total_cells)
+    breakdowns: list[dict[int | None, int]] = _bucket_used_by_type(
+        assigned, network, sector_size, total_cells,
+    )
 
     base_int: int = int(network.network_address)
     range_span: int = sectors_per_range * sector_size
@@ -977,7 +1079,8 @@ def _build_ip_distribution(
             sectors.append(_compose_sector(
                 sector_first_int,
                 sector_size,
-                counts[global_cell],
+                breakdowns[global_cell],
+                type_meta,
             ))
 
         ranges.append({
@@ -1395,7 +1498,13 @@ def build_subnet_overview(
             whole subnet (not just the current page) and includes 'Unknown' (when present)
             and 'Free' buckets after the type buckets, 'ip_distribution' is the
             IP-Verteilung heatmap grid covering the full address space (network + broadcast
-            included). The grid is emitted only at its full 4 x 16 size (/26 and shorter
+            included). Each sector inside ip_distribution carries ip_start, ip_end,
+            used_count, percentage, type_stats; 'type_stats' is the per-type breakdown of the
+            sector's assigned IPs, shaped as a list of {public_id, label, ci_explorer_color,
+            count, percentage} entries with percentage computed against the sector's
+            used_count, and an Unknown bucket (public_id=None, ci_explorer_color=None)
+            appended last whenever the sector holds rows whose owning type cannot be
+            resolved. The grid is emitted only at its full 4 x 16 size (/26 and shorter
             prefixes); for /27 and narrower, or when the CIDR is unparsable, ip_distribution
             is an empty dict. 'ips.total' equals 'assignable_ips' under no search and no
             sort (lazy path), or the candidate-list length otherwise. 'vlans' lists every
@@ -1440,7 +1549,7 @@ def build_subnet_overview(
             assigned, type_meta, objects_manager,
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
-        IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned),
+        IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned, type_meta),
         IpamOverviewKey.VLANS: load_vlans_by_subnets(
             objects_manager, types_manager, [public_id],
         ).get(public_id, []),
@@ -1532,7 +1641,7 @@ def build_invalid_subnet_overview(
             assigned, type_meta, objects_manager,
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
-        IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned),
+        IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned, type_meta),
         IpamOverviewKey.VLANS: load_vlans_by_subnets(
             objects_manager, types_manager, [public_id],
         ).get(public_id, []),
