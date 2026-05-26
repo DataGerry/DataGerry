@@ -205,6 +205,7 @@ class IpamOverviewKey(BaseStrEnum):
     SEARCH = 'search'
     SORT = 'sort'
     ORDER = 'order'
+    TYPE = 'type'
     TOTAL = 'total'
     TYPE_DISTRIBUTION = 'type_distribution'
     IP_DISTRIBUTION = 'ip_distribution'
