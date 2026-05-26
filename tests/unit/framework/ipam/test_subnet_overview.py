@@ -54,7 +54,7 @@ from cmdb.framework.ipam.subnet_overview import (
     _AssignedField,
     _apply_candidate_filter,
     _build_broken_state_payload,
-    _bucket_used_counts,
+    _bucket_used_by_type,
     _build_ip_distribution,
     _build_ips_block,
     _build_type_distribution,
@@ -62,6 +62,7 @@ from cmdb.framework.ipam.subnet_overview import (
     _compose_free_row,
     _compose_ip_row,
     _compose_sector,
+    _compose_sector_type_stats,
     _compute_grid_dimensions,
     _compute_sort_key,
     _extract_row_fields,
@@ -1078,78 +1079,271 @@ def test_compute_grid_dimensions_shrinks_to_one_by_one_for_single_address() -> N
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            _bucket_used_counts                                                       #
+#                                            _bucket_used_by_type                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_bucket_used_counts_returns_zero_filled_list_for_empty_assigned_map() -> None:
-    """An empty assigned map produces a counts list of the requested length with all zeros"""
-    counts = _bucket_used_counts({}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+def test_bucket_used_by_type_returns_empty_breakdowns_for_empty_assigned_map() -> None:
+    """An empty assigned map produces a list of empty breakdowns of the requested length"""
+    breakdowns = _bucket_used_by_type({}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
 
-    assert counts == [0] * 64
-
-
-def test_bucket_used_counts_returns_empty_list_when_total_cells_is_zero() -> None:
-    """No cells → no counts (guard against division by zero downstream)"""
-    counts = _bucket_used_counts({'10.0.0.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=0)
-
-    assert counts == []
+    assert breakdowns == [{}] * 64
 
 
-def test_bucket_used_counts_short_circuits_when_sector_size_is_zero() -> None:
-    """Zero sector_size cannot index any cell; the helper returns the zero-filled list without raising"""
-    counts = _bucket_used_counts({'10.0.0.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=0, total_cells=4)
+def test_bucket_used_by_type_returns_empty_list_when_total_cells_is_zero() -> None:
+    """No cells → no breakdowns (guard against division by zero downstream)"""
+    breakdowns = _bucket_used_by_type(
+        {'10.0.0.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=0,
+    )
 
-    assert counts == [0, 0, 0, 0]
+    assert breakdowns == []
 
 
-def test_bucket_used_counts_increments_correct_cell_for_assigned_ip() -> None:
+def test_bucket_used_by_type_short_circuits_when_sector_size_is_zero() -> None:
+    """Zero sector_size cannot index any cell; the helper returns empty breakdowns without raising"""
+    breakdowns = _bucket_used_by_type(
+        {'10.0.0.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=0, total_cells=4,
+    )
+
+    assert breakdowns == [{}, {}, {}, {}]
+
+
+def test_bucket_used_by_type_increments_correct_cell_for_assigned_ip() -> None:
     """An IP at offset 5 with sector_size=4 lands in cell index 1 (5 // 4)"""
-    counts = _bucket_used_counts({'10.0.0.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+    breakdowns = _bucket_used_by_type(
+        {'10.0.0.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64,
+    )
 
-    assert counts[1] == 1
-    assert sum(counts) == 1
+    assert breakdowns[1] == {None: 1}
+    assert sum(sum(b.values()) for b in breakdowns) == 1
 
 
-def test_bucket_used_counts_skips_ip_outside_the_subnet() -> None:
+def test_bucket_used_by_type_skips_ip_outside_the_subnet() -> None:
     """IPs whose offset falls outside the network's span are ignored"""
-    counts = _bucket_used_counts({'192.168.1.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+    breakdowns = _bucket_used_by_type(
+        {'192.168.1.5': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64,
+    )
 
-    assert sum(counts) == 0
+    assert sum(sum(b.values()) for b in breakdowns) == 0
 
 
-def test_bucket_used_counts_skips_unparseable_ip_string() -> None:
+def test_bucket_used_by_type_skips_unparseable_ip_string() -> None:
     """An ip_str that parse_ipv4 cannot parse is skipped without raising"""
-    counts = _bucket_used_counts(
+    breakdowns = _bucket_used_by_type(
         {'not-an-ip': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64,
     )
 
-    assert sum(counts) == 0
+    assert sum(sum(b.values()) for b in breakdowns) == 0
 
 
-def test_bucket_used_counts_distributes_multiple_assigned_ips_across_cells() -> None:
+def test_bucket_used_by_type_distributes_multiple_assigned_ips_across_cells() -> None:
     """Multiple IPs land in distinct cells when their offsets are in different sector_size groups"""
     assigned = {'10.0.0.1': {}, '10.0.0.5': {}, '10.0.0.9': {}}
 
-    counts = _bucket_used_counts(assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+    breakdowns = _bucket_used_by_type(assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
 
-    assert counts[0] == 1
-    assert counts[1] == 1
-    assert counts[2] == 1
+    assert breakdowns[0] == {None: 1}
+    assert breakdowns[1] == {None: 1}
+    assert breakdowns[2] == {None: 1}
+
+
+def test_bucket_used_by_type_uses_int_type_id_as_bucket_key() -> None:
+    """A row with an int type_id lands under that int key in the owning cell's breakdown"""
+    assigned = {'10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    breakdowns = _bucket_used_by_type(assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+
+    assert breakdowns[1] == {OWNER_TYPE_ID: 1}
+
+
+def test_bucket_used_by_type_routes_non_int_type_id_to_none_key() -> None:
+    """A non-int type_id (e.g. string) is bucketed under None, not its raw value"""
+    assigned = {'10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, '50', None)}
+
+    breakdowns = _bucket_used_by_type(assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+
+    assert breakdowns[1] == {None: 1}
+
+
+def test_bucket_used_by_type_coalesces_same_type_ips_in_same_cell() -> None:
+    """Multiple IPs of the same type in one cell sum into a single bucket"""
+    assigned = {
+        '10.0.0.4': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.6': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+    }
+
+    breakdowns = _bucket_used_by_type(assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+
+    assert breakdowns[1] == {OWNER_TYPE_ID: 3}
+
+
+def test_bucket_used_by_type_keeps_distinct_types_in_same_cell_separate() -> None:
+    """Two different types in one cell produce two keys with their respective counts"""
+    assigned = {
+        '10.0.0.4': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID + 1, OTHER_OWNER_TYPE_ID, None),
+        '10.0.0.6': _make_assigned_entry(OWNER_OBJECT_ID + 2, OTHER_OWNER_TYPE_ID, None),
+    }
+
+    breakdowns = _bucket_used_by_type(assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64)
+
+    assert breakdowns[1] == {OWNER_TYPE_ID: 1, OTHER_OWNER_TYPE_ID: 2}
+
+
+def test_bucket_used_by_type_rejects_ip_exactly_at_span_boundary() -> None:
+    """An IP at offset == total_cells * sector_size is outside the grid and is skipped"""
+    # network 10.0.0.0/24 has 256 addresses; with sector_size=4 and total_cells=64 the span is 256.
+    # 10.0.1.0 has offset 256, which must be rejected (>= span).
+    assigned = {'10.0.1.0': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None)}
+
+    breakdowns = _bucket_used_by_type(
+        assigned, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64,
+    )
+
+    assert sum(sum(b.values()) for b in breakdowns) == 0
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         _compose_sector_type_stats                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_compose_sector_type_stats_returns_empty_list_for_empty_breakdown() -> None:
+    """An empty breakdown (used_count == 0) → empty type_stats list"""
+    assert _compose_sector_type_stats({}, {}) == []
+
+
+def test_compose_sector_type_stats_emits_single_known_bucket_at_full_percentage() -> None:
+    """One known type covering the whole used count → one bucket at 100%"""
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000'}}
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 4}, type_meta)
+
+    assert stats == [
+        {
+            CmdbObjectKey.PUBLIC_ID: OWNER_TYPE_ID,
+            IpamOverviewKey.LABEL: 'Server',
+            IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000',
+            IpamOverviewKey.COUNT: 4,
+            IpamOverviewKey.PERCENTAGE: 100.0,
+        },
+    ]
+
+
+def test_compose_sector_type_stats_sorts_known_buckets_by_count_descending() -> None:
+    """Known buckets are ordered count desc (dominant type first)"""
+    type_meta = {
+        OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        OTHER_OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Printer', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+    }
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 1, OTHER_OWNER_TYPE_ID: 3}, type_meta)
+
+    labels = [bucket[IpamOverviewKey.LABEL] for bucket in stats]
+    assert labels == ['Printer', 'Server']
+
+
+def test_compose_sector_type_stats_breaks_count_ties_by_public_id_ascending() -> None:
+    """When counts tie, the smaller public_id comes first"""
+    type_meta = {
+        OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        OTHER_OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Printer', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+    }
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 2, OTHER_OWNER_TYPE_ID: 2}, type_meta)
+
+    public_ids = [bucket[CmdbObjectKey.PUBLIC_ID] for bucket in stats]
+    assert public_ids == [OWNER_TYPE_ID, OTHER_OWNER_TYPE_ID]
+
+
+def test_compose_sector_type_stats_emits_unknown_bucket_last_even_when_largest() -> None:
+    """The Unknown bucket is appended last regardless of how large its count is"""
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 1, None: 9}, type_meta)
+
+    labels = [bucket[IpamOverviewKey.LABEL] for bucket in stats]
+    assert labels == ['Server', IpamBucketLabel.UNKNOWN]
+
+
+def test_compose_sector_type_stats_routes_orphaned_int_type_id_to_unknown() -> None:
+    """An int type_id not present in type_meta is folded into the Unknown bucket"""
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 1, 9_999: 2}, type_meta)
+
+    unknown = next(b for b in stats if b[IpamOverviewKey.LABEL] == IpamBucketLabel.UNKNOWN)
+    assert unknown[CmdbObjectKey.PUBLIC_ID] is None
+    assert unknown[IpamOverviewKey.COUNT] == 2
+
+
+def test_compose_sector_type_stats_routes_none_key_to_unknown() -> None:
+    """A None key in the breakdown is folded into the Unknown bucket"""
+    stats = _compose_sector_type_stats({None: 3}, type_meta={})
+
+    assert stats == [
+        {
+            CmdbObjectKey.PUBLIC_ID: None,
+            IpamOverviewKey.LABEL: IpamBucketLabel.UNKNOWN,
+            IpamOverviewKey.CI_EXPLORER_COLOR: None,
+            IpamOverviewKey.COUNT: 3,
+            IpamOverviewKey.PERCENTAGE: 100.0,
+        },
+    ]
+
+
+def test_compose_sector_type_stats_unknown_sums_orphans_and_none_keys() -> None:
+    """Unknown.count is the sum of None-keyed rows and unresolvable int type_ids"""
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 1, None: 2, 9_999: 3}, type_meta)
+
+    unknown = next(b for b in stats if b[IpamOverviewKey.LABEL] == IpamBucketLabel.UNKNOWN)
+    assert unknown[IpamOverviewKey.COUNT] == 5
+
+
+def test_compose_sector_type_stats_rounds_percentages_to_two_decimals() -> None:
+    """Percentages are computed against used_count and rounded to 2 decimals (1/3, 2/3 → 33.33, 66.67)"""
+    type_meta = {
+        OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+        OTHER_OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Printer', IpamOverviewKey.CI_EXPLORER_COLOR: None},
+    }
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 1, OTHER_OWNER_TYPE_ID: 2}, type_meta)
+
+    by_label = {bucket[IpamOverviewKey.LABEL]: bucket[IpamOverviewKey.PERCENTAGE] for bucket in stats}
+    assert by_label == {'Server': 33.33, 'Printer': 66.67}
+
+
+def test_compose_sector_type_stats_emits_none_color_when_type_meta_omits_it() -> None:
+    """A type_meta entry without ci_explorer_color yields None on the bucket, not a KeyError"""
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server'}}
+
+    stats = _compose_sector_type_stats({OWNER_TYPE_ID: 1}, type_meta)
+
+    assert stats[0][IpamOverviewKey.CI_EXPLORER_COLOR] is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              _compose_sector                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_compose_sector_emits_full_shape_and_rounds_percentage_to_two_decimals() -> None:
-    """Output pins ip_start/ip_end/used_count/percentage; percentage rounded to 2 decimals"""
+    """Output pins ip_start/ip_end/used_count/percentage/type_stats; percentage rounded to 2 decimals"""
     first_int = int(IPv4Address('10.0.0.0'))
 
-    sector = _compose_sector(first_int, sector_size=4, used_count=1)
+    sector = _compose_sector(first_int, sector_size=4, breakdown={None: 1}, type_meta={})
 
     assert sector == {
         IpamOverviewKey.IP_START: '10.0.0.0',
         IpamOverviewKey.IP_END: '10.0.0.3',
         IpamOverviewKey.USED_COUNT: 1,
         IpamOverviewKey.PERCENTAGE: 25.0,
+        IpamOverviewKey.TYPE_STATS: [
+            {
+                CmdbObjectKey.PUBLIC_ID: None,
+                IpamOverviewKey.LABEL: IpamBucketLabel.UNKNOWN,
+                IpamOverviewKey.CI_EXPLORER_COLOR: None,
+                IpamOverviewKey.COUNT: 1,
+                IpamOverviewKey.PERCENTAGE: 100.0,
+            },
+        ],
     }
 
 
@@ -1158,17 +1352,17 @@ def test_compose_sector_emits_full_shape_and_rounds_percentage_to_two_decimals()
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_ip_distribution_returns_empty_dict_when_network_is_none() -> None:
     """A missing/unparsable subnet network → grid suppressed (empty dict)"""
-    assert _build_ip_distribution(None, {}) == {}
+    assert _build_ip_distribution(None, {}, {}) == {}
 
 
 def test_build_ip_distribution_returns_empty_dict_when_subnet_too_small_for_full_grid() -> None:
     """/27 (32 addresses → 4×8 cells) is below the full 4×16 = 64-cell cap and is suppressed"""
-    assert _build_ip_distribution(IPv4Network('10.0.0.0/27'), {}) == {}
+    assert _build_ip_distribution(IPv4Network('10.0.0.0/27'), {}, {}) == {}
 
 
 def test_build_ip_distribution_emits_full_grid_for_slash_24() -> None:
     """A /24 yields the full grid: sector_size=4, 4 ranges, each with 16 sectors"""
-    grid = _build_ip_distribution(IPv4Network('10.0.0.0/24'), {})
+    grid = _build_ip_distribution(IPv4Network('10.0.0.0/24'), {}, {})
 
     assert grid[IpamOverviewKey.SECTOR_SIZE] == 4
     assert len(grid[IpamOverviewKey.RANGES]) == 4
@@ -1180,7 +1374,7 @@ def test_build_ip_distribution_reflects_assigned_counts_in_correct_cells() -> No
     """An assigned IP appears in its sector's used_count and not in others"""
     assigned: dict[str, dict[str, Any]] = {'10.0.0.5': {}}
 
-    grid = _build_ip_distribution(IPv4Network('10.0.0.0/24'), assigned)
+    grid = _build_ip_distribution(IPv4Network('10.0.0.0/24'), assigned, {})
 
     # Sector index 1 of range 0 covers 10.0.0.4-10.0.0.7
     first_range = grid[IpamOverviewKey.RANGES][0]

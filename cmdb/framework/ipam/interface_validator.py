@@ -58,6 +58,7 @@ class InterfaceErrorCode(BaseStrEnum):
     SUBNET_TYPE_MISSING = 'subnet_type_missing'
     SUBNET_NOT_FOUND = 'subnet_not_found'
     SUBNET_BROKEN_STATE = 'subnet_broken_state'
+    SUBNET_WITHOUT_IP = 'subnet_without_ip'
     IP_INVALID = 'ip_invalid'
     IP_NOT_IN_SUBNET = 'ip_not_in_subnet'
     IP_RESERVED = 'ip_reserved'
@@ -436,6 +437,45 @@ def find_intra_submission_duplicates(
     return errors
 
 
+def find_subnet_without_ip(
+    rows: list[tuple[int, int | None, str | None]],
+) -> list[dict[str, Any]]:
+    """
+    Reports interface rows that have a subnet reference selected but no IP address
+
+    A dg-ipam-interface row is considered incomplete when the user picks a subnet but leaves the
+    IP field empty: such a row cannot be checked for CIDR membership, reserved addresses, or
+    uniqueness, and would not contribute to any subnet's used-IP roll-up. The inverse case (IP
+    without subnet) is intentionally not flagged here - that is the literal request scope, and
+    a row with neither field set is treated as a still-empty placeholder row, accepted silently
+    by every caller of this batch validator
+
+    Args:
+        rows (list[tuple[int, int | None, str | None]]): (row_index, subnet_ref, ip) tuples as
+            produced by _extract_interface_rows in cmdb.framework.ipam.enforcement
+
+    Returns:
+        list[dict[str, Any]]: One SUBNET_WITHOUT_IP error per offending row, with details
+            carrying the row index and the orphaned subnet_object_id
+    """
+    errors: list[dict[str, Any]] = []
+
+    for row_index, subnet_ref, ip in rows:
+        if subnet_ref is None or ip is not None:
+            continue
+
+        errors.append(build_error(
+            InterfaceErrorCode.SUBNET_WITHOUT_IP,
+            f"Interface row {row_index} has a subnet selected but no IP address",
+            {
+                IpamValidationDetailKey.ROW_INDEX: row_index,
+                IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_ref,
+            },
+        ))
+
+    return errors
+
+
 def validate_interface_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -446,9 +486,12 @@ def validate_interface_rows(
     Validates a batch of dg-ipam-interface rows belonging to one (in-flight) object
 
     Performs:
-      1. Cross-row duplicate detection via find_intra_submission_duplicates so two rows on the
+      1. Completeness check via find_subnet_without_ip so a row with a subnet picked but no IP
+         is flagged before any DB call. The inverse case (IP without subnet) and entirely empty
+         placeholder rows pass through silently
+      2. Cross-row duplicate detection via find_intra_submission_duplicates so two rows on the
          same form sharing a (subnet, IP) pair are flagged before they hit the DB
-      2. Per-row validation via validate_interface for each row that has both subnet_ref and IP
+      3. Per-row validation via validate_interface for each row that has both subnet_ref and IP
          set; the row's index is injected into every per-row error's 'details.row_index' so the
          caller can map errors back to the originating row
 
@@ -468,7 +511,8 @@ def validate_interface_rows(
     if not rows:
         return []
 
-    errors: list[dict[str, Any]] = find_intra_submission_duplicates(rows)
+    errors: list[dict[str, Any]] = find_subnet_without_ip(rows)
+    errors.extend(find_intra_submission_duplicates(rows))
 
     for row_index, subnet_ref, ip in rows:
         if subnet_ref is None or ip is None:

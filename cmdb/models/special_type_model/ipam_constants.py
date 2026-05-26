@@ -258,6 +258,7 @@ class IpamOverviewKey(BaseStrEnum):
     IP_START = 'ip_start'
     IP_END = 'ip_end'
     USED_COUNT = 'used_count'
+    TYPE_STATS = 'type_stats'
 
 
 class IpamRowStatus(BaseStrEnum):
