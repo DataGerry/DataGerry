@@ -21,7 +21,7 @@ from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
-from cmdb.class_schema.cmdb_user_schema import get_cmdb_user_schema
+from cmdb.class_schema.user_model.cmdb_user_schema import get_cmdb_user_schema
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.models.cmdb_user import (

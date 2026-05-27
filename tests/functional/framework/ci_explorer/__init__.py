@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Collection of the validation schemas for the DataGerry classes
+Functional tests for the CI Explorer routes
 
-Each schema lives in a subpackage mirroring its class' package under cmdb.models
-(e.g. cmdb.class_schema.ci_explorer_model holds the schemas of cmdb.models.ci_explorer_model).
-A schema is exposed via a get_<class>_schema() function and consumed by the model class as its SCHEMA
+These tests pin the observable contract of the /ci_explorer/items route against a real
+MongoDB before the route is refactored, so behaviour drift introduced by the rework is
+caught immediately
 """

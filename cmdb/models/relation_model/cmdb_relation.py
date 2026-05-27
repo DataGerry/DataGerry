@@ -19,7 +19,7 @@ Represents a CmdbRelation in DataGerry
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.class_schema.cmdb_relation_schema import get_cmdb_relation_schema
+from cmdb.class_schema.relation_model.cmdb_relation_schema import get_cmdb_relation_schema
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model.type_field_section import TypeFieldSection
