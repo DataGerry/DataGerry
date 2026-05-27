@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.isms_model.isms_risk_matrix_schema import get_isms_risk_matrix_schema
+
 from cmdb.errors.models.isms_risk_matrix import (
     IsmsRiskMatrixInitError,
     IsmsRiskMatrixInitFromDataError,
@@ -43,51 +45,7 @@ class IsmsRiskMatrix(CmdbDAO):
     COLLECTION = "isms.riskMatrix"
     MODEL = 'RiskMatrix'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'risk_matrix':{
-            'type': 'list',
-             "schema": {
-                "type": "dict",
-                    "schema": {
-                        'row': {
-                            'type': 'integer',
-                            'min': 0,
-                        },
-                        'column': {
-                            'type': 'integer',
-                            'min': 0,
-                        },
-                        'risk_class_id': {
-                            'type': 'integer',
-                        },
-                        'impact_id': {
-                            'type': 'integer',
-                        },
-                        'impact_value': {
-                            'type': 'float',
-                            'min': 0.0,
-                        },
-                        'likelihood_id': {
-                            'type': 'integer',
-                        },
-                        'likelihood_value': {
-                            'type': 'float',
-                            'min': 0.0,
-                        },
-                        'calculated_value': {
-                            'type': 'float',
-                            'min': 0.0,
-                        },
-                    }
-            }
-        },
-        'matrix_unit': {
-            'type': 'string',
-        },
-    }
+    SCHEMA: dict = get_isms_risk_matrix_schema()
 
 
     def __init__(self, public_id: int, risk_matrix: list, matrix_unit: str = None):

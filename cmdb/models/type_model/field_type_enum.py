@@ -16,10 +16,10 @@
 """
 Enumeration of all available FieldTypes for CmdbTypes
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class FieldType(str, Enum):
+class FieldType(BaseStrEnum):
     """
     Enumeration of field types in CmdbTypes
     """
@@ -34,18 +34,3 @@ class FieldType(str, Enum):
     REFERENCE = 'ref'
     LOCATION = 'location'
     REF_SECTION = 'ref-section-field'
-
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid FieldType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing SectionType, False otherwise
-        """
-        return value in cls._value2member_map_

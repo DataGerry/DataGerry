@@ -11,10 +11,10 @@
 """
 Implementation of IsmsImportType enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class IsmsImportType(str, Enum):
+class IsmsImportType(BaseStrEnum):
     """
     Available IsmsImportTypes
     """
@@ -22,17 +22,3 @@ class IsmsImportType(str, Enum):
     CONTROL_MEASURE = 'control_measure'
     THREAT = 'threat'
     VULNERABILITY = 'vulnerability'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid IsmsImportType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing IsmsImportType, False otherwise
-        """
-        return value in cls._value2member_map_

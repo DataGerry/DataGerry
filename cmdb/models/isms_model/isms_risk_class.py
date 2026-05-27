@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.isms_model.isms_risk_class_schema import get_isms_risk_class_schema
+
 from cmdb.errors.models.isms_risk_class import (
     IsmsRiskClassInitError,
     IsmsRiskClassInitFromDataError,
@@ -41,28 +43,7 @@ class IsmsRiskClass(CmdbDAO):
     COLLECTION = "isms.riskClass"
     MODEL = 'RiskClass'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'description': {
-            'type': 'string',
-        },
-        'color': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'sort': {
-            'type': 'integer',
-        }
-    }
+    SCHEMA: dict = get_isms_risk_class_schema()
 
 
     #pylint: disable=R0917

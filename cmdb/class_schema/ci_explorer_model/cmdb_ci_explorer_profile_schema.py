@@ -27,35 +27,35 @@ def get_cmdb_ci_explorer_profile_schema() -> dict[str, Any]:
         dict: Schema of the CmdbCiExplorerProfile
     """
     return {
-        'public_id': { # public_id of the CmdbCiExplorerProfile
+        'public_id': {  # public_id of the CmdbCiExplorerProfile
             'type': 'integer',
             'min': 1,
         },
-        'name': { # Name of the saved CI Explorer filter (visible to users)
+        'name': {  # Name of the saved CI Explorer filter (visible to users)
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'types_filter': { # public_ids of CmdbTypes the saved filter restricts neighbours to
+        'types_filter': {  # public_ids of CmdbTypes the saved filter restricts neighbours to
             'type': 'list',
             'required': False,
             'nullable': True,
             'empty': True,
         },
-        'relations_filter': { # public_ids of CmdbRelations the saved filter restricts edges to
+        'relations_filter': {  # public_ids of CmdbRelations the saved filter restricts edges to
             'type': 'list',
             'required': False,
             'nullable': True,
             'empty': True,
         },
-        'with_locations': { # If True the saved filter includes the dg_location hierarchy
+        'with_locations': {  # If True the saved filter includes the dg_location hierarchy
             'type': 'boolean',
             'required': False,
             'nullable': True,
             'empty': True,
             'default': True,
         },
-        'with_ipam_relations': { # If True the saved filter includes IPAM-hierarchy neighbours
+        'with_ipam_relations': {  # If True the saved filter includes IPAM-hierarchy neighbours
             'type': 'boolean',
             'required': False,
             'nullable': True,

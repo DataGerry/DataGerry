@@ -16,10 +16,10 @@
 """
 Implementation of AuthMethod enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class AuthMethod(str, Enum):
+class AuthMethod(BaseStrEnum):
     """
     Enum representing different authentication methods
 

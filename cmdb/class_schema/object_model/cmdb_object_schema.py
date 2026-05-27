@@ -27,52 +27,52 @@ def get_cmdb_object_schema() -> dict[str, Any]:
         dict: Schema of the CmdbObject
     """
     return {
-        'public_id': { # public_id of the CmdbObject
+        'public_id': {  # public_id of the CmdbObject
             'type': 'integer'
         },
         'type_id': {    # public_id of the CmdbType of this CmdbObject
             'type': 'integer'
         },
-        'version': { # Version of the data of the CmdbObject
+        'version': {  # Version of the data of the CmdbObject
             'type': 'string',
             'default': '1.0.0'
         },
-        'author_id': { # The public_id of the CmdbUser which created this CmdbObject
+        'author_id': {  # The public_id of the CmdbUser which created this CmdbObject
             'type': 'integer',
             'required': True
         },
-        'creation_time': { # The datetime when this CmdbObject was created
+        'creation_time': {  # The datetime when this CmdbObject was created
             'type': 'dict',
             'nullable': True,
             'required': False
         },
-        'last_edit_time': { # The datetime of when this CmdbObject was edited the last time
+        'last_edit_time': {  # The datetime of when this CmdbObject was edited the last time
             'type': 'dict',
             'nullable': True,
             'required': False
         },
-        'active': { # Defines if the CmdbObject is active or not (True = active, False = inactive)
+        'active': {  # Defines if the CmdbObject is active or not (True = active, False = inactive)
             'type': 'boolean',
             'required': False,
             'default': True
         },
-        'special_type': { # The assigned SpecialType of this CmdbObjects CmdbType if any
+        'special_type': {  # The assigned SpecialType of this CmdbObjects CmdbType if any
             'type': 'string',
             'required': False,
             'nullable': True,
         },
-        'fields': { # Stores the values for the fields of the CmdbObject
+        'fields': {  # Stores the values for the fields of the CmdbObject
             'type': 'list',
             'required': True,
             'default': [],
         },
-        'ci_explorer_tooltip': { # This tooltip will be displayed in the CI Explorer when hovering over this CmdbObject
+        'ci_explorer_tooltip': {  # This tooltip will be displayed in the CI Explorer when hovering over this CmdbObject
             'type': 'string',
             'required': False,
             'nullable': True,
             'empty': True,
         },
-        'multi_data_sections': { # Stores everything related to MDS of this CmdbObject
+        'multi_data_sections': {  # Stores everything related to MDS of this CmdbObject
             'type': 'list',
             'required': False,
             'default': [],

@@ -31,54 +31,54 @@ def get_cmdb_type_schema() -> dict[str, Any]:
         dict: Schema of the CmdbType
     """
     return {
-        'public_id': { # public_id of the CmdbType
+        'public_id': {  # public_id of the CmdbType
             'type': 'integer'
         },
-        'name': { # Unique name of the CmdbType
+        'name': {  # Unique name of the CmdbType
             'type': 'string',
             'required': True,
             'regex': r'(\w+)-*(\w)([\w-]*)'  # kebab case validation,
         },
-        'label': { # Label of the CmdbType (visible by users)
+        'label': {  # Label of the CmdbType (visible by users)
             'type': 'string',
             'required': False
         },
-        'author_id': { # public_id of the CmdbUser who created this CmdbType
+        'author_id': {  # public_id of the CmdbUser who created this CmdbType
             'type': 'integer',
             'required': True
         },
-        'editor_id': { # public_id of the CmdbUser who last edited this CmdbType
+        'editor_id': {  # public_id of the CmdbUser who last edited this CmdbType
             'type': 'integer',
             'nullable': True,
             'required': False
         },
-        'creation_time': { # The datetime when this CmdbType was created
+        'creation_time': {  # The datetime when this CmdbType was created
             'type': 'dict',
             'nullable': True,
             'required': False
         },
-        'last_edit_time': { # The datetime when the last editing of this CmdbType occured
+        'last_edit_time': {  # The datetime when the last editing of this CmdbType occured
             'type': 'dict',
             'nullable': True,
             'required': False
         },
-        'selectable_as_parent': { # If True, this location is selectable as a parent location for other locations
+        'selectable_as_parent': {  # If True, this location is selectable as a parent location for other locations
             'type': 'boolean',
             'default': True
         },
-        'global_template_ids':{ # The public_id's of global CmdbSectionTemplates used by this CmdbType
+        'global_template_ids': {  # The public_id's of global CmdbSectionTemplates used by this CmdbType
             'type': 'list',
             'required': False,
             'schema': {
                 'type': 'string',
             }
         },
-        'active': { # If True, this CmdbType is active
+        'active': {  # If True, this CmdbType is active
             'type': 'boolean',
             'required': False,
             'default': True
         },
-        'special_type': { # The assigned SpecialType if any
+        'special_type': {  # The assigned SpecialType if any
             'type': 'string',
             'required': False,
             'nullable': True,
@@ -321,13 +321,13 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'allow_unknown': True,
             'required': False,
         },
-        'ci_explorer_label': { # Stores the name of the field which should be used as the Label in the CI Explorer
+        'ci_explorer_label': {  # Stores the name of the field which should be used as the Label in the CI Explorer
             'type': 'string',
             'required': False,
             'nullable': True,
             'empty': True,
         },
-        'ci_explorer_color': { # Stores the color which should be used in the CI Explorer representation
+        'ci_explorer_color': {  # Stores the color which should be used in the CI Explorer representation
             'type': 'string',
             'required': False,
             'nullable': True,

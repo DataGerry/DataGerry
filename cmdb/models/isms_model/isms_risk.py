@@ -21,6 +21,8 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.risk_type_enum import RiskType
 
+from cmdb.class_schema.isms_model.isms_risk_schema import get_isms_risk_schema
+
 from cmdb.errors.models.isms_risk import (
     IsmsRiskInitError,
     IsmsRiskInitFromDataError,
@@ -49,47 +51,7 @@ class IsmsRisk(CmdbDAO):
         {'keys': [('identifier', CmdbDAO.DAO_ASCENDING)], 'name': 'identifier', 'unique': False}
     ]
 
-    # pylint: disable=R0801
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'risk_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False,
-        },
-        'protection_goals': {
-            'type': 'list',
-        },
-        'threats': {
-            'type': 'list',
-        },
-        'category_id' : {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-            'empty': False,
-        },
-        'vulnerabilities': {
-            'type': 'list',
-        },
-        'identifier': {
-            'type': 'string',
-        },
-        'consequences': {
-            'type': 'string',
-        },
-        'description': {
-            'type': 'string',
-        },
-    }
+    SCHEMA: dict = get_isms_risk_schema()
 
 
     #pylint: disable=R0913, R0917
