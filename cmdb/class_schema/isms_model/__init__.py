@@ -14,9 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Collection of the validation schemas for the DataGerry classes
-
-Each schema lives in a subpackage mirroring its class' package under cmdb.models
-(e.g. cmdb.class_schema.ci_explorer_model holds the schemas of cmdb.models.ci_explorer_model).
-A schema is exposed via a get_<class>_schema() function and consumed by the model class as its SCHEMA
+Schema definitions for the classes of the isms_model
 """
