@@ -16,10 +16,10 @@
 """
 Implementation of GroupDeleteMode
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class GroupDeleteMode(str, Enum):
+class GroupDeleteMode(BaseStrEnum):
     """
     Represents the deletion mode for a group
 

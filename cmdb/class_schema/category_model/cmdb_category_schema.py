@@ -27,41 +27,41 @@ def get_cmdb_category_schema() -> dict[str, Any]:
         dict: Schema of the CmdbCategory
     """
     return {
-        'public_id': { # public_id of the CmdbCategory
+        'public_id': {  # public_id of the CmdbCategory
             'type': 'integer'
         },
-        'name': { # Unique name of the CmdbCategory
+        'name': {  # Unique name of the CmdbCategory
             'type': 'string',
             'required': True,
             'empty': False,
             'regex': r'(\w+)-*(\w)([\w-]*)'  # kebab case validation,
         },
-        'label': { # Label of the CmdbCategory (visible to users)
+        'label': {  # Label of the CmdbCategory (visible to users)
             'type': 'string',
             'required': False
         },
-        'parent': { # public_id of the parent CmdbCategory if any
+        'parent': {  # public_id of the parent CmdbCategory if any
             'type': 'integer',
             'nullable': True,
             'default': None
         },
-        'types': { # public_ids of assigned CmdbTypes to this CmdbCategory
+        'types': {  # public_ids of assigned CmdbTypes to this CmdbCategory
             'type': 'list',
             'default': []
         },
-        'meta': { # Additional information about the CmdbCategory
+        'meta': {  # Additional information about the CmdbCategory
             'type': 'dict',
             'schema': {
-                'icon': { # The icon assigned to this CmdbCategory
+                'icon': {  # The icon assigned to this CmdbCategory
                     'type': 'string',
                     'empty': True
                 },
-                'order': { # The order of this CmdbCategory
+                'order': {  # The order of this CmdbCategory
                     'type': 'integer',
                     'nullable': True
                 }
             },
-            'default': { # Default values
+            'default': {  # Default values
                 'icon': '',
                 'order': None,
             }

@@ -26,7 +26,7 @@ def get_cmdb_object_relation_schema() -> dict:
         dict: Schema of the CmdbObjectRelation
     """
     return {
-        'public_id': { # public_id of CmdbObjectRelation
+        'public_id': {  # public_id of CmdbObjectRelation
             'type': 'integer'
         },
         'relation_id': {  # public_id of the CmdbRelation
@@ -34,44 +34,44 @@ def get_cmdb_object_relation_schema() -> dict:
             'required': True,
             'empty': False
         },
-        'creation_time': { # When the CmdbObjectRelation was created
+        'creation_time': {  # When the CmdbObjectRelation was created
             'type': 'dict',
             'nullable': True,
             'required': False
         },
-        'last_edit_time': { # When the CmdbObjectRelation was last time edited
+        'last_edit_time': {  # When the CmdbObjectRelation was last time edited
             'type': 'dict',
             'nullable': True,
             'required': False
         },
-        'author_id': { # public_id of the CmdbUser who created the CmdbObjectRelation then the last one editing it
+        'author_id': {  # public_id of the CmdbUser who created the CmdbObjectRelation then the last one editing it
             'type': 'integer'
         },
-        'relation_parent_id': { # public_id of the parent CmdbObject
+        'relation_parent_id': {  # public_id of the parent CmdbObject
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'relation_parent_type_id': { # public_id of the parent CmdbType
+        'relation_parent_type_id': {  # public_id of the parent CmdbType
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'relation_child_id': { # public_id of the child CmdbObject
+        'relation_child_id': {  # public_id of the child CmdbObject
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'relation_child_type_id': { # public_id of the child CmdbType
+        'relation_child_type_id': {  # public_id of the child CmdbType
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'field_values': { # All field values for this CmdbObjectRelation
+        'field_values': {  # All field values for this CmdbObjectRelation
             'type': 'list',
             'required': False,
             'default': [],

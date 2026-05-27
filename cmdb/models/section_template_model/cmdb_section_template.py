@@ -20,6 +20,8 @@ a section template in Datagarry.
 from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.section_template_model.cmdb_section_template_schema import get_cmdb_section_template_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -45,36 +47,7 @@ class CmdbSectionTemplate(CmdbDAO):
     DEFAULT_VERSION = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'is_global': {
-            'type': 'boolean',
-            'default': False
-        },
-        'predefined': {
-            'type': 'boolean',
-            'default': False
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'label': {
-            'type': 'string',
-            'required': True,
-        },
-        'type': {
-            'type': 'string',
-            'default': 'section'
-        },
-        'fields': {
-            'type': 'list',
-            'required': True,
-            'default': [],
-        }
-    }
+    SCHEMA: dict = get_cmdb_section_template_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 

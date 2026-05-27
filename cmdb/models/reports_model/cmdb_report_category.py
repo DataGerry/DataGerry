@@ -21,6 +21,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.reports_model.cmdb_report_category_schema import get_cmdb_report_category_schema
+
 from cmdb.errors.models.cmdb_report_category import (
     CmdbReportCategoryInitError,
     CmdbReportCategoryInitFromDataError,
@@ -44,20 +46,7 @@ class CmdbReportCategory(CmdbDAO):
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS = ['name', 'predefined']
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False,
-        },
-        'predefined': {
-            'type': 'boolean',
-            'default': False
-        },
-    }
+    SCHEMA: dict = get_cmdb_report_category_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 

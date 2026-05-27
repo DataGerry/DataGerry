@@ -16,7 +16,6 @@
 """
 Implementation of template header and footer component
 """
-from enum import Enum
 from logging import Logger, getLogger
 from typing import Any
 
@@ -30,11 +29,12 @@ from cmdb.framework.docapi.docapi_template.docgen_constants import (
     DEFAULT_SPACING,
 )
 from cmdb.framework.docapi.docapi_template.docgen_helpers import mm_to_pt
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-class PageValue(str, Enum):
+class PageValue(BaseStrEnum):
     """TODO: document"""
     MARGIN_TOP = "margin-top"
     MARGIN_BOTTOM = "margin-bottom"
@@ -42,11 +42,11 @@ class PageValue(str, Enum):
     MARGIN_RIGHT ="margin-right"
     MAX_WIDTH = "width"
 
-class HeaderValue(str, Enum):
+class HeaderValue(BaseStrEnum):
     """TODO: document"""
     HEIGHT = "height"
 
-class FooterValue(str, Enum):
+class FooterValue(BaseStrEnum):
     """TODO: document"""
     HEIGHT = "height"
 

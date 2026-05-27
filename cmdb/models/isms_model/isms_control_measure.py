@@ -22,6 +22,8 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 
+from cmdb.class_schema.isms_model.isms_control_measure_schema import get_isms_control_measure_schema
+
 from cmdb.errors.models.isms_control_measure import (
     IsmsControlMeasureInitError,
     IsmsControlMeasureInitFromDataError,
@@ -47,58 +49,7 @@ class IsmsControlMeasure(CmdbDAO):
         {'keys': [('control_measure_type', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_type', 'unique': False},
     ]
 
-    # pylint: disable=R0801
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'title': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'control_measure_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'source': {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        'implementation_state': {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        'identifier': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'chapter': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'description': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'is_applicable': {
-            'type': 'boolean',
-            'required': True,
-            'nullable': True,
-        },
-        'reason': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        }
-    }
+    SCHEMA: dict = get_isms_control_measure_schema()
 
     #pylint: disable=R0913, R0917
     def __init__(

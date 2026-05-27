@@ -17,10 +17,10 @@
 This module contains all available profile names for the DataGerry assistant
 """
 
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ProfileName(str, Enum):
+class ProfileName(BaseStrEnum):
     """
     Enumeration of all valid profile names which can be created through the DataGerry assistant
     """

@@ -26,7 +26,7 @@ def get_cmdb_relation_schema() -> dict:
         dict: Schema of the CmdbRelation
     """
     return {
-        'public_id': { # public_id of CmdbRelation
+        'public_id': {  # public_id of CmdbRelation
             'type': 'integer'
         },
         'relation_name': {  # Name of the CmdbRelation
@@ -34,16 +34,16 @@ def get_cmdb_relation_schema() -> dict:
             'required': True,
             'empty': False
         },
-        'relation_name_parent': { # Name of parent to child relation
+        'relation_name_parent': {  # Name of parent to child relation
             'type': 'string',
             'required': True,
             'empty': False
         },
-        'relation_icon_parent': { # Icon of the parent to child relation
+        'relation_icon_parent': {  # Icon of the parent to child relation
             'type': 'string',
             'required': False,
         },
-        'relation_color_parent': { # Color of the parent to child relation
+        'relation_color_parent': {  # Color of the parent to child relation
             'type': 'string',
             'required': False
         },
@@ -52,20 +52,20 @@ def get_cmdb_relation_schema() -> dict:
             'required': True,
             'empty': False
         },
-        'relation_icon_child': { # Icon of the child to parent relation
+        'relation_icon_child': {  # Icon of the child to parent relation
             'type': 'string',
             'required': False
         },
-        'relation_color_child': { # Color of the child to parent relation
+        'relation_color_child': {  # Color of the child to parent relation
             'type': 'string',
             'required': False
         },
-        'description': { # General description of the Relation
+        'description': {  # General description of the Relation
             'type': 'string',
             'nullable': True,
             'required': False
         },
-        'parent_type_ids': { # public_ids of allowed parent CmdbTypes
+        'parent_type_ids': {  # public_ids of allowed parent CmdbTypes
             'type': 'list',
             'required': True,
             'empty': False,
@@ -73,7 +73,7 @@ def get_cmdb_relation_schema() -> dict:
                 'type': 'integer'
             }
         },
-        'child_type_ids': { # public_ids of allowed child CmdbTypes
+        'child_type_ids': {  # public_ids of allowed child CmdbTypes
             'type': 'list',
             'required': True,
             'empty': False,
@@ -81,27 +81,27 @@ def get_cmdb_relation_schema() -> dict:
                 'type': 'integer'
             }
         },
-        'sections': { # all sections of the CmdbRelation
+        'sections': {  # all sections of the CmdbRelation
             'type': 'list',
             'schema': {
                 'type': 'dict',
                 'schema': {
-                    "type": { # Type of the section, currently only "section" available
+                    "type": {  # Type of the section, currently only "section" available
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    "name": { # Unique identifier of the section
+                    "name": {  # Unique identifier of the section
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    "label": { # Label of the section
+                    "label": {  # Label of the section
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    'fields': { # All fields of the section
+                    'fields': {  # All fields of the section
                         'type': 'list',
                         'empty': True,
                     }
@@ -109,7 +109,7 @@ def get_cmdb_relation_schema() -> dict:
             },
             'empty': True
         },
-        'fields': { # All fields for the section
+        'fields': {  # All fields for the section
             'type': 'list',
             'required': False,
             'default': None,
@@ -121,56 +121,56 @@ def get_cmdb_relation_schema() -> dict:
                         'required': True,
                         'empty': False
                     },
-                    "required": { # If field is required
+                    "required": {  # If field is required
                         'type': 'boolean',
                         'required': False
                     },
-                    "name": { # Unique identifier for the field
+                    "name": {  # Unique identifier for the field
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    "rows": { # Number of rows for TextArea Field
+                    "rows": {  # Number of rows for TextArea Field
                         'type': 'integer',
                         'required': False
                     },
-                    "label": { # Label of the field
+                    "label": {  # Label of the field
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    "description": { # Description of the field
+                    "description": {  # Description of the field
                         'type': 'string',
                         'required': False,
                     },
-                    "regex": { # Regex of the field
+                    "regex": {  # Regex of the field
                         'type': 'string',
                         'required': False
                     },
-                    "placeholder": { # Placeholder of the field
+                    "placeholder": {  # Placeholder of the field
                         'type': 'string',
                         'required': False,
                     },
-                    "value": { # The value for this field
+                    "value": {  # The value for this field
                         'required': False,
                         'nullable': True,
                     },
-                    "helperText": { # Helpertext for this field
+                    "helperText": {  # Helpertext for this field
                         'type': 'string',
                         'required': False,
                     },
-                    "options": { # Options for RadioField and SelectField
+                    "options": {  # Options for RadioField and SelectField
                         'type': 'list',
                         'empty': True,
                         'required': False,
                         'schema': {
                             'type': 'dict',
                             'schema': {
-                                "name": { # Name of the option (not visible to the user)
+                                "name": {  # Name of the option (not visible to the user)
                                     'type': 'string',
                                     'required': True
                                 },
-                                "label": { # Value of the option (visible to the user)
+                                "label": {  # Value of the option (visible to the user)
                                     'type': 'string',
                                     'required': True
                                 },
