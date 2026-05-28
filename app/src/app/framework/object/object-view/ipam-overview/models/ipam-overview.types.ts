@@ -66,6 +66,7 @@ export interface IpamSupernetOverviewParams {
     page_size?: number;
     sort?: string;
     order?: number;
+    search?: string;
 }
 
 

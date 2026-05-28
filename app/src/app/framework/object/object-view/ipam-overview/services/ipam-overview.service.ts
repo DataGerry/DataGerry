@@ -113,6 +113,9 @@ export class IpamOverviewService {
         if (params.order != null) {
             httpParams = httpParams.set('order', String(params.order));
         }
+        if ('search' in params && params.search) {
+            httpParams = httpParams.set('search', params.search);
+        }
 
         return httpParams;
     }

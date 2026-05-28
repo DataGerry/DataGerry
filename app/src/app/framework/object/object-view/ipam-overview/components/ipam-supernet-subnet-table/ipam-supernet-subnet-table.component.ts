@@ -61,6 +61,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     @Input() public page = 1;
     @Input() public pageSize = 10;
     @Input() public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
+    @Input() public searchMode = false;
     @Input() public loading = false;
 
     @Output() public readonly pageChange = new EventEmitter<number>();
@@ -113,7 +114,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onToggleExpand(row: SubnetDisplayRow): void {
-        if (!row?.subnet?.has_children) {
+        if (this.searchMode || !row?.subnet?.has_children) {
             return;
         }
         const id = row.subnet.public_id;

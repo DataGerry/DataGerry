@@ -22,9 +22,12 @@ import {
     Input,
     OnChanges,
     OnDestroy,
+    OnInit,
     SimpleChanges
 } from '@angular/core';
+import { FormControl } from '@angular/forms';
 import { Subject, finalize, takeUntil } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -40,6 +43,8 @@ import { IpamOverviewService } from '../services/ipam-overview.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const DEFAULT_PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 300;
+const MIN_SEARCH_LENGTH = 2;
 
 @Component({
     selector: 'cmdb-ipam-supernet-overview',
@@ -48,7 +53,7 @@ const DEFAULT_PAGE_SIZE = 10;
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
+export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestroy {
 
     @Input() public publicId: number | null = null;
 
@@ -60,8 +65,10 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
     public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
     public hasError = false;
     public hasLoadedOnce = false;
+    public readonly searchControl = new FormControl<string>('', { nonNullable: true });
     public readonly isLoading$ = this.loaderService.isLoading$;
 
+    private searchTerm = '';
     private readonly destroy$ = new Subject<void>();
 
     constructor(
@@ -73,9 +80,21 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
+    public ngOnInit(): void {
+        this.searchControl.valueChanges
+            .pipe(
+                debounceTime(SEARCH_DEBOUNCE_MS),
+                distinctUntilChanged(),
+                takeUntil(this.destroy$)
+            )
+            .subscribe((value) => this.applySearch(value));
+    }
+
     public ngOnChanges(changes: SimpleChanges): void {
         if (changes['publicId'] && this.publicId != null) {
             this.page = 1;
+            this.searchTerm = '';
+            this.searchControl.setValue('', { emitEvent: false });
             this.loadOverview();
         }
     }
@@ -113,7 +132,27 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
         return !this.hasError && this.supernet !== null;
     }
 
+    public get isSearching(): boolean {
+        return this.searchTerm.length >= MIN_SEARCH_LENGTH;
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private applySearch(value: string): void {
+        const trimmed = (value ?? '').trim();
+
+        if (trimmed.length > 0 && trimmed.length < MIN_SEARCH_LENGTH) {
+            return;
+        }
+
+        if (trimmed === this.searchTerm) {
+            return;
+        }
+
+        this.searchTerm = trimmed;
+        this.page = 1;
+        this.loadOverview();
+    }
 
     private loadOverview(): void {
         if (this.publicId == null) {
@@ -127,7 +166,8 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
             page: this.page,
             page_size: this.pageSize,
             sort: this.sort?.name,
-            order: this.sort?.order
+            order: this.sort?.order,
+            search: this.searchTerm || undefined
         };
 
         this.ipamOverviewService

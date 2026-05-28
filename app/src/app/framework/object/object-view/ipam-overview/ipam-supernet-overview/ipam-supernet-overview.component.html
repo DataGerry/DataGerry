@@ -1,10 +1,24 @@
 <section class="ipam-overview" aria-label="IPAM supernet overview">
   @if (hasOverviewData() && supernet; as data) {
     <header class="ipam-overview__header">
-      <h3 class="ipam-overview__title">Supernet Overview</h3>
-      @if (data.cidr) {
-        <span class="ipam-overview__subtitle">{{ data.cidr }}</span>
-      }
+      <div class="ipam-overview__heading">
+        <h3 class="ipam-overview__title">Supernet Overview</h3>
+        @if (data.cidr) {
+          <span class="ipam-overview__subtitle">{{ data.cidr }}</span>
+        }
+      </div>
+
+      <label class="ipam-overview__search" for="ipamSupernetSearch">
+        <span class="ipam-overview__search-visually-hidden">Search subnets</span>
+        <i class="fa fa-search ipam-overview__search-icon" aria-hidden="true"></i>
+        <input
+          id="ipamSupernetSearch"
+          type="search"
+          class="ipam-overview__search-input"
+          placeholder="Search subnets..."
+          autocomplete="off"
+          [formControl]="searchControl">
+      </label>
     </header>
 
     <div class="ipam-overview__cards">
@@ -55,6 +69,7 @@
       [page]="page"
       [pageSize]="pageSize"
       [sort]="sort"
+      [searchMode]="isSearching"
       [loading]="(isLoading$ | async) === true"
       (pageChange)="onPageChange($event)"
       (pageSizeChange)="onPageSizeChange($event)"
