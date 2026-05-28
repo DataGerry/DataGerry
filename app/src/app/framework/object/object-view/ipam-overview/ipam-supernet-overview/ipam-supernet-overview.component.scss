@@ -7,9 +7,63 @@
 
 .ipam-overview__header {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.ipam-overview__heading {
+    display: flex;
     align-items: baseline;
     gap: 0.75rem;
     flex-wrap: wrap;
+}
+
+.ipam-overview__search {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 16rem;
+}
+
+.ipam-overview__search-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.ipam-overview__search-icon {
+    position: absolute;
+    left: 0.75rem;
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.ipam-overview__search-input {
+    width: 100%;
+    padding: 0.4375rem 0.75rem 0.4375rem 2rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    color: #1f2937;
+    background-color: #ffffff;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+
+    &::placeholder {
+        color: #9ca3af;
+    }
+
+    &:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
 }
 
 .ipam-overview__title {

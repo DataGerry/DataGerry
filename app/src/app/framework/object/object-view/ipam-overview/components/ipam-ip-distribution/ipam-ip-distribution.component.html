@@ -1,0 +1,69 @@
+<section class="ipam-ip-dist" [attr.aria-label]="title()">
+  <header class="ipam-ip-dist__header">
+    <h4 class="ipam-ip-dist__title">{{ title() }}</h4>
+  </header>
+
+  @if (hasDistribution()) {
+    <div class="ipam-ip-dist__content" [class.ipam-ip-dist__content--loading]="loading()">
+      <div class="ipam-ip-dist__ranges" role="list">
+        @for (range of ranges(); track trackByRange($index, range)) {
+          <div class="ipam-ip-dist__range" role="listitem">
+            <span class="ipam-ip-dist__range-label">
+              {{ formatRangeLabel(range) }}
+            </span>
+
+            <div
+              class="ipam-ip-dist__sectors"
+              role="list">
+              @for (sector of range.sectors ?? []; track trackBySector($index, sector)) {
+                <span
+                  class="ipam-ip-dist__sector"
+                  [class.ipam-ip-dist__sector--empty]="isSectorEmpty(sector)"
+                  [class.ipam-ip-dist__sector--low]="isSectorLowUsage(sector)"
+                  [class.ipam-ip-dist__sector--medium]="isSectorMediumUsage(sector)"
+                  [class.ipam-ip-dist__sector--high]="isSectorHighUsage(sector)"
+                  [class.ipam-ip-dist__sector--full]="isSectorFull(sector)"
+                  role="listitem"
+                  tabindex="0"
+                  [title]="getSectorLabel(sector)"
+                  [attr.aria-label]="getSectorLabel(sector)">
+                </span>
+              }
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="ipam-ip-dist__legend" aria-label="Distribution legend">
+        <span class="ipam-ip-dist__legend-item">
+          <span class="ipam-ip-dist__legend-swatch ipam-ip-dist__sector--empty" aria-hidden="true"></span>
+          Free
+        </span>
+        <span class="ipam-ip-dist__legend-item">
+          <span class="ipam-ip-dist__legend-swatch ipam-ip-dist__sector--low" aria-hidden="true"></span>
+          Low
+        </span>
+        <span class="ipam-ip-dist__legend-item">
+          <span class="ipam-ip-dist__legend-swatch ipam-ip-dist__sector--medium" aria-hidden="true"></span>
+          Medium
+        </span>
+        <span class="ipam-ip-dist__legend-item">
+          <span class="ipam-ip-dist__legend-swatch ipam-ip-dist__sector--high" aria-hidden="true"></span>
+          High
+        </span>
+        <span class="ipam-ip-dist__legend-item">
+          <span class="ipam-ip-dist__legend-swatch ipam-ip-dist__sector--full" aria-hidden="true"></span>
+          Full
+        </span>
+      </div>
+    </div>
+  } @else if (loading()) {
+    <div class="ipam-ip-dist__state ipam-ip-dist__state--loading" role="status" aria-live="polite">
+      Loading IP distribution&hellip;
+    </div>
+  } @else {
+    <div class="ipam-ip-dist__state ipam-ip-dist__state--empty">
+      IP distribution is available for subnets with at least 64 IP addresses.
+    </div>
+  }
+</section>

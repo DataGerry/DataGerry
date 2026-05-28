@@ -24,7 +24,10 @@ import { ApiCallService, resp } from '../../../../../services/api-call.service';
 import {
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
-    IpamSupernetOverviewResponse
+    IpamSupernetChildrenResponse,
+    IpamSupernetOverviewParams,
+    IpamSupernetOverviewResponse,
+    IpamUnassignSubnetsResponse
 } from '../models/ipam-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -40,7 +43,26 @@ export class IpamOverviewService {
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    public getSupernetOverview(publicId: number): Observable<IpamSupernetOverviewResponse> {
+    public getSupernetOverview(
+        publicId: number,
+        params: IpamSupernetOverviewParams = {}
+    ): Observable<IpamSupernetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildPagedParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
+            .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+    }
+
+
+    public unassignSubnetsFromSupernet(
+        supernetId: number,
+        subnetIds: number[]
+    ): Observable<IpamUnassignSubnetsResponse> {
         const options = {
             headers: this.jsonHeaders,
             params: {},
@@ -48,8 +70,31 @@ export class IpamOverviewService {
         };
 
         return this.api
-            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
-            .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+            .callPost<IpamUnassignSubnetsResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/unassign`,
+                { subnet_ids: subnetIds },
+                options
+            )
+            .pipe(map(response => response?.body as IpamUnassignSubnetsResponse));
+    }
+
+
+    public getSupernetSubnetChildren(
+        supernetId: number,
+        subnetId: number
+    ): Observable<IpamSupernetChildrenResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetChildrenResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/children/${subnetId}`,
+                options
+            )
+            .pipe(map(response => response?.body as IpamSupernetChildrenResponse));
     }
 
 
@@ -71,6 +116,10 @@ export class IpamOverviewService {
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private buildSubnetParams(params: IpamSubnetOverviewParams): HttpParams {
+        return this.buildPagedParams(params);
+    }
+
+    private buildPagedParams(params: IpamSupernetOverviewParams | IpamSubnetOverviewParams): HttpParams {
         let httpParams = new HttpParams();
 
         if (params.page != null) {
@@ -84,6 +133,9 @@ export class IpamOverviewService {
         }
         if (params.order != null) {
             httpParams = httpParams.set('order', String(params.order));
+        }
+        if ('search' in params && params.search) {
+            httpParams = httpParams.set('search', params.search);
         }
 
         return httpParams;

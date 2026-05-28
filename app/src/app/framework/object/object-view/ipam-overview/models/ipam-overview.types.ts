@@ -34,19 +34,50 @@ export interface IpamSupernetSummary {
     subnet_count: number;
 }
 
+export interface IpamVlanInfo {
+    public_id: number;
+    name: string;
+}
+
 export interface IpamSubnetSummary {
     public_id: number;
     cidr: string;
-    ip_range: IpamIpRange;
     used_ips: number;
     free_ips: number;
     usage_percent: number;
     parent_id: number | null;
+    has_children: boolean;
+    vlans?: IpamVlanInfo[];
+}
+
+export interface IpamSupernetSubnetPage {
+    page: number;
+    page_size: number;
+    total: number;
+    rows: IpamSubnetSummary[];
 }
 
 export interface IpamSupernetOverviewResponse {
     supernet: IpamSupernetSummary;
-    subnets: IpamSubnetSummary[];
+    subnets: IpamSupernetSubnetPage;
+}
+
+export interface IpamSupernetChildrenResponse {
+    parent: { public_id: number };
+    rows: IpamSubnetSummary[];
+}
+
+export interface IpamSupernetOverviewParams {
+    page?: number;
+    page_size?: number;
+    sort?: string;
+    order?: number;
+    search?: string;
+}
+
+export interface IpamUnassignSubnetsResponse {
+    subnet_ids: number[];
+    unassigned_count: number;
 }
 
 
@@ -76,13 +107,11 @@ export interface IpamIpEntry {
 export interface IpamSubnetDetail {
     public_id?: number;
     cidr?: string;
-    subnetmask?: string;
     ip_range?: IpamIpRange;
     total_ips?: number;
+    assignable_ips?: number;
     used_ips?: number;
     free_ips?: number;
-    used_percent?: number;
-    free_percent?: number;
 }
 
 export interface IpamIpListPage {
@@ -95,14 +124,34 @@ export interface IpamIpListPage {
 export interface IpamTypeDistributionEntry {
     public_id: number | null;
     label: string;
+    ci_explorer_color?: string | null;
     count: number;
     percentage: number;
+}
+
+export interface IpamIpDistributionSector {
+    ip_start: string;
+    ip_end: string;
+    used_count: number;
+    percentage: number;
+}
+
+export interface IpamIpDistributionRange {
+    ip_start: string;
+    ip_end: string;
+    sectors: IpamIpDistributionSector[];
+}
+
+export interface IpamIpDistribution {
+    sector_size: number;
+    ranges: IpamIpDistributionRange[];
 }
 
 export interface IpamSubnetOverviewResponse {
     subnet: IpamSubnetDetail;
     ips: IpamIpListPage;
     type_distribution?: IpamTypeDistributionEntry[];
+    ip_distribution?: IpamIpDistribution | null;
 }
 
 export interface IpamSubnetOverviewParams {
