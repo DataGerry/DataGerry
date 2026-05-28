@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbExtendableOption
+Validation schema for CmdbExtendableOption
+
+A CmdbExtendableOption is a single selectable value belonging to an OptionType
+(collection ``framework.extendableOptions``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbExtendableOption.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_extendable_option_schema() -> dict[str, Any]:
     """
-    Returns the CmdbExtendableOptionSchema
+    Builds the Cerberus validation schema for a CmdbExtendableOption document
 
     Returns:
-        dict: Schema of the CmdbExtendableOption
+        dict: Field name to Cerberus rule mapping, consumed as CmdbExtendableOption.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbExtendableOption

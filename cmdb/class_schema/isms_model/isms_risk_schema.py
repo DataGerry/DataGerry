@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of an IsmsRisk
+Validation schema for IsmsRisk
+
+An IsmsRisk describes a risk through its threats, vulnerabilities and protection goals
+(collection ``isms.risk``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as IsmsRisk.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_risk_schema() -> dict[str, Any]:
     """
-    Returns the IsmsRiskSchema
+    Builds the Cerberus validation schema for a IsmsRisk document
 
     Returns:
-        dict: Schema of the IsmsRisk
+        dict: Field name to Cerberus rule mapping, consumed as IsmsRisk.SCHEMA
     """
     return {
         'public_id': {  # public_id of the IsmsRisk

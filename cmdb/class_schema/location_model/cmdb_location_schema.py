@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbLocation
+Validation schema for CmdbLocation
+
+A CmdbLocation is a node in the location tree that wraps a CmdbObject
+(collection ``framework.locations``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbLocation.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_location_schema() -> dict[str, Any]:
     """
-    Returns the CmdbLocationSchema
+    Builds the Cerberus validation schema for a CmdbLocation document
 
     Returns:
-        dict: Schema of the CmdbLocation
+        dict: Field name to Cerberus rule mapping, consumed as CmdbLocation.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbLocation

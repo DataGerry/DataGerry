@@ -14,16 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbRelation
+Validation schema for CmdbRelation
+
+A CmdbRelation defines a relation type between two CmdbTypes
+(collection ``framework.relations``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbRelation.SCHEMA.
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_relation_schema() -> dict:
     """
-    Returns the CmdbRelationSchema
+    Builds the Cerberus validation schema for a CmdbRelation document
 
     Returns:
-        dict: Schema of the CmdbRelation
+        dict: Field name to Cerberus rule mapping, consumed as CmdbRelation.SCHEMA
     """
     return {
         'public_id': {  # public_id of CmdbRelation

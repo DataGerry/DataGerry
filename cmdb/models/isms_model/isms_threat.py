@@ -42,7 +42,7 @@ class IsmsThreat(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.threat"
-    MODEL = 'Risk'
+    MODEL = 'Threat'
     SCHEMA: dict = get_isms_threat_schema()
 
 

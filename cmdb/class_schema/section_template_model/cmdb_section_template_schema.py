@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbSectionTemplate
+Validation schema for CmdbSectionTemplate
+
+A CmdbSectionTemplate is a reusable section definition that CmdbTypes can include
+(collection ``framework.sectionTemplates``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbSectionTemplate.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_section_template_schema() -> dict[str, Any]:
     """
-    Returns the CmdbSectionTemplateSchema
+    Builds the Cerberus validation schema for a CmdbSectionTemplate document
 
     Returns:
-        dict: Schema of the CmdbSectionTemplate
+        dict: Field name to Cerberus rule mapping, consumed as CmdbSectionTemplate.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbSectionTemplate

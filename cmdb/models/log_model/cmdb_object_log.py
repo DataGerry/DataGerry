@@ -31,7 +31,11 @@ LOGGER: Logger = getLogger(__name__)
 #                                                 CmdbObjectLog - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbObjectLog(CmdbMetaLog):
-    """TODO:document"""
+    """
+    Implementation of CmdbObjectLog, a log entry recording a change made to a CmdbObject
+
+    Extends: CmdbMetaLog
+    """
 
     SCHEMA: dict = get_cmdb_object_log_schema()
 

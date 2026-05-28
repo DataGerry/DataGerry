@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbCategory
+Validation schema for CmdbCategory
+
+A CmdbCategory groups CmdbTypes for organisation and navigation
+(collection ``framework.categories``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbCategory.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_category_schema() -> dict[str, Any]:
     """
-    Returns the CmdbCategorySchema
+    Builds the Cerberus validation schema for a CmdbCategory document
 
     Returns:
-        dict: Schema of the CmdbCategory
+        dict: Field name to Cerberus rule mapping, consumed as CmdbCategory.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbCategory

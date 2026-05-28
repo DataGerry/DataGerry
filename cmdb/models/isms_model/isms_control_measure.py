@@ -38,7 +38,7 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class IsmsControlMeasure(CmdbDAO):
     """
-    Implementation of IsmsControlMeasure which represents a threat in ISMS
+    Implementation of IsmsControlMeasure which represents a control measure in ISMS
 
     Extends: CmdbDAO
     """

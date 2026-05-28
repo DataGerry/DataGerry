@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of an IsmsControlMeasure
+Validation schema for IsmsControlMeasure
+
+An IsmsControlMeasure is a control, requirement or measure in the ISMS
+(collection ``isms.controlMeasure``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as IsmsControlMeasure.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_control_measure_schema() -> dict[str, Any]:
     """
-    Returns the IsmsControlMeasureSchema
+    Builds the Cerberus validation schema for a IsmsControlMeasure document
 
     Returns:
-        dict: Schema of the IsmsControlMeasure
+        dict: Field name to Cerberus rule mapping, consumed as IsmsControlMeasure.SCHEMA
     """
     return {
         'public_id': {  # public_id of the IsmsControlMeasure

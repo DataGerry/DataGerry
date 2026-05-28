@@ -14,16 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of an IsmsRiskAssessment
+Validation schema for IsmsRiskAssessment
+
+An IsmsRiskAssessment records the evaluation of a risk for an object or object group,
+before and after treatment (collection ``isms.riskAssessment``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as IsmsRiskAssessment.SCHEMA.
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_risk_assessment_schema() -> dict:
     """
-    Returns the IsmsRiskAssessment schema
+    Builds the Cerberus validation schema for a IsmsRiskAssessment document
 
     Returns:
-        dict: Schema of the IsmsRiskAssessment
+        dict: Field name to Cerberus rule mapping, consumed as IsmsRiskAssessment.SCHEMA
     """
     return {
         'public_id': {

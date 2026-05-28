@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of an IsmsRiskClass
+Validation schema for IsmsRiskClass
+
+An IsmsRiskClass is a severity band (name and colour) applied to calculated risk values
+(collection ``isms.riskClass``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as IsmsRiskClass.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_risk_class_schema() -> dict[str, Any]:
     """
-    Returns the IsmsRiskClassSchema
+    Builds the Cerberus validation schema for a IsmsRiskClass document
 
     Returns:
-        dict: Schema of the IsmsRiskClass
+        dict: Field name to Cerberus rule mapping, consumed as IsmsRiskClass.SCHEMA
     """
     return {
         'public_id': {  # public_id of the IsmsRiskClass
