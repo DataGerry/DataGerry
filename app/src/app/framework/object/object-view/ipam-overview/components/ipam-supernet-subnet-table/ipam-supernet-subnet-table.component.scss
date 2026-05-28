@@ -83,3 +83,25 @@
     min-width: 3rem;
     text-align: right;
 }
+
+.ipam-vlan-cell {
+    display: inline-block;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    cursor: default;
+    font-size: 0.875rem;
+    color: #1f2937;
+}
+
+.ipam-muted {
+    color: #9ca3af;
+}
+
+::ng-deep .tooltip.ipam-vlan-tooltip .tooltip-inner {
+    white-space: pre-line;
+    text-align: left;
+    max-width: 320px;
+}

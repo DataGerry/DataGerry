@@ -35,7 +35,7 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { Column, Sort, SortDirection } from '../../../../../../layout/table/table.types';
-import { IpamSubnetSummary } from '../../models/ipam-overview.types';
+import { IpamSubnetSummary, IpamVlanInfo } from '../../models/ipam-overview.types';
 import { IpamOverviewService } from '../../services/ipam-overview.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -72,6 +72,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     @ViewChild('usedTemplate', { static: true }) public usedTemplate: TemplateRef<unknown>;
     @ViewChild('freeTemplate', { static: true }) public freeTemplate: TemplateRef<unknown>;
     @ViewChild('utilizationTemplate', { static: true }) public utilizationTemplate: TemplateRef<unknown>;
+    @ViewChild('vlansTemplate', { static: true }) public vlansTemplate: TemplateRef<unknown>;
 
     public displayRows: SubnetDisplayRow[] = [];
     public columns: Column[] = [];
@@ -147,6 +148,15 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
         this.sortChange.emit(sort);
     }
 
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public vlanList(vlans?: IpamVlanInfo[] | null, separator = ', '): string {
+        if (!vlans?.length) {
+            return '';
+        }
+        return vlans.map(vlan => vlan?.name).filter(Boolean).join(separator);
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private setupColumns(): void {
@@ -177,6 +187,15 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
                 searchable: false,
                 template: this.freeTemplate,
                 style: { 'min-width': '150px' }
+            },
+            {
+                display: 'VLANs',
+                name: 'vlans',
+                data: 'subnet.vlans',
+                sortable: false,
+                searchable: false,
+                template: this.vlansTemplate,
+                style: { 'min-width': '160px' }
             },
             {
                 display: 'Utilization',

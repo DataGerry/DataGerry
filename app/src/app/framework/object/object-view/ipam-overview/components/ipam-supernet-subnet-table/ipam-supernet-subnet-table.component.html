@@ -73,3 +73,19 @@
     </span>
   </div>
 </ng-template>
+
+<ng-template #vlansTemplate let-item="item">
+  @if (item.subnet?.vlans?.length) {
+    <span
+      class="ipam-vlan-cell"
+      [ngbTooltip]="vlanList(item.subnet.vlans, '\n')"
+      tooltipClass="ipam-vlan-tooltip"
+      [openDelay]="200"
+      container="body"
+      placement="top">
+      {{ vlanList(item.subnet.vlans) }}
+    </span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>

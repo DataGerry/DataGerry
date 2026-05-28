@@ -34,6 +34,11 @@ export interface IpamSupernetSummary {
     subnet_count: number;
 }
 
+export interface IpamVlanInfo {
+    public_id: number;
+    name: string;
+}
+
 export interface IpamSubnetSummary {
     public_id: number;
     cidr: string;
@@ -42,6 +47,7 @@ export interface IpamSubnetSummary {
     usage_percent: number;
     parent_id: number | null;
     has_children: boolean;
+    vlans?: IpamVlanInfo[];
 }
 
 export interface IpamSupernetSubnetPage {
