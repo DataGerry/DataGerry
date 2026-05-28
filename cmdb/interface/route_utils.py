@@ -100,7 +100,11 @@ def user_has_right(required_right: str, request_user: CmdbUser | None = None) ->
         users_manager = UsersManager(current_app.database_manager)
         groups_manager = GroupsManager(current_app.database_manager)
 
-    token = parse_authorization_header(request.headers['Authorization'])
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        abort(401, "No Authorization header provided!")
+
+    token = parse_authorization_header(auth_header)
 
     try:
         decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
@@ -219,7 +223,11 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
             if current_app.cloud_mode and "x-api-key" in request.headers:
                 return func(*args, **kwargs)
 
-            token = parse_authorization_header(request.headers['Authorization'])
+            auth_header = request.headers.get('Authorization')
+            if not auth_header:
+                abort(401, "No Authorization header provided!")
+
+            token = parse_authorization_header(auth_header)
 
             with current_app.app_context():
                 decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
