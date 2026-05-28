@@ -14,7 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all API routes for CmdbUserGroups
+HTTP routes for the CmdbUserGroup resource
+
+Five endpoints: POST / (create), GET|HEAD / (list), GET|HEAD /<id> (single), PUT|PATCH /<id>
+(update), DELETE /<id> (delete with optional user-redistribution). Every endpoint requires an
+authenticated user with API level ADMIN; per-route ``protect`` decorators check the matching
+``base.user-management.group.*`` right. The delete endpoint additionally handles users that
+belonged to the deleted group via the ``action`` + ``group_id`` query parameters
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -56,7 +62,7 @@ from cmdb.errors.manager.groups_manager import (
     GroupsManagerIterationError,
     GroupsManagerUpdateError,
 )
-from cmdb.manager.users_manager import (
+from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
     UsersManagerUpdateError,
     UsersManagerDeleteError,
@@ -76,20 +82,30 @@ groups_blueprint = APIBlueprint('groups', __name__)
 @groups_blueprint.validate(CmdbUserGroup.SCHEMA)
 def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `POST` to insert a single CmdbUserGroup
+    HTTP ``POST`` to insert a single CmdbUserGroup
+
+    Validates the payload against ``CmdbUserGroup.SCHEMA`` (decorator), inserts via the
+    ``GroupsManager``, and immediately re-reads the row to return the persisted form
+
+    Status codes:
+        201 CREATED: Group created; body is ``{ result_id, raw }``
+        400 BAD_REQUEST: Insert failed at the manager layer
+        404 NOT_FOUND: Insert succeeded but the row could not be re-read (defensive)
+        500: Unexpected error
 
     Args:
-        data (CmdbUserGroup.SCHEMA): Data of the new CmdbUserGroup
+        data (CmdbUserGroup.SCHEMA): Validated body of the new CmdbUserGroup
+        request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
 
     Returns:
-        InsertSingleResponse: The public_id and the newly created CmdbUserGroup
+        Response: ``InsertSingleResponse`` carrying the public_id and serialized group
     """
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
         result_id: int = groups_manager.insert_group(data)
 
-        created_group: CmdbUserGroup = groups_manager.get_group(result_id)
+        created_group: CmdbUserGroup | None = groups_manager.get_group(result_id)
 
         if not created_group:
             abort(404, "Could not retrieve the created UserGroup from the database!")
@@ -116,13 +132,19 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
 @groups_blueprint.parse_collection_parameters()
 def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for getting multiple CmdbUserGroups
+    HTTP ``GET`` / ``HEAD`` route for listing CmdbUserGroups with filter / sort / pagination
+
+    Status codes:
+        200 OK: Returns ``GetMultiResponse`` envelope ``{ results, total, count, ... }``
+        400 BAD_REQUEST: Iteration failed at the manager layer
+        500: Unexpected error
 
     Args:
-        params (CollectionParameters): Filter for requested CmdbUserGroups
+        params (CollectionParameters): Filter / sort / page parameters parsed from the query string
+        request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
 
     Returns:
-        GetMultiResponse: All the CmdbUserGroups matching the CollectionParameters
+        Response: ``GetMultiResponse`` envelope; body is omitted on HEAD
     """
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
@@ -155,13 +177,20 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
 @groups_blueprint.protect(auth=True, right='base.user-management.group.view')
 def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route to retrieve a single CmdbUserGroup
+    HTTP ``GET`` / ``HEAD`` route to retrieve a single CmdbUserGroup by id
+
+    Status codes:
+        200 OK: Returns ``GetSingleResponse`` with the serialized group as ``result``
+        400 BAD_REQUEST: Lookup failed at the manager layer
+        404 NOT_FOUND: No group with the given public_id exists
+        500: Unexpected error
 
     Args:
         public_id (int): public_id of the requested CmdbUserGroup
+        request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
 
     Returns:
-        GetSingleResponse: The requested CmdbUserGroup
+        Response: ``GetSingleResponse`` carrying the serialized group; body omitted on HEAD
     """
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
@@ -193,26 +222,36 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
 @groups_blueprint.validate(CmdbUserGroup.SCHEMA)
 def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT`/`PATCH` route fto update a single CmdbUserGroup
+    HTTP ``PUT`` / ``PATCH`` route to update a single CmdbUserGroup
+
+    Validates the payload against ``CmdbUserGroup.SCHEMA``, hydrates a ``CmdbUserGroup`` so the
+    submitted right names are resolved through the right tree, then persists with ``insert_mode``
+    serialization (rights stored as name strings)
+
+    Status codes:
+        202 ACCEPTED: Update applied; body is the persisted serialization
+        400 BAD_REQUEST: Lookup or update failed at the manager layer
+        404 NOT_FOUND: No group with the given public_id exists
+        500: Unexpected error
 
     Args:
-        public_id (int): public_id of the CmdbUserGroup which should be updated
-        data (CmdbUserGroup.SCHEMA): New version for the CmdbUserGroup
+        public_id (int): public_id of the CmdbUserGroup to update
+        data (CmdbUserGroup.SCHEMA): Validated new payload for the group
+        request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
 
     Returns:
-        UpdateSingleResponse: The new version of the CmdbUserGroup
+        Response: ``UpdateSingleResponse`` carrying the persisted serialization
     """
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        to_update_group: CmdbUserGroup = groups_manager.get_group(public_id)
+        to_update_group: CmdbUserGroup | None = groups_manager.get_group(public_id)
 
         if not to_update_group:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
         group: CmdbUserGroup = CmdbUserGroup.from_data(data=data, rights=flat_rights_tree(ALL_RIGHTS))
-        group_dict: dict[str, Any] = CmdbUserGroup.to_json(group)
-        group_dict['rights'] = [right.get('name') for right in group_dict.get('rights', [])]
+        group_dict: dict[str, Any] = CmdbUserGroup.to_json(group, True)
 
         groups_manager.update_group(public_id, group_dict)
 
@@ -238,14 +277,30 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 @groups_blueprint.parse_parameters(GroupDeletionParameters)
 def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, request_user: CmdbUser) -> Response:
     """
-    HTTP `DELETE` route to delete a single CmdbUserGroup
+    HTTP ``DELETE`` route to remove a CmdbUserGroup with optional user redistribution
+
+    Delete-mode flow driven by ``params.action``:
+      * ``MOVE`` — every user currently in the deleted group is reassigned to the group named
+        by ``params.group_id``; that target group must exist
+      * ``DELETE`` — every user currently in the deleted group is deleted alongside the group;
+        the bootstrap admin user (``CmdbUser.ADMIN_PUBLIC_ID``) is protected and the request is
+        refused if it would be deleted
+      * ``None`` — the group is deleted without touching its members
+
+    Status codes:
+        200 OK: Deleted; body is the serialized deleted group
+        400 BAD_REQUEST: ``MOVE`` requested without a target ``group_id``, target lookup failed,
+            or the manager rejected the delete (e.g. protected admin / user group)
+        404 NOT_FOUND: Source group not found, or ``MOVE`` target group not found
+        500: Admin guard tripped or unexpected error
 
     Args:
-        public_id (int): public_id of the CmdbUserGroup
-        params (GroupDeletionParameters): Optional action parameters for handling users when the group is deleted
+        public_id (int): public_id of the CmdbUserGroup to delete
+        params (GroupDeletionParameters): ``action`` + optional ``group_id``, parsed from the query string
+        request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
 
     Returns:
-        DeleteSingleResponse: The deleted CmdbUserGroup
+        Response: ``DeleteSingleResponse`` carrying the serialization of the deleted group
     """
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
@@ -256,18 +311,19 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         if not to_delete_group:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-        if GroupDeleteMode.MOVE and not params.group_id:
-            abort(404, "The target group for moving users was not provided!")
+        if params.action == GroupDeleteMode.MOVE:
+            if not params.group_id:
+                abort(400, "The target group for moving users was not provided!")
 
-        target_group: CmdbUserGroup | None = groups_manager.get_group(params.group_id)
+            target_group: CmdbUserGroup | None = groups_manager.get_group(params.group_id)
 
-        if not target_group:
-            abort(404, f"The target UserGroup for moving users with ID:{params.group_id} was not found!")
+            if not target_group:
+                abort(404, f"The target UserGroup for moving users with ID:{params.group_id} was not found!")
 
-        if GroupDeleteMode.DELETE:
+        if params.action == GroupDeleteMode.DELETE:
             admin_user = users_manager.get_one_by({
                 "group_id": public_id,
-                "public_id": 1
+                "public_id": CmdbUser.ADMIN_PUBLIC_ID,
             })
 
             if admin_user:
@@ -282,7 +338,7 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     except HTTPException as http_err:
         raise http_err
     except UsersManagerDeleteError as err:
-        LOGGER.error("[delete_user_group]  UsersManagerDeleteError: %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_user_group] UsersManagerDeleteError: %s", err, exc_info=True)
         abort(500, 'Failed to delete User from Group!')
     except UsersManagerUpdateError as err:
         LOGGER.error("[delete_cmdb_user_group] UsersManagerUpdateError: %s", err, exc_info=True)
@@ -294,7 +350,7 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         LOGGER.error("[delete_cmdb_user_group] GroupsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the UserGroup with ID: {public_id}!")
     except GroupsManagerGetError as err:
-        LOGGER.error("[update_cmdb_user_group] GroupsManagerGetError: %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_user_group] GroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)

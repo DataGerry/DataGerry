@@ -20,57 +20,57 @@ from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.right_model.all_rights import flat_rights_tree, ALL_RIGHTS
+from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import (
-    BaseManagerDeleteError,
-    BaseManagerInsertError,
-    BaseManagerIterationError,
-)
 from cmdb.errors.manager.groups_manager import (
+    GROUPS_MANAGER_ERRORS,
     GroupsManagerInitError,
     GroupsManagerInsertError,
     GroupsManagerGetError,
-    GroupsManagerIterationError,
-    GroupsManagerUpdateError,
     GroupsManagerDeleteError,
 )
-from cmdb.errors.models.cmdb_user_group import (
-    CmdbUserGroupToJsonError,
-)
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.errors.models.cmdb_user_group import CmdbUserGroupToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
+PROTECTED_GROUP_IDS: tuple[int, int] = (1, 2)
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 GroupsManager - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-class GroupsManager(BaseManager):
+class GroupsManager(GenericManager):
     """
-    The GroupsManager handles the interaction between the CmdbUserGroup-API and the database
+    Manages CmdbUserGroup documents on top of GenericManager
 
-    Extends: BaseManager
+    Keeps the named public API (``insert_group`` / ``get_group`` / ``iterate`` / ``update_group`` /
+    ``delete_group``) used by the existing route + bootstrap call sites. Insert overrides
+    ``GenericManager.insert_item`` because ``CmdbUserGroup.to_json`` needs ``insert_mode=True`` to
+    serialize rights as name strings; get overrides ``GenericManager.get_item`` to feed the cached
+    ``self.rights`` to ``CmdbUserGroup.from_data``; delete keeps the admin / user-group guard
+
+    Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager = None, database :str = None) -> None:
+    def __init__(self, dbm: MongoDatabaseManager = None, database: str = None) -> None:
         """
-        Set the database connection for the GroupsManager
+        Set the database connection for the GroupsManager and cache the flat right tree
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str): Name of the database to which the ``dbm`` should connect. Only used in cloud mode
 
         Raises:
-            GroupsManagerInitError: If the GroupsManager could not be initialised
+            GroupsManagerInitError: If the manager (or the right-tree cache) could not be initialised
         """
+        super().__init__(dbm, CmdbUserGroup, GROUPS_MANAGER_ERRORS, database)
+
         try:
             self.rights: list[BaseRight] = flat_rights_tree(ALL_RIGHTS)
-
-            super().__init__(CmdbUserGroup.COLLECTION, dbm, database)
         except Exception as err:
             raise GroupsManagerInitError(err) from err
 
@@ -80,21 +80,25 @@ class GroupsManager(BaseManager):
         """
         Insert a single CmdbUserGroup into the database
 
+        Overrides the generic insert path because ``CmdbUserGroup.to_json`` requires
+        ``insert_mode=True`` on insert, which serializes rights as a list of name strings rather
+        than as a list of full BaseRight dicts
+
         Args:
-            group (CmdbUserGroup | dict): data of the CmdbUserGroup which should be created
+            group (CmdbUserGroup | dict): Raw dict or model instance of the CmdbUserGroup to create
 
         Raises:
             GroupsManagerInsertError: When the CmdbUserGroup could not be inserted
 
         Returns:
-            int: The public_id of the new inserted CmdbUserGroup
+            int: The public_id of the inserted CmdbUserGroup
         """
         try:
             if isinstance(group, CmdbUserGroup):
                 group = CmdbUserGroup.to_json(group, True)
 
             return self.insert(group)
-        except (CmdbUserGroupToJsonError, BaseManagerInsertError) as err:
+        except CmdbUserGroupToJsonError as err:
             raise GroupsManagerInsertError(err) from err
         except Exception as err:
             LOGGER.error("[insert_group] Exception: %s. Type: %s", err, type(err))
@@ -102,9 +106,12 @@ class GroupsManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_group(self, public_id: int) -> CmdbUserGroup:
+    def get_group(self, public_id: int) -> CmdbUserGroup | None:
         """
         Get a single CmdbUserGroup by its public_id
+
+        Overrides the generic get path because ``CmdbUserGroup.from_data`` needs the cached
+        right tree to resolve right names into BaseRight instances
 
         Args:
             public_id (int): public_id of the CmdbUserGroup
@@ -113,23 +120,26 @@ class GroupsManager(BaseManager):
             GroupsManagerGetError: When the requested CmdbUserGroup could not be retrieved
 
         Returns:
-            CmdbUserGroup: The requested CmdbUserGroup
+            CmdbUserGroup | None: The requested CmdbUserGroup, or None if no group has that id
         """
         try:
             requested_group = self.get_one(public_id)
 
+            if not requested_group:
+                return None
+
             return CmdbUserGroup.from_data(requested_group, self.rights)
         except Exception as err:
-            LOGGER.error("[insert_group] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_group] Exception: %s. Type: %s", err, type(err))
             raise GroupsManagerGetError(err) from err
 
 
     def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbUserGroup]:
         """
-        Retrieve multiple CmdbUserGroups
+        Retrieve multiple CmdbUserGroups via the generic iteration pipeline
 
         Args:
-            builder_params (BuilderParameters): Filter for which CmdbUserGroups should be retrieved
+            builder_params (BuilderParameters): Filter, sort and pagination parameters
 
         Raises:
             GroupsManagerIterationError: When the iteration failed
@@ -137,25 +147,13 @@ class GroupsManager(BaseManager):
         Returns:
             IterationResult[CmdbUserGroup]: All CmdbUserGroups matching the filter
         """
-        try:
-            aggregation_result, total = self.iterate_query(builder_params)
-
-            iteration_result: IterationResult[CmdbUserGroup] = IterationResult(aggregation_result,
-                                                                               total,
-                                                                               CmdbUserGroup)
-
-            return iteration_result
-        except BaseManagerIterationError as err:
-            raise GroupsManagerIterationError(err) from err
-        except Exception as err:
-            LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
-            raise GroupsManagerIterationError(err) from err
+        return self.iterate_items(builder_params)
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_group(self, public_id: int, group: CmdbUserGroup | dict) -> None:
         """
-        Update an existing CmdbUserGroup in the database
+        Update an existing CmdbUserGroup via the generic update path
 
         Args:
             public_id (int): public_id of the CmdbUserGroup which should be updated
@@ -164,14 +162,7 @@ class GroupsManager(BaseManager):
         Raises:
             GroupsManagerUpdateError: When the update operation failed
         """
-        try:
-            if isinstance(group, CmdbUserGroup):
-                group = CmdbUserGroup.to_json(group)
-
-            self.update({'public_id': public_id}, group)
-        except Exception as err:
-            LOGGER.error("[update_group] Exception: %s. Type: %s", err, type(err))
-            raise GroupsManagerUpdateError(err) from err
+        self.update_item(public_id, group)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -179,19 +170,20 @@ class GroupsManager(BaseManager):
         """
         Delete an existing CmdbUserGroup by its public_id
 
+        Refuses to delete the bootstrap admin and user groups (public_ids in
+        ``PROTECTED_GROUP_IDS``); for any other id the deletion is delegated to the generic
+        delete path
+
         Args:
             public_id (int): public_id of the CmdbUserGroup which should be deleted
 
         Raises:
-            BaseManagerDeleteError: If deleting the Admin or User CmdbUserGroup or delete operation failed
+            GroupsManagerDeleteError: When the target id is protected, or the delete operation failed
 
         Returns:
-            bool: True if the deletion succeded
+            bool: True if a document was actually removed, False otherwise
         """
-        try:
-            if public_id in [1, 2]:
-                raise GroupsManagerDeleteError(f'Deletion of Group with ID: {public_id} is not allowed!')
+        if public_id in PROTECTED_GROUP_IDS:
+            raise GroupsManagerDeleteError(f'Deletion of Group with ID: {public_id} is not allowed!')
 
-            self.delete({'public_id': public_id})
-        except BaseManagerDeleteError as err:
-            raise GroupsManagerDeleteError(err) from err
+        return self.delete_item(public_id)
