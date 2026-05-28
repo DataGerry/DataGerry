@@ -246,7 +246,7 @@ class UsersManager(BaseManager):
             bool: True if deletion was successful
         """
         try:
-            if public_id == 1:
+            if public_id == CmdbUser.ADMIN_PUBLIC_ID:
                 raise UsersManagerDeleteError("It is not possible to delete the admin user!")
 
             return self.delete({'public_id': public_id})
