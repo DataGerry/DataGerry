@@ -14,7 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbUser
+Validation schema for CmdbUser
+
+A CmdbUser is a DataGerry user account (collection ``management.users``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbUser.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -28,10 +33,10 @@ DEFAULT_CONFIG_ITEMS_LIMIT = 1000
 # pylint: disable=R0801
 def get_cmdb_user_schema() -> dict[str, Any]:
     """
-    Returns the CmdbUserSchema
+    Builds the Cerberus validation schema for a CmdbUser document
 
     Returns:
-        dict: Schema of the CmdbUser
+        dict: Field name to Cerberus rule mapping, consumed as CmdbUser.SCHEMA
     """
     return {
         'public_id': {

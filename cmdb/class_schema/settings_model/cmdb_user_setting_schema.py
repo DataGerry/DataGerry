@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbUserSetting
+Validation schema for CmdbUserSetting
+
+CmdbUserSetting holds a single CmdbUser's settings, one document per user
+(collection ``management.users.settings``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbUserSetting.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_user_setting_schema() -> dict[str, Any]:
     """
-    Returns the CmdbUserSettingSchema
+    Builds the Cerberus validation schema for a CmdbUserSetting document
 
     Returns:
-        dict: Schema of the CmdbUserSetting
+        dict: Field name to Cerberus rule mapping, consumed as CmdbUserSetting.SCHEMA
     """
     return {
         'resource': {  # Identifier / name of the setting this document stores (unique together with user_id)

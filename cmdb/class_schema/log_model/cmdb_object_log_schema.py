@@ -14,7 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbObjectLog
+Validation schema for CmdbObjectLog
+
+A CmdbObjectLog records a create / edit / delete change made to a CmdbObject
+(collection ``framework.logs``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbObjectLog.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -25,10 +31,10 @@ DEFAULT_VERSION: str = '1.0.0'
 # pylint: disable=R0801
 def get_cmdb_object_log_schema() -> dict[str, Any]:
     """
-    Returns the CmdbObjectLogSchema
+    Builds the Cerberus validation schema for a CmdbObjectLog document
 
     Returns:
-        dict: Schema of the CmdbObjectLog
+        dict: Field name to Cerberus rule mapping, consumed as CmdbObjectLog.SCHEMA
     """
     return {
         'object_id': {  # public_id of the CmdbObject this log entry refers to

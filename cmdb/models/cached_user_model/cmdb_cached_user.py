@@ -39,7 +39,7 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbCachedUser(CmdbDAO):
     """
-    Implementation of a CmdbUser in DataGerry
+    Implementation of CmdbCachedUser, a cached cloud user with their subscriptions
 
     Extends: CmdbDAO
     """

@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of an IsmsProtectionGoal
+Validation schema for IsmsProtectionGoal
+
+An IsmsProtectionGoal is a protection goal such as Confidentiality, Integrity or Availability
+(collection ``isms.protectionGoal``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as IsmsProtectionGoal.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_protection_goal_schema() -> dict[str, Any]:
     """
-    Returns the IsmsProtectionGoalSchema
+    Builds the Cerberus validation schema for a IsmsProtectionGoal document
 
     Returns:
-        dict: Schema of the IsmsProtectionGoal
+        dict: Field name to Cerberus rule mapping, consumed as IsmsProtectionGoal.SCHEMA
     """
     return {
         'public_id': {  # public_id of the IsmsProtectionGoal

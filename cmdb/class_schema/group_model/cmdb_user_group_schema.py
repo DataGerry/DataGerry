@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbUserGroup
+Validation schema for CmdbUserGroup
+
+A CmdbUserGroup is a group of CmdbUsers holding a set of rights; every user belongs to one
+(collection ``management.groups``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbUserGroup.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_user_group_schema() -> dict[str, Any]:
     """
-    Returns the CmdbUserGroupSchema
+    Builds the Cerberus validation schema for a CmdbUserGroup document
 
     Returns:
-        dict: Schema of the CmdbUserGroup
+        dict: Field name to Cerberus rule mapping, consumed as CmdbUserGroup.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbUserGroup

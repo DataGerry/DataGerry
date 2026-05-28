@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbReport
+Validation schema for CmdbReport
+
+A CmdbReport is a saved query over a CmdbType with selected fields and filter conditions
+(collection ``framework.reports``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbReport.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_report_schema() -> dict[str, Any]:
     """
-    Returns the CmdbReportSchema
+    Builds the Cerberus validation schema for a CmdbReport document
 
     Returns:
-        dict: Schema of the CmdbReport
+        dict: Field name to Cerberus rule mapping, consumed as CmdbReport.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbReport

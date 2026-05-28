@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of an IsmsImpact
+Validation schema for IsmsImpact
+
+An IsmsImpact is an impact level with a numeric calculation basis
+(collection ``isms.impact``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as IsmsImpact.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_impact_schema() -> dict[str, Any]:
     """
-    Returns the IsmsImpactSchema
+    Builds the Cerberus validation schema for a IsmsImpact document
 
     Returns:
-        dict: Schema of the IsmsImpact
+        dict: Field name to Cerberus rule mapping, consumed as IsmsImpact.SCHEMA
     """
     return {
         'public_id': {  # public_id of the IsmsImpact

@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbWebhookEvent
+Validation schema for CmdbWebhookEvent
+
+A CmdbWebhookEvent records a single webhook delivery: operation, payload and response
+(collection ``framework.webhookEvents``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbWebhookEvent.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_webhook_event_schema() -> dict[str, Any]:
     """
-    Returns the CmdbWebhookEventSchema
+    Builds the Cerberus validation schema for a CmdbWebhookEvent document
 
     Returns:
-        dict: Schema of the CmdbWebhookEvent
+        dict: Field name to Cerberus rule mapping, consumed as CmdbWebhookEvent.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbWebhookEvent

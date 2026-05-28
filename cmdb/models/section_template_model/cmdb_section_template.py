@@ -32,15 +32,9 @@ LOGGER: Logger = getLogger(__name__)
 
 class CmdbSectionTemplate(CmdbDAO):
     """
-    The CMDB location is the basic data wrapper for storing and
-    holding locations within the CMDB.
+    Implementation of CmdbSectionTemplate, a reusable section definition that CmdbTypes can include
 
-    Attributes:
-        COLLECTION (str):    Name of the database collection.
-        MODEL (Model):              Name of the DAO.
-        DEFAULT_VERSION (str):      The default "starting" version number.
-        SCHEMA (dict):              The validation schema for this DAO.
-        INDEX_KEYS (list):          List of index keys for the database.
+    Extends: CmdbDAO
     """
     COLLECTION = 'framework.sectionTemplates'
     MODEL = 'Section_Template'

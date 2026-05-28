@@ -14,17 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbPersonGroup
+Validation schema for CmdbPersonGroup
+
+A CmdbPersonGroup groups CmdbPersons (collection ``management.personGroup``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbPersonGroup.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_person_group_schema() -> dict[str, Any]:
     """
-    Returns the CmdbPersonGroupSchema
+    Builds the Cerberus validation schema for a CmdbPersonGroup document
 
     Returns:
-        dict: Schema of the CmdbPersonGroup
+        dict: Field name to Cerberus rule mapping, consumed as CmdbPersonGroup.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbPersonGroup

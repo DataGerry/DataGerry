@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a CmdbObjectGroup
+Validation schema for CmdbObjectGroup
+
+A CmdbObjectGroup is a static or dynamic grouping of CmdbObjects
+(collection ``framework.objectGroups``).
+
+This module is the single source of the document's Cerberus validation schema,
+consumed as CmdbObjectGroup.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_object_group_schema() -> dict[str, Any]:
     """
-    Returns the CmdbObjectGroupSchema
+    Builds the Cerberus validation schema for a CmdbObjectGroup document
 
     Returns:
-        dict: Schema of the CmdbObjectGroup
+        dict: Field name to Cerberus rule mapping, consumed as CmdbObjectGroup.SCHEMA
     """
     return {
         'public_id': {  # public_id of the CmdbObjectGroup
