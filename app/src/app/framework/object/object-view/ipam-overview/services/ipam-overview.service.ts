@@ -24,6 +24,8 @@ import { ApiCallService, resp } from '../../../../../services/api-call.service';
 import {
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
+    IpamSupernetChildrenResponse,
+    IpamSupernetOverviewParams,
     IpamSupernetOverviewResponse
 } from '../models/ipam-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -40,7 +42,26 @@ export class IpamOverviewService {
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    public getSupernetOverview(publicId: number): Observable<IpamSupernetOverviewResponse> {
+    public getSupernetOverview(
+        publicId: number,
+        params: IpamSupernetOverviewParams = {}
+    ): Observable<IpamSupernetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildPagedParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
+            .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+    }
+
+
+    public getSupernetSubnetChildren(
+        supernetId: number,
+        subnetId: number
+    ): Observable<IpamSupernetChildrenResponse> {
         const options = {
             headers: this.jsonHeaders,
             params: {},
@@ -48,8 +69,11 @@ export class IpamOverviewService {
         };
 
         return this.api
-            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
-            .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+            .callGet<IpamSupernetChildrenResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/children/${subnetId}`,
+                options
+            )
+            .pipe(map(response => response?.body as IpamSupernetChildrenResponse));
     }
 
 
@@ -71,6 +95,10 @@ export class IpamOverviewService {
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private buildSubnetParams(params: IpamSubnetOverviewParams): HttpParams {
+        return this.buildPagedParams(params);
+    }
+
+    private buildPagedParams(params: IpamSupernetOverviewParams | IpamSubnetOverviewParams): HttpParams {
         let httpParams = new HttpParams();
 
         if (params.page != null) {

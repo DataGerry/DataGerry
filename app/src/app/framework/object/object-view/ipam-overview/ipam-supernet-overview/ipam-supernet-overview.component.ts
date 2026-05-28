@@ -29,9 +29,17 @@ import { Subject, finalize, takeUntil } from 'rxjs';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import { IpamSupernetSummary } from '../models/ipam-overview.types';
+import { Sort, SortDirection } from '../../../../../layout/table/table.types';
+import {
+    IpamSubnetSummary,
+    IpamSupernetOverviewParams,
+    IpamSupernetOverviewResponse,
+    IpamSupernetSummary
+} from '../models/ipam-overview.types';
 import { IpamOverviewService } from '../services/ipam-overview.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+const DEFAULT_PAGE_SIZE = 10;
 
 @Component({
     selector: 'cmdb-ipam-supernet-overview',
@@ -45,7 +53,13 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
     @Input() public publicId: number | null = null;
 
     public supernet: IpamSupernetSummary | null = null;
+    public subnetRows: IpamSubnetSummary[] = [];
+    public page = 1;
+    public pageSize = DEFAULT_PAGE_SIZE;
+    public total = 0;
+    public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
     public hasError = false;
+    public hasLoadedOnce = false;
     public readonly isLoading$ = this.loaderService.isLoading$;
 
     private readonly destroy$ = new Subject<void>();
@@ -61,13 +75,36 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
 
     public ngOnChanges(changes: SimpleChanges): void {
         if (changes['publicId'] && this.publicId != null) {
-            this.loadOverview(this.publicId);
+            this.page = 1;
+            this.loadOverview();
         }
     }
 
     public ngOnDestroy(): void {
         this.destroy$.next();
         this.destroy$.complete();
+    }
+
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onPageChange(page: number): void {
+        if (page === this.page) {
+            return;
+        }
+        this.page = page;
+        this.loadOverview();
+    }
+
+    public onPageSizeChange(size: number): void {
+        this.pageSize = size;
+        this.page = 1;
+        this.loadOverview();
+    }
+
+    public onSortChange(sort: Sort): void {
+        this.sort = sort;
+        this.page = 1;
+        this.loadOverview();
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
@@ -78,24 +115,44 @@ export class IpamSupernetOverviewComponent implements OnChanges, OnDestroy {
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private loadOverview(publicId: number): void {
+    private loadOverview(): void {
+        if (this.publicId == null) {
+            return;
+        }
+
         this.hasError = false;
         this.loaderService.show();
 
+        const params: IpamSupernetOverviewParams = {
+            page: this.page,
+            page_size: this.pageSize,
+            sort: this.sort?.name,
+            order: this.sort?.order
+        };
+
         this.ipamOverviewService
-            .getSupernetOverview(publicId)
+            .getSupernetOverview(this.publicId, params)
             .pipe(
                 takeUntil(this.destroy$),
                 finalize(() => this.loaderService.hide())
             )
             .subscribe({
-                next: (response) => {
+                next: (response: IpamSupernetOverviewResponse) => {
+                    const subnetsPage = response?.subnets;
                     this.supernet = response?.supernet ?? null;
+                    this.subnetRows = subnetsPage?.rows ?? [];
+                    this.page = subnetsPage?.page ?? this.page;
+                    this.pageSize = subnetsPage?.page_size ?? this.pageSize;
+                    this.total = subnetsPage?.total ?? 0;
+                    this.hasLoadedOnce = true;
                     this.changesRef.markForCheck();
                 },
                 error: (err) => {
                     this.hasError = true;
                     this.supernet = null;
+                    this.subnetRows = [];
+                    this.total = 0;
+                    this.hasLoadedOnce = true;
                     this.toastService.error(err?.error?.message);
                     this.changesRef.markForCheck();
                 }

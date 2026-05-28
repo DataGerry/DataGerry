@@ -37,16 +37,35 @@ export interface IpamSupernetSummary {
 export interface IpamSubnetSummary {
     public_id: number;
     cidr: string;
-    ip_range: IpamIpRange;
     used_ips: number;
     free_ips: number;
     usage_percent: number;
     parent_id: number | null;
+    has_children: boolean;
+}
+
+export interface IpamSupernetSubnetPage {
+    page: number;
+    page_size: number;
+    total: number;
+    rows: IpamSubnetSummary[];
 }
 
 export interface IpamSupernetOverviewResponse {
     supernet: IpamSupernetSummary;
-    subnets: IpamSubnetSummary[];
+    subnets: IpamSupernetSubnetPage;
+}
+
+export interface IpamSupernetChildrenResponse {
+    parent: { public_id: number };
+    rows: IpamSubnetSummary[];
+}
+
+export interface IpamSupernetOverviewParams {
+    page?: number;
+    page_size?: number;
+    sort?: string;
+    order?: number;
 }
 
 

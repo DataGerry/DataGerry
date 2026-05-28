@@ -47,6 +47,19 @@
         </div>
       </article>
     </div>
+
+    <cmdb-ipam-supernet-subnet-table
+      [supernetId]="publicId"
+      [rows]="subnetRows"
+      [totalItems]="total"
+      [page]="page"
+      [pageSize]="pageSize"
+      [sort]="sort"
+      [loading]="(isLoading$ | async) === true"
+      (pageChange)="onPageChange($event)"
+      (pageSizeChange)="onPageSizeChange($event)"
+      (sortChange)="onSortChange($event)">
+    </cmdb-ipam-supernet-subnet-table>
   } @else if (hasError) {
     <div class="ipam-overview__state ipam-overview__state--error" role="alert">
       Unable to load the IPAM overview. Please try again later.

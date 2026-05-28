@@ -48,6 +48,7 @@ import { IpamSubnetOverviewComponent } from './object-view/ipam-overview/ipam-su
 import { IpamIpTableComponent } from './object-view/ipam-overview/components/ipam-ip-table/ipam-ip-table.component';
 import { IpamIpDistributionComponent } from './object-view/ipam-overview/components/ipam-ip-distribution/ipam-ip-distribution.component';
 import { IpamTypeDistributionComponent } from './object-view/ipam-overview/components/ipam-type-distribution/ipam-type-distribution.component';
+import { IpamSupernetSubnetTableComponent } from './object-view/ipam-overview/components/ipam-supernet-subnet-table/ipam-supernet-subnet-table.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
 import { ObjectEditComponent } from './object-edit/object-edit.component';
@@ -100,6 +101,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         IpamIpTableComponent,
         IpamIpDistributionComponent,
         IpamTypeDistributionComponent,
+        IpamSupernetSubnetTableComponent,
         ObjectActionsComponent,
         ObjectViewRenderComponent,
         ObjectViewMetaComponent,
