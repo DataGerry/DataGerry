@@ -67,16 +67,21 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     @Output() public readonly pageChange = new EventEmitter<number>();
     @Output() public readonly pageSizeChange = new EventEmitter<number>();
     @Output() public readonly sortChange = new EventEmitter<Sort>();
+    @Output() public readonly unassign = new EventEmitter<number[]>();
 
     @ViewChild('cidrTemplate', { static: true }) public cidrTemplate: TemplateRef<unknown>;
     @ViewChild('usedTemplate', { static: true }) public usedTemplate: TemplateRef<unknown>;
     @ViewChild('freeTemplate', { static: true }) public freeTemplate: TemplateRef<unknown>;
     @ViewChild('utilizationTemplate', { static: true }) public utilizationTemplate: TemplateRef<unknown>;
     @ViewChild('vlansTemplate', { static: true }) public vlansTemplate: TemplateRef<unknown>;
+    @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<unknown>;
+    @ViewChild('bulkUnassignButton', { static: true }) public bulkUnassignButton: TemplateRef<unknown>;
 
     public displayRows: SubnetDisplayRow[] = [];
+    public selectedRows: SubnetDisplayRow[] = [];
     public columns: Column[] = [];
     public initialVisibleColumns: string[] = [];
+    public bulkButtonTemplates: TemplateRef<unknown>[] = [];
 
     private readonly expandedIds = new Set<number>();
     private readonly loadingIds = new Set<number>();
@@ -94,15 +99,18 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
 
     public ngOnInit(): void {
         this.setupColumns();
+        this.bulkButtonTemplates = [this.bulkUnassignButton];
     }
 
     public ngOnChanges(changes: SimpleChanges): void {
         if (changes['supernetId'] && !changes['supernetId'].firstChange) {
             this.resetExpansionState();
+            this.selectedRows = [];
         }
 
         if (changes['rows']) {
             this.resetExpansionState();
+            this.selectedRows = [];
             this.rebuildDisplayRows();
         }
     }
@@ -148,7 +156,42 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
         this.sortChange.emit(sort);
     }
 
+    public onSelectedChange(items: SubnetDisplayRow[]): void {
+        this.selectedRows = items ?? [];
+    }
+
+    public onUnassignRow(row: SubnetDisplayRow): void {
+        const id = row?.subnet?.public_id;
+        if (id == null) {
+            return;
+        }
+        this.unassign.emit([id]);
+    }
+
+    public onUnassignSelected(): void {
+        const ids = this.selectedSubnetIds;
+        if (!ids.length) {
+            return;
+        }
+        this.unassign.emit(ids);
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public get selectedSubnetIds(): number[] {
+        const seen = new Set<number>();
+        for (const row of this.selectedRows) {
+            const id = row?.subnet?.public_id;
+            if (id != null) {
+                seen.add(id);
+            }
+        }
+        return [...seen];
+    }
+
+    public get selectedCount(): number {
+        return this.selectedSubnetIds.length;
+    }
 
     public vlanList(vlans?: IpamVlanInfo[] | null, separator = ', '): string {
         if (!vlans?.length) {
@@ -205,6 +248,16 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
                 searchable: false,
                 template: this.utilizationTemplate,
                 style: { 'min-width': '120px' }
+            },
+            {
+                display: 'Actions',
+                name: 'actions',
+                data: 'subnet.public_id',
+                sortable: false,
+                searchable: false,
+                fixed: true,
+                template: this.actionsTemplate,
+                style: { 'width': '64px', 'text-align': 'center' }
             }
         ];
 

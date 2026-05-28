@@ -73,7 +73,8 @@
       [loading]="(isLoading$ | async) === true"
       (pageChange)="onPageChange($event)"
       (pageSizeChange)="onPageSizeChange($event)"
-      (sortChange)="onSortChange($event)">
+      (sortChange)="onSortChange($event)"
+      (unassign)="onUnassign($event)">
     </cmdb-ipam-supernet-subnet-table>
   } @else if (hasError) {
     <div class="ipam-overview__state ipam-overview__state--error" role="alert">

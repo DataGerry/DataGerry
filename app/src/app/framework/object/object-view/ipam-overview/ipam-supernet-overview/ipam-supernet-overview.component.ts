@@ -26,8 +26,11 @@ import {
     SimpleChanges
 } from '@angular/core';
 import { FormControl } from '@angular/forms';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Subject, finalize, takeUntil } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+
+import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -75,6 +78,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         private readonly ipamOverviewService: IpamOverviewService,
         private readonly loaderService: LoaderService,
         private readonly toastService: ToastService,
+        private readonly modalService: NgbModal,
         private readonly changesRef: ChangeDetectorRef
     ) {}
 
@@ -126,6 +130,30 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         this.loadOverview();
     }
 
+    public onUnassign(subnetIds: number[]): void {
+        if (this.publicId == null || !subnetIds?.length) {
+            return;
+        }
+
+        const count = subnetIds.length;
+        const modalRef = this.modalService.open(CoreConfirmationModalComponent, { size: 'lg' });
+        modalRef.componentInstance.title = 'Unassign Subnets';
+        modalRef.componentInstance.message = count === 1
+            ? 'Do you want to unassign the selected subnet from this supernet?'
+            : `Do you want to unassign ${count} subnets from this supernet?`;
+        modalRef.componentInstance.confirmButtonText = 'Unassign';
+        modalRef.componentInstance.confirmButtonClass = 'btn-danger';
+
+        modalRef.result.then(
+            (result) => {
+                if (result === 'confirmed') {
+                    this.unassignSubnets(subnetIds);
+                }
+            },
+            () => {}
+        );
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public hasOverviewData(): boolean {
@@ -137,6 +165,35 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private unassignSubnets(subnetIds: number[]): void {
+        if (this.publicId == null) {
+            return;
+        }
+
+        this.loaderService.show();
+
+        this.ipamOverviewService
+            .unassignSubnetsFromSupernet(this.publicId, subnetIds)
+            .pipe(
+                takeUntil(this.destroy$),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (response) => {
+                    const count = response?.unassigned_count ?? subnetIds.length;
+                    this.toastService.success(
+                        count === 1
+                            ? 'Subnet unassigned successfully.'
+                            : `${count} subnets unassigned successfully.`
+                    );
+                    this.loadOverview();
+                },
+                error: (err) => {
+                    this.toastService.error(err?.error?.message);
+                }
+            });
+    }
 
     private applySearch(value: string): void {
         const trimmed = (value ?? '').trim();

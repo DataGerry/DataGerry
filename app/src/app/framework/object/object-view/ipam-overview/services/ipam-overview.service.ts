@@ -26,7 +26,8 @@ import {
     IpamSubnetOverviewResponse,
     IpamSupernetChildrenResponse,
     IpamSupernetOverviewParams,
-    IpamSupernetOverviewResponse
+    IpamSupernetOverviewResponse,
+    IpamUnassignSubnetsResponse
 } from '../models/ipam-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -55,6 +56,26 @@ export class IpamOverviewService {
         return this.api
             .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
             .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+    }
+
+
+    public unassignSubnetsFromSupernet(
+        supernetId: number,
+        subnetIds: number[]
+    ): Observable<IpamUnassignSubnetsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callPost<IpamUnassignSubnetsResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/unassign`,
+                { subnet_ids: subnetIds },
+                options
+            )
+            .pipe(map(response => response?.body as IpamUnassignSubnetsResponse));
     }
 
 

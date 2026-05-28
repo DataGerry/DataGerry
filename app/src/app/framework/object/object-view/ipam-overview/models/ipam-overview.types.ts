@@ -75,6 +75,11 @@ export interface IpamSupernetOverviewParams {
     search?: string;
 }
 
+export interface IpamUnassignSubnetsResponse {
+    subnet_ids: number[];
+    unassigned_count: number;
+}
+
 
 /* ------------------------------------------------- SUBNET OVERVIEW ------------------------------------------------ */
 

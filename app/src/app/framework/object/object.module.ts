@@ -22,7 +22,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatIconModule } from '@angular/material/icon';
 
 import { NgSelectModule } from '@ng-select/ng-select';
-import { NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
+import { NgbDropdownModule, NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { ArchwizardModule } from '@rg-software/angular-archwizard';
 import { QRCodeComponent } from 'angularx-qrcode';
@@ -148,6 +148,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ReactiveFormsModule,
         NgSelectModule,
         NgbTooltipModule,
+        NgbDropdownModule,
         FontAwesomeModule,
         ArchwizardModule,
         RenderModule,
