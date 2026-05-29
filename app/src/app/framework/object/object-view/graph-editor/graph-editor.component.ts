@@ -74,6 +74,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   profiles: FilterProfile[] = [];
   selectedProfileId: number | null = null;
   withLocations: boolean = true;
+  withIpamRelations: boolean = true;
 
   // Filter options
   typeOptionList: { public_id: number; display_name: string }[] = [];
@@ -283,7 +284,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       this.rootNodeId,
       this.typesFilter,
       this.relationsFilter,
-      this.withLocations
+      this.withLocations,
+      this.withIpamRelations
     ).pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: r => {
         this.paintInitial(r);
@@ -1215,6 +1217,14 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
 
   /**
+   * Updates the "include IPAM relations" preference used for graph API calls.
+   */
+  onWithIpamRelationsChange(checked: boolean): void {
+    this.withIpamRelations = checked;
+  }
+
+
+  /**
    * Switches the filter mode between manual and profile-based filtering.
    */
   switchFilterMode(mode: 'manual' | 'profile'): void {
@@ -1397,8 +1407,28 @@ modalRef.componentInstance.connections = [{
     };
 
     modalRef.componentInstance.connections = trackedConnections.map(conn => {
-      // Check if metadata exists
-      if (!conn.metadata || !conn.metadata.relation_id) {
+      const meta = conn.metadata;
+
+      if (meta?.source) {
+        return {
+          from: conn.fromNodeId,
+          to: conn.toNodeId,
+          fromLevel: fromNode.level,
+          toLevel: toNode.level,
+          fromUid: conn.fromUid,
+          toUid: conn.toUid,
+          metadata: {
+            relation_id: meta.relation_id,
+            relation_name: meta.relation_name,
+            relation_label: meta.relation_label,
+            relation_color: meta.relation_color,
+            relation_icon: this.normalizeRelationIcon(meta.relation_icon),
+            source: meta.source
+          }
+        };
+      }
+
+      if (!meta || !meta.relation_id) {
         return {
           from: conn.fromNodeId,
           to: conn.toNodeId,
@@ -1423,7 +1453,7 @@ modalRef.componentInstance.connections = [{
         toLevel: toNode.level,
         fromUid: conn.fromUid,
         toUid: conn.toUid,
-        metadata: conn.metadata
+        metadata: meta
       };
     });
 
@@ -1463,10 +1493,27 @@ modalRef.componentInstance.connections = [{
     // Convert indexed connections to modal format
     modalRef.componentInstance.connections = indexedConnections.map(edge => {
       const meta = Array.isArray(edge.metadata) ? edge.metadata[0] : edge.metadata;
-      
-      // Check if metadata exists
+
+      if (meta?.source) {
+        return {
+          from: edge.from,
+          to: edge.to,
+          fromLevel: fromNode.level,
+          toLevel: toNode.level,
+          fromUid: '',
+          toUid: '',
+          metadata: {
+            relation_id: meta.relation_id,
+            relation_name: meta.relation_name,
+            relation_label: meta.relation_label,
+            relation_color: meta.relation_color,
+            relation_icon: this.normalizeRelationIcon(meta.relation_icon),
+            source: meta.source
+          }
+        };
+      }
+
       if (!meta || !meta.relation_id) {
-        // Location-based connection - use source node's title
         return {
           from: edge.from,
           to: edge.to,
@@ -1476,15 +1523,14 @@ modalRef.componentInstance.connections = [{
           toUid: '',
           metadata: {
             relation_id: 0,
-            relation_name: fromNode.label,  // Use source node title
+            relation_name: fromNode.label,
             relation_label: 'Location',
             relation_color: '#666',
             relation_icon: 'location_on'
           }
         };
       }
-      
-      // Normal connection with metadata
+
       return {
         from: edge.from,
         to: edge.to,
@@ -1518,6 +1564,21 @@ modalRef.componentInstance.connections = [{
    */
   private getNodeByUid(uid: string): GraphNode | undefined {
     return this.graphData.getNodeInstanceMap().get(uid);
+  }
+
+
+  /**
+   * Ensures a Font Awesome icon class has a family prefix (fas/far/fab).
+   * Backend may send bare `fa-name` strings (e.g. IPAM); ngClass needs the family token.
+   */
+  private normalizeRelationIcon(icon?: string): string | undefined {
+    if (!icon) {
+      return icon;
+    }
+    const tokens = icon.trim().split(/\s+/);
+    const hasFamily = tokens.some(t => t === 'fa' || t === 'fas' || t === 'far' || t === 'fab' || t === 'fal' || t === 'fad');
+    const hasFaName = tokens.some(t => t.startsWith('fa-'));
+    return hasFaName && !hasFamily ? `fas ${icon}` : icon;
   }
 
 

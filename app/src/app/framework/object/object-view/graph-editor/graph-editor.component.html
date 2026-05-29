@@ -102,13 +102,21 @@
               </div>
             </div>
 
-            <app-checkbox
-              id="graph-editor-with-locations-manual"
-              label="Include locations"
-              [checked]="withLocations"
-              (checkedChange)="onWithLocationsChange($event)"
-              style="grid-column: 1 / -1;">
-            </app-checkbox>
+            <div style="grid-column: 1 / -1; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+              <app-checkbox
+                id="graph-editor-with-locations-manual"
+                label="Include locations"
+                [checked]="withLocations"
+                (checkedChange)="onWithLocationsChange($event)">
+              </app-checkbox>
+
+              <app-checkbox
+                id="graph-editor-with-ipam-relations-manual"
+                label="Include IPAM relations"
+                [checked]="withIpamRelations"
+                (checkedChange)="onWithIpamRelationsChange($event)">
+              </app-checkbox>
+            </div>
           </div>
         </form>
       </div>
@@ -141,12 +149,21 @@
               </div>
             </div>
 
-            <app-checkbox
-              id="graph-editor-with-locations"
-              label="Include locations"
-              [checked]="withLocations"
-              (checkedChange)="onWithLocationsChange($event)">
-            </app-checkbox>
+            <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+              <app-checkbox
+                id="graph-editor-with-locations"
+                label="Include locations"
+                [checked]="withLocations"
+                (checkedChange)="onWithLocationsChange($event)">
+              </app-checkbox>
+
+              <app-checkbox
+                id="graph-editor-with-ipam-relations"
+                label="Include IPAM relations"
+                [checked]="withIpamRelations"
+                (checkedChange)="onWithIpamRelationsChange($event)">
+              </app-checkbox>
+            </div>
           </div>
         </div>
       </div>

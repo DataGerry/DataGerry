@@ -45,6 +45,10 @@ export function getTypeDistributionColors(items: IpamTypeDistributionEntry[]): s
             return reserved;
         }
 
+        if (item.ci_explorer_color) {
+            return item.ci_explorer_color;
+        }
+
         const color = DYNAMIC_PALETTE[paletteIndex % DYNAMIC_PALETTE.length];
         paletteIndex += 1;
         return color;
