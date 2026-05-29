@@ -27,10 +27,11 @@
   @if (selectedCount > 0) {
     <button
       type="button"
-      class="btn btn-sm btn-outline-danger ipam-bulk-unassign"
+      class="btn btn-danger btn-sm ipam-bulk-unassign"
       (click)="onUnassignSelected()">
       <i class="fa fa-unlink" aria-hidden="true"></i>
-      Unassign Selected ({{ selectedCount }})
+      Unassign Selected
+      <span class="badge bg-secondary bg-pill">{{ selectedCount }}</span>
     </button>
   }
 </ng-template>
