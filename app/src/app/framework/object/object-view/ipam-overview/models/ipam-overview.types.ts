@@ -144,11 +144,20 @@ export interface IpamTypeDistributionEntry {
     percentage: number;
 }
 
+export interface IpamSectorTypeStat {
+    public_id: number | null;
+    label: string;
+    ci_explorer_color: string | null;
+    count: number;
+    percentage: number;
+}
+
 export interface IpamIpDistributionSector {
     ip_start: string;
     ip_end: string;
     used_count: number;
     percentage: number;
+    type_stats?: IpamSectorTypeStat[];
 }
 
 export interface IpamIpDistributionRange {
@@ -167,6 +176,7 @@ export interface IpamSubnetOverviewResponse {
     ips: IpamIpListPage;
     type_distribution?: IpamTypeDistributionEntry[];
     ip_distribution?: IpamIpDistribution | null;
+    vlans?: IpamVlanInfo[];
 }
 
 export interface IpamSubnetOverviewParams {

@@ -26,11 +26,12 @@ export interface ConnectionDetailsData {
   fromUid: string;
   toUid: string;
   metadata: {
-    relation_id: number;
+    relation_id: number | null;
     relation_name: string;
     relation_label: string;
     relation_color: string;
     relation_icon?: string;
+    source?: string;
   } | null;
 }
 

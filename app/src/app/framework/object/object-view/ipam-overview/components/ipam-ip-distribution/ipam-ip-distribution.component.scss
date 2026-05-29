@@ -9,11 +9,6 @@
     --ipam-cell-bg: #ffffff;
     --ipam-cell-border: #e5e7eb;
 
-    --ipam-used-soft: #22c55e;
-    --ipam-used: rgb(255, 193, 7);
-    --ipam-used-danger: #ef4444;
-    --ipam-used-full: #7f1d1d;
-
     --ipam-cell-hover-scale: 1.25;
     --ipam-cell-hover-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
     --ipam-cell-hover-border: rgba(15, 23, 42, 0.35);
@@ -125,26 +120,6 @@
 .ipam-ip-dist__sector--empty {
     background-color: var(--ipam-cell-bg);
     border-color: var(--ipam-cell-border);
-}
-
-.ipam-ip-dist__sector--low {
-    background-color: var(--ipam-used-soft);
-    border-color: var(--ipam-used-soft);
-}
-
-.ipam-ip-dist__sector--medium {
-    background-color: var(--ipam-used);
-    border-color: var(--ipam-used);
-}
-
-.ipam-ip-dist__sector--high {
-    background-color: var(--ipam-used-danger);
-    border-color: var(--ipam-used-danger);
-}
-
-.ipam-ip-dist__sector--full {
-    background-color: var(--ipam-used-full);
-    border-color: var(--ipam-used-full);
 }
 
 .ipam-ip-dist__legend {
