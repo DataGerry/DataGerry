@@ -47,6 +47,7 @@ export interface IpamSubnetSummary {
     usage_percent: number;
     parent_id: number | null;
     has_children: boolean;
+    is_valid?: boolean;
     vlans?: IpamVlanInfo[];
 }
 
@@ -60,6 +61,7 @@ export interface IpamSupernetSubnetPage {
 export interface IpamSupernetOverviewResponse {
     supernet: IpamSupernetSummary;
     subnets: IpamSupernetSubnetPage;
+    invalid_count?: number;
 }
 
 export interface IpamSupernetChildrenResponse {

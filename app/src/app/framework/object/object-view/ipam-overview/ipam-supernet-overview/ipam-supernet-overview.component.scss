@@ -79,7 +79,7 @@
 
 .ipam-overview__cards {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 1rem;
 }
 
@@ -119,6 +119,10 @@
 
 .ipam-card--free .ipam-card__value {
     color: #0d6efd;
+}
+
+.ipam-card--invalid .ipam-card__value {
+    color: #dc3545;
 }
 
 .ipam-card__utilization {

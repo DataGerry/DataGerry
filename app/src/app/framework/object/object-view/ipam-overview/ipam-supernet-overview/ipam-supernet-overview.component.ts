@@ -62,6 +62,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
 
     public supernet: IpamSupernetSummary | null = null;
     public subnetRows: IpamSubnetSummary[] = [];
+    public invalidCount = 0;
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
     public total = 0;
@@ -238,6 +239,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
                     const subnetsPage = response?.subnets;
                     this.supernet = response?.supernet ?? null;
                     this.subnetRows = subnetsPage?.rows ?? [];
+                    this.invalidCount = response?.invalid_count ?? 0;
                     this.page = subnetsPage?.page ?? this.page;
                     this.pageSize = subnetsPage?.page_size ?? this.pageSize;
                     this.total = subnetsPage?.total ?? 0;
@@ -248,6 +250,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
                     this.hasError = true;
                     this.supernet = null;
                     this.subnetRows = [];
+                    this.invalidCount = 0;
                     this.total = 0;
                     this.hasLoadedOnce = true;
                     this.toastService.error(err?.error?.message);
