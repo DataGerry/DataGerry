@@ -25,6 +25,8 @@ import {
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
     IpamSupernetChildrenResponse,
+    IpamSupernetInvalidSubnetsParams,
+    IpamSupernetInvalidSubnetsResponse,
     IpamSupernetOverviewParams,
     IpamSupernetOverviewResponse,
     IpamUnassignSubnetsResponse
@@ -79,6 +81,25 @@ export class IpamOverviewService {
     }
 
 
+    public getInvalidSubnets(
+        supernetId: number,
+        params: IpamSupernetInvalidSubnetsParams = {}
+    ): Observable<IpamSupernetInvalidSubnetsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildPagedParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetInvalidSubnetsResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/invalid`,
+                options
+            )
+            .pipe(map(response => response?.body as IpamSupernetInvalidSubnetsResponse));
+    }
+
+
     public getSupernetSubnetChildren(
         supernetId: number,
         subnetId: number
@@ -119,7 +140,9 @@ export class IpamOverviewService {
         return this.buildPagedParams(params);
     }
 
-    private buildPagedParams(params: IpamSupernetOverviewParams | IpamSubnetOverviewParams): HttpParams {
+    private buildPagedParams(
+        params: IpamSupernetOverviewParams | IpamSubnetOverviewParams | IpamSupernetInvalidSubnetsParams
+    ): HttpParams {
         let httpParams = new HttpParams();
 
         if (params.page != null) {
@@ -128,10 +151,10 @@ export class IpamOverviewService {
         if (params.page_size != null) {
             httpParams = httpParams.set('page_size', String(params.page_size));
         }
-        if (params.sort) {
+        if ('sort' in params && params.sort) {
             httpParams = httpParams.set('sort', params.sort);
         }
-        if (params.order != null) {
+        if ('order' in params && params.order != null) {
             httpParams = httpParams.set('order', String(params.order));
         }
         if ('search' in params && params.search) {

@@ -22,10 +22,15 @@
     </header>
 
     <div class="ipam-overview__cards">
-      <article class="ipam-card">
+      <button
+        type="button"
+        class="ipam-card ipam-card--clickable"
+        [class.ipam-card--active]="viewMode === 'all'"
+        [attr.aria-pressed]="viewMode === 'all'"
+        (click)="onShowAllSubnets()">
         <span class="ipam-card__label">Total Subnets</span>
         <span class="ipam-card__value">{{ data.subnet_count | number }}</span>
-      </article>
+      </button>
 
       <article class="ipam-card">
         <span class="ipam-card__label">Total IPs</span>
@@ -47,6 +52,16 @@
           <span class="ipam-card__suffix">({{ data.free_percent | number:'1.0-1' }}%)</span>
         </span>
       </article>
+
+      <button
+        type="button"
+        class="ipam-card ipam-card--invalid ipam-card--clickable"
+        [class.ipam-card--active]="viewMode === 'invalid'"
+        [attr.aria-pressed]="viewMode === 'invalid'"
+        (click)="onShowInvalidSubnets()">
+        <span class="ipam-card__label">Invalid IPs</span>
+        <span class="ipam-card__value">{{ invalidCount | number }}</span>
+      </button>
 
       <article class="ipam-card ipam-card--utilization">
         <span class="ipam-card__label">Overall Utilization</span>
@@ -70,6 +85,7 @@
       [pageSize]="pageSize"
       [sort]="sort"
       [searchMode]="isSearching"
+      [invalidMode]="viewMode === 'invalid'"
       [loading]="(isLoading$ | async) === true"
       (pageChange)="onPageChange($event)"
       (pageSizeChange)="onPageSizeChange($event)"
