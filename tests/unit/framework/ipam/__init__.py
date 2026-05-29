@@ -14,9 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the cmdb package
+Unit tests for the cmdb.framework.ipam package
 
-Subpackages mirror the cmdb/ layout. Tests at this tier are pure: no Mongo, no real Flask
-app, no fixtures beyond pytest.mark.parametrize tables and small in-file factories. Anything
-needing a database or a live REST app belongs under tests/integration/ or tests/functional/
+Each module here mirrors a single source file in cmdb/framework/ipam/. Tests are pure: no
+Mongo, no Flask, no fixtures beyond pytest.mark.parametrize tables
 """

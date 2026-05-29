@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the cmdb package
+Integration tests for DataGerry
 
-Subpackages mirror the cmdb/ layout. Tests at this tier are pure: no Mongo, no real Flask
-app, no fixtures beyond pytest.mark.parametrize tables and small in-file factories. Anything
-needing a database or a live REST app belongs under tests/integration/ or tests/functional/
+This tier sits between the pure unit tests (no DB, no Flask) and the full functional tests
+(real REST API). Integration tests exercise the manager and framework layers against a real
+MongoDB instance but skip the Flask app and REST routing, so they run faster than functional
+tests while still covering real query behavior, persistence and cross-manager interactions
 """

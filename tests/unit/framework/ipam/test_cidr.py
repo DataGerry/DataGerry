@@ -1,0 +1,349 @@
+# DATAGERRY - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Unit tests for cmdb.framework.ipam.cidr
+
+Pure tests: no Mongo, no Flask, no fixtures. Each behavior is exercised through a
+pytest.mark.parametrize table so a new edge case is a single-line addition. Expected
+values are written as concrete literals rather than re-derived from the same constants
+the production code uses; tests act as specification-by-example so that an inadvertent
+policy change (e.g. flipping the point-to-point threshold) breaks the suite loudly
+"""
+from typing import Any
+from ipaddress import IPv4Address, IPv4Network
+
+import pytest
+
+from cmdb.utils import ValidationErrorKey
+from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
+from cmdb.framework.ipam.cidr import (
+    parse_cidr,
+    parse_ipv4,
+    is_strict_subnet,
+    is_network_or_broadcast,
+    assignable_address_count,
+    first_assignable_int,
+    validate_canonical_cidr_value,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    parse_cidr                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('value, expected_cidr', [
+    ('10.0.0.0/24', '10.0.0.0/24'),
+    ('192.168.1.0/24', '192.168.1.0/24'),
+    ('0.0.0.0/0', '0.0.0.0/0'),
+    ('10.0.0.0/32', '10.0.0.0/32'),
+    ('10.0.0.0/31', '10.0.0.0/31'),
+    ('172.16.0.0/12', '172.16.0.0/12'),
+])
+def test_parse_cidr_accepts_canonical(value: str, expected_cidr: str) -> None:
+    """Canonical CIDRs (host bits all zero) parse to the matching IPv4Network"""
+    result: IPv4Network | None = parse_cidr(value)
+
+    assert result is not None
+    assert str(result) == expected_cidr
+
+
+@pytest.mark.parametrize('value', [
+    '10.0.0.5/24',
+    '192.168.1.7/16',
+    '10.0.0.128/24',
+])
+def test_parse_cidr_rejects_non_canonical(value: str) -> None:
+    """Non-canonical CIDRs (host bits set) are rejected by strict mode"""
+    assert parse_cidr(value) is None
+
+
+@pytest.mark.parametrize('value', [
+    'garbage',
+    '',
+    '10.0.0.0/',
+    '10.0.0.0/33',
+    '10.0.0.0/-1',
+    '10.0.0.0/abc',
+    '::1/128',
+    '10.0.0.0 ',
+    ' 10.0.0.0/24',
+])
+def test_parse_cidr_rejects_invalid_strings(value: str) -> None:
+    """Malformed CIDR strings return None instead of raising"""
+    assert parse_cidr(value) is None
+
+
+@pytest.mark.parametrize('value', [
+    '10.0.0.0',
+    '192.168.1.1',
+    '0.0.0.0',
+])
+def test_parse_cidr_rejects_bare_address(value: str) -> None:
+    """
+    A bare IPv4 address (no slash) is rejected — Python's IPv4Network would treat it as /32
+    but the canonical-CIDR contract requires an explicit prefix
+    """
+    assert parse_cidr(value) is None
+
+
+@pytest.mark.parametrize('value', [
+    '10.0.0.0/255.255.255.0',
+    '192.168.1.0/255.255.255.128',
+    '10.0.0.0/0.0.0.255',
+    '10.0.0.0/255.0.0.0',
+])
+def test_parse_cidr_rejects_dotted_mask_form(value: str) -> None:
+    """
+    Netmask ('/A.B.C.D') and hostmask ('/W.W.W.W') prefix forms are rejected even though
+    Python's IPv4Network accepts them; canonical CIDR uses '/N' integer form only
+    """
+    assert parse_cidr(value) is None
+
+
+@pytest.mark.parametrize('value', [
+    None,
+    123,
+    1.5,
+    b'10.0.0.0/24',
+    ['10.0.0.0/24'],
+    {'cidr': '10.0.0.0/24'},
+])
+def test_parse_cidr_rejects_non_string(value: Any) -> None:
+    """Non-string inputs are rejected by the isinstance guard, not by IPv4Network"""
+    assert parse_cidr(value) is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    parse_ipv4                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('value, expected_address', [
+    ('10.0.0.1', '10.0.0.1'),
+    ('192.168.1.1', '192.168.1.1'),
+    ('0.0.0.0', '0.0.0.0'),
+    ('255.255.255.255', '255.255.255.255'),
+    ('172.16.0.42', '172.16.0.42'),
+])
+def test_parse_ipv4_accepts_dotted_quad(value: str, expected_address: str) -> None:
+    """Valid dotted-quad addresses parse to IPv4Address"""
+    result: IPv4Address | None = parse_ipv4(value)
+
+    assert result is not None
+    assert str(result) == expected_address
+
+
+@pytest.mark.parametrize('value', [
+    '3232235521',
+    '192.168.1',
+    '192.168.1.1.5',
+    '',
+    '10',
+    '....',
+])
+def test_parse_ipv4_rejects_wrong_dot_count(value: str) -> None:
+    """Anything other than exactly three dots is rejected before IPv4Address sees it"""
+    assert parse_ipv4(value) is None
+
+
+@pytest.mark.parametrize('value', [
+    '0xc0.0xa8.0x1.0x1',
+    '999.1.1.1',
+    'a.b.c.d',
+    '192.168.1.',
+    '.192.168.1',
+    '192.168..1',
+])
+def test_parse_ipv4_rejects_invalid_octets(value: str) -> None:
+    """Dotted-quad form with invalid octets is rejected by IPv4Address"""
+    assert parse_ipv4(value) is None
+
+
+@pytest.mark.parametrize('value', [
+    None,
+    123,
+    1.5,
+    b'192.168.1.1',
+    ['192.168.1.1'],
+    {'ip': '192.168.1.1'},
+])
+def test_parse_ipv4_rejects_non_string(value: Any) -> None:
+    """Non-string inputs are rejected by the isinstance guard"""
+    assert parse_ipv4(value) is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 is_strict_subnet                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('parent_cidr, child_cidr, expected', [
+    ('10.0.0.0/8', '10.0.0.0/24', True),
+    ('10.0.0.0/8', '10.255.0.0/16', True),
+    ('0.0.0.0/0', '10.0.0.0/8', True),
+    ('192.168.0.0/16', '192.168.1.0/24', True),
+
+    ('10.0.0.0/8', '10.0.0.0/8', False),
+    ('10.0.0.0/24', '10.0.0.0/24', False),
+    ('0.0.0.0/0', '0.0.0.0/0', False),
+
+    ('10.0.0.0/24', '192.168.1.0/24', False),
+    ('10.0.0.0/24', '10.0.1.0/24', False),
+    ('10.0.0.0/16', '192.168.0.0/16', False),
+
+    ('10.0.0.0/24', '10.0.0.0/16', False),
+])
+def test_is_strict_subnet(parent_cidr: str, child_cidr: str, expected: bool) -> None:
+    """Strict-subnet means contained AND not equal: parent == child must return False"""
+    parent: IPv4Network = IPv4Network(parent_cidr)
+    child: IPv4Network = IPv4Network(child_cidr)
+
+    assert is_strict_subnet(parent, child) is expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              is_network_or_broadcast                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('address, cidr, expected', [
+    ('10.0.0.0', '10.0.0.0/24', True),
+    ('10.0.0.255', '10.0.0.0/24', True),
+    ('10.0.0.1', '10.0.0.0/24', False),
+    ('10.0.0.128', '10.0.0.0/24', False),
+    ('10.0.0.254', '10.0.0.0/24', False),
+
+    ('10.0.0.0', '10.0.0.0/16', True),
+    ('10.0.255.255', '10.0.0.0/16', True),
+    ('10.0.0.1', '10.0.0.0/16', False),
+    ('10.0.128.0', '10.0.0.0/16', False),
+
+    ('10.0.0.0', '10.0.0.0/30', True),
+    ('10.0.0.3', '10.0.0.0/30', True),
+    ('10.0.0.1', '10.0.0.0/30', False),
+    ('10.0.0.2', '10.0.0.0/30', False),
+
+    ('10.0.0.0', '10.0.0.0/31', False),
+    ('10.0.0.1', '10.0.0.0/31', False),
+
+    ('10.0.0.5', '10.0.0.5/32', False),
+    ('192.168.10.42', '192.168.10.42/32', False),
+])
+def test_is_network_or_broadcast(address: str, cidr: str, expected: bool) -> None:
+    """Network/broadcast reservation applies to /≤30 only; /31 and /32 carve out"""
+    assert is_network_or_broadcast(IPv4Address(address), IPv4Network(cidr)) is expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            assignable_address_count                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('cidr, expected', [
+    ('10.0.0.5/32', 1),
+    ('192.168.10.42/32', 1),
+
+    ('10.0.0.0/31', 2),
+    ('192.168.1.0/31', 2),
+
+    ('10.0.0.0/30', 2),
+    ('10.0.0.0/29', 6),
+    ('10.0.0.0/28', 14),
+    ('10.0.0.0/27', 30),
+    ('10.0.0.0/26', 62),
+    ('10.0.0.0/25', 126),
+    ('10.0.0.0/24', 254),
+    ('10.0.0.0/23', 510),
+    ('10.0.0.0/16', 65534),
+    ('10.0.0.0/8', 16777214),
+    ('0.0.0.0/0', 4294967294),
+])
+def test_assignable_address_count(cidr: str, expected: int) -> None:
+    """Per-prefix assignable count: /32 -> 1, /31 -> 2, /<=30 -> num_addresses - 2"""
+    assert assignable_address_count(IPv4Network(cidr)) == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              first_assignable_int                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('cidr, expected_first_address', [
+    ('10.0.0.0/24', '10.0.0.1'),
+    ('10.0.0.0/30', '10.0.0.1'),
+    ('192.168.5.0/26', '192.168.5.1'),
+    ('172.16.0.0/16', '172.16.0.1'),
+    ('0.0.0.0/0', '0.0.0.1'),
+
+    ('10.0.0.0/31', '10.0.0.0'),
+    ('192.168.1.0/31', '192.168.1.0'),
+
+    ('10.0.0.5/32', '10.0.0.5'),
+    ('192.168.10.42/32', '192.168.10.42'),
+])
+def test_first_assignable_int(cidr: str, expected_first_address: str) -> None:
+    """First assignable: skip network for /<=30; include network address for /31 and /32"""
+    network: IPv4Network = IPv4Network(cidr)
+    expected_int: int = int(IPv4Address(expected_first_address))
+
+    assert first_assignable_int(network) == expected_int
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_canonical_cidr_value                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+SAMPLE_ERROR_CODE: str = 'sample_cidr_invalid'
+
+
+def test_validate_canonical_cidr_value_returns_network_and_no_errors_for_canonical_input() -> None:
+    """A canonical CIDR string yields the parsed network and an empty error list"""
+    network, errors = validate_canonical_cidr_value('10.0.0.0/24', SAMPLE_ERROR_CODE)
+
+    assert network == IPv4Network('10.0.0.0/24')
+    assert errors == []
+
+
+@pytest.mark.parametrize('invalid_value', [
+    'not-a-cidr',
+    '10.0.0.5/24',       # host bits set, non-canonical
+    '10.0.0.0',          # missing prefix
+    '10.0.0.0/255.255.255.0',  # netmask form rejected by strict parser
+])
+def test_validate_canonical_cidr_value_emits_error_for_invalid_string(invalid_value: str) -> None:
+    """Any non-canonical or non-CIDR string yields (None, [error]) with the caller's error code"""
+    network, errors = validate_canonical_cidr_value(invalid_value, SAMPLE_ERROR_CODE)
+
+    assert network is None
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SAMPLE_ERROR_CODE
+
+
+@pytest.mark.parametrize('non_string_value', [None, 42, 10.5, [], {}])
+def test_validate_canonical_cidr_value_emits_error_for_non_string_input(non_string_value: Any) -> None:
+    """Non-string inputs are rejected with the same error code (no TypeError raised)"""
+    network, errors = validate_canonical_cidr_value(non_string_value, SAMPLE_ERROR_CODE)
+
+    assert network is None
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SAMPLE_ERROR_CODE
+
+
+def test_validate_canonical_cidr_value_captures_input_in_error_details() -> None:
+    """The raw input value is preserved under IpamValidationDetailKey.NETWORK_RANGE in details"""
+    network, errors = validate_canonical_cidr_value('garbage-value', SAMPLE_ERROR_CODE)
+
+    assert network is None
+    details = errors[0][ValidationErrorKey.DETAILS]
+    assert details[IpamValidationDetailKey.NETWORK_RANGE] == 'garbage-value'
+
+
+def test_validate_canonical_cidr_value_uses_caller_supplied_error_code() -> None:
+    """The error code is parameterized; different callers see different codes for the same input"""
+    _, first_errors = validate_canonical_cidr_value('bad', 'code_a')
+    _, second_errors = validate_canonical_cidr_value('bad', 'code_b')
+
+    assert first_errors[0][ValidationErrorKey.CODE] == 'code_a'
+    assert second_errors[0][ValidationErrorKey.CODE] == 'code_b'

@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the cmdb package
+Functional tests for the CI Explorer routes
 
-Subpackages mirror the cmdb/ layout. Tests at this tier are pure: no Mongo, no real Flask
-app, no fixtures beyond pytest.mark.parametrize tables and small in-file factories. Anything
-needing a database or a live REST app belongs under tests/integration/ or tests/functional/
+These tests pin the observable contract of the /ci_explorer/items route against a real
+MongoDB before the route is refactored, so behaviour drift introduced by the rework is
+caught immediately
 """
