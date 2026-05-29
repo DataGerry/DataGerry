@@ -24,7 +24,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from cmdb.framework.ci_explorer.ipam import (
-    IpamRelationName,
+    IpamEdgeCategory,
     collect_ipam_neighbours,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -157,7 +157,7 @@ def test_supernet_target_grafts_subnet_children() -> None:
     assert len(result) == 1
     assert result[0].neighbour_object['public_id'] == SUBNET_CHILD
     assert result[0].is_child_of_target is True
-    assert result[0].relation_name == IpamRelationName.SUBNET
+    assert result[0].edge_category == IpamEdgeCategory.SUBNET_SUPERNET
 
 
 def test_subnet_target_grafts_supernet_parent_and_vlan_interface_children() -> None:
@@ -184,11 +184,11 @@ def test_subnet_target_grafts_supernet_parent_and_vlan_interface_children() -> N
 
     by_id = {n.neighbour_object['public_id']: n for n in result}
     assert by_id[PARENT_SUPERNET].is_child_of_target is False
-    assert by_id[PARENT_SUPERNET].relation_name == IpamRelationName.SUPERNET
+    assert by_id[PARENT_SUPERNET].edge_category == IpamEdgeCategory.SUBNET_SUPERNET
     assert by_id[VLAN_CHILD].is_child_of_target is True
-    assert by_id[VLAN_CHILD].relation_name == IpamRelationName.VLAN
+    assert by_id[VLAN_CHILD].edge_category == IpamEdgeCategory.SUBNET_VLAN
     assert by_id[INTERFACE_CARRIER].is_child_of_target is True
-    assert by_id[INTERFACE_CARRIER].relation_name == IpamRelationName.INTERFACE
+    assert by_id[INTERFACE_CARRIER].edge_category == IpamEdgeCategory.SUBNET_INTERFACE
 
 
 def test_vlan_target_grafts_only_parent_subnet() -> None:
@@ -210,7 +210,7 @@ def test_vlan_target_grafts_only_parent_subnet() -> None:
     assert len(result) == 1
     assert result[0].neighbour_object['public_id'] == PARENT_SUBNET
     assert result[0].is_child_of_target is False
-    assert result[0].relation_name == IpamRelationName.SUBNET
+    assert result[0].edge_category == IpamEdgeCategory.SUBNET_VLAN
 
 
 def test_interface_carrier_target_grafts_subnet_parents_from_mds_rows() -> None:
@@ -232,7 +232,7 @@ def test_interface_carrier_target_grafts_subnet_parents_from_mds_rows() -> None:
     assert len(result) == 1
     assert result[0].neighbour_object['public_id'] == PARENT_SUBNET
     assert result[0].is_child_of_target is False
-    assert result[0].relation_name == IpamRelationName.SUBNET
+    assert result[0].edge_category == IpamEdgeCategory.SUBNET_INTERFACE
 
 
 def test_self_reference_in_dg_supernet_ref_is_skipped() -> None:

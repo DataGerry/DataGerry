@@ -163,14 +163,8 @@ class IpamValidationDetailKey(BaseStrEnum):
     SUPERNET_RANGE = 'supernet_range'
     SIBLING_RANGE = 'sibling_range'
 
-    # Sibling / child references
+    # Sibling references
     SIBLING_SUBNET_ID = 'sibling_subnet_id'
-    CHILD_SUBNET_ID = 'child_subnet_id'
-    PARENT_OBJECT_ID = 'parent_object_id'
-
-    # Range-change guard payload
-    CHILD_RANGE = 'child_range'
-    NEW_RANGE = 'new_range'
 
     # Interface row payload
     IP_ADDRESS = 'ip_address'

@@ -375,10 +375,14 @@ def build_ci_explorer_graph(
 
         if ipam_neighbour.is_child_of_target:
             child_nodes_by_id[ipam_neighbour_id] = ipam_node
-            child_edges.append(compose_ipam_edge(target_id, ipam_neighbour_id, ipam_neighbour.relation_name))
+            child_edges.append(compose_ipam_edge(
+                target_id, ipam_neighbour_id, ipam_neighbour.edge_category, is_child_of_target=True,
+            ))
         else:
             parent_nodes_by_id[ipam_neighbour_id] = ipam_node
-            parent_edges.append(compose_ipam_edge(ipam_neighbour_id, target_id, ipam_neighbour.relation_name))
+            parent_edges.append(compose_ipam_edge(
+                ipam_neighbour_id, target_id, ipam_neighbour.edge_category, is_child_of_target=False,
+            ))
 
     if include_children:
         response['children_nodes'] = list(child_nodes_by_id.values())

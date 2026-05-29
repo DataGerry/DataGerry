@@ -25,8 +25,6 @@ Modules:
   - search: search-input normalization helpers shared by the overview routes
   - subnet_validator / interface_validator / vlan_validator: structured per-row
       validation invoked at save time and from the inline pre-validation REST routes
-  - range_change_guards: guards against subnet/supernet range edits that would orphan
-      child rows
   - enforcement: cross-row enforcement helpers used by the validator orchestrators
   - subnet_overview / supernet_overview: payload builders for the IPAM overview views
   - supernet_membership: write-side mutations against the SUBNET <-> SUPERNET relation

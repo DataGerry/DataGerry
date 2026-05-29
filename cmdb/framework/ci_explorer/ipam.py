@@ -61,34 +61,52 @@ from cmdb.framework.ipam.references import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-class IpamRelationName(BaseStrEnum):
+class IpamEdgeCategory(BaseStrEnum):
     """
-    Stable wire-format values written into ``metadata.relation_name`` on IPAM edges
+    Internal identifier for the three IPAM edge categories
 
-    Each value names the *neighbour* node's IPAM role (not the relationship's direction),
-    matching the agreed wire contract: a SUBNET pointing up at its SUPERNET reports
-    ``relation_name='ipam-supernet'`` (the neighbour is the supernet); a SUPERNET pointing
-    down at one of its SUBNETs reports ``relation_name='ipam-subnet'``. FE renders the
-    edge label via the IPAM_RELATION_LABELS mapping
+    Each member names the pair of endpoint roles the edge connects. Values are stable
+    internal slugs only - they do NOT appear on the wire. The wire ``metadata.relation_name``
+    is looked up direction-aware via IPAM_EDGE_NAMES_PARENT / IPAM_EDGE_NAMES_CHILD so the
+    string describes whichever end the neighbour sits on (e.g. a SUBNET-SUPERNET edge reads
+    'Supernet' from the SUBNET side and 'Subnet' from the SUPERNET side)
     """
-    SUPERNET = 'ipam-supernet'
-    SUBNET = 'ipam-subnet'
-    VLAN = 'ipam-vlan'
-    INTERFACE = 'ipam-interface'
+    SUBNET_SUPERNET = 'subnet_supernet'
+    SUBNET_VLAN = 'subnet_vlan'
+    SUBNET_INTERFACE = 'subnet_interface'
 
 
-IPAM_RELATION_LABELS: dict[str, str] = {
-    IpamRelationName.SUPERNET: 'Supernet',
-    IpamRelationName.SUBNET: 'Subnet',
-    IpamRelationName.VLAN: 'VLAN',
-    IpamRelationName.INTERFACE: 'Interface',
+IPAM_RELATION_LABEL: str = 'assigned'
+
+# Direction-aware wire ``relation_name`` lookups. The 'parent' table is used when the
+# neighbour is the parent of the target (the edge goes neighbour → target in the IPAM
+# hierarchy); the 'child' table is used when the neighbour is below the target. The string
+# names what role the neighbour plays, so the FE label reads naturally from the target's
+# perspective regardless of direction
+IPAM_EDGE_NAMES_PARENT: dict[str, str] = {
+    IpamEdgeCategory.SUBNET_SUPERNET: 'Supernet',
+    IpamEdgeCategory.SUBNET_VLAN: 'Subnet',
+    IpamEdgeCategory.SUBNET_INTERFACE: 'Subnet-IP',
 }
 
-IPAM_RELATION_ICONS: dict[str, str] = {
-    IpamRelationName.SUPERNET: 'fa-network-wired',
-    IpamRelationName.SUBNET: 'fa-sitemap',
-    IpamRelationName.VLAN: 'fa-tag',
-    IpamRelationName.INTERFACE: 'fa-ethernet',
+IPAM_EDGE_NAMES_CHILD: dict[str, str] = {
+    IpamEdgeCategory.SUBNET_SUPERNET: 'Subnet',
+    IpamEdgeCategory.SUBNET_VLAN: 'VLAN',
+    IpamEdgeCategory.SUBNET_INTERFACE: 'Interface',
+}
+
+# Direction-aware icon lookups, paired with the name tables above: each icon visually
+# hints at the neighbour's role so the edge in the graph reads correctly from either side
+IPAM_EDGE_ICONS_PARENT: dict[str, str] = {
+    IpamEdgeCategory.SUBNET_SUPERNET: 'fa-network-wired',
+    IpamEdgeCategory.SUBNET_VLAN: 'fa-sitemap',
+    IpamEdgeCategory.SUBNET_INTERFACE: 'fa-sitemap',
+}
+
+IPAM_EDGE_ICONS_CHILD: dict[str, str] = {
+    IpamEdgeCategory.SUBNET_SUPERNET: 'fa-sitemap',
+    IpamEdgeCategory.SUBNET_VLAN: 'fa-tag',
+    IpamEdgeCategory.SUBNET_INTERFACE: 'fa-ethernet',
 }
 
 IPAM_RELATION_COLOR: str = '#4A90E2'
@@ -107,12 +125,12 @@ class IpamNeighbour:
             hierarchy (e.g. SUBNET when target is SUPERNET); False when above (e.g.
             SUPERNET when target is SUBNET). Controls which response bucket the
             orchestrator drops the node + edge into
-        relation_name: The IpamRelationName describing the neighbour's IPAM role; the
-            edge composer uses it to look up the display label, icon and color
+        edge_category: The IpamEdgeCategory describing the endpoint-pair category; the
+            edge composer reads it to emit the wire ``relation_name`` and look up the icon
     """
     neighbour_object: dict[str, Any]
     is_child_of_target: bool
-    relation_name: IpamRelationName
+    edge_category: IpamEdgeCategory
 
 
 def _collect_subnet_refs_from_interface_rows(target_object: dict[str, Any]) -> list[int]:
@@ -160,9 +178,9 @@ def _plan_ipam_neighbours(
     target_object: dict[str, Any],
     types_manager: TypesManager,
     objects_manager: ObjectsManager,
-) -> list[tuple[int, IpamRelationName, bool]]:
+) -> list[tuple[int, IpamEdgeCategory, bool]]:
     """
-    Builds the list of (neighbour_public_id, relation_name, is_child_of_target) candidates
+    Builds the list of (neighbour_public_id, edge_category, is_child_of_target) candidates
 
     Inspects the target's type against the SUPERNET / SUBNET / VLAN SpecialTypes and walks
     every applicable IPAM edge: SUPERNET -> SUBNETs, SUBNET -> SUPERNET / VLANs / interface
@@ -178,45 +196,46 @@ def _plan_ipam_neighbours(
         objects_manager (ObjectsManager): db interface for CmdbObjects
 
     Returns:
-        list[tuple[int, IpamRelationName, bool]]: Candidate neighbours; each tuple is
-            (neighbour_public_id, neighbour's IpamRelationName, True iff neighbour is a
-            child of target). Empty when the target has no IPAM neighbours
+        list[tuple[int, IpamEdgeCategory, bool]]: Candidate neighbours; each tuple is
+            (neighbour_public_id, edge's IpamEdgeCategory, True iff neighbour is a child
+            of target). Empty when the target has no IPAM neighbours
     """
     supernet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUPERNET)
     subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
     vlan_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.VLAN)
 
     target_type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
-    plan: list[tuple[int, IpamRelationName, bool]] = []
+    plan: list[tuple[int, IpamEdgeCategory, bool]] = []
 
-    # Target is SUPERNET → SUBNETs are its children
+    # Target is SUPERNET → SUBNETs are its children (SUBNET-SUPERNET edges)
     if supernet_type_id is not None and target_type_id == supernet_type_id:
         for subnet in find_subnets_referencing_supernet(objects_manager, types_manager, target_id):
-            plan.append((subnet[CmdbObjectKey.PUBLIC_ID], IpamRelationName.SUBNET, True))
+            plan.append((subnet[CmdbObjectKey.PUBLIC_ID], IpamEdgeCategory.SUBNET_SUPERNET, True))
 
     # Target is SUBNET → parent SUPERNET, child VLANs, child interface-carrying objects
     if subnet_type_id is not None and target_type_id == subnet_type_id:
         supernet_ref: Any = extract_field_value(target_object, SubnetField.PARENT_SUPERNET)
 
         if isinstance(supernet_ref, int) and supernet_ref != target_id:
-            plan.append((supernet_ref, IpamRelationName.SUPERNET, False))
+            plan.append((supernet_ref, IpamEdgeCategory.SUBNET_SUPERNET, False))
 
         for vlan in find_vlans_referencing_subnet(objects_manager, types_manager, target_id):
-            plan.append((vlan[CmdbObjectKey.PUBLIC_ID], IpamRelationName.VLAN, True))
+            plan.append((vlan[CmdbObjectKey.PUBLIC_ID], IpamEdgeCategory.SUBNET_VLAN, True))
 
         for interface_carrier in find_interfaces_referencing_subnet(objects_manager, target_id):
-            plan.append((interface_carrier[CmdbObjectKey.PUBLIC_ID], IpamRelationName.INTERFACE, True))
+            plan.append((interface_carrier[CmdbObjectKey.PUBLIC_ID], IpamEdgeCategory.SUBNET_INTERFACE, True))
 
-    # Target is VLAN → parent SUBNET
+    # Target is VLAN → parent SUBNET (SUBNET-VLAN edge)
     if vlan_type_id is not None and target_type_id == vlan_type_id:
         subnet_ref_from_vlan: Any = extract_field_value(target_object, VlanField.SUBNET_REF)
 
         if isinstance(subnet_ref_from_vlan, int) and subnet_ref_from_vlan != target_id:
-            plan.append((subnet_ref_from_vlan, IpamRelationName.SUBNET, False))
+            plan.append((subnet_ref_from_vlan, IpamEdgeCategory.SUBNET_VLAN, False))
 
     # Any object can carry dg-ipam-interface rows → walk them for SUBNET parent edges
+    # (SUBNET-INTERFACE edges)
     for interface_subnet_id in _collect_subnet_refs_from_interface_rows(target_object):
-        plan.append((interface_subnet_id, IpamRelationName.SUBNET, False))
+        plan.append((interface_subnet_id, IpamEdgeCategory.SUBNET_INTERFACE, False))
 
     return plan
 
@@ -273,7 +292,7 @@ def collect_ipam_neighbours(
     if not include_parents and not include_children:
         return []
 
-    plan: list[tuple[int, IpamRelationName, bool]] = _plan_ipam_neighbours(
+    plan: list[tuple[int, IpamEdgeCategory, bool]] = _plan_ipam_neighbours(
         target_id, target_object, types_manager, objects_manager,
     )
 
@@ -299,9 +318,9 @@ def collect_ipam_neighbours(
         if isinstance(obj.get(CmdbObjectKey.PUBLIC_ID), int)
     }
 
-    surviving: list[tuple[int, IpamRelationName, bool]] = [
-        (public_id, relation_name, is_child)
-        for public_id, relation_name, is_child in plan
+    surviving: list[tuple[int, IpamEdgeCategory, bool]] = [
+        (public_id, edge_category, is_child)
+        for public_id, edge_category, is_child in plan
         if public_id in full_by_id
     ]
 
@@ -312,7 +331,7 @@ def collect_ipam_neighbours(
         IpamNeighbour(
             neighbour_object=full_by_id[public_id],
             is_child_of_target=is_child,
-            relation_name=relation_name,
+            edge_category=edge_category,
         )
-        for public_id, relation_name, is_child in surviving
+        for public_id, edge_category, is_child in surviving
     ]
