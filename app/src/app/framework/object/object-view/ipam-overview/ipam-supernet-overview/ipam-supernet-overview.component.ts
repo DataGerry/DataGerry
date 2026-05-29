@@ -318,6 +318,9 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
                     this.page = response?.page ?? this.page;
                     this.pageSize = response?.page_size ?? this.pageSize;
                     this.total = response?.total ?? 0;
+                    if (!this.searchTerm) {
+                        this.invalidCount = this.total;
+                    }
                     this.hasLoadedOnce = true;
                     this.changesRef.markForCheck();
                 },
