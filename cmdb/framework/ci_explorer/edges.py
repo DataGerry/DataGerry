@@ -20,8 +20,11 @@ The route emits three distinct edge shapes:
   - relation edges carry a ``metadata`` sub-dict with the CmdbRelation id and the
     side-specific name / icon / color
   - IPAM edges carry the *same* metadata shape but with ``relation_id=None`` and an extra
-    ``source='ipam'`` tag so the FE can branch on styling; the metadata's labels and icons
-    come from the IpamRelationName tables (no CmdbRelation backs them)
+    ``source='ipam'`` tag so the FE can branch on styling; the wire ``relation_name`` and
+    ``relation_icon`` are direction-aware (the neighbour's role from the target's
+    perspective, so the same edge reads 'Supernet' from the subnet side and 'Subnet' from
+    the supernet side); ``relation_label`` is the fixed verb 'assigned' on every IPAM edge
+    (no CmdbRelation backs them)
   - location edges are bare ``{from, to}`` only; the FE renders them with fixed colors
 
 The shape asymmetry is intentional in the FE contract so the composers are kept separate
@@ -30,11 +33,14 @@ rather than producing a single shape with optional fields
 from typing import Any
 
 from cmdb.framework.ci_explorer.ipam import (
+    IPAM_EDGE_ICONS_CHILD,
+    IPAM_EDGE_ICONS_PARENT,
+    IPAM_EDGE_NAMES_CHILD,
+    IPAM_EDGE_NAMES_PARENT,
     IPAM_METADATA_SOURCE,
     IPAM_RELATION_COLOR,
-    IPAM_RELATION_ICONS,
-    IPAM_RELATION_LABELS,
-    IpamRelationName,
+    IPAM_RELATION_LABEL,
+    IpamEdgeCategory,
 )
 from cmdb.framework.ci_explorer.relations import DirectionalEdge
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -78,7 +84,8 @@ def compose_relation_edge(
 def compose_ipam_edge(
     edge_from: int,
     edge_to: int,
-    relation_name: IpamRelationName,
+    edge_category: IpamEdgeCategory,
+    is_child_of_target: bool,
 ) -> dict[str, Any]:
     """
     Builds one IPAM edge dict for the CI Explorer response
@@ -88,28 +95,38 @@ def compose_ipam_edge(
     all other relations, not like the locations"). Two differences distinguish IPAM edges:
     ``metadata.relation_id`` is ``None`` because no CmdbRelation backs the edge, and
     ``metadata.source`` carries the fixed string ``'ipam'`` so the FE can branch on styling
-    without having to look up the relation_id. The display label, icon and color are read
-    from the IPAM_RELATION_* tables in ``cmdb.framework.ci_explorer.ipam`` keyed by
-    ``relation_name``
+    without having to look up the relation_id. ``metadata.relation_name`` and
+    ``metadata.relation_icon`` are direction-aware - the wire string describes whichever
+    end the *neighbour* sits on, so the FE label reads naturally from the target's
+    perspective in either direction (e.g. the same SUBNET-SUPERNET edge reports
+    ``relation_name='Supernet'`` from the SUBNET side and ``'Subnet'`` from the SUPERNET
+    side). ``metadata.relation_label`` is the fixed verb ``'assigned'`` for every IPAM edge
 
     Args:
         edge_from (int): public_id of the edge source (parent end of the IPAM hierarchy)
         edge_to (int): public_id of the edge target (child end of the IPAM hierarchy)
-        relation_name (IpamRelationName): The neighbour's IPAM role; selects the label /
-            icon to display on the edge
+        edge_category (IpamEdgeCategory): The endpoint-pair category that scopes the
+            name/icon lookup
+        is_child_of_target (bool): True when the neighbour is a child of the target (the
+            edge goes target→neighbour in the IPAM hierarchy), False when the neighbour
+            is above the target (edge goes neighbour→target). Picks the CHILD vs PARENT
+            name/icon tables so the wire string describes the neighbour's role
 
     Returns:
         dict[str, Any]: ``{from, to, metadata: {relation_id, relation_name, relation_label,
             relation_icon, relation_color, source}}``
     """
+    name_table: dict[str, str] = IPAM_EDGE_NAMES_CHILD if is_child_of_target else IPAM_EDGE_NAMES_PARENT
+    icon_table: dict[str, str] = IPAM_EDGE_ICONS_CHILD if is_child_of_target else IPAM_EDGE_ICONS_PARENT
+
     return {
         'from': edge_from,
         'to': edge_to,
         'metadata': {
             'relation_id': None,
-            'relation_name': relation_name.value,
-            'relation_label': IPAM_RELATION_LABELS[relation_name],
-            'relation_icon': IPAM_RELATION_ICONS[relation_name],
+            'relation_name': name_table[edge_category],
+            'relation_label': IPAM_RELATION_LABEL,
+            'relation_icon': icon_table[edge_category],
             'relation_color': IPAM_RELATION_COLOR,
             'source': IPAM_METADATA_SOURCE,
         },

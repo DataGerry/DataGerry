@@ -18,10 +18,10 @@ Unit tests for cmdb.framework.ipam.enforcement
 
 Covers the pure helpers, the per-SpecialType enforcers, the delete guards and the two
 orchestrators. Downstream validators (validate_subnet, validate_vlan, validate_interface_rows,
-the range-change guards, the reference finders) are patched at the enforcement module path so
-each enforcer test verifies the dispatch/glue logic in isolation. The validators themselves
-have their own dedicated unit-test files. _build_delete_guard_error is intentionally not
-tested directly: it is a one-line wrapper around build_error, covered by its callers
+the reference finders) are patched at the enforcement module path so each enforcer test
+verifies the dispatch/glue logic in isolation. The validators themselves have their own
+dedicated unit-test files. _build_delete_guard_error is intentionally not tested directly:
+it is a one-line wrapper around build_error, covered by its callers
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -343,57 +343,43 @@ def _make_subnet_candidate(public_id: int | None, network_range: str, parent_id:
     return _make_object_doc(public_id=public_id, type_id=SUBNET_TYPE_ID, fields=fields)
 
 
-def test_enforce_subnet_object_on_insert_runs_validate_subnet_only() -> None:
-    """No previous_object → no range-change guard runs; validate_subnet drives the result"""
+def test_enforce_subnet_object_on_insert_runs_validate_subnet() -> None:
+    """No previous_object → validate_subnet drives the result and exclude_subnet_id is None"""
     candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, parent_id=PARENT_SUPERNET_ID)
 
-    with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock, \
-         patch(f'{ENF_PATH}.check_subnet_range_change') as guard_mock:
+    with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock:
         errors = _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=None)
 
     assert errors == []
     validate_mock.assert_called_once()
-    guard_mock.assert_not_called()
-
-
-def test_enforce_subnet_object_on_insert_passes_exclude_subnet_id_as_none() -> None:
-    """exclude_subnet_id is only used during edits; on insert it must be None"""
-    candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, parent_id=PARENT_SUPERNET_ID)
-
-    with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock, \
-         patch(f'{ENF_PATH}.check_subnet_range_change'):
-        _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=None)
-
     assert validate_mock.call_args.kwargs['exclude_subnet_id'] is None
 
 
-def test_enforce_subnet_object_on_update_with_unchanged_range_skips_guard() -> None:
-    """validate_subnet still runs but range-change guard is skipped when the range didn't change"""
-    candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, parent_id=PARENT_SUPERNET_ID)
-    previous = _make_subnet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, parent_id=PARENT_SUPERNET_ID)
-
-    with patch(f'{ENF_PATH}.validate_subnet', return_value=[]), \
-         patch(f'{ENF_PATH}.check_subnet_range_change') as guard_mock:
-        _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=previous)
-
-    guard_mock.assert_not_called()
-
-
-def test_enforce_subnet_object_on_update_with_changed_range_runs_guard() -> None:
-    """A range change triggers the range-change guard; both validate_subnet and guard errors accumulate"""
+def test_enforce_subnet_object_on_update_passes_candidate_id_as_exclude() -> None:
+    """previous_object set → exclude_subnet_id is forwarded so candidate doesn't collide with itself"""
     candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, parent_id=PARENT_SUPERNET_ID)
     previous = _make_subnet_candidate(CANDIDATE_OBJECT_ID, PREV_RANGE, parent_id=PARENT_SUPERNET_ID)
 
-    validator_error = {ValidationErrorKey.CODE: 'validator_err'}
-    guard_error = {ValidationErrorKey.CODE: 'guard_err'}
+    with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock:
+        _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=previous)
 
-    with patch(f'{ENF_PATH}.validate_subnet', return_value=[validator_error]), \
-         patch(f'{ENF_PATH}.check_subnet_range_change', return_value=[guard_error]) as guard_mock:
+    assert validate_mock.call_args.kwargs['exclude_subnet_id'] == CANDIDATE_OBJECT_ID
+
+
+def test_enforce_subnet_object_allows_range_change_even_when_interface_ips_would_orphan() -> None:
+    """
+    Range change to a smaller / disjoint CIDR is permitted: validate_subnet decides on its own,
+    no separate guard blocks the save. Interface IPs that no longer fit surface as
+    is_valid=False in the subnet IP-Übersicht instead
+    """
+    candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, parent_id=PARENT_SUPERNET_ID)
+    previous = _make_subnet_candidate(CANDIDATE_OBJECT_ID, PREV_RANGE, parent_id=PARENT_SUPERNET_ID)
+
+    with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock:
         errors = _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=previous)
 
-    guard_mock.assert_called_once()
-    codes = {e[ValidationErrorKey.CODE] for e in errors}
-    assert codes == {'validator_err', 'guard_err'}
+    assert errors == []
+    validate_mock.assert_called_once()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -412,47 +398,28 @@ def test_enforce_supernet_object_emits_cidr_invalid_for_unparseable_range() -> N
     """An invalid CIDR string on the candidate yields a CIDR_INVALID error"""
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, INVALID_CIDR)
 
-    with patch(f'{ENF_PATH}.check_supernet_range_change') as guard_mock:
-        errors = _enforce_supernet_object(MagicMock(), MagicMock(), candidate, previous_object=None)
+    errors = _enforce_supernet_object(candidate)
 
     assert len(errors) == 1
     assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.CIDR_INVALID
-    guard_mock.assert_not_called()
 
 
-def test_enforce_supernet_object_returns_empty_for_valid_cidr_on_insert() -> None:
-    """A canonical CIDR with no previous_object passes without invoking the range-change guard"""
+def test_enforce_supernet_object_returns_empty_for_canonical_cidr() -> None:
+    """A canonical CIDR passes; SUPERNET enforcement is now CIDR-canonicity only"""
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
 
-    with patch(f'{ENF_PATH}.check_supernet_range_change') as guard_mock:
-        errors = _enforce_supernet_object(MagicMock(), MagicMock(), candidate, previous_object=None)
-
-    assert errors == []
-    guard_mock.assert_not_called()
+    assert _enforce_supernet_object(candidate) == []
 
 
-def test_enforce_supernet_object_on_update_with_unchanged_range_skips_guard() -> None:
-    """When the range didn't change, the range-change guard is not invoked"""
+def test_enforce_supernet_object_allows_range_change_even_when_child_subnets_would_orphan() -> None:
+    """
+    Range change is permitted regardless of whether existing child subnets would now fall
+    outside the new range: those children surface as is_valid=False in the supernet overview
+    so the user can repair or detach them after the fact, instead of the save being blocked
+    """
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
-    previous = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
 
-    with patch(f'{ENF_PATH}.check_supernet_range_change') as guard_mock:
-        _enforce_supernet_object(MagicMock(), MagicMock(), candidate, previous_object=previous)
-
-    guard_mock.assert_not_called()
-
-
-def test_enforce_supernet_object_on_update_with_changed_range_runs_guard() -> None:
-    """A range change triggers check_supernet_range_change; its errors are included"""
-    candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
-    previous = _make_supernet_candidate(CANDIDATE_OBJECT_ID, PREV_RANGE)
-    guard_error = {ValidationErrorKey.CODE: 'guard_err'}
-
-    with patch(f'{ENF_PATH}.check_supernet_range_change', return_value=[guard_error]) as guard_mock:
-        errors = _enforce_supernet_object(MagicMock(), MagicMock(), candidate, previous_object=previous)
-
-    guard_mock.assert_called_once()
-    assert errors == [guard_error]
+    assert _enforce_supernet_object(candidate) == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

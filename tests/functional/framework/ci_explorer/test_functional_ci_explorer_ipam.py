@@ -201,7 +201,10 @@ class TestCiExplorerIpamRelations:
         assert edge['from'] == OBJ_SUPERNET
         assert edge['metadata']['source'] == 'ipam'
         assert edge['metadata']['relation_id'] is None
-        assert edge['metadata']['relation_name'] == 'ipam-subnet'
+        # target=SUPERNET, neighbour=SUBNET (child direction) → relation_name='Subnet'
+        assert edge['metadata']['relation_name'] == 'Subnet'
+        assert edge['metadata']['relation_icon'] == 'fa-sitemap'
+        assert edge['metadata']['relation_label'] == 'assigned'
 
 
     def test_subnet_target_grafts_parent_supernet_in_parent_bucket(self, rest_api):
@@ -220,7 +223,10 @@ class TestCiExplorerIpamRelations:
         edge = next(e for e in body['parent_edges'] if e['from'] == OBJ_SUPERNET)
         assert edge['to'] == OBJ_SUBNET_CHILD_OF_SUPERNET
         assert edge['metadata']['source'] == 'ipam'
-        assert edge['metadata']['relation_name'] == 'ipam-supernet'
+        # target=SUBNET, neighbour=SUPERNET (parent direction) → relation_name='Supernet'
+        assert edge['metadata']['relation_name'] == 'Supernet'
+        assert edge['metadata']['relation_icon'] == 'fa-network-wired'
+        assert edge['metadata']['relation_label'] == 'assigned'
 
 
     def test_orphan_subnet_target_grafts_vlan_and_interface_children(self, rest_api):
@@ -237,11 +243,17 @@ class TestCiExplorerIpamRelations:
         assert OBJ_VLAN in child_ids
         assert OBJ_SERVER_WITH_INTERFACE in child_ids
 
+        # target=SUBNET, neighbour=VLAN (child direction) → relation_name='VLAN'
         vlan_edge = next(e for e in body['child_edges'] if e['to'] == OBJ_VLAN)
-        assert vlan_edge['metadata']['relation_name'] == 'ipam-vlan'
+        assert vlan_edge['metadata']['relation_name'] == 'VLAN'
+        assert vlan_edge['metadata']['relation_icon'] == 'fa-tag'
+        assert vlan_edge['metadata']['relation_label'] == 'assigned'
 
+        # target=SUBNET, neighbour=interface-carrier (child direction) → relation_name='Interface'
         iface_edge = next(e for e in body['child_edges'] if e['to'] == OBJ_SERVER_WITH_INTERFACE)
-        assert iface_edge['metadata']['relation_name'] == 'ipam-interface'
+        assert iface_edge['metadata']['relation_name'] == 'Interface'
+        assert iface_edge['metadata']['relation_icon'] == 'fa-ethernet'
+        assert iface_edge['metadata']['relation_label'] == 'assigned'
 
 
     def test_vlan_target_grafts_parent_subnet(self, rest_api):
@@ -258,7 +270,10 @@ class TestCiExplorerIpamRelations:
 
         edge = next(e for e in body['parent_edges'] if e['from'] == OBJ_SUBNET_ORPHAN)
         assert edge['to'] == OBJ_VLAN
-        assert edge['metadata']['relation_name'] == 'ipam-subnet'
+        # target=VLAN, neighbour=SUBNET (parent direction) → relation_name='Subnet'
+        assert edge['metadata']['relation_name'] == 'Subnet'
+        assert edge['metadata']['relation_icon'] == 'fa-sitemap'
+        assert edge['metadata']['relation_label'] == 'assigned'
         assert edge['metadata']['source'] == 'ipam'
 
 
@@ -277,7 +292,10 @@ class TestCiExplorerIpamRelations:
 
         edge = next(e for e in body['parent_edges'] if e['from'] == OBJ_SUBNET_ORPHAN)
         assert edge['to'] == OBJ_SERVER_WITH_INTERFACE
-        assert edge['metadata']['relation_name'] == 'ipam-subnet'
+        # target=interface-carrier, neighbour=SUBNET (parent direction) → relation_name='Subnet-IP'
+        assert edge['metadata']['relation_name'] == 'Subnet-IP'
+        assert edge['metadata']['relation_icon'] == 'fa-sitemap'
+        assert edge['metadata']['relation_label'] == 'assigned'
 
 
     def test_target_type_child_only_drops_ipam_parent_neighbours(self, rest_api):

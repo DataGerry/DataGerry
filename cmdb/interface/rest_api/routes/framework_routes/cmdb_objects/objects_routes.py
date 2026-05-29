@@ -785,9 +785,11 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
 
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
     same payload; otherwise only the path-supplied 'public_id' is updated. Refuses any change
-    of an object's special_type. IPAM invariants (subnet / vlan / interface and the
-    range-shrink ripple guard) are enforced before the write. Computes a major / minor / patch
-    version bump from the field-level diff and records an edit log per updated CmdbObject
+    of an object's special_type. IPAM invariants (subnet / vlan / interface row validation)
+    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are no longer
+    blocked when they would push child rows outside the new range; those children surface as
+    is_valid=False in the IPAM overviews instead. Computes a major / minor / patch version
+    bump from the field-level diff and records an edit log per updated CmdbObject
 
     Args:
         public_id (int): public_id of the CmdbObject; used as the only target when no

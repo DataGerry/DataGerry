@@ -49,11 +49,6 @@ from cmdb.framework.ipam.subnet_validator import (
 )
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
-from cmdb.framework.ipam.range_change_guards import (
-    range_changed,
-    check_subnet_range_change,
-    check_supernet_range_change,
-)
 from cmdb.framework.ipam.references import (
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
@@ -137,8 +132,11 @@ def _enforce_subnet_object(
     previous_object: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     """
-    Runs the SUBNET-object validators against the candidate, plus the range-change guard
-    when an existing subnet's CIDR is being modified
+    Runs the SUBNET-object validators against the candidate
+
+    A CIDR change on an existing subnet is permitted even when it would push interface IPs
+    outside the new range: those rows surface as is_valid=False in the subnet IP-Übersicht so
+    the user can repair or unassign them after the fact, instead of the save being blocked
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -153,7 +151,7 @@ def _enforce_subnet_object(
     parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUPERNET))
     candidate_id: int | None = _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID))
 
-    errors: list[dict[str, Any]] = validate_subnet(
+    return validate_subnet(
         objects_manager,
         types_manager,
         network_range=network_range if isinstance(network_range, str) else '',
@@ -161,49 +159,27 @@ def _enforce_subnet_object(
         exclude_subnet_id=candidate_id if previous_object is not None else None,
     )
 
-    if previous_object is not None and candidate_id is not None:
-        previous_range: Any = extract_field_value(previous_object, SubnetField.NETWORK_RANGE)
-        if range_changed(previous_range, network_range):
-            errors.extend(check_subnet_range_change(
-                objects_manager, candidate_id, network_range,
-            ))
 
-    return errors
-
-
-def _enforce_supernet_object(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    candidate_object: dict[str, Any],
-    previous_object: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
+def _enforce_supernet_object(candidate_object: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Runs the SUPERNET-object validators against the candidate; SUPERNETs need only the
-    canonical-CIDR check (covered by the schema regex + the range-change guard on edits)
+    Runs the SUPERNET-object validators against the candidate; only the canonical-CIDR
+    check applies
+
+    A CIDR change that would push child subnets outside the new range is permitted: those
+    children surface as is_valid=False in the supernet overview so the user can repair or
+    detach them after the fact, instead of the save being blocked
 
     Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
-        previous_object (dict[str, Any] | None): The pre-edit document on update, else None
 
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
     network_range: Any = extract_field_value(candidate_object, SupernetField.NETWORK_RANGE)
-    candidate_id: int | None = _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID))
 
     _, parsed_errors = validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
-    errors: list[dict[str, Any]] = list(parsed_errors)
 
-    if previous_object is not None and candidate_id is not None:
-        previous_range: Any = extract_field_value(previous_object, SupernetField.NETWORK_RANGE)
-        if range_changed(previous_range, network_range):
-            errors.extend(check_supernet_range_change(
-                objects_manager, types_manager, candidate_id, network_range,
-            ))
-
-    return errors
+    return list(parsed_errors)
 
 
 def _enforce_vlan_object(
@@ -334,7 +310,7 @@ def enforce_object_invariants(
     special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id)
 
     if special_type == SpecialType.SUPERNET:
-        errors.extend(_enforce_supernet_object(objects_manager, types_manager, candidate_object, previous_object))
+        errors.extend(_enforce_supernet_object(candidate_object))
     elif special_type == SpecialType.SUBNET:
         errors.extend(_enforce_subnet_object(objects_manager, types_manager, candidate_object, previous_object))
     elif special_type == SpecialType.VLAN:

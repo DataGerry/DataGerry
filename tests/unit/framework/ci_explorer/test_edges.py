@@ -23,7 +23,7 @@ feedback_skip_trivial_methods
 import pytest
 
 from cmdb.framework.ci_explorer.edges import compose_ipam_edge, compose_relation_edge
-from cmdb.framework.ci_explorer.ipam import IpamRelationName
+from cmdb.framework.ci_explorer.ipam import IpamEdgeCategory
 from cmdb.framework.ci_explorer.relations import DirectionalEdge
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -60,17 +60,43 @@ def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
     }
 
 
-def test_compose_ipam_edge_emits_full_envelope_with_ipam_source_tag() -> None:
-    """Pins the full ipam edge shape: relation_id=None, source='ipam', labels from the tables"""
-    edge = compose_ipam_edge(edge_from=100, edge_to=200, relation_name=IpamRelationName.SUBNET)
+def test_compose_ipam_edge_parent_direction_emits_full_envelope() -> None:
+    """Parent direction (is_child_of_target=False): name/icon describe the parent end (neighbour)"""
+    edge = compose_ipam_edge(
+        edge_from=80, edge_to=64,
+        edge_category=IpamEdgeCategory.SUBNET_SUPERNET,
+        is_child_of_target=False,
+    )
 
     assert edge == {
-        'from': 100,
-        'to': 200,
+        'from': 80,
+        'to': 64,
         'metadata': {
             'relation_id': None,
-            'relation_name': 'ipam-subnet',
-            'relation_label': 'Subnet',
+            'relation_name': 'Supernet',
+            'relation_label': 'assigned',
+            'relation_icon': 'fa-network-wired',
+            'relation_color': '#4A90E2',
+            'source': 'ipam',
+        },
+    }
+
+
+def test_compose_ipam_edge_child_direction_emits_full_envelope() -> None:
+    """Child direction (is_child_of_target=True): name/icon describe the child end (neighbour)"""
+    edge = compose_ipam_edge(
+        edge_from=80, edge_to=64,
+        edge_category=IpamEdgeCategory.SUBNET_SUPERNET,
+        is_child_of_target=True,
+    )
+
+    assert edge == {
+        'from': 80,
+        'to': 64,
+        'metadata': {
+            'relation_id': None,
+            'relation_name': 'Subnet',
+            'relation_label': 'assigned',
             'relation_icon': 'fa-sitemap',
             'relation_color': '#4A90E2',
             'source': 'ipam',
@@ -78,17 +104,29 @@ def test_compose_ipam_edge_emits_full_envelope_with_ipam_source_tag() -> None:
     }
 
 
-@pytest.mark.parametrize('relation_name,expected_label', [
-    (IpamRelationName.SUPERNET, 'Supernet'),
-    (IpamRelationName.SUBNET, 'Subnet'),
-    (IpamRelationName.VLAN, 'VLAN'),
-    (IpamRelationName.INTERFACE, 'Interface'),
+@pytest.mark.parametrize('edge_category,is_child_of_target,expected_relation_name,expected_icon', [
+    # Parent direction (neighbour is parent of target)
+    (IpamEdgeCategory.SUBNET_SUPERNET, False, 'Supernet', 'fa-network-wired'),
+    (IpamEdgeCategory.SUBNET_VLAN, False, 'Subnet', 'fa-sitemap'),
+    (IpamEdgeCategory.SUBNET_INTERFACE, False, 'Subnet-IP', 'fa-sitemap'),
+    # Child direction (neighbour is child of target)
+    (IpamEdgeCategory.SUBNET_SUPERNET, True, 'Subnet', 'fa-sitemap'),
+    (IpamEdgeCategory.SUBNET_VLAN, True, 'VLAN', 'fa-tag'),
+    (IpamEdgeCategory.SUBNET_INTERFACE, True, 'Interface', 'fa-ethernet'),
 ])
-def test_compose_ipam_edge_picks_label_from_relation_name_table(
-    relation_name: IpamRelationName, expected_label: str,
+def test_compose_ipam_edge_emits_direction_aware_name_and_icon(
+    edge_category: IpamEdgeCategory,
+    is_child_of_target: bool,
+    expected_relation_name: str,
+    expected_icon: str,
 ) -> None:
-    """Each IpamRelationName resolves to its agreed display label via the lookup table"""
-    edge = compose_ipam_edge(edge_from=1, edge_to=2, relation_name=relation_name)
+    """All six (category, direction) pairs emit the agreed wire relation_name + relation_icon"""
+    edge = compose_ipam_edge(
+        edge_from=1, edge_to=2,
+        edge_category=edge_category,
+        is_child_of_target=is_child_of_target,
+    )
 
-    assert edge['metadata']['relation_name'] == relation_name.value
-    assert edge['metadata']['relation_label'] == expected_label
+    assert edge['metadata']['relation_name'] == expected_relation_name
+    assert edge['metadata']['relation_icon'] == expected_icon
+    assert edge['metadata']['relation_label'] == 'assigned'
