@@ -36,8 +36,8 @@
 </ng-template>
 
 <ng-template #cidrTemplate let-item="item">
-  <div class="ipam-tree-cell" [style.padding-left.rem]="searchMode ? 0 : item.depth * 1.5">
-    @if (!searchMode && item.subnet?.has_children) {
+  <div class="ipam-tree-cell" [style.padding-left.rem]="treeDisabled ? 0 : item.depth * 1.5">
+    @if (!treeDisabled && item.subnet?.has_children) {
       <button
         type="button"
         class="ipam-tree-cell__toggle"
@@ -52,14 +52,14 @@
           <i class="fa fa-chevron-right" aria-hidden="true"></i>
         }
       </button>
-    } @else if (!searchMode) {
+    } @else if (!treeDisabled) {
       <span class="ipam-tree-cell__toggle-placeholder" aria-hidden="true"></span>
     }
 
     <i
       class="ipam-tree-cell__icon fa"
-      [class.fa-folder]="!searchMode && item.subnet?.has_children"
-      [class.fa-file-text-o]="searchMode || !item.subnet?.has_children"
+      [class.fa-folder]="!treeDisabled && item.subnet?.has_children"
+      [class.fa-file-text-o]="treeDisabled || !item.subnet?.has_children"
       aria-hidden="true">
     </i>
 

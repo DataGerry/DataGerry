@@ -77,6 +77,19 @@ export interface IpamSupernetOverviewParams {
     search?: string;
 }
 
+export interface IpamSupernetInvalidSubnetsParams {
+    page?: number;
+    page_size?: number;
+    search?: string;
+}
+
+export interface IpamSupernetInvalidSubnetsResponse {
+    page: number;
+    page_size: number;
+    total: number;
+    rows: IpamSubnetSummary[];
+}
+
 export interface IpamUnassignSubnetsResponse {
     subnet_ids: number[];
     unassigned_count: number;

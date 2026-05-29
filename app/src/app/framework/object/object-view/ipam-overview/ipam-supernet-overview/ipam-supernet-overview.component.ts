@@ -38,6 +38,8 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Sort, SortDirection } from '../../../../../layout/table/table.types';
 import {
     IpamSubnetSummary,
+    IpamSupernetInvalidSubnetsParams,
+    IpamSupernetInvalidSubnetsResponse,
     IpamSupernetOverviewParams,
     IpamSupernetOverviewResponse,
     IpamSupernetSummary
@@ -48,6 +50,8 @@ import { IpamOverviewService } from '../services/ipam-overview.service';
 const DEFAULT_PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
 const MIN_SEARCH_LENGTH = 2;
+
+type SubnetViewMode = 'all' | 'invalid';
 
 @Component({
     selector: 'cmdb-ipam-supernet-overview',
@@ -63,6 +67,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     public supernet: IpamSupernetSummary | null = null;
     public subnetRows: IpamSubnetSummary[] = [];
     public invalidCount = 0;
+    public viewMode: SubnetViewMode = 'all';
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
     public total = 0;
@@ -97,6 +102,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
 
     public ngOnChanges(changes: SimpleChanges): void {
         if (changes['publicId'] && this.publicId != null) {
+            this.viewMode = 'all';
             this.page = 1;
             this.searchTerm = '';
             this.searchControl.setValue('', { emitEvent: false });
@@ -129,6 +135,14 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         this.sort = sort;
         this.page = 1;
         this.loadOverview();
+    }
+
+    public onShowAllSubnets(): void {
+        this.setViewMode('all');
+    }
+
+    public onShowInvalidSubnets(): void {
+        this.setViewMode('invalid');
     }
 
     public onUnassign(subnetIds: number[]): void {
@@ -212,7 +226,26 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         this.loadOverview();
     }
 
+    private setViewMode(mode: SubnetViewMode): void {
+        if (this.viewMode === mode) {
+            return;
+        }
+        this.viewMode = mode;
+        this.page = 1;
+        this.searchTerm = '';
+        this.searchControl.setValue('', { emitEvent: false });
+        this.loadOverview();
+    }
+
     private loadOverview(): void {
+        if (this.viewMode === 'invalid') {
+            this.loadInvalidSubnets();
+            return;
+        }
+        this.loadAllSubnets();
+    }
+
+    private loadAllSubnets(): void {
         if (this.publicId == null) {
             return;
         }
@@ -251,6 +284,45 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
                     this.supernet = null;
                     this.subnetRows = [];
                     this.invalidCount = 0;
+                    this.total = 0;
+                    this.hasLoadedOnce = true;
+                    this.toastService.error(err?.error?.message);
+                    this.changesRef.markForCheck();
+                }
+            });
+    }
+
+    private loadInvalidSubnets(): void {
+        if (this.publicId == null) {
+            return;
+        }
+
+        this.hasError = false;
+        this.loaderService.show();
+
+        const params: IpamSupernetInvalidSubnetsParams = {
+            page: this.page,
+            page_size: this.pageSize,
+            search: this.searchTerm || undefined
+        };
+
+        this.ipamOverviewService
+            .getInvalidSubnets(this.publicId, params)
+            .pipe(
+                takeUntil(this.destroy$),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (response: IpamSupernetInvalidSubnetsResponse) => {
+                    this.subnetRows = response?.rows ?? [];
+                    this.page = response?.page ?? this.page;
+                    this.pageSize = response?.page_size ?? this.pageSize;
+                    this.total = response?.total ?? 0;
+                    this.hasLoadedOnce = true;
+                    this.changesRef.markForCheck();
+                },
+                error: (err) => {
+                    this.subnetRows = [];
                     this.total = 0;
                     this.hasLoadedOnce = true;
                     this.toastService.error(err?.error?.message);
