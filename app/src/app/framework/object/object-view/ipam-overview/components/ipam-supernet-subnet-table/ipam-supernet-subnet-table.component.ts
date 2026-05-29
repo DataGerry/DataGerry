@@ -210,7 +210,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     private setupColumns(): void {
         this.columns = [
             {
-                display: 'Subnet (CIDR)',
+                display: 'Subnet/CIDR',
                 name: 'cidr',
                 data: 'subnet.cidr',
                 sortable: false,
