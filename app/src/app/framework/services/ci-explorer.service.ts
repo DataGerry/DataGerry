@@ -30,11 +30,12 @@ export class CiExplorerService extends BaseApiService<never> {
     targetId: number,
     types: number[] = [],
     relations: number[] = [],
-    withLocations: boolean = true
+    withLocations: boolean = true,
+    withIpamRelations: boolean = true
   ): Observable<GraphRespWithRoot> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=BOTH&with_root=true&with_locations=${withLocations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      `&target_type=BOTH&with_root=true&with_locations=${withLocations}&with_ipam_relations=${withIpamRelations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespWithRoot>(url);

@@ -74,6 +74,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   profiles: FilterProfile[] = [];
   selectedProfileId: number | null = null;
   withLocations: boolean = true;
+  withIpamRelations: boolean = true;
 
   // Filter options
   typeOptionList: { public_id: number; display_name: string }[] = [];
@@ -283,7 +284,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       this.rootNodeId,
       this.typesFilter,
       this.relationsFilter,
-      this.withLocations
+      this.withLocations,
+      this.withIpamRelations
     ).pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: r => {
         this.paintInitial(r);
@@ -1211,6 +1213,14 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
    */
   onWithLocationsChange(checked: boolean): void {
     this.withLocations = checked;
+  }
+
+
+  /**
+   * Updates the "include IPAM relations" preference used for graph API calls.
+   */
+  onWithIpamRelationsChange(checked: boolean): void {
+    this.withIpamRelations = checked;
   }
 
 
