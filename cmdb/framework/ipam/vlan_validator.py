@@ -21,16 +21,18 @@ Currently confirms only that the referenced subnet object exists and has Special
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
+from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.references import resolve_special_type_id
-from cmdb.framework.ipam.subnet_validator import build_error
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  ERROR CODES                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-class VlanErrorCode:
+class VlanErrorCode(BaseStrEnum):
     """Stable codes for structured vlan validation errors"""
     SUBNET_TYPE_MISSING = 'subnet_type_missing'
     SUBNET_NOT_FOUND = 'subnet_not_found'
@@ -64,7 +66,7 @@ def validate_vlan(
         )]
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(
-        {'public_id': subnet_object_id, 'type_id': subnet_type_id},
+        {CmdbObjectKey.PUBLIC_ID: subnet_object_id, CmdbObjectKey.TYPE_ID: subnet_type_id},
         as_dict=True,
     )
 
@@ -72,7 +74,7 @@ def validate_vlan(
         return [build_error(
             VlanErrorCode.SUBNET_NOT_FOUND,
             f"Subnet object with id {subnet_object_id} does not exist",
-            {'subnet_object_id': subnet_object_id},
+            {IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id},
         )]
 
     return []

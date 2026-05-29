@@ -31,20 +31,24 @@ from cmdb.models.special_type_model.ipam_constants import (
     VlanField,
     InterfaceField,
     IpamSection,
+    IpamValidationDetailKey,
 )
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.utils import BaseStrEnum, ValidationErrorKey, build_error
+from cmdb.framework.ipam.cidr import validate_canonical_cidr_value
 from cmdb.framework.ipam.subnet_validator import (
     validate_subnet,
-    extract_field_value,
-    build_error,
     SubnetErrorCode,
 )
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
-from cmdb.framework.ipam.range_change_guards import (
-    range_changed,
-    check_subnet_range_change,
-    check_supernet_range_change,
-)
 from cmdb.framework.ipam.references import (
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
@@ -67,7 +71,10 @@ def format_errors_for_abort(errors: list[dict[str, Any]]) -> str:
     Returns:
         str: 'IPAM validation failed: <msg1> | <msg2> | ...'
     """
-    joined: str = " | ".join(e.get('message', e.get('code', 'unknown error')) for e in errors)
+    joined: str = " | ".join(
+        e.get(ValidationErrorKey.MESSAGE, e.get(ValidationErrorKey.CODE, 'unknown error'))
+        for e in errors
+    )
 
     return f"IPAM validation failed: {joined}"
 
@@ -88,7 +95,7 @@ def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> S
     if not type_doc:
         return None
 
-    raw: Any = type_doc.get('special_type')
+    raw: Any = type_doc.get(TypeSchemaKey.SPECIAL_TYPE)
 
     if raw is None or not SpecialType.is_valid(raw):
         return None
@@ -125,8 +132,11 @@ def _enforce_subnet_object(
     previous_object: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     """
-    Runs the SUBNET-object validators against the candidate, plus the range-change guard
-    when an existing subnet's CIDR is being modified
+    Runs the SUBNET-object validators against the candidate
+
+    A CIDR change on an existing subnet is permitted even when it would push interface IPs
+    outside the new range: those rows surface as is_valid=False in the subnet IP-Übersicht so
+    the user can repair or unassign them after the fact, instead of the save being blocked
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -139,9 +149,9 @@ def _enforce_subnet_object(
     """
     network_range: Any = extract_field_value(candidate_object, SubnetField.NETWORK_RANGE)
     parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUPERNET))
-    candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
+    candidate_id: int | None = _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID))
 
-    errors: list[dict[str, Any]] = validate_subnet(
+    return validate_subnet(
         objects_manager,
         types_manager,
         network_range=network_range if isinstance(network_range, str) else '',
@@ -149,75 +159,27 @@ def _enforce_subnet_object(
         exclude_subnet_id=candidate_id if previous_object is not None else None,
     )
 
-    if previous_object is not None and candidate_id is not None:
-        previous_range: Any = extract_field_value(previous_object, SubnetField.NETWORK_RANGE)
-        if range_changed(previous_range, network_range):
-            errors.extend(check_subnet_range_change(
-                objects_manager, candidate_id, network_range,
-            ))
 
-    return errors
-
-
-def _enforce_supernet_object(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    candidate_object: dict[str, Any],
-    previous_object: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
+def _enforce_supernet_object(candidate_object: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Runs the SUPERNET-object validators against the candidate; SUPERNETs need only the
-    canonical-CIDR check (covered by the schema regex + the range-change guard on edits)
+    Runs the SUPERNET-object validators against the candidate; only the canonical-CIDR
+    check applies
+
+    A CIDR change that would push child subnets outside the new range is permitted: those
+    children surface as is_valid=False in the supernet overview so the user can repair or
+    detach them after the fact, instead of the save being blocked
 
     Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
-        previous_object (dict[str, Any] | None): The pre-edit document on update, else None
 
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
     network_range: Any = extract_field_value(candidate_object, SupernetField.NETWORK_RANGE)
-    candidate_id: int | None = _coerce_int(candidate_object.get('public_id'))
 
-    errors: list[dict[str, Any]] = []
+    _, parsed_errors = validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
 
-    parsed_errors = _validate_supernet_cidr(network_range)
-    errors.extend(parsed_errors)
-
-    if previous_object is not None and candidate_id is not None:
-        previous_range: Any = extract_field_value(previous_object, SupernetField.NETWORK_RANGE)
-        if range_changed(previous_range, network_range):
-            errors.extend(check_supernet_range_change(
-                objects_manager, types_manager, candidate_id, network_range,
-            ))
-
-    return errors
-
-
-def _validate_supernet_cidr(network_range: Any) -> list[dict[str, Any]]:
-    """
-    Verifies the supernet's network range is a canonical IPv4 CIDR
-
-    Args:
-        network_range (Any): The raw 'dg-network-range' value from the candidate
-
-    Returns:
-        list[dict[str, Any]]: Single-element list with a CIDR_INVALID error when invalid, else []
-    """
-    from cmdb.framework.ipam.cidr import parse_cidr
-
-    parsed = parse_cidr(network_range) if isinstance(network_range, str) else None
-
-    if parsed is None:
-        return [build_error(
-            SubnetErrorCode.CIDR_INVALID,
-            f"'{network_range}' is not a canonical IPv4 CIDR (host bits must be zero)",
-            {'network_range': network_range},
-        )]
-
-    return []
+    return list(parsed_errors)
 
 
 def _enforce_vlan_object(
@@ -259,17 +221,17 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
     """
     rows_out: list[tuple[int, int | None, str | None]] = []
 
-    for section in candidate_object.get('multi_data_sections', []) or []:
-        if section.get('section_id') != IpamSection.INTERFACE:
+    for section in candidate_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+        if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
             continue
 
-        for row_index, row in enumerate(section.get('values', []) or []):
+        for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
             subnet_ref: int | None = None
             ip_address: str | None = None
 
-            for entry in row.get('data', []) or []:
-                name: Any = entry.get('name')
-                value: Any = entry.get('value')
+            for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+                name: Any = entry.get(CmdbObjectFieldKey.NAME)
+                value: Any = entry.get(CmdbObjectFieldKey.VALUE)
 
                 if name == InterfaceField.SUBNET:
                     subnet_ref = _coerce_int(value)
@@ -306,7 +268,7 @@ def _enforce_interface_rows(
         return []
 
     exclude_object_id: int | None = (
-        _coerce_int(candidate_object.get('public_id')) if previous_object is not None else None
+        _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID)) if previous_object is not None else None
     )
 
     return validate_interface_rows(objects_manager, types_manager, rows, exclude_object_id)
@@ -338,7 +300,7 @@ def enforce_object_invariants(
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when the candidate is valid
     """
-    type_id: Any = candidate_object.get('type_id')
+    type_id: Any = candidate_object.get(CmdbObjectKey.TYPE_ID)
 
     if not isinstance(type_id, int):
         return []
@@ -348,7 +310,7 @@ def enforce_object_invariants(
     special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id)
 
     if special_type == SpecialType.SUPERNET:
-        errors.extend(_enforce_supernet_object(objects_manager, types_manager, candidate_object, previous_object))
+        errors.extend(_enforce_supernet_object(candidate_object))
     elif special_type == SpecialType.SUBNET:
         errors.extend(_enforce_subnet_object(objects_manager, types_manager, candidate_object, previous_object))
     elif special_type == SpecialType.VLAN:
@@ -362,7 +324,7 @@ def enforce_object_invariants(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  DELETE GUARDS                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-class DeleteGuardErrorCode:
+class DeleteGuardErrorCode(BaseStrEnum):
     """Stable codes for IPAM deletion-guard errors"""
     SUPERNET_HAS_REFERENCING_SUBNETS = 'supernet_has_referencing_subnets'
     SUBNET_HAS_REFERENCING_VLANS = 'subnet_has_referencing_vlans'
@@ -379,7 +341,7 @@ def _format_id_list(refs: list[dict[str, Any]]) -> str:
     Returns:
         str: 'id, id, id'
     """
-    return ", ".join(str(r.get('public_id')) for r in refs)
+    return ", ".join(str(r.get(CmdbObjectKey.PUBLIC_ID)) for r in refs)
 
 
 def _build_delete_guard_error(code: str, message: str, refs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -394,7 +356,7 @@ def _build_delete_guard_error(code: str, message: str, refs: list[dict[str, Any]
     Returns:
         dict[str, Any]: The error dict with 'code', 'message', and 'details.references'
     """
-    return build_error(code, message, {'references': refs})
+    return build_error(code, message, {IpamValidationDetailKey.REFERENCES: refs})
 
 
 def enforce_delete_guards(
@@ -417,8 +379,8 @@ def enforce_delete_guards(
     Returns:
         list[dict[str, Any]]: Structured guard errors; empty when deletion is allowed
     """
-    type_id: Any = target_object.get('type_id')
-    object_id: Any = target_object.get('public_id')
+    type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
+    object_id: Any = target_object.get(CmdbObjectKey.PUBLIC_ID)
 
     if not isinstance(type_id, int) or not isinstance(object_id, int):
         return []

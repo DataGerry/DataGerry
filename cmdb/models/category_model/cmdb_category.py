@@ -19,7 +19,7 @@ Represents a CmdbCategory in DataGerry
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.class_schema.cmdb_category_schema import get_cmdb_category_schema
+from cmdb.class_schema.category_model.cmdb_category_schema import get_cmdb_category_schema
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.category_model.category_meta import CategoryMeta

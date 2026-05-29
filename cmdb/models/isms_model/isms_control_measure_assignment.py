@@ -25,6 +25,10 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 
+from cmdb.class_schema.isms_model.isms_control_measure_assignment_schema import (
+    get_isms_control_measure_assignment_schema,
+)
+
 from cmdb.errors.models.isms_control_measure_assignment import (
     IsmsControlMeasureAssignmentInitError,
     IsmsControlMeasureAssignmentInitFromDataError,
@@ -61,53 +65,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
         }
     ]
 
-    SCHEMA: dict = {
-        'public_id': { # public_id of the IsmsControlMeasureAssignment
-            'type': 'integer',
-            'min': 1,
-        },
-        'control_measure_id': { # public_id of IsmsControlMeasure
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'risk_assessment_id': { # public_id of IsmsRiskAssessment
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'planned_implementation_date': { # Date of planned implementation
-            'type': 'dict',
-            'required': True,
-            'nullable': True,
-        },
-        'implementation_status': { # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'finished_implementation_date': { # Date of finished implementation
-            'type': 'dict',
-            'required': True,
-            'nullable': True,
-        },
-        'priority': { # Priority enum (1 = Low, 2 = Medium, 3 = High, 4 = Very high)
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        'responsible_for_implementation_id_ref_type': { # PersonReferenceType Enum
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'responsible_for_implementation_id': { # public_id of CmdbPerson or CmdbPersonGroup
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
-    }
+    SCHEMA: dict = get_isms_control_measure_assignment_schema()
 
 
     #pylint: disable=R0913, R0917

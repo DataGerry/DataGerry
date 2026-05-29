@@ -16,27 +16,13 @@
 """
 Enumeration of all available SectionTypes for CmdbTypes
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class SectionType(str, Enum):
+class SectionType(BaseStrEnum):
     """
     Enumeration of section types in CmdbTypes
     """
     SECTION = 'section'
     MDS_SECTION = 'multi-data-section'
     REF_SECTION = 'ref-section'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid SectionType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing SectionType, False otherwise
-        """
-        return value in cls._value2member_map_

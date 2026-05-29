@@ -16,10 +16,10 @@
 """
 Enumeration of dict keys allowed inside a single section entry of a CmdbType section schema
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class SectionKey(str, Enum):
+class SectionKey(BaseStrEnum):
     """
     Enumeration of dict keys allowed inside a single section entry
 
@@ -32,17 +32,3 @@ class SectionKey(str, Enum):
     NAME = 'name'
     LABEL = 'label'
     FIELDS = 'fields'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known SectionKey
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing SectionKey, False otherwise
-        """
-        return value in cls._value2member_map_

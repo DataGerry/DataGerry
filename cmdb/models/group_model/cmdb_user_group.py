@@ -22,6 +22,8 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
 
+from cmdb.class_schema.group_model.cmdb_user_group_schema import get_cmdb_user_group_schema
+
 from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupInitError,
     CmdbUserGroupInitFromDataError,
@@ -44,25 +46,7 @@ class CmdbUserGroup(CmdbDAO):
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'required': False
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'label': {
-            'type': 'string',
-            'required': False,
-        },
-        'rights': {
-            'type': 'list',
-            'required': False,
-            'default': []
-        }
-    }
+    SCHEMA: dict = get_cmdb_user_group_schema()
 
 
     def __init__(self, public_id: int, name: str, label: str = None, rights: list[BaseRight] = None):

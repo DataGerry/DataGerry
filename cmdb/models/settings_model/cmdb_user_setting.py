@@ -24,6 +24,8 @@ from pymongo import IndexModel
 from cmdb.models.settings_model.user_setting_payload import UserSettingPayload
 from cmdb.models.settings_model.user_setting_type_enum import UserSettingType
 
+from cmdb.class_schema.settings_model.cmdb_user_setting_schema import get_cmdb_user_setting_schema
+
 from cmdb.errors.models.cmdb_user_setting import (
     CmdbUserSettingInitError,
     CmdbUserSettingInitFromDataError,
@@ -51,24 +53,7 @@ class CmdbUserSetting:
         {'keys': [('resource', 1), ('user_id', 1)], 'name': 'resource-user', 'unique': True}
     ]
 
-    SCHEMA: dict = {
-        'resource': {
-            'type': 'string',
-            'required': True
-        },
-        'user_id': {
-            'type': 'integer',
-            'required': True
-        },
-        'payloads': {
-            'type': 'list',
-            'required': False
-        },
-        'setting_type': {
-            'type': 'string',
-            'required': True
-        }
-    }
+    SCHEMA: dict = get_cmdb_user_setting_schema()
 
 
     def __init__(self, resource: str, user_id: int, payloads: list[UserSettingPayload], setting_type: UserSettingType):

@@ -14,18 +14,54 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Reference lookups used by the IPAM deletion guards
+Reference lookups used by the IPAM deletion guards and overview builders
 
-Each helper returns a list of lightweight dicts ({'public_id': int, 'type_id': int}) so the
+Most helpers return a list of lightweight dicts ({'public_id': int, 'type_id': int}) so the
 caller can format a 400 response listing the blocking objects without needing to load full
-CmdbObjects
+CmdbObjects. The overview-oriented helpers (``load_vlans_by_subnets``) return a richer
+{'public_id', 'name'} shape grouped by the queried subnet so the consumer can attach VLAN
+chips next to subnet rows without an extra round-trip
 """
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.object_model import (
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, VlanField, InterfaceField
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    VlanField,
+    InterfaceField,
+    IpamOverviewKey,
+)
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _project_to_reference_dicts(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Projects full CmdbObject documents down to the lightweight reference shape used by the
+    deletion-guard responses
+
+    Args:
+        docs (list[dict[str, Any]]): Full CmdbObject documents (each must carry public_id and
+            type_id at the top level)
+
+    Returns:
+        list[dict[str, Any]]: One dict per input with only the 'public_id' and 'type_id' keys
+    """
+    return [
+        {
+            CmdbObjectKey.PUBLIC_ID: doc[CmdbObjectKey.PUBLIC_ID],
+            CmdbObjectKey.TYPE_ID: doc[CmdbObjectKey.TYPE_ID],
+        }
+        for doc in docs
+    ]
 
 
 def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialType) -> int | None:
@@ -39,12 +75,12 @@ def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialTy
     Returns:
         int | None: The CmdbType's public_id, or None if no such CmdbType is defined
     """
-    type_doc: dict[str, Any] | None = types_manager.get_one_by({'special_type': special_type})
+    type_doc: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
 
     if not type_doc:
         return None
 
-    return type_doc.get('public_id')
+    return type_doc.get(CmdbObjectKey.PUBLIC_ID)
 
 
 def _find_objects_with_field_value(
@@ -69,18 +105,86 @@ def _find_objects_with_field_value(
         list[dict[str, Any]]: One dict per matching CmdbObject with 'public_id' and 'type_id'
     """
     criteria: dict[str, Any] = {
-        'type_id': type_id,
-        'fields': {
+        CmdbObjectKey.TYPE_ID: type_id,
+        CmdbObjectKey.FIELDS: {
             '$elemMatch': {
-                'name': field_name,
-                'value': field_value,
+                CmdbObjectFieldKey.NAME: field_name,
+                CmdbObjectFieldKey.VALUE: field_value,
             },
         },
     }
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [{'public_id': m['public_id'], 'type_id': m['type_id']} for m in matches]
+    return _project_to_reference_dicts(matches)
+
+
+def load_vlans_by_subnets(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    subnet_ids: list[int],
+) -> dict[int, list[dict[str, Any]]]:
+    """
+    Groups VLAN CmdbObjects by the subnet their 'dg-subnet-ref' field points at
+
+    A single Mongo query selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
+    ``subnet_ids``; bucketing happens in Python to keep the pipeline portable (Cosmos Mongo API
+    friendly: no aggregation stages required). Each VLAN that references one of the supplied
+    subnets contributes a {'public_id': <vlan id>, 'name': <vlan dg-name or None>} entry to the
+    bucket for that subnet. Per-bucket entries are sorted by ascending public_id so the order
+    is deterministic across re-queries
+
+    Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
+    subnets without referencing VLANs do not appear in the returned dict (callers should treat
+    a missing key as an empty list)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        subnet_ids (list[int]): The subnet public_ids whose referencing VLANs should be loaded
+
+    Returns:
+        dict[int, list[dict[str, Any]]]: {subnet_id: [{public_id, name}, ...]} with each list
+            sorted ascending by public_id
+    """
+    if not subnet_ids:
+        return {}
+
+    vlan_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.VLAN)
+
+    if vlan_type_id is None:
+        return {}
+
+    subnet_id_set: set[int] = set(subnet_ids)
+
+    criteria: dict[str, Any] = {
+        CmdbObjectKey.TYPE_ID: vlan_type_id,
+        CmdbObjectKey.FIELDS: {
+            '$elemMatch': {
+                CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
+                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+            },
+        },
+    }
+
+    vlan_objs: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
+    buckets: dict[int, list[dict[str, Any]]] = {}
+
+    for vlan_obj in vlan_objs:
+        subnet_ref: Any = extract_field_value(vlan_obj, VlanField.SUBNET_REF)
+
+        if subnet_ref not in subnet_id_set:
+            continue
+
+        buckets.setdefault(subnet_ref, []).append({
+            CmdbObjectKey.PUBLIC_ID: vlan_obj[CmdbObjectKey.PUBLIC_ID],
+            IpamOverviewKey.NAME: extract_field_value(vlan_obj, VlanField.NAME),
+        })
+
+    for bucket in buckets.values():
+        bucket.sort(key=lambda entry: entry[CmdbObjectKey.PUBLIC_ID])
+
+    return buckets
 
 
 def find_subnets_referencing_supernet(
@@ -105,7 +209,12 @@ def find_subnets_referencing_supernet(
     if subnet_type_id is None:
         return []
 
-    return _find_objects_with_field_value(objects_manager, subnet_type_id, SubnetField.PARENT_SUPERNET, supernet_object_id)
+    return _find_objects_with_field_value(
+        objects_manager,
+        subnet_type_id,
+        SubnetField.PARENT_SUPERNET,
+        supernet_object_id,
+    )
 
 
 def find_vlans_referencing_subnet(
@@ -152,14 +261,14 @@ def find_interfaces_referencing_subnet(
             list when no interface row references the subnet
     """
     criteria: dict[str, Any] = {
-        'multi_data_sections': {
+        CmdbObjectKey.MULTI_DATA_SECTIONS: {
             '$elemMatch': {
-                'values': {
+                CmdbObjectMdsKey.VALUES: {
                     '$elemMatch': {
-                        'data': {
+                        CmdbObjectMdsRowKey.DATA: {
                             '$elemMatch': {
-                                'name': InterfaceField.SUBNET,
-                                'value': subnet_object_id,
+                                CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                CmdbObjectFieldKey.VALUE: subnet_object_id,
                             },
                         },
                     },
@@ -170,4 +279,4 @@ def find_interfaces_referencing_subnet(
 
     matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [{'public_id': m['public_id'], 'type_id': m['type_id']} for m in matches]
+    return _project_to_reference_dicts(matches)

@@ -28,7 +28,7 @@ from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.class_schema.cmdb_type_schema import get_cmdb_type_schema
+from cmdb.class_schema.type_model.cmdb_type_schema import get_cmdb_type_schema
 
 from cmdb.errors.models.cmdb_type import (
     CmdbTypeInitError,

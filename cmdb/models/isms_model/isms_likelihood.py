@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.isms_model.isms_likelihood_schema import get_isms_likelihood_schema
+
 from cmdb.errors.models.isms_likelihood import (
     IsmsLikelihoodInitError,
     IsmsLikelihoodInitFromDataError,
@@ -40,27 +42,7 @@ class IsmsLikelihood(CmdbDAO):
     """
     COLLECTION = "isms.likelihood"
     MODEL = 'Likelihood'
-    # pylint: disable=R0801
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'calculation_basis': {
-            'type': 'float',
-            'min': 1e-9,
-            'required': True,
-            'empty': False
-        },
-        'description': {
-            'type': 'string',
-        }
-    }
+    SCHEMA: dict = get_isms_likelihood_schema()
 
 
     def __init__(self, public_id: int, name: str, calculation_basis: str, description: str):

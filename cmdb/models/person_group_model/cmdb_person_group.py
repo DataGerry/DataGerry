@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.person_group_model.cmdb_person_group_schema import get_cmdb_person_group_schema
+
 from cmdb.errors.models.cmdb_person_group import (
     CmdbPersonGroupInitError,
     CmdbPersonGroupInitFromDataError,
@@ -45,30 +47,7 @@ class CmdbPersonGroup(CmdbDAO):
         {'keys': [('group_members', CmdbDAO.DAO_ASCENDING)], 'name': 'group_members', 'unique': False}
     ]
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'email': {
-            'type': 'string',
-            'required': True,
-            'empty': True,
-            'regex': r'^(?!.*\.\.)[\w\.-]+@[a-zA-Z\d-]+(\.[a-zA-Z]{2,})+$',  # Email regex pattern
-        },
-        'group_members': {
-            'type': 'list',
-            'schema': {
-                'type': 'integer',
-                'min': 1,
-            },
-        },
-    }
+    SCHEMA: dict = get_cmdb_person_group_schema()
 
 
     def __init__(

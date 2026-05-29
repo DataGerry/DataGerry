@@ -21,7 +21,7 @@ from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
-from cmdb.class_schema.cmdb_user_schema import get_cmdb_user_schema
+from cmdb.class_schema.user_model.cmdb_user_schema import get_cmdb_user_schema
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.models.cmdb_user import (
@@ -57,6 +57,8 @@ class CmdbUser(CmdbDAO):
     DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
     DEFAULT_GROUP: int = 2
     DEFAULT_API_LEVEL = 0
+    # public_id of the bootstrap admin user seeded by conftest / installer; protected from deletion.
+    ADMIN_PUBLIC_ID: int = 1
 
     SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 

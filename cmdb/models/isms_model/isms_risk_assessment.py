@@ -21,7 +21,7 @@ from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
-from cmdb.class_schema.isms_risk_assessment_schema import get_isms_risk_assessment_schema
+from cmdb.class_schema.isms_model.isms_risk_assessment_schema import get_isms_risk_assessment_schema
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.isms_model.treatment_option_enum import TreatmentOption

@@ -16,10 +16,10 @@
 """
 Enumeration of dict keys allowed inside a single field entry of a CmdbType field schema
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class FieldKey(str, Enum):
+class FieldKey(BaseStrEnum):
     """
     Enumeration of dict keys allowed inside a single field entry
 
@@ -36,17 +36,3 @@ class FieldKey(str, Enum):
     REGEX = 'regex'
     REF_TYPES = 'ref_types'
     OPTIONS = 'options'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a known FieldKey
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing FieldKey, False otherwise
-        """
-        return value in cls._value2member_map_

@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.isms_model.isms_impact_category_schema import get_isms_impact_category_schema
+
 from cmdb.errors.models.isms_impact_category import (
     IsmsImpactCategoryInitError,
     IsmsImpactCategoryInitFromDataError,
@@ -41,35 +43,7 @@ class IsmsImpactCategory(CmdbDAO):
     COLLECTION = "isms.impactCategory"
     MODEL = 'ImpactCategory'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            "min": 1
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'impact_descriptions': {
-            'type': 'list',
-             "schema": {
-                "type": "dict", 
-                    "schema": {
-                        "impact_id": {
-                            "type": "integer",
-                            "min": 1,
-                        },
-                        "value": {
-                            "type": "string",
-                        }
-                    }
-            }
-        },
-        'sort': {
-            'type': 'integer',
-        }
-    }
+    SCHEMA: dict = get_isms_impact_category_schema()
 
 
     #pylint: disable=R0917

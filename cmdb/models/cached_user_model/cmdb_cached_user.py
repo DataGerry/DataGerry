@@ -23,6 +23,8 @@ from dateutil.parser import parse
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.cached_user_model.cmdb_cached_user_schema import get_cmdb_cached_user_schema
+
 from cmdb.errors.models.cmdb_cached_user import (
     CmdbCachedUserInitError,
     CmdbCachedUserInitFromDataError,
@@ -37,7 +39,7 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbCachedUser(CmdbDAO):
     """
-    Implementation of a CmdbUser in DataGerry
+    Implementation of CmdbCachedUser, a cached cloud user with their subscriptions
 
     Extends: CmdbDAO
     """
@@ -57,81 +59,7 @@ class CmdbCachedUser(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict[str, Any] = {
-        'public_id': {
-            'type': 'integer',
-        },
-        'user_name': {
-            'type': 'string',
-            'required': True,
-        },
-        'password': {
-            'type': 'string',
-            'nullable': True,
-            'empty': True,
-            'required': False,
-        },
-        'email': {
-            'type': 'string',
-            'nullable': True,
-            'empty': True,
-            'required': False,
-        },
-        'active': {
-            'type': 'boolean',
-            'required': False,
-            'default': True,
-        },
-        'subscriptions': {
-            'type': 'list',
-            'nullable': False,
-            'empty': False,
-            'required': True,
-            'schema': {
-                'type': 'dict',
-                'schema': {
-                    "id": {
-                        'type': 'string',
-                        'required': True,
-                        'default': None,
-                    },
-                    "name": {
-                        'type': 'string',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                    },
-                    "api_key": {
-                        'type': 'string',
-                        'default': None,
-                    },
-                    "is_valid": {
-                        'type': 'boolean',
-                        'required': True,
-                    },
-                    "database": {
-                        'type': 'string',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                    },
-                    "api_level": {
-                        'type': 'integer',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                    },
-                    "config_item_limit": {
-                        'type': 'integer',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                        'min': 1,
-                    },
-                }
-            }
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_cached_user_schema()
 
     #pylint: disable=R0917
     def __init__(

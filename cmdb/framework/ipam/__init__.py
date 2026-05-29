@@ -14,6 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-IPAM (IP Address Management) helpers and validators for SUPERNET, SUBNET, VLAN
-SpecialTypes and the dg-ipam-interface section template
+IP Address Management (IPAM) feature for DataGerry
+
+Provides the validators, overview builders, and shared CIDR helpers behind the IPAM
+SpecialTypes (SUPERNET, SUBNET, VLAN) and the dg-ipam-interface MDS section template.
+Modules:
+  - cidr: pure IPv4 helpers (parsing, containment, address-count policy)
+  - pagination: page/page_size clamping shared by the overview routes
+  - references: SpecialType id resolution
+  - search: search-input normalization helpers shared by the overview routes
+  - subnet_validator / interface_validator / vlan_validator: structured per-row
+      validation invoked at save time and from the inline pre-validation REST routes
+  - enforcement: cross-row enforcement helpers used by the validator orchestrators
+  - subnet_overview / supernet_overview: payload builders for the IPAM overview views
+  - supernet_membership: write-side mutations against the SUBNET <-> SUPERNET relation
+      (currently the batch 'unassign subnets from supernet' flow used by the overview)
+
+Prefix-policy constants and field/section name enums are imported from
+cmdb.models.special_type_model.ipam_constants
 """

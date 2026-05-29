@@ -22,7 +22,6 @@ from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (

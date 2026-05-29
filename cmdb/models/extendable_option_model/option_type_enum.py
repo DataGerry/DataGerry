@@ -16,10 +16,10 @@
 """
 Implementation of OptionType
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OptionType(str, Enum):
+class OptionType(BaseStrEnum):
     """
     Available OptionTypes for CmdbExtendableOptions
     """
@@ -28,17 +28,3 @@ class OptionType(str, Enum):
     IMPLEMENTATION_STATE = 'IMPLEMENTATION_STATE'
     CONTROL_MEASURE = 'CONTROL_MEASURE'
     RISK = 'RISK'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid OptionType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing OptionType, False otherwise
-        """
-        return value in OptionType.__members__
