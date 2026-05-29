@@ -60,6 +60,32 @@
           }
         </span>
       </article>
+
+      <article class="ipam-subnet-card ipam-subnet-card--vlans">
+        <span class="ipam-subnet-card__label">Assigned VLANs</span>
+        <span class="ipam-subnet-card__value ipam-subnet-card__value--vlans">
+          @if (hasVlans) {
+            <span
+              class="ipam-subnet-card__vlan-list"
+              [ngbTooltip]="vlanTooltip"
+              tooltipClass="ipam-vlan-tooltip"
+              [openDelay]="200"
+              container="body"
+              placement="top">
+              <span class="ipam-subnet-card__vlan-chips">
+                @for (vlan of visibleVlans; track vlan.public_id) {
+                  <span class="ipam-subnet-card__vlan-chip">{{ vlanLabel(vlan) }}</span>
+                }
+              </span>
+              @if (hiddenVlanCount > 0) {
+                <span class="ipam-subnet-card__vlan-more">+{{ hiddenVlanCount }}</span>
+              }
+            </span>
+          } @else {
+            <span class="ipam-subnet-card__placeholder">—</span>
+          }
+        </span>
+      </article>
     </div>
 
     <div class="ipam-subnet__main">

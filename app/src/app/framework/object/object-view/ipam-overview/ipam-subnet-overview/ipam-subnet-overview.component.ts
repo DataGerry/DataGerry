@@ -36,12 +36,14 @@ import {
     IpamSubnetDetail,
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
-    IpamTypeDistributionEntry
+    IpamTypeDistributionEntry,
+    IpamVlanInfo
 } from '../models/ipam-overview.types';
 import { IpamOverviewService } from '../services/ipam-overview.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const DEFAULT_PAGE_SIZE = 10;
+const VLAN_CARD_VISIBLE_LIMIT = 2;
 
 @Component({
     selector: 'cmdb-ipam-subnet-overview',
@@ -58,6 +60,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public subnet: IpamSubnetDetail | null = null;
     public ipDistribution: IpamIpDistribution | null = null;
     public typeDistribution: IpamTypeDistributionEntry[] = [];
+    public vlans: IpamVlanInfo[] = [];
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
     public total = 0;
@@ -133,6 +136,30 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         return this.computeShare(this.subnet?.free_ips);
     }
 
+    public get namedVlans(): IpamVlanInfo[] {
+        return this.vlans?.filter(vlan => !!vlan?.name) ?? [];
+    }
+
+    public get hasVlans(): boolean {
+        return this.namedVlans.length > 0;
+    }
+
+    public get visibleVlans(): IpamVlanInfo[] {
+        return this.namedVlans.slice(0, VLAN_CARD_VISIBLE_LIMIT);
+    }
+
+    public get hiddenVlanCount(): number {
+        return Math.max(0, this.namedVlans.length - VLAN_CARD_VISIBLE_LIMIT);
+    }
+
+    public get vlanTooltip(): string {
+        return this.namedVlans.map(vlan => this.vlanLabel(vlan)).join(', ');
+    }
+
+    public vlanLabel(vlan: IpamVlanInfo): string {
+        return vlan?.name?.trim() || `VLAN ${vlan?.public_id ?? ''}`.trim();
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private computeShare(part: number | null | undefined): number | null {
@@ -174,6 +201,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     this.subnet = response?.subnet ?? null;
                     this.ipDistribution = response?.ip_distribution ?? null;
                     this.typeDistribution = response?.type_distribution ?? [];
+                    this.vlans = response?.vlans ?? [];
                     this.page = ipsPage?.page ?? this.page;
                     this.pageSize = ipsPage?.page_size ?? this.pageSize;
                     this.total = ipsPage?.total ?? 0;
@@ -186,6 +214,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     this.subnet = null;
                     this.ipDistribution = null;
                     this.typeDistribution = [];
+                    this.vlans = [];
                     this.total = 0;
                     this.hasLoadedOnce = true;
                     this.toastService.error(err?.error?.message);

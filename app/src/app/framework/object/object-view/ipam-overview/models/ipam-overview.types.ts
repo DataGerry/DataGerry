@@ -176,6 +176,7 @@ export interface IpamSubnetOverviewResponse {
     ips: IpamIpListPage;
     type_distribution?: IpamTypeDistributionEntry[];
     ip_distribution?: IpamIpDistribution | null;
+    vlans?: IpamVlanInfo[];
 }
 
 export interface IpamSubnetOverviewParams {
