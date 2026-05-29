@@ -208,7 +208,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
                 display: 'Subnet (CIDR)',
                 name: 'cidr',
                 data: 'subnet.cidr',
-                sortable: true,
+                sortable: false,
                 searchable: false,
                 template: this.cidrTemplate,
                 style: { 'min-width': '260px' }
