@@ -351,11 +351,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
         this.objectService.getObjects(params).pipe(
             takeUntil(this.subscriber),
-            finalize(() => {
-                if (this.isCurrentObjectRequest(requestId, requestedTypeId)) {
-                    this.loaderService.hide();
-                }
-            })
+            finalize(() => this.loaderService.hide())
         )
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
                 this.applyObjectResponse(apiResponse, requestId, requestedTypeId);
@@ -581,11 +577,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
         this.objectService.getObjects(params).pipe(
             takeUntil(this.subscriber),
-            finalize(() => {
-                if (this.isCurrentObjectRequest(requestId, requestedTypeId)) {
-                    this.loaderService.hide();
-                }
-            })
+            finalize(() => this.loaderService.hide())
         )
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
                 this.applyObjectResponse(apiResponse, requestId, requestedTypeId);
