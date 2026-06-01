@@ -46,8 +46,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     type_deletion_followup,
     special_type_is_unchanged,
     get_objects_using_location_field,
-    handle_special_types,
 )
+from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
 from cmdb.interface.rest_api.responses import (

@@ -23,6 +23,10 @@ from cmdb.utils import BaseStrEnum
 class ProfileName(BaseStrEnum):
     """
     Enumeration of all valid profile names which can be created through the DataGerry assistant
+
+    The member values are the wire tokens the assistant receives (the '#'-separated 'data' request
+    parameter is split into these). ProfileAssistant.create_profiles tests membership of these
+    values to decide which profiles to build.
     """
     USER_MANAGEMENT = 'user-management-profile'
     LOCATION = 'location-profile'
