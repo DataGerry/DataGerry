@@ -106,6 +106,20 @@
     max-width: 320px;
 }
 
+:host ::ng-deep tr.ipam-invalid-row {
+    > td {
+        background-color: #fdf3f3 !important;
+    }
+
+    > td:first-child {
+        box-shadow: inset 3px 0 0 0 #e88c8c;
+    }
+
+    &:hover > td {
+        background-color: #fbe8e8 !important;
+    }
+}
+
 .ipam-bulk-unassign {
     display: inline-flex;
     align-items: center;
