@@ -46,11 +46,12 @@ export class CiExplorerService extends BaseApiService<never> {
     targetId: number,
     types: number[] = [],
     relations: number[] = [],
-    withLocations: boolean = true
+    withLocations: boolean = true,
+    withIpamRelations: boolean = true
   ): Observable<GraphRespChildren> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=CHILD&with_root=false&with_locations=${withLocations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      `&target_type=CHILD&with_root=false&with_locations=${withLocations}&with_ipam_relations=${withIpamRelations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespChildren>(url);
@@ -61,11 +62,12 @@ export class CiExplorerService extends BaseApiService<never> {
     targetId: number,
     types: number[] = [],
     relations: number[] = [],
-    withLocations: boolean = true
+    withLocations: boolean = true,
+    withIpamRelations: boolean = true
   ): Observable<GraphRespParents> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=PARENT&with_root=false&with_locations=${withLocations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      `&target_type=PARENT&with_root=false&with_locations=${withLocations}&with_ipam_relations=${withIpamRelations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespParents>(url);
