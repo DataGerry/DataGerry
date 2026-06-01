@@ -29,6 +29,9 @@ Modules:
   - subnet_overview / supernet_overview: payload builders for the IPAM overview views
   - supernet_membership: write-side mutations against the SUBNET <-> SUPERNET relation
       (currently the batch 'unassign subnets from supernet' flow used by the overview)
+  - special_type_wiring: cross-wires the SpecialType reference fields (Subnet -> Supernet,
+      VLAN -> Subnet) and the dg-ipam-interface template on SpecialType creation; shared by the
+      CmdbType REST routes and the DataGerry assistant
 
 Prefix-policy constants and field/section name enums are imported from
 cmdb.models.special_type_model.ipam_constants

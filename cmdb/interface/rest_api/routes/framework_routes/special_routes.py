@@ -91,7 +91,7 @@ def create_initial_profiles(data: str, request_user: CmdbUser) -> Response:
         data (str): profile string seperated by '#'
 
     Returns:
-        _type_: list of created public_ids of types
+        Response: DefaultResponse wrapping the list of created CmdbType public_ids
     """
     try:
         categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
