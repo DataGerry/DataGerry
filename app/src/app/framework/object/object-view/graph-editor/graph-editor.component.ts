@@ -588,7 +588,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     try {
       await this.graphExpansion?.expandNodeInstance(
         ui, cn, this.nodes, this.connections,
-        this.typesFilter, this.relationsFilter, this.nodeTypeConfigs
+        this.typesFilter, this.relationsFilter, this.nodeTypeConfigs,
+        this.withLocations, this.withIpamRelations
       );
 
       this.connections = this.graphPath?.validateConnections(this.connections, this.graphData?.getNodeInstanceMap());

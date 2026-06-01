@@ -175,17 +175,21 @@ export class GraphDataService {
   expandChild(
     id: number,
     typesFilter: number[] = [],
-    relationsFilter: number[] = []
+    relationsFilter: number[] = [],
+    withLocations: boolean = true,
+    withIpamRelations: boolean = true
   ): Observable<GraphRespChildren> {
-    return this.ci?.expandChild(id, typesFilter, relationsFilter);
+    return this.ci?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations);
   }
 
   expandParent(
     id: number,
     typesFilter: number[] = [],
-    relationsFilter: number[] = []
+    relationsFilter: number[] = [],
+    withLocations: boolean = true,
+    withIpamRelations: boolean = true
   ): Observable<GraphRespParents> {
-    return this.ci?.expandParent(id, typesFilter, relationsFilter);
+    return this.ci?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations);
   }
 
   // Helper methods
