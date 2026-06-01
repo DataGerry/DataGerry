@@ -59,7 +59,7 @@
         [class.ipam-card--active]="viewMode === 'invalid'"
         [attr.aria-pressed]="viewMode === 'invalid'"
         (click)="onShowInvalidSubnets()">
-        <span class="ipam-card__label">Invalid IPs</span>
+        <span class="ipam-card__label">Conflict IPs</span>
         <span class="ipam-card__value">{{ invalidCount | number }}</span>
       </button>
 
