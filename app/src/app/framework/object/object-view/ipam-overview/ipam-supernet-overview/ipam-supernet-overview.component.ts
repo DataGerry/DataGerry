@@ -314,13 +314,13 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
             )
             .subscribe({
                 next: (response: IpamSupernetInvalidSubnetsResponse) => {
-                    this.subnetRows = response?.rows ?? [];
-                    this.page = response?.page ?? this.page;
-                    this.pageSize = response?.page_size ?? this.pageSize;
-                    this.total = response?.total ?? 0;
-                    if (!this.searchTerm) {
-                        this.invalidCount = this.total;
-                    }
+                    const subnetsPage = response?.subnets;
+                    this.supernet = response?.supernet ?? this.supernet;
+                    this.subnetRows = subnetsPage?.rows ?? [];
+                    this.page = subnetsPage?.page ?? this.page;
+                    this.pageSize = subnetsPage?.page_size ?? this.pageSize;
+                    this.total = subnetsPage?.total ?? 0;
+                    this.invalidCount = response?.invalid_count ?? this.total;
                     this.hasLoadedOnce = true;
                     this.changesRef.markForCheck();
                 },

@@ -84,10 +84,9 @@ export interface IpamSupernetInvalidSubnetsParams {
 }
 
 export interface IpamSupernetInvalidSubnetsResponse {
-    page: number;
-    page_size: number;
-    total: number;
-    rows: IpamSubnetSummary[];
+    supernet: IpamSupernetSummary;
+    subnets: IpamSupernetSubnetPage;
+    invalid_count?: number;
 }
 
 export interface IpamUnassignSubnetsResponse {
