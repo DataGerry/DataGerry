@@ -7,5 +7,26 @@
   <ng-select [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue" [multiple]="multiple"
     [placeholder]="placeholder" [disabled]="disabled" [clearable]="true" [(ngModel)]="value"
     [dropdownPosition]="dropdownDirection" (change)="onValueChange($event)" (blur)="onTouched()" [groupBy]="groupBy">
+    <ng-container *ngIf="showSelectAllToggle">
+      <ng-template ng-header-tmp>
+        <div class="select-all-header">
+          <button type="button"
+                  class="btn btn-link btn-sm select-all-btn"
+                  (click)="selectAll()"
+                  [disabled]="allSelectableSelected">
+            <i class="far fa-check-square" aria-hidden="true"></i>
+            Select All
+          </button>
+          <span class="select-all-divider" aria-hidden="true"></span>
+          <button type="button"
+                  class="btn btn-link btn-sm select-all-btn deselect-all-btn"
+                  (click)="deselectAll()"
+                  [disabled]="!hasSelection">
+            <i class="far fa-square" aria-hidden="true"></i>
+            Deselect All
+          </button>
+        </div>
+      </ng-template>
+    </ng-container>
   </ng-select>
 </div>

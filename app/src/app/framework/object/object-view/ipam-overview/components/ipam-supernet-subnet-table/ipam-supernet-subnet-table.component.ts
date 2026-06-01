@@ -205,6 +205,10 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
         return vlans.map(vlan => vlan?.name).filter(Boolean).join(separator);
     }
 
+    public readonly rowValidationClass = (row: SubnetDisplayRow): string => {
+        return row?.subnet?.is_valid === false ? 'ipam-invalid-row' : '';
+    };
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private setupColumns(): void {

@@ -334,16 +334,19 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       const selectedConnector = this.connectors.find(c => c.connectorId === connectorId);
       if (selectedConnector && selectedConnector.title !== 'DataGerryInternal') {
         this.form.patchValue({ connector: connectorId });
-      } else {
       }
-    } else {
     }
-
   }
 
   // Dynamic connector ID methods
   getSourceConnectorId(): string {
     const direction = this.form.get('direction')?.value;
+
+    // For internal automations both sides are the DataGerry internal connector
+    if (direction === 'internal') {
+      return this.internalConnectorDetails?.connectorId?.toString() || '';
+    }
+
     const selectedConnectorId = this.form.get('connector')?.value;
 
     if (!direction || !selectedConnectorId) {
@@ -361,6 +364,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   getTargetConnectorId(): string {
     const direction = this.form.get('direction')?.value;
+
+    // For internal automations both sides are the DataGerry internal connector
+    if (direction === 'internal') {
+      return this.internalConnectorDetails?.connectorId?.toString() || '';
+    }
+
     const selectedConnectorId = this.form.get('connector')?.value;
 
     if (!direction || !selectedConnectorId) {

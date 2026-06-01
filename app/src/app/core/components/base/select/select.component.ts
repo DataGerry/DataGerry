@@ -89,6 +89,12 @@ import {
 
     @Input() groupBy?: string;
 
+    /**
+     * Show a "Select All / Deselect All" toggle inside the dropdown.
+     * Only honored when `multiple` is true.
+     */
+    @Input() enableSelectAll = false;
+
     @Output() selectedItemChange = new EventEmitter<any>();
 
   
@@ -139,16 +145,73 @@ import {
     onValueChange(selectedValue: any) {
       let outputValue;
       if (this.multiple) {
-        this.value = selectedValue.map((item: any) => item[this.bindValue]);
-        outputValue = selectedValue;
+        const selectedArray = Array.isArray(selectedValue) ? selectedValue : [];
+        this.value = selectedArray.map((item: any) => item[this.bindValue]);
+        outputValue = selectedArray;
       } else {
         this.value = selectedValue ? selectedValue[this.bindValue] : null;
         outputValue = selectedValue;
       }
-      
+
       this.onChange(this.value); // Notify Angular forms API
       this.selectedItemChange.emit(outputValue);
       this.onTouched();
+    }
+
+    public get selectableItems(): any[] {
+      return (this.items || []).filter(item => !item?.disabled);
+    }
+
+    public get showSelectAllToggle(): boolean {
+      return this.multiple
+        && this.enableSelectAll
+        && !this.disabled
+        && this.selectableItems.length > 0;
+    }
+
+    public get allSelectableSelected(): boolean {
+      const selectable = this.selectableItems;
+      if (selectable.length === 0) {
+        return false;
+      }
+      const selectedValues = new Set(Array.isArray(this.value) ? this.value : []);
+      return selectable.every(item => selectedValues.has(item[this.bindValue]));
+    }
+
+    /**
+     * True when at least one selectable item is currently selected.
+     * Drives the enabled state of the "Deselect All" action so the user can
+     * clear a partial selection without having to select everything first.
+     */
+    public get hasSelection(): boolean {
+      const selectable = this.selectableItems;
+      if (selectable.length === 0) {
+        return false;
+      }
+      const selectedValues = new Set(Array.isArray(this.value) ? this.value : []);
+      return selectable.some(item => selectedValues.has(item[this.bindValue]));
+    }
+
+    public selectAll(): void {
+      if (!this.showSelectAllToggle || this.allSelectableSelected) {
+        return;
+      }
+      this.onValueChange([...this.selectableItems]);
+    }
+
+    public deselectAll(): void {
+      if (!this.showSelectAllToggle || !this.hasSelection) {
+        return;
+      }
+      this.onValueChange([]);
+    }
+
+    public toggleSelectAll(): void {
+      if (!this.showSelectAllToggle) {
+        return;
+      }
+      const nextSelection = this.allSelectableSelected ? [] : [...this.selectableItems];
+      this.onValueChange(nextSelection);
     }
   }
   
