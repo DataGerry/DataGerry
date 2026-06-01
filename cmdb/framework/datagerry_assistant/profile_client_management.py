@@ -17,9 +17,7 @@
 This module manages the Client Management - Profile for the DataGerry assistant
 """
 from logging import Logger, getLogger
-
-from cmdb.manager.types_manager import TypesManager
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from typing import Any
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -32,35 +30,20 @@ class ClientManagementProfile(ProfileBase):
     This class cointains all types and logics for the 'Client Management'-Profile
     """
 
-    def __init__(
-            self,
-            created_type_ids: dict,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.created_type_ids = created_type_ids
-        super().__init__(created_type_ids, types_manager, section_templates_manager)
-
-
-    def create_client_management_profile(self) -> dict:
+    def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types from the 'Client Management'- Profile
+        Creates all types of the 'Client Management' profile (OS, Client, Printer, Monitor)
 
         Returns:
-            dict: The created type ids dict
+            dict[str, int | None]: The shared slot map of created type ids
         """
-        # Do NOT change the order of data due dependency
-        client_management_profile_data: dict = {
-            'operating_system_id' : self.get_operating_system_type(),
-            'client_id': self.get_client_type(),
-            'printer_id': self.get_printer_type(),
-        }
-
-        for type_name, type_dict in client_management_profile_data.items():
-            self.create_basic_type(type_name, type_dict)
-
-        #depedent types
+        # Each type is created (inserted) before the next is built, so a type's conditional reference
+        # sections / reference fields can resolve the public_ids of types created earlier in this
+        # profile (Client -> Operating System; Monitor -> Client)
+        self.create_basic_type('operating_system_id', self.get_operating_system_type())
+        self.create_basic_type('client_id', self.get_client_type())
+        self.create_basic_type('printer_id', self.get_printer_type())
         self.create_basic_type('monitor_id', self.get_monitor_type(self.created_type_ids['client_id']))
-
 
         return self.created_type_ids
 
@@ -68,11 +51,14 @@ class ClientManagementProfile(ProfileBase):
 #                                                  TYPE DATA - SECTION                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_operating_system_type(self) -> dict:
+    def get_operating_system_type(self) -> dict[str, Any]:
         """
-        Returns the 'Operating System'-Type for the 'Client Management'-Profile
+        Builds the 'Operating System' type for the 'Client Management' profile
+
+        Returns:
+            dict[str, Any]: The Operating System CmdbType config
         """
-        operating_system_sections: list = [
+        operating_system_sections: list[dict[str, Any]] = [
             {
                 "name": "section-72042",
                 "label": "Information",
@@ -105,20 +91,28 @@ class ClientManagementProfile(ProfileBase):
             }
         ]
 
-        operating_system_type: dict = self.type_constructor.create_type_config(operating_system_sections,
-                                                                                'operating_system',
-                                                                                'Operating System',
-                                                                                'far fa-window-maximize')
+        operating_system_type: dict[str, Any] = self.type_constructor.create_type_config(
+            operating_system_sections,
+            'operating_system',
+            'Operating System',
+            'far fa-window-maximize'
+        )
 
         return operating_system_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_client_type(self) -> dict:
+    def get_client_type(self) -> dict[str, Any]:
         """
-        Returns the 'Client'-Type for the 'Client Management'-Profile
+        Builds the 'Client' type for the 'Client Management' profile
+
+        Includes the dg-modelspec and dg-network templates plus conditional reference sections to
+        the Operating System and User / Customer User types (added only when those types exist).
+
+        Returns:
+            dict[str, Any]: The Client CmdbType config
         """
-        client_sections: list = [
+        client_sections: list[dict[str, Any]] = [
             {
                 "name": "section-68471",
                 "label": "Information",
@@ -146,13 +140,14 @@ class ClientManagementProfile(ProfileBase):
             }
         ]
 
-        client_type: dict = self.type_constructor.create_type_config(client_sections,
-                                                                    'client',
-                                                                    'Client',
-                                                                    'far fa-id-card')
+        client_type: dict[str, Any] = self.type_constructor.create_type_config(
+            client_sections,
+            'client',
+            'Client',
+            'far fa-id-card'
+        )
 
-
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-47570",
                                         "OS",
@@ -178,11 +173,17 @@ class ClientManagementProfile(ProfileBase):
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_monitor_type(self, client_type_id: int) -> dict:
+    def get_monitor_type(self, client_type_id: int) -> dict[str, Any]:
         """
-        Returns the 'Monitor'-Type for the 'Client Management'-Profile
+        Builds the 'Monitor' type for the 'Client Management' profile
+
+        Args:
+            client_type_id (int): public_id of the created 'Client' type, referenced by this type
+
+        Returns:
+            dict[str, Any]: The Monitor CmdbType config
         """
-        monitor_sections: list = [
+        monitor_sections: list[dict[str, Any]] = [
             {
                 "name": "section-28964",
                 "label": "Information",
@@ -226,20 +227,25 @@ class ClientManagementProfile(ProfileBase):
             }
         ]
 
-        monitor_type: dict = self.type_constructor.create_type_config(monitor_sections,
-                                                                                'monitor',
-                                                                                'Monitor',
-                                                                                'fas fa-desktop')
+        monitor_type: dict[str, Any] = self.type_constructor.create_type_config(
+            monitor_sections,
+            'monitor',
+            'Monitor',
+            'fas fa-desktop'
+        )
 
         return monitor_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_printer_type(self) -> dict:
+    def get_printer_type(self) -> dict[str, Any]:
         """
-        Returns the 'Printer'-Type for the 'Client Management'-Profile
+        Builds the 'Printer' type for the 'Client Management' profile
+
+        Returns:
+            dict[str, Any]: The Printer CmdbType config
         """
-        printer_sections: list = [
+        printer_sections: list[dict[str, Any]] = [
             {
                 "name": "section-95376",
                 "label": "Information",
@@ -267,9 +273,11 @@ class ClientManagementProfile(ProfileBase):
             }
         ]
 
-        printer_type: dict = self.type_constructor.create_type_config(printer_sections,
-                                                                        'printer',
-                                                                        'Printer',
-                                                                        'fas fa-print')
+        printer_type: dict[str, Any] = self.type_constructor.create_type_config(
+            printer_sections,
+            'printer',
+            'Printer',
+            'fas fa-print'
+        )
 
         return printer_type

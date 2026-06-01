@@ -53,6 +53,12 @@ from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
+    TypeConfigKey,
+    RenderMetaKey,
+    CategoryBodyKey,
+    CategoryMetaKey,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Pinned member-name -> string-value contract for every string enum whose value crosses a
@@ -131,6 +137,43 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REF_SECTION': 'ref-section-field',
     }),
     (SectionType, {'SECTION': 'section', 'MDS_SECTION': 'multi-data-section', 'REF_SECTION': 'ref-section'}),
+    # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
+    # documents (the assistant uses them as dict keys when building those documents)
+    (TypeConfigKey, {
+        'NAME': 'name',
+        'SELECTABLE_AS_PARENT': 'selectable_as_parent',
+        'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
+        'ACTIVE': 'active',
+        'AUTHOR_ID': 'author_id',
+        'CREATION_TIME': 'creation_time',
+        'EDITOR_ID': 'editor_id',
+        'LAST_EDIT_TIME': 'last_edit_time',
+        'LABEL': 'label',
+        'VERSION': 'version',
+        'DESCRIPTION': 'description',
+        'RENDER_META': 'render_meta',
+        'CI_EXPLORER_LABEL': 'ci_explorer_label',
+        'CI_EXPLORER_COLOR': 'ci_explorer_color',
+        'PUBLIC_ID': 'public_id',
+        'FIELDS': 'fields',
+        'ACL': 'acl',
+    }),
+    (RenderMetaKey, {
+        'ICON': 'icon',
+        'SECTIONS': 'sections',
+        'EXTERNALS': 'externals',
+        'SUMMARY': 'summary',
+        'FIELDS': 'fields',
+    }),
+    (CategoryBodyKey, {
+        'NAME': 'name',
+        'LABEL': 'label',
+        'META': 'meta',
+        'PARENT': 'parent',
+        'TYPES': 'types',
+        'CREATION_TIME': 'creation_time',
+    }),
+    (CategoryMetaKey, {'ICON': 'icon', 'ORDER': 'order'}),
 ]
 
 
