@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 import { SystemService } from '../system.service';
 import { ReplaySubject } from 'rxjs';
 import { ToastService } from '../../../layout/toast/toast.service';
@@ -37,8 +37,8 @@ export class PropertiesComponent implements OnInit, OnDestroy {
 
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-  constructor(private systemService: SystemService, private toast: ToastService) {
-  }
+  private readonly systemService = inject(SystemService);
+  private readonly toast = inject(ToastService);
 
   public ngOnInit(): void {
     this.systemService.getConfigInformation()

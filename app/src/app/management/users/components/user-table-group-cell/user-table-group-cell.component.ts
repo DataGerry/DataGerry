@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, Input, OnDestroy } from '@angular/core';
 import { Group } from '../../../models/group';
 import { GroupService } from '../../../services/group.service';
 import { ReplaySubject } from 'rxjs';
@@ -69,8 +69,7 @@ export class UserTableGroupCellComponent implements OnDestroy {
     }
   }
 
-  constructor(private groupService: GroupService) {
-  }
+  private readonly groupService = inject(GroupService);
 
 
   public ngOnDestroy(): void {

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
@@ -31,7 +31,7 @@ export class DeleteConfirmationModalComponent {
     @Input() description: string;
 
 
-    constructor(public modal: NgbActiveModal) { }
+    public readonly modal = inject(NgbActiveModal);
 
     /**
      * Closes the modal and confirms the deletion action.

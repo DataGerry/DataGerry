@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, inject, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
 import { CmdbType } from '../../../models/cmdb-type';
 import { SupportedExporterExtension } from '../../../../export/export-objects/model/supported-exporter-extension';
 import { RenderResult } from '../../../models/cmdb-render';
@@ -53,7 +53,8 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
   isCloudModeEnabled = environment.cloudMode;
 
-  public constructor(private router: Router, private objectService: ObjectService) { }
+  private readonly router = inject(Router);
+  private readonly objectService = inject(ObjectService);
 
   ngOnInit(): void {
 
