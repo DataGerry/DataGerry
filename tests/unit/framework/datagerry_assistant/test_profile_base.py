@@ -26,6 +26,8 @@ from unittest.mock import patch
 import pytest
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
+from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import TypeSlotKey
 from cmdb.framework.datagerry_assistant.profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -69,6 +71,23 @@ def test_create_special_type_inserts_then_cross_wires(
     mock_wire.assert_called_once_with(
         fake_types_manager, SpecialType.SUPERNET, fake_section_templates_manager, 1,
     )
+
+
+def test_get_ipam_interface_section_wires_subnet_from_slot(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """get_ipam_interface_section reads the SUBNET_ID slot and wires it onto the interface template"""
+    empty_slot_map[TypeSlotKey.SUBNET_ID] = 77
+    base = ProfileBase(empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor)
+
+    section: dict[str, Any] = base.get_ipam_interface_section()
+
+    assert section['global_id_name'] == IpamSection.INTERFACE
+    subnet_field: dict[str, Any] = next(f for f in section['fields'] if f['name'] == InterfaceField.SUBNET)
+    assert subnet_field['extras']['ref_types'] == [77]
 
 
 def test_base_create_profile_is_abstract(

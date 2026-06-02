@@ -29,6 +29,7 @@ import random
 from datetime import datetime, timezone
 
 from cmdb.models.type_model import FieldKey, SectionKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 
 from .predefined_template_provider import PredefinedTemplateProvider
 from .datagerry_assistant_constants import (
@@ -48,6 +49,7 @@ FIELD_EXTRA_KEYS: list[str] = [
     AssistantFieldKey.HELPER_TEXT,
     FieldKey.REGEX,
     FieldKey.REF_TYPES,
+    FieldKey.DESCRIPTION,
     AssistantFieldKey.SUMMARIES,
 ]
 
@@ -206,30 +208,39 @@ class ProfileTypeConstructor:
             section_name: str = new_section[SectionKey.NAME]
             section_label: str = new_section[SectionKey.LABEL]
             section_fields: list[dict[str, Any]] = new_section[SectionKey.FIELDS]
+            # Inline profile sections and conditional ref-sections carry no 'type'; only predefined
+            # templates do, so a missing key defaults to a plain section
+            section_type: str = new_section.get(SectionKey.TYPE, SectionType.SECTION)
 
             if AssistantSectionKey.GLOBAL_ID_NAME in new_section.keys():
                 global_id_name: str = new_section[AssistantSectionKey.GLOBAL_ID_NAME]
                 self.__set_predefined_template_id(global_id_name)
 
-            self.__set_section(section_name, section_label)
+            self.__set_section(section_name, section_label, section_type)
             self.__set_fields(section_fields, section_name)
 
 # ------------------------------------------------- SECTION HANDLING ------------------------------------------------- #
 
-    def __set_section(self, section_name: str, section_label: str) -> None:
+    def __set_section(self, section_name: str, section_label: str,
+                      section_type: str = SectionType.SECTION) -> None:
         """
         Appends an empty section skeleton (no fields yet) to the current type's 'render_meta'
 
         Args:
             section_name (str): name for the section
             section_label (str): label for the section
+            section_type (str, optional): kind of section to create. Defaults to SectionType.SECTION.
         """
         default_section: dict[str, Any] = {
-            SectionKey.TYPE: SectionType.SECTION,
+            SectionKey.TYPE: section_type,
             SectionKey.NAME: section_name,
             SectionKey.LABEL: section_label,
             SectionKey.FIELDS: []
         }
+
+        # Multi-data-sections carry an extra 'hidden_fields' list (see TypeMultiDataSection)
+        if section_type == SectionType.MDS_SECTION:
+            default_section[SectionKey.HIDDEN_FIELDS] = []
 
         self.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS].append(default_section)
 
@@ -424,6 +435,47 @@ class ProfileTypeConstructor:
             dict[str, Any]: The formatted section template
         """
         return self.template_provider.get_template(template_name, summary_fields)
+
+
+    def get_ipam_interface_template_data(self, subnet_type_id: int | None) -> dict[str, Any]:
+        """
+        Returns the dg-ipam-interface section template with its Subnet reference wired
+
+        The template's Subnet reference field keeps its empty 'ref_types' when no Subnet type was
+        created in the run (subnet_type_id is None); otherwise the field is pointed at that type so
+        the IPAM interface is usable without manual setup.
+
+        Args:
+            subnet_type_id (int | None): public_id of the created Subnet SpecialType, or None
+
+        Returns:
+            dict[str, Any]: The formatted dg-ipam-interface section template
+        """
+        template_data: dict[str, Any] = self.get_predefined_template_data(IpamSection.INTERFACE)
+
+        if subnet_type_id is not None:
+            self.__set_template_field_ref_types(template_data, InterfaceField.SUBNET, [subnet_type_id])
+
+        return template_data
+
+
+    def __set_template_field_ref_types(self,
+                                       template_data: dict[str, Any],
+                                       field_name: str,
+                                       ref_types: list[int]) -> None:
+        """
+        Sets the 'ref_types' of a formatted template field (inside its 'extras' dict)
+
+        Args:
+            template_data (dict[str, Any]): A formatted section template (fields carry an 'extras' dict)
+            field_name (str): 'name' of the reference field to wire
+            ref_types (list[int]): public_ids of the types the field should reference
+        """
+        field: dict[str, Any]
+        for field in template_data[SectionKey.FIELDS]:
+            if field[FieldKey.NAME] == field_name:
+                field[AssistantFieldKey.EXTRAS][FieldKey.REF_TYPES] = ref_types
+                break
 
 
     def __set_predefined_template_id(self, template_id_name: str) -> None:

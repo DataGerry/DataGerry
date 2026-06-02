@@ -26,6 +26,8 @@ from typing import Any
 
 import pytest
 
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import TypeSlotKey
 from cmdb.framework.datagerry_assistant.profile_user_management import UserManagementProfile
 from cmdb.framework.datagerry_assistant.profile_location import LocationProfile
@@ -44,6 +46,73 @@ def _section_labels(type_doc: dict[str, Any]) -> list[str]:
 def _ref_types_by_field_label(type_doc: dict[str, Any], field_label: str) -> list[int]:
     """ref_types of the (first) field carrying the given label"""
     return next(field['ref_types'] for field in type_doc['fields'] if field.get('label') == field_label)
+
+
+def _section_by_name(type_doc: dict[str, Any], section_name: str) -> dict[str, Any] | None:
+    """The render_meta section with the given name, or None"""
+    return next((s for s in type_doc['render_meta']['sections'] if s['name'] == section_name), None)
+
+
+def _ref_types_by_field_name(type_doc: dict[str, Any], field_name: str) -> list[int]:
+    """ref_types of the field with the given name"""
+    return next(field['ref_types'] for field in type_doc['fields'] if field.get('name') == field_name)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                            the IPAM interface MDS section replaces the legacy dg-network                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_consuming_type_inlines_ipam_interface_as_mds_section(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """A consuming type carries dg-ipam-interface as a multi-data-section listed in global_template_ids"""
+    ClientManagementProfile(
+        empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor,
+    ).create_profile()
+
+    client: dict[str, Any] = fake_types_manager.by_name('client')
+    interface_section: dict[str, Any] | None = _section_by_name(client, IpamSection.INTERFACE)
+
+    assert interface_section is not None
+    assert interface_section['type'] == SectionType.MDS_SECTION
+    assert interface_section['hidden_fields'] == []
+    assert IpamSection.INTERFACE in client['global_template_ids']
+    # the legacy section is gone
+    assert _section_by_name(client, 'dg-network') is None
+
+
+def test_ipam_interface_subnet_ref_wired_when_subnet_exists(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """When a Subnet type was created earlier, the interface Subnet reference points at it"""
+    empty_slot_map[TypeSlotKey.SUBNET_ID] = 55
+
+    ClientManagementProfile(
+        empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor,
+    ).create_profile()
+
+    client: dict[str, Any] = fake_types_manager.by_name('client')
+    assert _ref_types_by_field_name(client, InterfaceField.SUBNET) == [55]
+
+
+def test_ipam_interface_subnet_ref_empty_without_subnet(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """Without an IPAM Subnet type the interface Subnet reference stays empty (still attached)"""
+    ClientManagementProfile(
+        empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor,
+    ).create_profile()
+
+    client: dict[str, Any] = fake_types_manager.by_name('client')
+    assert _ref_types_by_field_name(client, InterfaceField.SUBNET) == []
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                              ordering regression: Client references the in-profile OS                               #
