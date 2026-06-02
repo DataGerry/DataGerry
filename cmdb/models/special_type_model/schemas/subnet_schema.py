@@ -21,7 +21,7 @@ from typing import Any
 from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import SubnetField, IpamSection
-from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
+from cmdb.models.special_type_model.schemas.cidr_regex import CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_subnet_schema() -> dict[str, Any]:
@@ -51,6 +51,7 @@ def get_subnet_schema() -> dict[str, Any]:
                 SectionKey.LABEL: 'Network Details',
                 SectionKey.FIELDS: [
                     SubnetField.PARENT_SUPERNET,
+                    SubnetField.TYPE,
                     SubnetField.NETWORK_RANGE,
                 ],
             },
@@ -69,11 +70,29 @@ def get_subnet_schema() -> dict[str, Any]:
                 FieldKey.REF_TYPES: [],
             },
             {
+                # Required address-family selector. IPv6 is selectable, but the IPAM CIDR helpers /
+                # validators are still IPv4-only, so an IPv6 range is not validated as such yet
+                FieldKey.TYPE: FieldType.SELECT,
+                FieldKey.NAME: SubnetField.TYPE,
+                FieldKey.LABEL: 'Type',
+                FieldKey.REQUIRED: True,
+                FieldKey.OPTIONS: [
+                    {
+                        FieldKey.NAME: 'ipv4',
+                        FieldKey.LABEL: 'IPv4',
+                    },
+                    {
+                        FieldKey.NAME: 'ipv6',
+                        FieldKey.LABEL: 'IPv6',
+                    },
+                ],
+            },
+            {
                 FieldKey.TYPE: FieldType.TEXT,
                 FieldKey.NAME: SubnetField.NETWORK_RANGE,
                 FieldKey.LABEL: 'Network Range',
                 FieldKey.REQUIRED: True,
-                FieldKey.REGEX: IPV4_CIDR_REGEX,
+                FieldKey.REGEX: CIDR_REGEX,
             },
         ],
     }
