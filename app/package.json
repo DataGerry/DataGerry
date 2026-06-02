@@ -55,7 +55,6 @@
     "ngx-color": "^9.0.0",
     "ngx-drag-drop": "^20.0.1",
     "ngx-filesaver": "^18.0.0",
-    "ngx-icon-picker": "^1.11.2",
     "ngx-indexed-db": "^18.0.0",
     "ngx-pagination": "^6.0.3",
     "papaparse": "^5.4.1",
