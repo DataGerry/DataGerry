@@ -21,15 +21,15 @@ from typing import Any
 from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import SupernetField, IpamSection
-from cmdb.models.special_type_model.schemas.cidr_regex import IPV4_CIDR_REGEX
+from cmdb.models.special_type_model.schemas.cidr_regex import CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_supernet_schema() -> dict[str, Any]:
     """
     Builds the section/field blueprint for the SUPERNET SpecialType
 
-    The 'dg-network-range' field is required and validated as an IPv4 CIDR; subnet objects are
-    later checked for containment within this range
+    The 'dg-network-range' field is required and validated as an IPv4 or IPv6 CIDR; subnet objects
+    are later checked for containment within this range
 
     Returns:
         dict[str, Any]: Blueprint with the SUPERNET sections, fields and 'special_type' marker
@@ -65,7 +65,7 @@ def get_supernet_schema() -> dict[str, Any]:
                 FieldKey.NAME: SupernetField.NETWORK_RANGE,
                 FieldKey.LABEL: 'Network Range',
                 FieldKey.REQUIRED: True,
-                FieldKey.REGEX: IPV4_CIDR_REGEX,
+                FieldKey.REGEX: CIDR_REGEX,
             },
         ],
     }

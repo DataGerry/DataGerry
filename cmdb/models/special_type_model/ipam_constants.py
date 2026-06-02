@@ -43,6 +43,7 @@ class SubnetField(BaseStrEnum):
     NAME = 'dg-name'
     NETWORK_RANGE = 'dg-network-range'
     PARENT_SUPERNET = 'dg-supernet-ref'
+    TYPE = 'dg-subnet-type'
 
 
 class VlanField(BaseStrEnum):

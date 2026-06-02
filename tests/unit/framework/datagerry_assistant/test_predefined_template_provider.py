@@ -69,12 +69,12 @@ def test_get_template_does_not_leak_summary_between_calls(template_provider: Pre
 
 def test_get_template_returns_independent_copies(template_provider: PredefinedTemplateProvider) -> None:
     """Mutating a returned template does not affect the cache or subsequent calls"""
-    first: dict[str, Any] = template_provider.get_template('dg-network')
+    first: dict[str, Any] = template_provider.get_template('dg-modelspec')
     original_field_count: int = len(first[SectionKey.FIELDS])
 
     first[SectionKey.FIELDS].append({FieldKey.NAME: 'injected'})
 
-    second: dict[str, Any] = template_provider.get_template('dg-network')
+    second: dict[str, Any] = template_provider.get_template('dg-modelspec')
     assert len(second[SectionKey.FIELDS]) == original_field_count
 
 # -------------------------------------------------------------------------------------------------------------------- #
