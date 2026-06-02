@@ -4,6 +4,64 @@
   padding: 6px 12px;
 }
 
+/*
+ * Cap the height of the selected-tags area so a large multi-selection
+ * (e.g. "Select All" with many items) scrolls inside a contained box
+ * instead of growing to fill the screen and forcing constant reflows.
+ */
+::ng-deep .ng-select.ng-select-multiple {
+  .ng-select-container {
+    align-items: flex-start;
+    position: relative;
+  }
+
+  .ng-value-container {
+    max-height: 116px;
+    overflow-y: auto;
+    /* Span the full width so the scrollbar sits on the select's right edge,
+       and reserve room on the right for the floated clear/arrow icons. */
+    width: 100%;
+    padding-top: 5px;
+    padding-bottom: 2px;
+    padding-right: 42px;
+    row-gap: 4px;
+
+    /* Thin, unobtrusive scrollbar so it doesn't crowd the chips. */
+    scrollbar-width: thin;
+    scrollbar-color: #c7c7c7 transparent;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: #c7c7c7;
+      border-radius: 3px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+  }
+
+  /* Float the clear (×) and dropdown arrow over the right edge so they stay
+     pinned while the chips scroll, with the scrollbar to their right. */
+  .ng-clear-wrapper,
+  .ng-arrow-wrapper {
+    position: absolute;
+    top: 7px;
+    z-index: 1;
+  }
+
+  .ng-clear-wrapper {
+    right: 32px;
+  }
+
+  .ng-arrow-wrapper {
+    right: 14px;
+  }
+}
+
 .select-all-header {
   display: flex;
   align-items: center;

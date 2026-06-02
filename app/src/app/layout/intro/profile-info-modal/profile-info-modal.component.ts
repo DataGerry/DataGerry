@@ -140,7 +140,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
       'user-management-profile': 'User management',
       'location-profile': 'Location',
       'client-management-profile': 'Client management',
-      'ipam-profile': 'IPAM',
+      'ipam-profile': 'IPAM (New Feature)',
       'server-management-profile': 'Server management',
       'network-infrastructure-profile': 'Network infrastructure'
     }
