@@ -17,7 +17,7 @@
 */
 import {
     Component,
-    ComponentFactoryResolver, HostBinding,
+    ComponentFactoryResolver, HostBinding, inject,
     Input,
     OnInit,
     ViewChild,
@@ -34,7 +34,7 @@ import { Router } from '@angular/router';
 })
 export class TableCellComponent<T> {
 
-    constructor(private router: Router) { }
+    private readonly router = inject(Router);
 
     // noinspection JSMismatchedCollectionQueryUpdate
     @HostBinding('class') private cssClasses: Array<string>;
