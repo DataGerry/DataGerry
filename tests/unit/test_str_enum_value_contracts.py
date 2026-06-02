@@ -112,7 +112,8 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),
     (PersonReferenceType, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP'}),
     (NodeType, {'CHILD': 'CHILD', 'PARENT': 'PARENT', 'BOTH': 'BOTH'}),
-    (SectionKey, {'TYPE': 'type', 'NAME': 'name', 'LABEL': 'label', 'FIELDS': 'fields'}),
+    (SectionKey, {'TYPE': 'type', 'NAME': 'name', 'LABEL': 'label', 'FIELDS': 'fields',
+                  'HIDDEN_FIELDS': 'hidden_fields'}),
     (FieldKey, {
         'TYPE': 'type',
         'NAME': 'name',

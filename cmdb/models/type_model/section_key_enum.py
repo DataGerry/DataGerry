@@ -32,3 +32,4 @@ class SectionKey(BaseStrEnum):
     NAME = 'name'
     LABEL = 'label'
     FIELDS = 'fields'
+    HIDDEN_FIELDS = 'hidden_fields'

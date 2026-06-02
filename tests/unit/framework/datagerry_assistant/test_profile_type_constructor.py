@@ -26,6 +26,8 @@ from typing import Any
 from datetime import datetime
 
 from cmdb.models.type_model import FieldType, TypeSchemaKey
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     TypeConfigKey,
     RenderMetaKey,
@@ -115,6 +117,53 @@ def test_create_type_config_inlines_predefined_template(type_constructor: Profil
     assert 'dg-modelspec' in section_names
     flat_names: list[str] = [field['name'] for field in cfg[TypeConfigKey.FIELDS]]
     assert 'dg-modelspec-model' in flat_names
+
+
+def test_create_type_config_preserves_mds_section_type(type_constructor: ProfileTypeConstructor) -> None:
+    """A section declared as a multi-data-section keeps its type and gains an empty hidden_fields list"""
+    mds_section: dict[str, Any] = {
+        'type': SectionType.MDS_SECTION,
+        'name': 'sec-mds',
+        'label': 'MDS',
+        'fields': [{'type': 'text', 'name': 'f1', 'label': 'F1'}],
+    }
+
+    cfg: dict[str, Any] = type_constructor.create_type_config([mds_section], 'demo', 'Demo', 'fas fa-cube')
+    section: dict[str, Any] = next(
+        s for s in cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS] if s['name'] == 'sec-mds'
+    )
+
+    assert section['type'] == SectionType.MDS_SECTION
+    assert section['hidden_fields'] == []
+
+
+def test_create_type_config_plain_section_stays_plain(type_constructor: ProfileTypeConstructor) -> None:
+    """A section without an explicit type defaults to a plain section and carries no hidden_fields"""
+    cfg: dict[str, Any] = type_constructor.create_type_config([_INFO_SECTION], 'demo', 'Demo', 'fas fa-cube')
+    section: dict[str, Any] = cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS][0]
+
+    assert section['type'] == SectionType.SECTION
+    assert 'hidden_fields' not in section
+
+
+def test_get_ipam_interface_template_data_wires_subnet_ref(type_constructor: ProfileTypeConstructor) -> None:
+    """A given Subnet type id is set on the interface template's Subnet reference field"""
+    template: dict[str, Any] = type_constructor.get_ipam_interface_template_data(42)
+
+    assert template['type'] == SectionType.MDS_SECTION
+    subnet_field: dict[str, Any] = next(f for f in template['fields'] if f['name'] == InterfaceField.SUBNET)
+    assert subnet_field['extras']['ref_types'] == [42]
+    assert template['global_id_name'] == IpamSection.INTERFACE
+
+
+def test_get_ipam_interface_template_data_leaves_ref_empty_without_subnet(
+    type_constructor: ProfileTypeConstructor,
+) -> None:
+    """With no Subnet type (None) the interface template's Subnet reference stays empty"""
+    template: dict[str, Any] = type_constructor.get_ipam_interface_template_data(None)
+
+    subnet_field: dict[str, Any] = next(f for f in template['fields'] if f['name'] == InterfaceField.SUBNET)
+    assert subnet_field['extras']['ref_types'] == []
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            create_special_type_config                                               #

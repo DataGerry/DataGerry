@@ -27,6 +27,7 @@ from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
+from .datagerry_assistant_constants import TypeSlotKey
 from .profile_type_constructor import ProfileTypeConstructor
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -90,6 +91,20 @@ class ProfileBase:
             int | None: public_id of the type, or None if the slot is unknown or not yet created
         """
         return self.created_type_ids.get(identifier)
+
+
+    def get_ipam_interface_section(self) -> dict[str, Any]:
+        """
+        Returns the dg-ipam-interface section template wired to this run's Subnet type
+
+        Profiles attach this in place of the legacy dg-network section so the IPAM interface
+        feature is usable out-of-the-box. The Subnet reference is wired only when an IPAM Subnet
+        type was created earlier in the run; otherwise the reference stays empty.
+
+        Returns:
+            dict[str, Any]: The formatted dg-ipam-interface section template
+        """
+        return self.type_constructor.get_ipam_interface_template_data(self.get_created_id(TypeSlotKey.SUBNET_ID))
 
 
     def create_basic_type(self, type_name_key: str, type_dict: dict[str, Any]) -> int:
