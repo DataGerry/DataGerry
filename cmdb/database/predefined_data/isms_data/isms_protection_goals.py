@@ -14,31 +14,34 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides all predefined data for the IsmsProtectionGoals
+This module provides the predefined IsmsProtectionGoals
 """
+from typing import Any
+
+from cmdb.database.predefined_data.predefined_data_constants import ProtectionGoalKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_default_protection_goals() -> list:
+def get_default_protection_goals() -> list[dict[str, Any]]:
     """
-    All default IsmsProtectionGoals as data. Used when DataGerry is setup
+    Returns the default IsmsProtectionGoals (Confidentiality, Integrity, Availability), inserted at setup
 
     Returns:
-        list: All default IsmsProtectionGoals as data
+        list[dict[str, Any]]: The default IsmsProtectionGoals as documents
     """
     return [
         {
-            'public_id': 1,
-            'name': 'Confidentiality',
-            'predefined': True,
+            ProtectionGoalKey.PUBLIC_ID: 1,
+            ProtectionGoalKey.NAME: 'Confidentiality',
+            ProtectionGoalKey.PREDEFINED: True,
         },
         {
-            'public_id': 2,
-            'name': 'Integrity',
-            'predefined': True,
+            ProtectionGoalKey.PUBLIC_ID: 2,
+            ProtectionGoalKey.NAME: 'Integrity',
+            ProtectionGoalKey.PREDEFINED: True,
         },
         {
-            'public_id': 3,
-            'name': 'Availability',
-            'predefined': True,
+            ProtectionGoalKey.PUBLIC_ID: 3,
+            ProtectionGoalKey.NAME: 'Availability',
+            ProtectionGoalKey.PREDEFINED: True,
         }
     ]

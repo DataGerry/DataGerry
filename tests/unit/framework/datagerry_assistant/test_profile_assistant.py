@@ -87,18 +87,19 @@ def test_get_all_categories_only_builds_categories_with_a_created_type(
     assert categories[0]['types'] == [10]
 
 
-def test_get_all_categories_builds_ipam_category_from_special_type_slots(
+def test_get_all_categories_places_special_type_slots_in_network_category(
     empty_slot_map: dict[str, int | None],
 ) -> None:
-    """The supernet/subnet/vlan slots yield the dedicated 'ipam' category"""
+    """The supernet/subnet/vlan slots are emitted under the 'network' category"""
     empty_slot_map[TypeSlotKey.SUPERNET_ID] = 1
     empty_slot_map[TypeSlotKey.SUBNET_ID] = 2
     empty_slot_map[TypeSlotKey.VLAN_ID] = 3
 
     categories: list[dict[str, Any]] = _make_assistant().get_all_categories(empty_slot_map)
-    ipam: dict[str, Any] = next(category for category in categories if category['name'] == 'ipam')
+    network: dict[str, Any] = next(category for category in categories if category['name'] == 'network')
 
-    assert ipam['types'] == [1, 2, 3]
+    assert network['types'] == [1, 2, 3]
+    assert all(category['name'] != 'ipam' for category in categories)
 
 
 def test_get_category_body_shape() -> None:

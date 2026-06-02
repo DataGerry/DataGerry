@@ -20,7 +20,7 @@ from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
 
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, FieldType
 
 from cmdb.errors.mongo_query_builder import (
     MongoQueryBuilderInitError,
@@ -62,11 +62,13 @@ class MongoDBQueryBuilder:
 
             self.report_type: CmdbType = report_type
 
-            self.number_fields: list[str] = self.report_type.get_all_fields_of_type("number")
-            self.date_fields: list[str] = self.report_type.get_all_fields_of_type("date")
-            self.ref_fields: list[str] = self.report_type.get_all_fields_of_type("ref")
-            self.ref_section_fields: list[str] = self.report_type.get_all_fields_of_type("ref-section-field")
-            self.mds_fields: list[dict[str, Any]] = self.report_type.get_all_mds_fields()
+            self.number_fields: list[str] = self.report_type.get_all_fields_of_type(FieldType.NUMBER)
+            self.date_fields: list[str] = self.report_type.get_all_fields_of_type(FieldType.DATE)
+            self.ref_fields: list[str] = self.report_type.get_all_fields_of_type(FieldType.REFERENCE)
+            self.ref_section_fields: list[str] = self.report_type.get_all_fields_of_type(FieldType.REF_SECTION)
+            # get_all_mds_fields returns MDS field *names* (render_meta sections store field names),
+            # so this is a list[str] and the `field_name in self.mds_fields` check below works
+            self.mds_fields: list[str] = self.report_type.get_all_mds_fields()
         except Exception as err:
             LOGGER.error("[__init__] Initialization failed. Error: %s, Type: %s", err, type(err))
             raise MongoQueryBuilderInitError(f"Failed to initialize MongoQueryBuilder: {err}") from err

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Update20260225
+Database update 20260225: backfill the field 'type' property on object fields
 """
 from logging import Logger, getLogger
 from collections import defaultdict
@@ -32,19 +32,20 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class Update20260225(BaseDatabaseUpdate):
     """
-    Implementation of Update20260225
+    Backfills the 'type' property onto every object field (and MDS field) from its type schema
     """
     def creation_date(self) -> int:
         return 20260225
 
 
     def description(self) -> str:
-        return """
-               Adds type property to all object fields
-               """
+        return "Adds the 'type' property to all object fields"
 
 
     def start_update(self) -> None:
+        """
+        Backfills the field 'type' property onto all objects, then bumps the updater version
+        """
         try:
             self.backfill_object_field_types()
 
@@ -56,17 +57,11 @@ class Update20260225(BaseDatabaseUpdate):
 
     def build_field_type_map_by_type(self) -> dict[int, dict[str, str]]:
         """
+        Builds a per-type lookup of field name -> field type from every CmdbType schema
+
         Returns:
-        {
-            32: {
-                "ref-391f8254...": "ref",
-                "text-f96955e2...": "text",
-                ...
-            },
-            33: {
-                ...
-            }
-        }
+            dict[int, dict[str, str]]: Maps a type's public_id to a {field_name: field_type} map, e.g.
+                {32: {"ref-391f8254...": "ref", "text-f96955e2...": "text"}, 33: {...}}
         """
         types: list[dict[str, Any]] = self.types_manager.find(criteria={})
 
@@ -84,11 +79,13 @@ class Update20260225(BaseDatabaseUpdate):
 
     def backfill_object_field_types(self) -> None:
         """
-        Backfills the 'type' property into all object.fields[] entries
-        based on their corresponding type schema.
+        Backfills the 'type' property into every object's fields[] (and MDS data) entries
 
-        This method lives in <your current service class> and uses
-        self.objects_manager to perform the bulk updates.
+        For each type, the field names are grouped by their schema field type and bulk-updated on the
+        matching objects via self.objects_manager, only where the field's 'type' is not already set.
+
+        Raises:
+            UpdaterException: If the backfill fails
         """
         try:
             mapping_by_type = self.build_field_type_map_by_type()

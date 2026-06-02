@@ -227,13 +227,6 @@ CATEGORY_DEFINITIONS: list[dict[str, Any]] = [
             TypeSlotKey.ROUTER_ID,
             TypeSlotKey.SWITCH_ID,
             TypeSlotKey.WIRELESS_ACCESS_POINT_ID,
-        ],
-    },
-    {
-        CategoryDefinitionKey.NAME: 'ipam',
-        CategoryDefinitionKey.LABEL: 'IPAM',
-        CategoryDefinitionKey.ICON: 'fas fa-project-diagram',
-        CategoryDefinitionKey.TYPE_SLOTS: [
             TypeSlotKey.SUPERNET_ID,
             TypeSlotKey.SUBNET_ID,
             TypeSlotKey.VLAN_ID,
