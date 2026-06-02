@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,11 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides the predefined data for CmdbLocations (the locations root document)
-"""
-from .cmdb_location_data import get_root_location_data
-# -------------------------------------------------------------------------------------------------------------------- #
+Unit tests for the cmdb.database package (top-level modules)
 
-__all__: list[str] = [
-    'get_root_location_data',
-]
+Scope is the pure, side-effect-free logic: the BSON<->JSON codec and retry decorator in
+database_utils, and the query-construction logic in mongo_query_builder. The pymongo I/O wrappers
+in mongo_database_manager / mongo_connector are exercised by the integration and functional suites
+(they need a live MongoDB), and methods with known open issues are deliberately left untested.
+"""

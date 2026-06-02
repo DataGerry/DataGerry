@@ -71,17 +71,23 @@ def test_every_type_slot_is_categorised_exactly_once() -> None:
     assert len(occurrences) == len(set(occurrences))
 
 
-def test_ipam_slots_live_in_the_ipam_category() -> None:
-    """Supernet, Subnet and VLAN slots are all assigned to the dedicated 'ipam' category"""
-    ipam_category: dict[str, Any] = next(
-        definition for definition in CATEGORY_DEFINITIONS if definition[CategoryDefinitionKey.NAME] == 'ipam'
+def test_ipam_slots_live_in_the_network_category() -> None:
+    """Supernet, Subnet and VLAN slots are all assigned to the 'network' category"""
+    network_category: dict[str, Any] = next(
+        definition for definition in CATEGORY_DEFINITIONS if definition[CategoryDefinitionKey.NAME] == 'network'
     )
 
-    assert set(ipam_category[CategoryDefinitionKey.TYPE_SLOTS]) == {
+    assert {
         TypeSlotKey.SUPERNET_ID,
         TypeSlotKey.SUBNET_ID,
         TypeSlotKey.VLAN_ID,
-    }
+    }.issubset(set(network_category[CategoryDefinitionKey.TYPE_SLOTS]))
+
+
+def test_no_ipam_category_exists() -> None:
+    """The dedicated 'ipam' category was removed; its slots moved into 'network'"""
+    names: list[str] = [definition[CategoryDefinitionKey.NAME] for definition in CATEGORY_DEFINITIONS]
+    assert 'ipam' not in names
 
 # -------------------------------------------------------------------------------------------------------------------- #
 # IPAM_SPECIAL_TYPE_DEFINITIONS - invariants
