@@ -62,7 +62,7 @@
 
       <div *ngIf="filterMode === 'manual'" class="enhanced-filter-content">
         <form [formGroup]="filterForm">
-          <div class="manual-filter-selector" style="align-items: center !important;">
+          <div class="manual-filter-selector" style="align-items: start !important;">
             <div class="filter-inputs-section">
               <div class="filter-group">
                 <label class="filter-label">
@@ -70,7 +70,7 @@
                   CI Types
                 </label>
                 <app-form-select formControlName="types" [items]="typeOptionList" bindLabel="display_name"
-                  bindValue="public_id" [multiple]="true" placeholder="Select CI type(s)" class="filter-select">
+                  bindValue="public_id" [multiple]="true" [enableSelectAll]="true" placeholder="Select CI type(s)" class="filter-select">
                 </app-form-select>
               </div>
 
@@ -87,8 +87,7 @@
 
             <div class="filter-actions">
               <div>
-                <label class="filter-label" style="height: 7px !important">
-                </label>
+                <label class="filter-label">&nbsp;</label>
                 <div>
                   <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" (clicked)="applyFilters()">
                   </app-button>

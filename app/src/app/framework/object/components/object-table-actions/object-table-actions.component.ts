@@ -89,7 +89,7 @@ export class ObjectTableActionsComponent implements OnDestroy {
      * Open the preview modal
      */
     public openPreviewModal(): void {
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg', scrollable: true });
         this.modalRef.componentInstance.renderResult = this.result;
     }
 
