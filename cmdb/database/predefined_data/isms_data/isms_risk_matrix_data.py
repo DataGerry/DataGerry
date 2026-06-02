@@ -14,19 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides all predefined data for the IsmsRiskMatrix
+This module provides the predefined IsmsRiskMatrix
 """
+from typing import Any
+
+from cmdb.database.predefined_data.predefined_data_constants import RiskMatrixKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_default_risk_matrix() -> dict:
+def get_default_risk_matrix() -> dict[str, Any]:
     """
-    The default IsmsRiskMatrix. Used when DataGerry is setup
+    Returns the default (empty) IsmsRiskMatrix, inserted at setup
 
     Returns:
-        list: The default IsmsRiskMatrix
+        dict[str, Any]: The default IsmsRiskMatrix document
     """
     return {
-        'public_id': 1,
-        'risk_matrix': [],
-        'matrix_unit': None
+        RiskMatrixKey.PUBLIC_ID: 1,
+        RiskMatrixKey.RISK_MATRIX: [],
+        RiskMatrixKey.MATRIX_UNIT: None
     }

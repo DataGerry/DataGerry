@@ -41,8 +41,7 @@ class MongoConnector:
     _instance = None # Singleton instance
 
 
-    # def __new__(cls, host: str, port: int, database_name: str, client_options: dict = None):
-    def __new__(cls, host: str, port: int, client_options: dict[str, Any] | None = None):
+    def __new__(cls, host: str, port: int, client_options: dict[str, Any] | None = None) -> "MongoConnector":
         """
         This method ensures that only one instance of MongoConnector is created.
         It will return the same instance every time.
@@ -50,7 +49,6 @@ class MongoConnector:
         Args:
             host (str): MongoDB host
             port (int): MongoDB port
-            database_name (str): Database name
             client_options (dict[str, Any] | None): MongoClient options
 
         Returns:
@@ -67,19 +65,18 @@ class MongoConnector:
 
         return cls._instance
 
-    # def __init__(self, host: str, port: int, database_name: str, client_options: dict = None):
     def __init__(self, host: str, port: int, client_options: dict[str, Any] | None = None) -> None:
         """
-        Initialises the connection to MongoDB and the attributes of the `MongoConnector`
+        Initialises the attributes of the `MongoConnector` (the MongoClient itself is lazy-loaded)
 
         Args:
             `host` (str): Host of the connection
             `port` (int): Port of the connection
-            `database_name` (str): Name of the database
-            `client_options` (dict[str, Any] | None): Additional client options. Defaults to None.
+            `client_options` (dict[str, Any] | None): Additional MongoClient options. Defaults to None.
 
-        Raises:
-            `DatabaseConnectionError`: When the connection initialisation failed
+        Note:
+            MongoConnector is a singleton, so __init__ runs on every constructor call and refreshes
+            these attributes (including resetting the lazily-created client) for the shared instance.
         """
         self.connection_string: str | None = os.getenv('CONNECTION_STRING')
         self.host: str = host
@@ -87,10 +84,10 @@ class MongoConnector:
         self.client_options: dict[str, Any] = client_options or {}
 
         # TODO: improve handling of tls and ssl
-        # remove depricated
+        # Drop the deprecated 'ssl' option in favor of 'tls'
         self.client_options.pop("ssl", None)
 
-        # TLS nur setzen, wenn NICHT im connection string
+        # Only set TLS here when it is not already configured via the connection string
         if "tls" not in self.client_options:
             if self.connection_string and self.connection_string.startswith("mongodb+srv://"):
                 self.client_options["tls"] = True
@@ -101,9 +98,18 @@ class MongoConnector:
 
 
     @property
-    def client(self):
+    def client(self) -> MongoClient:
         """
-        Lazy-loads MongoClient to prevent pre-fork initialization issues
+        Returns the MongoClient, creating it on first access
+
+        The client is lazy-loaded to prevent pre-fork initialization issues (a forked worker must
+        create its own client rather than inherit one from the parent process).
+
+        Raises:
+            DatabaseConnectionError: If the MongoClient could not be initialised
+
+        Returns:
+            MongoClient: The (cached) MongoDB client
         """
         if self._client is None:
             try:

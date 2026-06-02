@@ -24,6 +24,7 @@ import time
 import datetime
 import random
 from typing import Any
+from collections.abc import Callable
 from functools import wraps
 from bson.dbref import DBRef
 from bson.max_key import MaxKey
@@ -43,9 +44,6 @@ from cmdb.framework.search.search_result_map import SearchResultMap
 LOGGER: Logger = getLogger(__name__)
 
 RE_TYPE = type(re.compile("re.Pattern"))
-
-ASCENDING = 1
-DESCENDING = -1
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -168,13 +166,22 @@ COSMOS_DB_ERROR_CODES: dict[int, str] = {
     419: "Conflict",
 }
 
-def retry_operation(func):
+def retry_operation(func: Callable) -> Callable:
     """
-    Decorator to retry database operations with exponential backoff in case of recoverable errors.
-    Also catches Cosmos DB-specific error codes and implements retries with exponential backoff.
+    Decorator to retry database operations with exponential backoff on recoverable errors
+
+    Retries on pymongo connection/timeout errors and on Azure Cosmos DB HttpResponseError codes
+    listed in COSMOS_DB_ERROR_CODES (up to MAX_RETRIES times, with jittered exponential backoff).
+    Unrecognised errors are logged and re-raised immediately.
+
+    Args:
+        func (Callable): The database operation (a method taking 'self' first) to wrap
+
+    Returns:
+        Callable: The wrapped operation with retry behavior
     """
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self, *args: Any, **kwargs: Any) -> Any:
         retries = 0
         retry_delay = INITIAL_RETRY_DELAY  # Initial delay in seconds
 

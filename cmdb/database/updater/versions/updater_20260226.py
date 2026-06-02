@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Update20260226
+Database update 20260226: migrate legacy ObjectLinks into the DgObjectLinks relation
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -36,19 +36,24 @@ OBJECT_LINK_COLLECTION: str = "framework.links"
 # -------------------------------------------------------------------------------------------------------------------- #
 class Update20260226(BaseDatabaseUpdate):
     """
-    Implementation of Update20260226
+    Migrates legacy ObjectLinks into the 'DgObjectLinks' relation as CmdbObjectRelations
     """
     def creation_date(self) -> int:
         return 20260226
 
 
     def description(self) -> str:
-        return """
-               Maps all ObjectLinks on a Relation
-               """
+        return "Maps all ObjectLinks onto a Relation"
 
 
     def start_update(self) -> None:
+        """
+        Creates (or reuses) the 'DgObjectLinks' relation and maps every legacy object link onto it
+
+        Each framework.links entry becomes a CmdbObjectRelation between the two objects' types.
+        Links whose objects no longer exist are skipped, and relations that already exist are not
+        duplicated.
+        """
         try:
             object_links: list[dict[str, Any]] = list(self.dbm.find(
                 collection=OBJECT_LINK_COLLECTION,
@@ -76,7 +81,9 @@ class Update20260226(BaseDatabaseUpdate):
                 }
 
                 # Get all types
-                all_types = self.types_manager.find(criteria={}, projection={"public_id": 1, "_id": 0})
+                all_types: list[dict[str, Any]] = self.types_manager.find(
+                    criteria={}, projection={"public_id": 1, "_id": 0}
+                )
 
                 existing_type_ids = [t["public_id"] for t in all_types]
 
@@ -182,7 +189,13 @@ class Update20260226(BaseDatabaseUpdate):
 
     def get_mapper_relation(self, existing_type_ids: list[int]) -> dict[str, Any]:
         """
-        TODO: document
+        Builds the 'DgObjectLinks' CmdbRelation document that hosts the migrated object links
+
+        Args:
+            existing_type_ids (list[int]): public_ids of all types, allowed on both relation ends
+
+        Returns:
+            dict[str, Any]: The relation document ready to insert
         """
         mapper_relation: dict[str, Any] = {
             "relation_name": "DgObjectLinks",
@@ -210,7 +223,19 @@ class Update20260226(BaseDatabaseUpdate):
         child_type_id: int,
         relation_id: int,
     ) -> dict[str, Any]:
-        """TODO: document"""
+        """
+        Builds a single CmdbObjectRelation document linking a parent object to a child object
+
+        Args:
+            parent_id (int): public_id of the parent (primary) object
+            child_id (int): public_id of the child (secondary) object
+            parent_type_id (int): type public_id of the parent object
+            child_type_id (int): type public_id of the child object
+            relation_id (int): public_id of the owning 'DgObjectLinks' relation
+
+        Returns:
+            dict[str, Any]: The object-relation document (public_id is assigned by the caller)
+        """
         return {
             "relation_id": relation_id,
             "relation_parent_id": parent_id,

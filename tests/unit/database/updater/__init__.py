@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,11 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides the predefined data for CmdbLocations (the locations root document)
-"""
-from .cmdb_location_data import get_root_location_data
-# -------------------------------------------------------------------------------------------------------------------- #
+Unit tests for the cmdb.database.updater package
 
-__all__: list[str] = [
-    'get_root_location_data',
-]
+The updaters are instantiated with __new__ (bypassing BaseDatabaseUpdate.__init__, which reads
+config and builds real managers) and their manager / dbm dependencies are replaced with MagicMocks,
+so the migration orchestration is verified without a live MongoDB.
+"""

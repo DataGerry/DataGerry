@@ -14,7 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides all predefined data for CmdbDAO subclasses
+This package provides the predefined ISMS seed data: the default risk matrix, extendable options
+and protection goals
 """
 from .isms_risk_matrix_data import get_default_risk_matrix
 from .isms_extendable_options import get_default_isms_extendable_options
