@@ -55,7 +55,7 @@ class NetworkInfrastructureProfile(ProfileBase):
         """
         Builds the 'Switch' type for the 'Network Infrastructure' profile
 
-        Includes the dg-modelspec, dg-network and dg-rackmounting templates plus conditional
+        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
         reference sections to the Operating System and User / Customer User types.
 
         Returns:
@@ -75,7 +75,7 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-78906",
@@ -127,7 +127,7 @@ class NetworkInfrastructureProfile(ProfileBase):
         """
         Builds the 'Router' type for the 'Network Infrastructure' profile
 
-        Includes the dg-modelspec, dg-network and dg-rackmounting templates plus conditional
+        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
         reference sections to the Operating System and User / Customer User types.
 
         Returns:
@@ -147,7 +147,7 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-98615",
@@ -248,8 +248,8 @@ class NetworkInfrastructureProfile(ProfileBase):
         """
         Builds the 'Wireless Access Point' type for the 'Network Infrastructure' profile
 
-        Includes the dg-modelspec and dg-network templates plus a conditional reference section to
-        the User / Customer User types (no Operating System reference, unlike the other devices).
+        Includes the dg-modelspec and dg-ipam-interface templates plus a conditional reference section
+        to the User / Customer User types (no Operating System reference, unlike the other devices).
 
         Returns:
             dict[str, Any]: The Wireless Access Point CmdbType config
@@ -268,7 +268,7 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             {
                 "name": "section-30882",
                 "label": "WIFI data",

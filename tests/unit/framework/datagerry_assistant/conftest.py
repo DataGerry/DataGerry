@@ -26,7 +26,9 @@ from copy import deepcopy
 
 import pytest
 
-from cmdb.models.type_model import FieldKey, SectionKey
+from cmdb.models.type_model import FieldKey, SectionKey, FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     TypeSlotKey,
     AssistantFieldKey,
@@ -82,17 +84,37 @@ class FakeSectionTemplatesManager:
         return None
 
 
-def _fmt_template(name: str, label: str, fields: list[tuple[str, str, str]]) -> dict[str, Any]:
+def _fmt_template(name: str, label: str, fields: list[tuple[str, str, str]],
+                  section_type: str = SectionType.SECTION) -> dict[str, Any]:
     """Builds a template in the shape PredefinedTemplateProvider.__format_template produces"""
     return {
         SectionKey.NAME: name,
         SectionKey.LABEL: label,
+        SectionKey.TYPE: section_type,
         AssistantSectionKey.GLOBAL_ID_NAME: name,
         SectionKey.FIELDS: [
             {FieldKey.TYPE: ftype, FieldKey.NAME: fname, FieldKey.LABEL: flabel, AssistantFieldKey.EXTRAS: {}}
             for (ftype, fname, flabel) in fields
         ],
     }
+
+
+def _ipam_interface_template() -> dict[str, Any]:
+    """Builds the dg-ipam-interface MDS template in the formatted shape, with an empty Subnet ref"""
+    template: dict[str, Any] = _fmt_template(IpamSection.INTERFACE, 'Interfaces', [
+        (FieldType.TEXT, InterfaceField.IP, 'IP-Address'),
+        (FieldType.TEXT, InterfaceField.MAC, 'Mac-Address'),
+    ], SectionType.MDS_SECTION)
+
+    # The Subnet reference field the assistant wires to the created Subnet type
+    template[SectionKey.FIELDS].insert(0, {
+        FieldKey.TYPE: FieldType.REFERENCE,
+        FieldKey.NAME: InterfaceField.SUBNET,
+        FieldKey.LABEL: 'Network',
+        AssistantFieldKey.EXTRAS: {FieldKey.REF_TYPES: []},
+    })
+
+    return template
 
 
 # The predefined templates the profiles reference, using the real dg-* field names so that
@@ -114,6 +136,7 @@ FAKE_PREDEFINED_TEMPLATES: dict[str, dict[str, Any]] = {
         ('text', 'dg-rackmounting-position', 'Mounting position'),
         ('select', 'dg-rackmounting-orientation', 'Mounting orientation'),
     ]),
+    IpamSection.INTERFACE: _ipam_interface_template(),
 }
 
 

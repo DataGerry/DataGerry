@@ -106,8 +106,8 @@ class ClientManagementProfile(ProfileBase):
         """
         Builds the 'Client' type for the 'Client Management' profile
 
-        Includes the dg-modelspec and dg-network templates plus conditional reference sections to
-        the Operating System and User / Customer User types (added only when those types exist).
+        Includes the dg-modelspec and dg-ipam-interface templates plus conditional reference sections
+        to the Operating System and User / Customer User types (added only when those types exist).
 
         Returns:
             dict[str, Any]: The Client CmdbType config
@@ -126,7 +126,7 @@ class ClientManagementProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             {
                 "name": "section-11686",
                 "label": "Location",
@@ -259,7 +259,7 @@ class ClientManagementProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             {
                 "name": "section-88306",
                 "label": "Location",

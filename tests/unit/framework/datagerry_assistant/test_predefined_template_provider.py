@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from cmdb.models.type_model import FieldKey, SectionKey
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     AssistantFieldKey,
     AssistantSectionKey,
@@ -80,9 +81,10 @@ def test_get_template_returns_independent_copies(template_provider: PredefinedTe
 #                                        __load_predefined_templates / __format                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def _raw_template(name: str, label: str, fields: list[dict[str, Any]]) -> SimpleNamespace:
+def _raw_template(name: str, label: str, fields: list[dict[str, Any]],
+                  section_type: str = SectionType.SECTION) -> SimpleNamespace:
     """A stand-in for a CmdbSectionTemplate whose __dict__ mirrors the stored document"""
-    return SimpleNamespace(name=name, label=label, fields=fields)
+    return SimpleNamespace(name=name, label=label, type=section_type, fields=fields)
 
 
 def test_load_keys_templates_by_name_and_sets_global_id() -> None:
@@ -120,3 +122,18 @@ def test_format_splits_default_keys_from_extras() -> None:
     assert by_name['fancy'][AssistantFieldKey.EXTRAS] == {'regex': '^x$', 'helperText': 'hint'}
     assert by_name['fancy'][FieldKey.TYPE] == 'text'
     assert by_name['fancy'][FieldKey.LABEL] == 'Fancy'
+
+
+def test_format_carries_section_type() -> None:
+    """The section 'type' is preserved so a multi-data-section template keeps its kind"""
+    manager = MagicMock()
+    manager.iterate.return_value = SimpleNamespace(results=[
+        _raw_template('dg-plain', 'Plain', [{'type': 'text', 'name': 'p1', 'label': 'P1'}]),
+        _raw_template('dg-mds', 'MDS', [{'type': 'text', 'name': 'm1', 'label': 'M1'}],
+                      SectionType.MDS_SECTION),
+    ])
+
+    provider = PredefinedTemplateProvider(manager)
+
+    assert provider.predefined_templates['dg-plain'][SectionKey.TYPE] == SectionType.SECTION
+    assert provider.predefined_templates['dg-mds'][SectionKey.TYPE] == SectionType.MDS_SECTION

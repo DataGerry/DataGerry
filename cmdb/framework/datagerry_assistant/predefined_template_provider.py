@@ -30,6 +30,7 @@ from cmdb.manager import SectionTemplatesManager
 
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.type_model import FieldKey, SectionKey
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.framework.results import IterationResult
 
 from .datagerry_assistant_constants import AssistantFieldKey, AssistantSectionKey
@@ -111,7 +112,8 @@ class PredefinedTemplateProvider:
         Reshapes a stored predefined section template into the form the TypeConstructor consumes
 
         Each field is split into the default keys (type/name/label) plus an 'extras' dict holding
-        every other attribute.
+        every other attribute. The section 'type' is carried over so multi-data-section templates
+        (e.g. dg-ipam-interface) keep their kind instead of collapsing to a plain section.
 
         Args:
             template_data (dict[str, Any]): The stored predefined section template
@@ -122,6 +124,7 @@ class PredefinedTemplateProvider:
         formatted_template: dict[str, Any] = {
             SectionKey.NAME: template_data[SectionKey.NAME],
             SectionKey.LABEL: template_data[SectionKey.LABEL],
+            SectionKey.TYPE: template_data.get(SectionKey.TYPE, SectionType.SECTION),
             AssistantSectionKey.GLOBAL_ID_NAME: template_data[SectionKey.NAME],
         }
 
