@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, inject, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { inject, Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';

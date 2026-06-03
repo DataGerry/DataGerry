@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { inject, Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
