@@ -17,15 +17,15 @@
 */
 
 import {
+  Component,
   inject,
   ChangeDetectionStrategy,
-  Component,
   EventEmitter,
   Input,
   OnDestroy,
   OnInit,
   Output,
-  ViewEncapsulation
+  ViewEncapsulation,
 } from '@angular/core';
 import { Column } from '../../table.types';
 import { UntypedFormArray, UntypedFormBuilder, UntypedFormGroup } from '@angular/forms';

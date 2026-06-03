@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { inject, Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
