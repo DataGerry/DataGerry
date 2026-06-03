@@ -34,6 +34,7 @@ from cmdb.models.object_model import (
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    extract_field_value,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -41,13 +42,17 @@ from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
     VlanField,
     InterfaceField,
+    IpAddressFamily,
     IpamSection,
     IpamValidationDetailKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.framework.ipam.subnet_validator import SubnetErrorCode
+from cmdb.framework.ipam.supernet_validator import SupernetErrorCode
 from cmdb.framework.ipam.enforcement import (
     DeleteGuardErrorCode,
+    _canonical_cidr,
+    _canonical_ip,
+    _canonicalize_interface_ips,
     _coerce_int,
     _enforce_interface_rows,
     _enforce_subnet_object,
@@ -57,6 +62,7 @@ from cmdb.framework.ipam.enforcement import (
     _format_id_list,
     _guard_subnet_delete,
     _guard_supernet_delete,
+    _normalize_ipam_object,
     _resolve_object_special_type,
     enforce_delete_guards,
     enforce_object_invariants,
@@ -333,12 +339,20 @@ def test_format_id_list_joins_multiple_ids_with_comma_separator() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            _enforce_subnet_object                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _make_subnet_candidate(public_id: int | None, network_range: str, parent_id: int | None = None) -> dict[str, Any]:
-    """Builds a SUBNET candidate CmdbObject doc."""
+def _make_subnet_candidate(
+    public_id: int | None,
+    network_range: str,
+    parent_id: int | None = None,
+    subnet_type: Any = None,
+) -> dict[str, Any]:
+    """Builds a SUBNET candidate CmdbObject doc, with an optional address-family selector."""
     fields = [_make_field(SubnetField.NETWORK_RANGE, network_range)]
 
     if parent_id is not None:
         fields.append(_make_field(SubnetField.PARENT_SUPERNET, parent_id))
+
+    if subnet_type is not None:
+        fields.append(_make_field(SubnetField.TYPE, subnet_type))
 
     return _make_object_doc(public_id=public_id, type_id=SUBNET_TYPE_ID, fields=fields)
 
@@ -385,13 +399,18 @@ def test_enforce_subnet_object_allows_range_change_even_when_interface_ips_would
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          _enforce_supernet_object                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _make_supernet_candidate(public_id: int | None, network_range: Any) -> dict[str, Any]:
-    """Builds a SUPERNET candidate CmdbObject doc."""
-    return _make_object_doc(
-        public_id=public_id,
-        type_id=SUPERNET_TYPE_ID,
-        fields=[_make_field(SupernetField.NETWORK_RANGE, network_range)],
-    )
+def _make_supernet_candidate(
+    public_id: int | None,
+    network_range: Any,
+    supernet_type: Any = None,
+) -> dict[str, Any]:
+    """Builds a SUPERNET candidate CmdbObject doc, with an optional address-family selector."""
+    fields: list[dict[str, Any]] = [_make_field(SupernetField.NETWORK_RANGE, network_range)]
+
+    if supernet_type is not None:
+        fields.append(_make_field(SupernetField.TYPE, supernet_type))
+
+    return _make_object_doc(public_id=public_id, type_id=SUPERNET_TYPE_ID, fields=fields)
 
 
 def test_enforce_supernet_object_emits_cidr_invalid_for_unparseable_range() -> None:
@@ -401,14 +420,33 @@ def test_enforce_supernet_object_emits_cidr_invalid_for_unparseable_range() -> N
     errors = _enforce_supernet_object(candidate)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.CIDR_INVALID
+    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.CIDR_INVALID
 
 
-def test_enforce_supernet_object_returns_empty_for_canonical_cidr() -> None:
-    """A canonical CIDR passes; SUPERNET enforcement is now CIDR-canonicity only"""
+def test_enforce_supernet_object_returns_empty_for_canonical_cidr_without_type() -> None:
+    """A canonical CIDR with no type selector passes (the family check is skipped)"""
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
 
     assert _enforce_supernet_object(candidate) == []
+
+
+def test_enforce_supernet_object_returns_empty_when_type_matches_cidr_family() -> None:
+    """An ipv4 selector on an IPv4 CIDR (and ipv6 on IPv6) passes"""
+    ipv4 = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, supernet_type=IpAddressFamily.IPV4)
+    ipv6 = _make_supernet_candidate(CANDIDATE_OBJECT_ID, '2001:db8::/32', supernet_type=IpAddressFamily.IPV6)
+
+    assert _enforce_supernet_object(ipv4) == []
+    assert _enforce_supernet_object(ipv6) == []
+
+
+def test_enforce_supernet_object_emits_type_family_mismatch_when_selector_disagrees() -> None:
+    """An ipv6 selector on an IPv4 CIDR is rejected with TYPE_FAMILY_MISMATCH"""
+    candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, supernet_type=IpAddressFamily.IPV6)
+
+    errors = _enforce_supernet_object(candidate)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_FAMILY_MISMATCH
 
 
 def test_enforce_supernet_object_allows_range_change_even_when_child_subnets_would_orphan() -> None:
@@ -489,6 +527,66 @@ def test_enforce_interface_rows_on_update_passes_candidate_id_as_exclude_object_
         _enforce_interface_rows(MagicMock(), MagicMock(), candidate, previous_object=previous)
 
     assert validate_mock.call_args.args[3] == CANDIDATE_OBJECT_ID
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     CANONICALISATION (ON STORE)                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_canonical_cidr_normalizes_ipv6_leaves_ipv4_and_unparsable() -> None:
+    """_canonical_cidr lower-cases / compresses IPv6, leaves canonical IPv4 and bad input untouched"""
+    assert _canonical_cidr('2001:DB8:0:0::/32') == '2001:db8::/32'
+    assert _canonical_cidr('10.0.0.0/24') == '10.0.0.0/24'
+    assert _canonical_cidr('not-a-cidr') == 'not-a-cidr'
+    assert _canonical_cidr(None) is None
+
+
+def test_canonical_ip_normalizes_ipv6_leaves_ipv4_and_unparsable() -> None:
+    """_canonical_ip lower-cases / compresses IPv6, leaves canonical IPv4 and bad input untouched"""
+    assert _canonical_ip('2001:DB8::0001') == '2001:db8::1'
+    assert _canonical_ip('10.0.0.5') == '10.0.0.5'
+    assert _canonical_ip('nonsense') == 'nonsense'
+
+
+def test_canonicalize_interface_ips_rewrites_rows_in_place() -> None:
+    """Every dg-ipam-interface row's IP value is rewritten to canonical form"""
+    candidate = _make_object_doc(
+        CANDIDATE_OBJECT_ID, OTHER_TYPE_ID,
+        mds=[_make_interface_section([_make_interface_row(700, '2001:DB8::0001')])],
+    )
+
+    _canonicalize_interface_ips(candidate)
+
+    ip_entry = candidate[CmdbObjectKey.MULTI_DATA_SECTIONS][0][CmdbObjectMdsKey.VALUES][0][CmdbObjectMdsRowKey.DATA][1]
+    assert ip_entry[CmdbObjectFieldKey.VALUE] == '2001:db8::1'
+
+
+def test_normalize_ipam_object_canonicalizes_subnet_range_in_place() -> None:
+    """A SUBNET candidate's dg-network-range is canonicalised in place"""
+    candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, '2001:DB8:0:0::/48', subnet_type=IpAddressFamily.IPV6)
+
+    _normalize_ipam_object(candidate, SpecialType.SUBNET)
+
+    assert extract_field_value(candidate, SubnetField.NETWORK_RANGE) == '2001:db8::/48'
+
+
+def test_normalize_ipam_object_canonicalizes_supernet_range_in_place() -> None:
+    """A SUPERNET candidate's dg-network-range is canonicalised in place"""
+    candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, '2001:DB8::/32', supernet_type=IpAddressFamily.IPV6)
+
+    _normalize_ipam_object(candidate, SpecialType.SUPERNET)
+
+    assert extract_field_value(candidate, SupernetField.NETWORK_RANGE) == '2001:db8::/32'
+
+
+def test_enforce_object_invariants_canonicalizes_ipv6_range_before_save() -> None:
+    """enforce_object_invariants normalises the candidate in place so the saved value is canonical"""
+    candidate = _make_subnet_candidate(CANDIDATE_OBJECT_ID, '2001:DB8::/32', subnet_type=IpAddressFamily.IPV6)
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type', return_value=SpecialType.SUBNET):
+        errors = enforce_object_invariants(MagicMock(), MagicMock(), candidate)
+
+    assert errors == []
+    assert extract_field_value(candidate, SubnetField.NETWORK_RANGE) == '2001:db8::/32'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

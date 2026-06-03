@@ -39,6 +39,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
     IpamValidationDetailKey,
 )
+from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.interface_validator import (
     InterfaceErrorCode,
     _check_ip_membership,
@@ -124,6 +125,28 @@ def test_check_ip_membership_allows_single_host_of_slash32() -> None:
     errors = _check_ip_membership(IPv4Address('10.0.0.5'), IPv4Network('10.0.0.5/32'))
 
     assert errors == []
+
+
+def test_check_ip_membership_passes_for_ipv6_host_in_ipv6_subnet() -> None:
+    """An IPv6 host inside an IPv6 subnet produces no errors"""
+    errors = _check_ip_membership(parse_ip('2001:db8::5'), parse_cidr('2001:db8::/64'))
+
+    assert errors == []
+
+
+def test_check_ip_membership_allows_ipv6_network_address_no_reservation() -> None:
+    """IPv6 reserves no network/broadcast address, so the all-zeros host is assignable"""
+    errors = _check_ip_membership(parse_ip('2001:db8::'), parse_cidr('2001:db8::/64'))
+
+    assert errors == []
+
+
+def test_check_ip_membership_rejects_ipv4_ip_in_ipv6_subnet() -> None:
+    """A cross-family pairing (IPv4 IP, IPv6 subnet) is reported as not-in-subnet, never raises"""
+    errors = _check_ip_membership(parse_ip('10.0.0.5'), parse_cidr('2001:db8::/64'))
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_NOT_IN_SUBNET
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

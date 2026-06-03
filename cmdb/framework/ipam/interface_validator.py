@@ -16,12 +16,11 @@
 """
 Validator for a single dg-ipam-interface MDS row
 
-Confirms the referenced subnet exists and has SpecialType SUBNET, the IP parses as IPv4 and
-sits inside the subnet (and is neither the network nor the broadcast address), and the IP is
-not already in use by another interface row anywhere in the system that references the same
-subnet
+Confirms the referenced subnet exists and has SpecialType SUBNET, the IP parses as IPv4 or
+IPv6 and sits inside the subnet (and is neither the network nor the broadcast address), and
+the IP is not already in use by another interface row anywhere in the system that references
+the same subnet
 """
-from ipaddress import IPv4Address, IPv4Network
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
@@ -41,8 +40,10 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.cidr import (
+    Network,
+    Address,
     parse_cidr,
-    parse_ipv4,
+    parse_ip,
     ip_in_network,
     is_network_or_broadcast,
 )
@@ -107,7 +108,7 @@ def _load_subnet_object(
     return matches[0], []
 
 
-def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[IPv4Network | None, list[dict[str, Any]]]:
+def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[Network | None, list[dict[str, Any]]]:
     """
     Reads and parses the 'dg-network-range' field of a subnet object
 
@@ -115,10 +116,10 @@ def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[IPv4Network | N
         subnet_obj (dict[str, Any]): The subnet CmdbObject document
 
     Returns:
-        tuple[IPv4Network | None, list[dict[str, Any]]]: (parsed network or None, errors)
+        tuple[Network | None, list[dict[str, Any]]]: (parsed network or None, errors)
     """
     raw: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
-    parsed: IPv4Network | None = parse_cidr(raw) if isinstance(raw, str) else None
+    parsed: Network | None = parse_cidr(raw) if isinstance(raw, str) else None
 
     if parsed is None:
         return None, [build_error(
@@ -139,29 +140,29 @@ def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[IPv4Network | N
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                INDIVIDUAL CHECKS                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _check_ip_format(ip_address: str) -> tuple[IPv4Address | None, list[dict[str, Any]]]:
+def _check_ip_format(ip_address: str) -> tuple[Address | None, list[dict[str, Any]]]:
     """
-    Validates that the candidate IP parses as IPv4
+    Validates that the candidate IP parses as IPv4 or IPv6
 
     Args:
         ip_address (str): The candidate IP address string
 
     Returns:
-        tuple[IPv4Address | None, list[dict[str, Any]]]: (parsed address or None, errors)
+        tuple[Address | None, list[dict[str, Any]]]: (parsed address or None, errors)
     """
-    parsed: IPv4Address | None = parse_ipv4(ip_address)
+    parsed: Address | None = parse_ip(ip_address)
 
     if parsed is None:
         return None, [build_error(
             InterfaceErrorCode.IP_INVALID,
-            f"'{ip_address}' is not a valid IPv4 address",
+            f"'{ip_address}' is not a valid IPv4/IPv6 address",
             {IpamValidationDetailKey.IP_ADDRESS: ip_address},
         )]
 
     return parsed, []
 
 
-def _check_ip_membership(ip: IPv4Address, subnet_net: IPv4Network) -> list[dict[str, Any]]:
+def _check_ip_membership(ip: Address, subnet_net: Network) -> list[dict[str, Any]]:
     """
     Validates that the IP sits inside the subnet and is neither the network nor broadcast address
 

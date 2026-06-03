@@ -20,7 +20,7 @@ from typing import Any
 
 from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, IpamSection
+from cmdb.models.special_type_model.ipam_constants import SubnetField, IpAddressFamily, IpamSection
 from cmdb.models.special_type_model.schemas.cidr_regex import CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -70,19 +70,20 @@ def get_subnet_schema() -> dict[str, Any]:
                 FieldKey.REF_TYPES: [],
             },
             {
-                # Required address-family selector. IPv6 is selectable, but the IPAM CIDR helpers /
-                # validators are still IPv4-only, so an IPv6 range is not validated as such yet
+                # Required address-family selector; the validators cross-check it against the
+                # network range's actual family (type_family_mismatch) and against the parent
+                # supernet's family
                 FieldKey.TYPE: FieldType.SELECT,
                 FieldKey.NAME: SubnetField.TYPE,
                 FieldKey.LABEL: 'Type',
                 FieldKey.REQUIRED: True,
                 FieldKey.OPTIONS: [
                     {
-                        FieldKey.NAME: 'ipv4',
+                        FieldKey.NAME: IpAddressFamily.IPV4,
                         FieldKey.LABEL: 'IPv4',
                     },
                     {
-                        FieldKey.NAME: 'ipv6',
+                        FieldKey.NAME: IpAddressFamily.IPV6,
                         FieldKey.LABEL: 'IPv6',
                     },
                 ],

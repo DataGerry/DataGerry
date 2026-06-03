@@ -22,7 +22,7 @@ exposes pure helpers (CIDR math, page slicing, row shaping) plus a thin DB orche
 loads the subnet, the interface rows that reference it, and the type labels / summary lines
 needed for the page slice
 """
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address
 from typing import Any
 
 from flask import abort
@@ -31,6 +31,7 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
+    IpAddressFamily,
     InterfaceField,
     IpamSection,
     IpamDistributionLimits,
@@ -42,9 +43,12 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSortDirection,
 )
 from cmdb.framework.ipam.cidr import (
+    Network,
+    Address,
     parse_cidr,
-    parse_ipv4,
+    parse_ip,
     ip_in_network,
+    network_family,
     total_address_count,
     assignable_address_count,
     first_assignable_int,
@@ -79,6 +83,24 @@ class _AssignedField:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _format_ip(value: int, is_ipv6: bool) -> str:
+    """
+    Renders an integer address as a canonical IP string in the requested address family
+
+    Used by the IP-Verteilung grid to label sector / range boundaries: an IPv6 subnet's
+    boundary integers exceed the IPv4 range, so the family must be chosen explicitly rather
+    than always constructing an IPv4Address
+
+    Args:
+        value (int): The integer value of the address
+        is_ipv6 (bool): True to render as IPv6, False as IPv4
+
+    Returns:
+        str: The canonical address string
+    """
+    return str((IPv6Address if is_ipv6 else IPv4Address)(value))
+
+
 def _page_slice_ips(network: IPv4Network, page: int, page_size: int) -> list[str]:
     """
     Returns the IP strings for one page of a subnet's assignable addresses
@@ -186,7 +208,7 @@ def _compute_sort_key(
     info: dict[str, Any] | None = assigned.get(ip_str)
 
     if sort_col == IpamSortColumn.IP:
-        return int(IPv4Address(ip_str))
+        return int(parse_ip(ip_str))
 
     if sort_col == IpamSortColumn.STATUS:
         return IpamRowStatus.ASSIGNED if info is not None else IpamRowStatus.FREE
@@ -261,7 +283,7 @@ def _sort_candidate_ips(
     reverse: bool = sort_dir == IpamSortDirection.DESC
 
     if sort_col == IpamSortColumn.IP:
-        return sorted(candidate_ips, key=lambda ip: int(IPv4Address(ip)), reverse=reverse)
+        return sorted(candidate_ips, key=lambda ip: int(parse_ip(ip)), reverse=reverse)
 
     summary_lines: dict[str, str] = (
         _resolve_assigned_summary_lines(candidate_ips, assigned, objects_manager)
@@ -338,13 +360,34 @@ def _apply_candidate_filter(
     return result
 
 
+def _sorted_assigned_ips(assigned: dict[str, dict[str, Any]], valid: bool) -> list[str]:
+    """
+    Returns the canonical IP strings of the assigned map's rows matching the ``valid`` flag
+
+    Sorted by ascending integer IP (family-agnostic via ``parse_ip``) so the IP table has a
+    deterministic order for both IPv4 and IPv6 subnets. ``valid=True`` selects the in-CIDR
+    rows, ``valid=False`` the out-of-CIDR (invalid) rows
+
+    Args:
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
+            ``_load_assigned_rows_map``
+        valid (bool): Select rows whose ``is_valid`` flag equals this value
+
+    Returns:
+        list[str]: Matching IPs in ascending IP order
+    """
+    return sorted(
+        (ip for ip, info in assigned.items() if bool(info[_AssignedField.IS_VALID]) is valid),
+        key=lambda ip: int(parse_ip(ip)),
+    )
+
+
 def _sorted_invalid_ips(assigned: dict[str, dict[str, Any]]) -> list[str]:
     """
     Returns the canonical IP strings of the assigned map's invalid (out-of-CIDR) rows
 
-    The returned list is sorted by ascending integer IP so the trailing block of the default
-    IP table has a deterministic order. Empty list when no row in the assigned map is tagged
-    invalid - the common steady-state case before any CIDR edit
+    Thin wrapper over ``_sorted_assigned_ips`` for the invalid rows. Empty list when no row in
+    the assigned map is tagged invalid - the common steady-state case before any CIDR edit
 
     Args:
         assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
@@ -353,14 +396,11 @@ def _sorted_invalid_ips(assigned: dict[str, dict[str, Any]]) -> list[str]:
     Returns:
         list[str]: Invalid IPs in ascending IP order
     """
-    return sorted(
-        (ip for ip, info in assigned.items() if not info[_AssignedField.IS_VALID]),
-        key=lambda ip: int(IPv4Address(ip)),
-    )
+    return _sorted_assigned_ips(assigned, valid=False)
 
 
 def _resolve_candidate_ips(
-    network: IPv4Network,
+    network: Network,
     search: str,
     sort_col: IpamSortColumn | None,
     sort_dir: IpamSortDirection,
@@ -369,6 +409,7 @@ def _resolve_candidate_ips(
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
+    is_ipv6: bool = False,
 ) -> list[str] | None:
     """
     Selects the candidate IP list for the IP-table page, or None to signal the lazy path
@@ -399,15 +440,35 @@ def _resolve_candidate_ips(
             produced by ``_resolve_type_meta``
         objects_manager (ObjectsManager): db interface for CmdbObjects (used by the
             assigned_to summary-line batch when that sort is active)
+        is_ipv6 (bool): True for an IPv6 subnet. IPv6 never enumerates free space - the table
+            lists only assigned addresses (in-CIDR first, out-of-CIDR trailing), search/sort/
+            filter apply over that assigned set, and a status=free filter yields an empty page
 
     Returns:
-        list[str] | None: Candidate IPs in final order, or None to signal the lazy path
+        list[str] | None: Candidate IPs in final order, or None to signal the lazy path (IPv4
+            only; IPv6 always returns a materialized assigned-only list)
     """
     needle: str | None = active_search(search)
+    filter_active: bool = status_filter is not None or bool(type_filter)
+
+    if is_ipv6:
+        candidates: list[str] = _sorted_assigned_ips(assigned, valid=True) + _sorted_invalid_ips(assigned)
+
+        if needle is not None:
+            lowered: str = needle.lower()
+            candidates = [ip for ip in candidates if lowered in ip.lower()]
+
+        if filter_active:
+            candidates = _apply_candidate_filter(candidates, status_filter, type_filter, assigned)
+
+        if sort_col is None:
+            return candidates
+
+        return _sort_candidate_ips(candidates, sort_col, sort_dir, assigned, type_meta, objects_manager)
+
     natural_order: bool = sort_col is None or (
         sort_col == IpamSortColumn.IP and sort_dir == IpamSortDirection.ASC
     )
-    filter_active: bool = status_filter is not None or bool(type_filter)
     invalid_ips: list[str] = _sorted_invalid_ips(assigned)
 
     if needle is None and natural_order and not filter_active and not invalid_ips:
@@ -496,7 +557,7 @@ def _compose_ip_row(
 
 
 def _build_ips_block(
-    network: IPv4Network,
+    network: Network,
     assignable: int,
     page: int,
     page_size: int,
@@ -835,7 +896,7 @@ def _compute_grid_dimensions(total: int) -> tuple[int, int, int]:
 
 def _bucket_used_by_type(
     assigned: dict[str, dict[str, Any]],
-    network: IPv4Network,
+    network: Network,
     sector_size: int,
     total_cells: int,
 ) -> list[dict[int | None, int]]:
@@ -873,7 +934,7 @@ def _bucket_used_by_type(
     span: int = total_cells * sector_size
 
     for ip_str, info in assigned.items():
-        parsed: IPv4Address | None = parse_ipv4(ip_str)
+        parsed: Address | None = parse_ip(ip_str)
 
         if parsed is None:
             continue
@@ -895,6 +956,7 @@ def _bucket_used_by_type(
 def _compose_sector_type_stats(
     breakdown: dict[int | None, int],
     type_meta: dict[int, dict[str, Any]],
+    is_ipv6: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Shapes the 'type_stats' list for one sector of the 'ip_distribution' grid
@@ -948,7 +1010,7 @@ def _compose_sector_type_stats(
             IpamOverviewKey.LABEL: type_meta[type_id][IpamOverviewKey.LABEL],
             IpamOverviewKey.CI_EXPLORER_COLOR: type_meta[type_id].get(IpamOverviewKey.CI_EXPLORER_COLOR),
             IpamOverviewKey.COUNT: count,
-            IpamOverviewKey.PERCENTAGE: round((count / used_count) * 100, 2),
+            IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((count / used_count) * 100, 2),
         }
         for type_id, count in known_counts.items()
     ]
@@ -961,7 +1023,7 @@ def _compose_sector_type_stats(
             IpamOverviewKey.LABEL: IpamBucketLabel.UNKNOWN,
             IpamOverviewKey.CI_EXPLORER_COLOR: None,
             IpamOverviewKey.COUNT: unknown_count,
-            IpamOverviewKey.PERCENTAGE: round((unknown_count / used_count) * 100, 2),
+            IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((unknown_count / used_count) * 100, 2),
         })
 
     return known_buckets
@@ -972,6 +1034,7 @@ def _compose_sector(
     sector_size: int,
     breakdown: dict[int | None, int],
     type_meta: dict[int, dict[str, Any]],
+    is_ipv6: bool = False,
 ) -> dict[str, Any]:
     """
     Shapes one sector entry of the 'ip_distribution' grid
@@ -1001,16 +1064,16 @@ def _compose_sector(
     used_count: int = sum(breakdown.values())
 
     return {
-        IpamOverviewKey.IP_START: str(IPv4Address(first_ip_int)),
-        IpamOverviewKey.IP_END: str(IPv4Address(first_ip_int + sector_size - 1)),
+        IpamOverviewKey.IP_START: _format_ip(first_ip_int, is_ipv6),
+        IpamOverviewKey.IP_END: _format_ip(first_ip_int + sector_size - 1, is_ipv6),
         IpamOverviewKey.USED_COUNT: used_count,
-        IpamOverviewKey.PERCENTAGE: round((used_count / sector_size) * 100, 2),
-        IpamOverviewKey.TYPE_STATS: _compose_sector_type_stats(breakdown, type_meta),
+        IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((used_count / sector_size) * 100, 2),
+        IpamOverviewKey.TYPE_STATS: _compose_sector_type_stats(breakdown, type_meta, is_ipv6),
     }
 
 
 def _build_ip_distribution(
-    network: IPv4Network | None,
+    network: Network | None,
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
@@ -1050,6 +1113,7 @@ def _build_ip_distribution(
     if network is None:
         return {}
 
+    is_ipv6: bool = network_family(network) == IpAddressFamily.IPV6
     total: int = total_address_count(network)
     ranges_count, sectors_per_range, sector_size = _compute_grid_dimensions(total)
     total_cells: int = ranges_count * sectors_per_range
@@ -1081,11 +1145,12 @@ def _build_ip_distribution(
                 sector_size,
                 breakdowns[global_cell],
                 type_meta,
+                is_ipv6,
             ))
 
         ranges.append({
-            IpamOverviewKey.IP_START: str(IPv4Address(range_first_int)),
-            IpamOverviewKey.IP_END: str(IPv4Address(range_first_int + range_span - 1)),
+            IpamOverviewKey.IP_START: _format_ip(range_first_int, is_ipv6),
+            IpamOverviewKey.IP_END: _format_ip(range_first_int + range_span - 1, is_ipv6),
             IpamOverviewKey.SECTORS: sectors,
         })
 
@@ -1099,6 +1164,7 @@ def _build_type_distribution(
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
     total: int,
+    is_ipv6: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Builds the whole-subnet IP-usage distribution that feeds the frontend pie chart
@@ -1109,9 +1175,12 @@ def _build_type_distribution(
     bucket so the chart never grows a slice per stale type_id. Only rows whose
     ``is_valid`` flag is True contribute - invalid (out-of-CIDR) rows are excluded so the
     percentages stay bounded by the assignable address count; the FE surfaces those via the
-    top-level ``invalid_count`` instead. Percentages are computed against the subnet's
-    assignable address count and rounded to two decimals. An empty list is returned when the
-    subnet has zero assignable addresses or the CIDR is unparsable, so the frontend can
+    top-level ``invalid_count`` instead. For IPv4, percentages are computed against the subnet's
+    assignable address count (rounded to two decimals) and a synthetic 'Free' bucket is appended
+    for the unused capacity. For IPv6 the percentages are None and the 'Free' bucket is omitted -
+    a free count and a used/2**n ratio are meaningless against a 2**n address space, so the chart
+    shows only the per-type (and Unknown) counts of assigned addresses. An empty list is returned
+    when the subnet has zero assignable addresses or the CIDR is unparsable, so the frontend can
     render a placeholder
 
     Args:
@@ -1122,12 +1191,14 @@ def _build_type_distribution(
             every CmdbType referenced by the assigned map; type_ids absent from this mapping
             fall through to the Unknown bucket
         total (int): Assignable address count of the subnet (denominator for percentages)
+        is_ipv6 (bool): True for an IPv6 subnet; nulls the percentages and omits the Free bucket
 
     Returns:
         list[dict[str, Any]]: One entry per type bucket with keys public_id, label,
             ci_explorer_color, count, percentage, followed by the Unknown bucket (only when
-            non-empty) and the Free bucket; the Unknown / Free buckets carry
-            ci_explorer_color=None. Empty list when total is 0
+            non-empty) and - for IPv4 only - the Free bucket; the Unknown / Free buckets carry
+            ci_explorer_color=None. 'percentage' is None for every IPv6 bucket. Empty list when
+            total is 0
     """
     if total <= 0:
         return []
@@ -1148,15 +1219,13 @@ def _build_type_distribution(
         else:
             unknown_count += 1
 
-    free_count: int = max(0, total - valid_count)
-
     distribution: list[dict[str, Any]] = [
         {
             CmdbObjectKey.PUBLIC_ID: type_id,
             IpamOverviewKey.LABEL: type_meta[type_id][IpamOverviewKey.LABEL],
             IpamOverviewKey.CI_EXPLORER_COLOR: type_meta[type_id].get(IpamOverviewKey.CI_EXPLORER_COLOR),
             IpamOverviewKey.COUNT: count,
-            IpamOverviewKey.PERCENTAGE: round((count / total) * 100, 2),
+            IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((count / total) * 100, 2),
         }
         for type_id, count in by_type.items()
     ]
@@ -1167,16 +1236,17 @@ def _build_type_distribution(
             IpamOverviewKey.LABEL: IpamBucketLabel.UNKNOWN,
             IpamOverviewKey.CI_EXPLORER_COLOR: None,
             IpamOverviewKey.COUNT: unknown_count,
-            IpamOverviewKey.PERCENTAGE: round((unknown_count / total) * 100, 2),
+            IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((unknown_count / total) * 100, 2),
         })
 
-    distribution.append({
-        CmdbObjectKey.PUBLIC_ID: None,
-        IpamOverviewKey.LABEL: IpamBucketLabel.FREE,
-        IpamOverviewKey.CI_EXPLORER_COLOR: None,
-        IpamOverviewKey.COUNT: free_count,
-        IpamOverviewKey.PERCENTAGE: round((free_count / total) * 100, 2),
-    })
+    if not is_ipv6:
+        distribution.append({
+            CmdbObjectKey.PUBLIC_ID: None,
+            IpamOverviewKey.LABEL: IpamBucketLabel.FREE,
+            IpamOverviewKey.CI_EXPLORER_COLOR: None,
+            IpamOverviewKey.COUNT: max(0, total - valid_count),
+            IpamOverviewKey.PERCENTAGE: round((max(0, total - valid_count) / total) * 100, 2),
+        })
 
     return distribution
 
@@ -1226,7 +1296,7 @@ def _load_subnet_object(
 def _load_assigned_rows_map(
     objects_manager: ObjectsManager,
     subnet_object_id: int,
-    network: IPv4Network,
+    network: Network,
 ) -> dict[str, dict[str, Any]]:
     """
     Loads every dg-ipam-interface row referencing the subnet and indexes them by canonical IP
@@ -1285,7 +1355,7 @@ def _load_assigned_rows_map(
                 if row_subnet != subnet_object_id or not isinstance(row_ip, str):
                     continue
 
-                parsed_ip: IPv4Address | None = parse_ipv4(row_ip)
+                parsed_ip: Address | None = parse_ip(row_ip)
 
                 if parsed_ip is None:
                     continue
@@ -1335,7 +1405,7 @@ def _resolve_type_meta(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   ORCHESTRATOR                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _parse_subnet_network(subnet_obj: dict[str, Any]) -> IPv4Network | None:
+def _parse_subnet_network(subnet_obj: dict[str, Any]) -> Network | None:
     """
     Returns the parsed IPv4Network of a SUBNET CmdbObject, or None when unparsable / missing
 
@@ -1380,11 +1450,14 @@ def _build_broken_state_payload(
         dict[str, Any]: Degenerate payload matching the happy-path key set
     """
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
+    raw_type: Any = extract_field_value(subnet_obj, SubnetField.TYPE)
+    family: str = IpAddressFamily.IPV6 if raw_type == IpAddressFamily.IPV6 else IpAddressFamily.IPV4
     safe_page, safe_size = clamp_page(page, page_size, 0)
 
     return {
         IpamOverviewKey.SUBNET: {
             CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            IpamOverviewKey.SUBNET_TYPE: family,
             IpamOverviewKey.CIDR: raw_cidr if isinstance(raw_cidr, str) else None,
             IpamOverviewKey.TOTAL_IPS: 0,
             IpamOverviewKey.ASSIGNABLE_IPS: 0,
@@ -1401,6 +1474,41 @@ def _build_broken_state_payload(
         IpamOverviewKey.IP_DISTRIBUTION: {},
         IpamOverviewKey.VLANS: [],
         IpamOverviewKey.INVALID_COUNT: 0,
+    }
+
+
+def _subnet_summary_block(
+    subnet_obj: dict[str, Any],
+    network: Network,
+    assignable: int,
+    used_count: int,
+    valid_used: int,
+) -> dict[str, Any]:
+    """
+    Shapes the shared 'subnet' KPI block for both subnet IP-Übersicht orchestrators
+
+    'subnet_type' is the address family (ipv4 / ipv6) derived from the parsed network; 'free_ips'
+    is computed against the assignable count so it matches the paginated IP table. The full
+    overview and the invalid-only overview emit the identical block
+
+    Args:
+        subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
+        network (Network): The parsed subnet network
+        assignable (int): Assignable address count of the subnet
+        used_count (int): Number of assigned dg-ipam-interface rows (valid + invalid)
+        valid_used (int): Number of assigned rows whose IP is inside the subnet
+
+    Returns:
+        dict[str, Any]: {public_id, subnet_type, cidr, total_ips, assignable_ips, used_ips, free_ips}
+    """
+    return {
+        CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+        IpamOverviewKey.SUBNET_TYPE: network_family(network),
+        IpamOverviewKey.CIDR: str(network),
+        IpamOverviewKey.TOTAL_IPS: total_address_count(network),
+        IpamOverviewKey.ASSIGNABLE_IPS: assignable,
+        IpamOverviewKey.USED_IPS: used_count,
+        IpamOverviewKey.FREE_IPS: max(0, assignable - valid_used),
     }
 
 
@@ -1514,11 +1622,12 @@ def build_subnet_overview(
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
     sort_col, sort_dir = _parse_sort_args(sort, order)
     status_filter, type_filter_ids = _parse_filter_args(status, type_filter)
-    network: IPv4Network | None = _parse_subnet_network(subnet_obj)
+    network: Network | None = _parse_subnet_network(subnet_obj)
 
     if network is None:
         return _build_broken_state_payload(subnet_obj, page, page_size)
 
+    is_ipv6: bool = network_family(network) == IpAddressFamily.IPV6
     assignable: int = assignable_address_count(network)
     assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
     valid_used: int = sum(1 for info in assigned.values() if info[_AssignedField.IS_VALID])
@@ -1531,24 +1640,17 @@ def build_subnet_overview(
     ])
 
     return {
-        IpamOverviewKey.SUBNET: {
-            CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
-            IpamOverviewKey.CIDR: str(network),
-            IpamOverviewKey.TOTAL_IPS: total_address_count(network),
-            IpamOverviewKey.ASSIGNABLE_IPS: assignable,
-            IpamOverviewKey.USED_IPS: len(assigned),
-            IpamOverviewKey.FREE_IPS: max(0, assignable - valid_used),
-        },
+        IpamOverviewKey.SUBNET: _subnet_summary_block(subnet_obj, network, assignable, len(assigned), valid_used),
         IpamOverviewKey.IPS: _build_ips_block(
             network, assignable, page, page_size,
             _resolve_candidate_ips(
                 network, search, sort_col, sort_dir,
                 status_filter, type_filter_ids,
-                assigned, type_meta, objects_manager,
+                assigned, type_meta, objects_manager, is_ipv6,
             ),
             assigned, type_meta, objects_manager,
         ),
-        IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
+        IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable, is_ipv6),
         IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned, type_meta),
         IpamOverviewKey.VLANS: load_vlans_by_subnets(
             objects_manager, types_manager, [public_id],
@@ -1603,7 +1705,7 @@ def build_invalid_subnet_overview(
             after the search filter; 'invalid_count' is the whole-subnet invalid count
     """
     subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
-    network: IPv4Network | None = _parse_subnet_network(subnet_obj)
+    network: Network | None = _parse_subnet_network(subnet_obj)
 
     if network is None:
         return _build_broken_state_payload(subnet_obj, page, page_size)
@@ -1623,24 +1725,18 @@ def build_invalid_subnet_overview(
     needle: str | None = active_search(search)
 
     if needle is not None:
-        lowered: str = needle.lower()
-        invalid_candidates = [ip for ip in invalid_candidates if lowered in ip.lower()]
+        invalid_candidates = [ip for ip in invalid_candidates if needle.lower() in ip.lower()]
 
     return {
-        IpamOverviewKey.SUBNET: {
-            CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
-            IpamOverviewKey.CIDR: str(network),
-            IpamOverviewKey.TOTAL_IPS: total_address_count(network),
-            IpamOverviewKey.ASSIGNABLE_IPS: assignable,
-            IpamOverviewKey.USED_IPS: len(assigned),
-            IpamOverviewKey.FREE_IPS: max(0, assignable - valid_used),
-        },
+        IpamOverviewKey.SUBNET: _subnet_summary_block(subnet_obj, network, assignable, len(assigned), valid_used),
         IpamOverviewKey.IPS: _build_ips_block(
             network, assignable, page, page_size,
             invalid_candidates,
             assigned, type_meta, objects_manager,
         ),
-        IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(assigned, type_meta, assignable),
+        IpamOverviewKey.TYPE_DISTRIBUTION: _build_type_distribution(
+            assigned, type_meta, assignable, network_family(network) == IpAddressFamily.IPV6,
+        ),
         IpamOverviewKey.IP_DISTRIBUTION: _build_ip_distribution(network, assigned, type_meta),
         IpamOverviewKey.VLANS: load_vlans_by_subnets(
             objects_manager, types_manager, [public_id],

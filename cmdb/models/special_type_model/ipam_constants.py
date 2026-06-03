@@ -34,6 +34,7 @@ class SupernetField(BaseStrEnum):
     """
     NAME = 'dg-name'
     NETWORK_RANGE = 'dg-network-range'
+    TYPE = 'dg-supernet-type'
 
 
 class SubnetField(BaseStrEnum):
@@ -62,6 +63,21 @@ class InterfaceField(BaseStrEnum):
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
     MAC = 'dg-interface-mac-address'
+
+
+class IpAddressFamily(BaseStrEnum):
+    """
+    Address-family tokens shared by the SUBNET 'dg-subnet-type' and SUPERNET 'dg-supernet-type'
+    selectors
+
+    IPV4 / IPV6 are the option 'name' tokens of those required SELECT fields stored on the
+    CmdbObject (the FE renders the 'IPv4' / 'IPv6' labels). They are the canonical family tokens
+    the IPAM validators compare a parsed network's family against (see cidr.network_family). A
+    missing value is treated as IPV4: legacy objects pre-date the field and the former range
+    regex only admitted IPv4
+    """
+    IPV4 = 'ipv4'
+    IPV6 = 'ipv6'
 
 
 class IpamPrefixPolicy:
@@ -95,6 +111,19 @@ class IpamAddressFormat:
     accept) cannot be stored as interface values
     """
     DOTTED_QUAD_DOT_COUNT: int = 3
+
+
+class IpVersion:
+    """
+    IP protocol version numbers as reported by ipaddress' network / address objects
+
+    V4 / V6 mirror the integers returned by the '.version' attribute of IPv4Network /
+    IPv6Network (and the address equivalents). The IPAM helpers branch on these instead of
+    bare 4 / 6 literals when address-family handling differs (e.g. IPv6 has no network /
+    broadcast reservation)
+    """
+    V4: int = 4
+    V6: int = 6
 
 
 class IpamPagination:
@@ -172,6 +201,12 @@ class IpamValidationDetailKey(BaseStrEnum):
     FIRST_ROW_INDEX = 'first_row_index'
     DUPLICATE_ROW_INDEX = 'duplicate_row_index'
 
+    # Address family (family-consistency errors)
+    SUBNET_TYPE = 'subnet_type'
+    SUPERNET_TYPE = 'supernet_type'
+    CIDR_FAMILY = 'cidr_family'
+    SUPERNET_FAMILY = 'supernet_family'
+
     # Generic fall-throughs
     STORED_VALUE = 'stored_value'
     REFERENCES = 'references'
@@ -223,6 +258,7 @@ class IpamOverviewKey(BaseStrEnum):
     PARENT_ID = 'parent_id'
     HAS_CHILDREN = 'has_children'
     IS_VALID = 'is_valid'
+    SUBNET_TYPE = 'subnet_type'
     VLANS = 'vlans'
     NAME = 'name'
 
@@ -341,3 +377,22 @@ class IpamSection(BaseStrEnum):
     INFORMATION = 'dg-information'
     NETWORK_DETAILS = 'dg-network-details'
     VLAN_DETAILS = 'dg-vlan-details'
+
+
+class IpamExport:
+    """
+    Constants for the supernet 'assigned subnets' Excel (.xlsx) export
+
+    SHEET_TITLE names the single worksheet; HEADERS is the ordered base column header row shared by
+    both address families (CIDR, IP range, used / free counts). USAGE_HEADER is the IPv4-only
+    trailing 'Usage (%)' column: it is appended to HEADERS for an IPv4 supernet's export but omitted
+    for an IPv6 one, where a used/total ratio against a 2**n address space is meaningless.
+    IP_RANGE_SEPARATOR joins the range's first and last address into a single cell. MIMETYPE is the
+    OpenXML spreadsheet content type and FILENAME_TEMPLATE builds the download filename
+    """
+    SHEET_TITLE: str = 'Assigned Subnets'
+    HEADERS: list[str] = ['CIDR', 'IP Range', 'Used IPs', 'Free IPs']
+    USAGE_HEADER: str = 'Usage (%)'
+    IP_RANGE_SEPARATOR: str = ' - '
+    MIMETYPE: str = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    FILENAME_TEMPLATE: str = 'supernet_{public_id}_subnets_{timestamp}.xlsx'

@@ -32,15 +32,18 @@ from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
+    IpAddressFamily,
     SupernetField,
     IpamValidationDetailKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.cidr import parse_cidr
 from cmdb.framework.ipam.subnet_validator import (
     SubnetErrorCode,
     _check_canonical_cidr,
     _check_in_supernet,
     _check_sibling_overlap,
+    _check_type_matches_family,
     _find_subnets_by_field,
     _load_object_by_id,
     validate_subnet,
@@ -57,6 +60,9 @@ SIBLING_SUBNET_ID: int = 300
 VALID_PARENT_RANGE: str = '10.0.0.0/16'
 VALID_CANDIDATE_RANGE: str = '10.0.0.0/24'
 OUT_OF_RANGE_CANDIDATE: str = '192.168.1.0/24'
+
+VALID_PARENT_RANGE_V6: str = '2001:db8::/32'
+VALID_CANDIDATE_RANGE_V6: str = '2001:db8:1::/48'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -137,6 +143,51 @@ def test_check_canonical_cidr_rejects_non_canonical_cidr_with_host_bits_set() ->
     assert network is None
     assert len(errors) == 1
     assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.CIDR_INVALID
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           _check_type_matches_family                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_check_type_matches_family_returns_empty_when_subnet_type_is_none() -> None:
+    """A None selector (route omitted it) skips the family-vs-type check entirely"""
+    assert _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), None) == []
+
+
+def test_check_type_matches_family_returns_empty_when_ipv4_selector_matches_ipv4_cidr() -> None:
+    """An 'ipv4' selector on an IPv4 CIDR is consistent → no errors"""
+    assert _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), IpAddressFamily.IPV4) == []
+
+
+def test_check_type_matches_family_returns_empty_when_ipv6_selector_matches_ipv6_cidr() -> None:
+    """An 'ipv6' selector on an IPv6 CIDR is consistent → no errors"""
+    assert _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE_V6), IpAddressFamily.IPV6) == []
+
+
+def test_check_type_matches_family_reports_mismatch_for_ipv4_selector_on_ipv6_cidr() -> None:
+    """An 'ipv4' selector on an IPv6 CIDR → TYPE_FAMILY_MISMATCH carrying both families"""
+    errors = _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE_V6), IpAddressFamily.IPV4)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.TYPE_FAMILY_MISMATCH
+    details = errors[0][ValidationErrorKey.DETAILS]
+    assert details[IpamValidationDetailKey.SUBNET_TYPE] == IpAddressFamily.IPV4
+    assert details[IpamValidationDetailKey.CIDR_FAMILY] == IpAddressFamily.IPV6
+
+
+def test_check_type_matches_family_reports_mismatch_for_ipv6_selector_on_ipv4_cidr() -> None:
+    """An 'ipv6' selector on an IPv4 CIDR → TYPE_FAMILY_MISMATCH"""
+    errors = _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), IpAddressFamily.IPV6)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.TYPE_FAMILY_MISMATCH
+
+
+def test_check_type_matches_family_treats_unrecognised_selector_as_mismatch() -> None:
+    """An unrecognised selector value never matches the candidate's family → mismatch error"""
+    errors = _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), 'something-else')
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.TYPE_FAMILY_MISMATCH
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -323,6 +374,38 @@ def test_check_in_supernet_returns_no_errors_when_candidate_fits_supernet() -> N
     assert errors == []
 
 
+def test_check_in_supernet_returns_no_errors_when_ipv6_candidate_fits_ipv6_supernet() -> None:
+    """An IPv6 candidate strictly inside an IPv6 supernet yields no errors"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE_V6)]
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
+
+    errors = _check_in_supernet(
+        objects_manager, types_manager, parse_cidr(VALID_CANDIDATE_RANGE_V6), SUPERNET_OBJECT_ID,
+    )
+
+    assert errors == []
+
+
+def test_check_in_supernet_reports_family_mismatch_for_ipv6_candidate_under_ipv4_supernet() -> None:
+    """An IPv6 candidate under an IPv4 supernet → PARENT_SUPERNET_FAMILY_MISMATCH (not 'not contained')"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE)]
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
+
+    errors = _check_in_supernet(
+        objects_manager, types_manager, parse_cidr(VALID_CANDIDATE_RANGE_V6), SUPERNET_OBJECT_ID,
+    )
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.PARENT_SUPERNET_FAMILY_MISMATCH
+    details = errors[0][ValidationErrorKey.DETAILS]
+    assert details[IpamValidationDetailKey.CIDR_FAMILY] == IpAddressFamily.IPV6
+    assert details[IpamValidationDetailKey.SUPERNET_FAMILY] == IpAddressFamily.IPV4
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              _check_sibling_overlap                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -507,6 +590,41 @@ def test_validate_subnet_excludes_self_id_from_sibling_overlap_during_edit() -> 
     errors = validate_subnet(
         objects_manager, types_manager, VALID_CANDIDATE_RANGE,
         parent_supernet_id=SUPERNET_OBJECT_ID, exclude_subnet_id=SUBNET_OBJECT_ID,
+    )
+
+    assert errors == []
+
+
+def test_validate_subnet_reports_type_family_mismatch_without_touching_db() -> None:
+    """A subnet_type that disagrees with the CIDR family is flagged before any parent lookup"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+
+    errors = validate_subnet(
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE_V6, subnet_type=IpAddressFamily.IPV4,
+    )
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.TYPE_FAMILY_MISMATCH
+    objects_manager.find_objects.assert_not_called()
+
+
+def test_validate_subnet_passes_for_consistent_ipv6_candidate_in_ipv6_supernet() -> None:
+    """Happy path: IPv6 CIDR, matching 'ipv6' selector, inside an IPv6 supernet, no siblings"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.side_effect = [
+        [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE_V6)],
+        [],
+    ]
+    types_manager = MagicMock()
+    types_manager.get_one_by.side_effect = _make_special_type_router({
+        SpecialType.SUPERNET: SUPERNET_TYPE_ID,
+        SpecialType.SUBNET: SUBNET_TYPE_ID,
+    })
+
+    errors = validate_subnet(
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE_V6,
+        parent_supernet_id=SUPERNET_OBJECT_ID, subnet_type=IpAddressFamily.IPV6,
     )
 
     assert errors == []

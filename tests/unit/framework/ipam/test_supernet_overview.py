@@ -41,6 +41,7 @@ from cmdb.models.object_model import (
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
+    IpAddressFamily,
     SupernetField,
     InterfaceField,
     VlanField,
@@ -50,6 +51,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.cidr import parse_cidr
 from cmdb.framework.ipam.search import active_search
 from cmdb.framework.ipam.supernet_overview import (
     _annotate_has_children,
@@ -71,11 +73,15 @@ from cmdb.framework.ipam.supernet_overview import (
     _select_invalid_listed_rows,
     _select_invalid_rows,
     _select_listed_rows,
+    _subnet_family,
+    _subnet_family_rank,
+    _supernet_family,
     _summarize_supernet,
     build_invalid_subnet_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
     compute_subnet_row,
+    load_assigned_subnet_rows,
     compute_supernet_summary,
     sort_and_link_subnets,
 )
@@ -117,28 +123,36 @@ def _make_cmdb_object(public_id: int, type_id: int, fields: list[dict[str, Any]]
     }
 
 
-def _make_subnet_doc(public_id: int, network_range: Any) -> dict[str, Any]:
-    """Builds a SUBNET CmdbObject doc with a network-range field entry."""
-    return _make_cmdb_object(
-        public_id=public_id,
-        type_id=SUBNET_TYPE_ID,
-        fields=[{
-            CmdbObjectFieldKey.NAME: SubnetField.NETWORK_RANGE,
-            CmdbObjectFieldKey.VALUE: network_range,
-        }],
-    )
+def _make_subnet_doc(public_id: int, network_range: Any, subnet_type: Any = None) -> dict[str, Any]:
+    """Builds a SUBNET CmdbObject doc with a network-range field and an optional type field."""
+    fields: list[dict[str, Any]] = [{
+        CmdbObjectFieldKey.NAME: SubnetField.NETWORK_RANGE,
+        CmdbObjectFieldKey.VALUE: network_range,
+    }]
+
+    if subnet_type is not None:
+        fields.append({
+            CmdbObjectFieldKey.NAME: SubnetField.TYPE,
+            CmdbObjectFieldKey.VALUE: subnet_type,
+        })
+
+    return _make_cmdb_object(public_id=public_id, type_id=SUBNET_TYPE_ID, fields=fields)
 
 
-def _make_supernet_doc(public_id: int, network_range: Any) -> dict[str, Any]:
-    """Builds a SUPERNET CmdbObject doc with a network-range field entry."""
-    return _make_cmdb_object(
-        public_id=public_id,
-        type_id=SUPERNET_TYPE_ID,
-        fields=[{
-            CmdbObjectFieldKey.NAME: SupernetField.NETWORK_RANGE,
-            CmdbObjectFieldKey.VALUE: network_range,
-        }],
-    )
+def _make_supernet_doc(public_id: int, network_range: Any, supernet_type: Any = None) -> dict[str, Any]:
+    """Builds a SUPERNET CmdbObject doc with a network-range field and an optional type field."""
+    fields: list[dict[str, Any]] = [{
+        CmdbObjectFieldKey.NAME: SupernetField.NETWORK_RANGE,
+        CmdbObjectFieldKey.VALUE: network_range,
+    }]
+
+    if supernet_type is not None:
+        fields.append({
+            CmdbObjectFieldKey.NAME: SupernetField.TYPE,
+            CmdbObjectFieldKey.VALUE: supernet_type,
+        })
+
+    return _make_cmdb_object(public_id=public_id, type_id=SUPERNET_TYPE_ID, fields=fields)
 
 
 def _make_vlan_doc(public_id: int, subnet_ref: Any, name: Any) -> dict[str, Any]:
@@ -219,10 +233,24 @@ def test_compute_subnet_row_emits_expected_keys_for_valid_subnet() -> None:
 
     assert set(row.keys()) == {
         CmdbObjectKey.PUBLIC_ID,
+        IpamOverviewKey.SUBNET_TYPE,
         IpamOverviewKey.CIDR,
+        IpamOverviewKey.IP_RANGE,
         IpamOverviewKey.USED_IPS,
         IpamOverviewKey.FREE_IPS,
         IpamOverviewKey.USAGE_PERCENT,
+    }
+
+
+def test_compute_subnet_row_includes_full_network_ip_range() -> None:
+    """A parsable subnet exposes its full network range (network and broadcast) under IP_RANGE"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A)
+
+    row = compute_subnet_row(subnet, used_count=10)
+
+    assert row[IpamOverviewKey.IP_RANGE] == {
+        IpamOverviewKey.FIRST: '10.0.0.0',
+        IpamOverviewKey.LAST: '10.0.0.255',
     }
 
 
@@ -254,6 +282,7 @@ def test_compute_subnet_row_returns_degenerate_row_for_unparsable_cidr() -> None
     row = compute_subnet_row(subnet, used_count=5)
 
     assert row[IpamOverviewKey.CIDR] == 'not-a-cidr'
+    assert row[IpamOverviewKey.IP_RANGE] is None
     assert row[IpamOverviewKey.USED_IPS] == 0
     assert row[IpamOverviewKey.FREE_IPS] == 0
     assert row[IpamOverviewKey.USAGE_PERCENT] == 0.0
@@ -266,6 +295,120 @@ def test_compute_subnet_row_returns_degenerate_row_with_null_cidr_for_non_string
     row = compute_subnet_row(subnet, used_count=5)
 
     assert row[IpamOverviewKey.CIDR] is None
+
+
+def test_compute_subnet_row_defaults_subnet_type_to_ipv4_when_field_absent() -> None:
+    """A subnet without a dg-subnet-type field is reported as IPv4 (legacy fallback)"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A)
+
+    row = compute_subnet_row(subnet, used_count=0)
+
+    assert row[IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV4
+
+
+def test_compute_subnet_row_carries_explicit_ipv6_subnet_type() -> None:
+    """An explicit ipv6 selector is carried onto the row"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/32', subnet_type=IpAddressFamily.IPV6)
+
+    row = compute_subnet_row(subnet, used_count=0)
+
+    assert row[IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV6
+
+
+def test_compute_subnet_row_parses_ipv6_cidr_into_full_row() -> None:
+    """An IPv6 subnet parses to a full row (range + big-int counts), not a degenerate one"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/64', subnet_type=IpAddressFamily.IPV6)
+
+    row = compute_subnet_row(subnet, used_count=1)
+
+    assert row[IpamOverviewKey.CIDR] == '2001:db8::/64'
+    assert row[IpamOverviewKey.IP_RANGE] == {
+        IpamOverviewKey.FIRST: '2001:db8::',
+        IpamOverviewKey.LAST: '2001:db8::ffff:ffff:ffff:ffff',
+    }
+    assert row[IpamOverviewKey.USED_IPS] == 1
+    assert row[IpamOverviewKey.FREE_IPS] == 2 ** 64 - 1
+    assert row[IpamOverviewKey.USAGE_PERCENT] is None
+
+
+def test_compute_subnet_row_nulls_usage_percent_for_ipv6_keeps_counts() -> None:
+    """An IPv6 row reports usage_percent=None but keeps numeric used/free counts"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/64', subnet_type=IpAddressFamily.IPV6)
+
+    row = compute_subnet_row(subnet, used_count=5)
+
+    assert row[IpamOverviewKey.USAGE_PERCENT] is None
+    assert row[IpamOverviewKey.USED_IPS] == 5
+    assert row[IpamOverviewKey.FREE_IPS] == 2 ** 64 - 5
+
+
+def test_compute_subnet_row_keeps_usage_percent_for_ipv4() -> None:
+    """An IPv4 row still reports a numeric usage_percent"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4)
+
+    row = compute_subnet_row(subnet, used_count=10)
+
+    assert row[IpamOverviewKey.USAGE_PERCENT] == round(10 / 256 * 100, 2)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               _subnet_family                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_subnet_family_derives_ipv6_from_ipv6_cidr() -> None:
+    """A parsable IPv6 CIDR maps to IpAddressFamily.IPV6"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/32', subnet_type=IpAddressFamily.IPV6)
+
+    assert _subnet_family(subnet) == IpAddressFamily.IPV6
+
+
+def test_subnet_family_derives_ipv4_from_ipv4_cidr() -> None:
+    """A parsable IPv4 CIDR maps to IpAddressFamily.IPV4"""
+    subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4)
+
+    assert _subnet_family(subnet) == IpAddressFamily.IPV4
+
+
+def test_subnet_family_prefers_cidr_over_mismatched_selector() -> None:
+    """CIDR-first (fix #1): a parsable CIDR decides the family even when the selector disagrees"""
+    ipv6_cidr_ipv4_selector = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/48', subnet_type=IpAddressFamily.IPV4)
+    ipv4_cidr_ipv6_selector = _make_subnet_doc(SUBNET_OBJECT_ID_B, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV6)
+
+    assert _subnet_family(ipv6_cidr_ipv4_selector) == IpAddressFamily.IPV6
+    assert _subnet_family(ipv4_cidr_ipv6_selector) == IpAddressFamily.IPV4
+
+
+def test_subnet_family_derives_from_cidr_for_missing_or_unknown_selector() -> None:
+    """A missing/unrecognised selector takes the family from the CIDR (ipv4 here, ipv6 below)"""
+    missing = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A)
+    unknown = _make_subnet_doc(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B, subnet_type='something-else')
+    missing_v6 = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/48')
+
+    assert _subnet_family(missing) == IpAddressFamily.IPV4
+    assert _subnet_family(unknown) == IpAddressFamily.IPV4
+    assert _subnet_family(missing_v6) == IpAddressFamily.IPV6
+
+
+def test_subnet_family_falls_back_to_selector_when_cidr_unparsable() -> None:
+    """An unparsable CIDR falls back to the selector (ipv6), defaulting to ipv4 when absent"""
+    with_selector = _make_subnet_doc(SUBNET_OBJECT_ID_A, 'not-a-cidr', subnet_type=IpAddressFamily.IPV6)
+    without_selector = _make_subnet_doc(SUBNET_OBJECT_ID_A, 'not-a-cidr')
+
+    assert _subnet_family(with_selector) == IpAddressFamily.IPV6
+    assert _subnet_family(without_selector) == IpAddressFamily.IPV4
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            _subnet_family_rank                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_subnet_family_rank_returns_one_for_ipv6_rows() -> None:
+    """An ipv6 row ranks 1 so it sorts into the trailing group"""
+    assert _subnet_family_rank(_make_row(1, '2001:db8::/32', subnet_type=IpAddressFamily.IPV6)) == 1
+
+
+def test_subnet_family_rank_returns_zero_for_ipv4_and_for_rows_without_the_key() -> None:
+    """An ipv4 row, and a row missing the key entirely, both rank 0 (IPv4 group)"""
+    assert _subnet_family_rank(_make_row(1, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4)) == 0
+    assert _subnet_family_rank({CmdbObjectKey.PUBLIC_ID: 2, IpamOverviewKey.CIDR: SUBNET_RANGE_A}) == 0
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -323,14 +466,89 @@ def test_compute_supernet_summary_clamps_free_when_total_used_exceeds_capacity()
     assert summary[IpamOverviewKey.FREE_IPS] == 0
 
 
+def test_compute_supernet_summary_defaults_family_to_ipv4_and_echoes_it() -> None:
+    """Without an explicit family the summary defaults to ipv4 and echoes it under subnet_type"""
+    summary = compute_supernet_summary(
+        supernet_network=IPv4Network('10.0.0.0/24'),
+        total_used=64,
+        subnet_count=4,
+    )
+
+    assert summary[IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV4
+
+
+def test_compute_supernet_summary_nulls_percentages_for_ipv6_keeps_counts() -> None:
+    """An IPv6 supernet nulls the three address-ratio percentages but keeps numeric counts"""
+    summary = compute_supernet_summary(
+        supernet_network=parse_cidr('2001:db8::/64'),
+        total_used=5,
+        subnet_count=2,
+        family=IpAddressFamily.IPV6,
+    )
+
+    assert summary[IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV6
+    assert summary[IpamOverviewKey.USED_PERCENT] is None
+    assert summary[IpamOverviewKey.FREE_PERCENT] is None
+    assert summary[IpamOverviewKey.UTILIZATION_PERCENT] is None
+    assert summary[IpamOverviewKey.TOTAL_IPS] == 2 ** 64
+    assert summary[IpamOverviewKey.USED_IPS] == 5
+    assert summary[IpamOverviewKey.FREE_IPS] == 2 ** 64 - 5
+
+
+def test_compute_supernet_summary_nulls_percentages_for_ipv6_degenerate_network() -> None:
+    """A degenerate IPv6 summary (no parsable CIDR) nulls the percentages instead of zeroing them"""
+    summary = compute_supernet_summary(
+        supernet_network=None,
+        total_used=3,
+        subnet_count=1,
+        family=IpAddressFamily.IPV6,
+    )
+
+    assert summary[IpamOverviewKey.USED_PERCENT] is None
+    assert summary[IpamOverviewKey.FREE_PERCENT] is None
+    assert summary[IpamOverviewKey.UTILIZATION_PERCENT] is None
+    assert summary[IpamOverviewKey.USED_IPS] == 3
+    assert summary[IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV6
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               _supernet_family                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_supernet_family_prefers_cidr_over_mismatched_selector() -> None:
+    """CIDR-first: a parsable CIDR decides the family even when the selector disagrees (fix #1)"""
+    supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE, supernet_type=IpAddressFamily.IPV6)
+
+    # SUPERNET_RANGE is an IPv4 CIDR, so the family is ipv4 despite the ipv6 selector
+    assert _supernet_family(supernet) == IpAddressFamily.IPV4
+
+
+def test_supernet_family_derives_from_cidr_when_selector_missing() -> None:
+    """A missing selector on an IPv6 CIDR derives ipv6 from the actual range"""
+    supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, '2001:db8::/32')
+
+    assert _supernet_family(supernet) == IpAddressFamily.IPV6
+
+
+def test_supernet_family_falls_back_to_selector_when_cidr_unparsable() -> None:
+    """An unparsable CIDR falls back to the selector (here ipv6); defaults to ipv4 when absent"""
+    with_selector = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr', supernet_type=IpAddressFamily.IPV6)
+    without_selector = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')
+
+    assert _supernet_family(with_selector) == IpAddressFamily.IPV6
+    assert _supernet_family(without_selector) == IpAddressFamily.IPV4
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             sort_and_link_subnets                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _make_row(public_id: int, cidr: str | None) -> dict[str, Any]:
+def _make_row(public_id: int, cidr: str | None, subnet_type: str = IpAddressFamily.IPV4) -> dict[str, Any]:
     """Builds an overview row in the same shape compute_subnet_row would produce."""
+    network: IPv4Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
     return {
         CmdbObjectKey.PUBLIC_ID: public_id,
+        IpamOverviewKey.SUBNET_TYPE: subnet_type,
         IpamOverviewKey.CIDR: cidr,
+        IpamOverviewKey.IP_RANGE: _ip_range(network) if network is not None else None,
         IpamOverviewKey.USED_IPS: 0,
         IpamOverviewKey.FREE_IPS: 0,
         IpamOverviewKey.USAGE_PERCENT: 0.0,
@@ -423,6 +641,39 @@ def test_sort_and_link_subnets_appends_unsortable_rows_after_sorted_block() -> N
 
     assert result[0][CmdbObjectKey.PUBLIC_ID] == SUBNET_OBJECT_ID_A
     assert result[-1][CmdbObjectKey.PUBLIC_ID] == 999
+    assert result[-1][IpamOverviewKey.PARENT_ID] is None
+
+
+def test_sort_and_link_subnets_groups_ipv4_before_ipv6_preserving_cidr_order() -> None:
+    """Every IPv4-family row precedes every IPv6 row; ascending CIDR order holds within each group"""
+    rows = [
+        _make_row(SUBNET_OBJECT_ID_B, '10.0.1.0/24', subnet_type=IpAddressFamily.IPV4),
+        _make_row(601, '2001:db8::/48', subnet_type=IpAddressFamily.IPV6),
+        _make_row(SUBNET_OBJECT_ID_A, '10.0.0.0/24', subnet_type=IpAddressFamily.IPV4),
+        _make_row(602, '2001:db8:1::/48', subnet_type=IpAddressFamily.IPV6),
+    ]
+
+    result = sort_and_link_subnets(rows)
+
+    public_ids = [r[CmdbObjectKey.PUBLIC_ID] for r in result]
+    assert public_ids == [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B, 601, 602]
+    assert [r[IpamOverviewKey.SUBNET_TYPE] for r in result] == [
+        IpAddressFamily.IPV4, IpAddressFamily.IPV4, IpAddressFamily.IPV6, IpAddressFamily.IPV6,
+    ]
+
+
+def test_sort_and_link_subnets_keeps_ipv6_rows_unlinked_at_the_end() -> None:
+    """IPv6 rows are unparsable today, so they trail with parent_id=None even behind a broken IPv4 row"""
+    rows = [
+        _make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4),
+        _make_row(601, '2001:db8::/32', subnet_type=IpAddressFamily.IPV6),
+        _make_row(999, 'not-a-cidr', subnet_type=IpAddressFamily.IPV4),
+    ]
+
+    result = sort_and_link_subnets(rows)
+
+    assert [r[CmdbObjectKey.PUBLIC_ID] for r in result] == [SUBNET_OBJECT_ID_A, 999, 601]
+    assert result[-1][CmdbObjectKey.PUBLIC_ID] == 601
     assert result[-1][IpamOverviewKey.PARENT_ID] is None
 
 
@@ -1283,10 +1534,10 @@ def test_summarize_supernet_sums_used_ips_and_forwards_to_compute_supernet_summa
     sentinel: dict[str, Any] = {'sentinel': True}
 
     with patch(f'{PATH}.compute_supernet_summary', return_value=sentinel) as mock_compute:
-        result = _summarize_supernet(rows, network)
+        result = _summarize_supernet(rows, network, IpAddressFamily.IPV4)
 
     assert result is sentinel
-    mock_compute.assert_called_once_with(network, 10, 2)
+    mock_compute.assert_called_once_with(network, 10, 2, IpAddressFamily.IPV4)
 
 
 def test_summarize_supernet_passes_zero_total_used_and_zero_count_for_empty_rows() -> None:
@@ -1294,19 +1545,19 @@ def test_summarize_supernet_passes_zero_total_used_and_zero_count_for_empty_rows
     network = IPv4Network('10.0.0.0/16')
 
     with patch(f'{PATH}.compute_supernet_summary', return_value={}) as mock_compute:
-        _summarize_supernet([], network)
+        _summarize_supernet([], network, IpAddressFamily.IPV4)
 
-    mock_compute.assert_called_once_with(network, 0, 0)
+    mock_compute.assert_called_once_with(network, 0, 0, IpAddressFamily.IPV4)
 
 
-def test_summarize_supernet_forwards_none_network_unchanged() -> None:
-    """A None supernet_network flows through to compute_supernet_summary verbatim"""
-    rows = [{**_make_row(1, '10.0.0.0/24'), IpamOverviewKey.USED_IPS: 4}]
+def test_summarize_supernet_forwards_none_network_and_family_unchanged() -> None:
+    """A None supernet_network and the family flow through to compute_supernet_summary verbatim"""
+    rows = [{**_make_row(1, '2001:db8::/48'), IpamOverviewKey.USED_IPS: 4}]
 
     with patch(f'{PATH}.compute_supernet_summary', return_value={}) as mock_compute:
-        _summarize_supernet(rows, None)
+        _summarize_supernet(rows, None, IpAddressFamily.IPV6)
 
-    mock_compute.assert_called_once_with(None, 4, 1)
+    mock_compute.assert_called_once_with(None, 4, 1, IpAddressFamily.IPV6)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1336,6 +1587,27 @@ def test_prepare_supernet_view_returns_four_tuple_with_expected_types() -> None:
     assert rows == [row_in]
     assert isinstance(summary, dict)
     assert isinstance(invalid_count, int)
+
+
+def test_build_supernet_overview_ipv6_summary_has_family_and_null_percentages() -> None:
+    """End-to-end: an IPv6 supernet KPI reports subnet_type=ipv6, null percentages, numeric counts (fix coverage)"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, '2001:db8::/48')
+    row = {
+        **_make_row(SUBNET_OBJECT_ID_A, '2001:db8:0:1::/64', subnet_type=IpAddressFamily.IPV6),
+        IpamOverviewKey.USED_IPS: 5,
+    }
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row]):
+        payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    summary = payload[IpamOverviewKey.SUPERNET]
+    assert summary[IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV6
+    assert summary[IpamOverviewKey.USED_PERCENT] is None
+    assert summary[IpamOverviewKey.FREE_PERCENT] is None
+    assert summary[IpamOverviewKey.UTILIZATION_PERCENT] is None
+    assert summary[IpamOverviewKey.TOTAL_IPS] == 2 ** 80
+    assert summary[IpamOverviewKey.USED_IPS] == 5
 
 
 def test_prepare_supernet_view_annotates_rows_with_has_children_and_is_valid_before_returning() -> None:
@@ -1707,6 +1979,9 @@ def test_build_supernet_subnet_children_returns_direct_children_of_parent_subnet
 
     assert payload[IpamOverviewKey.PARENT] == {CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID_A}
     assert [r[CmdbObjectKey.PUBLIC_ID] for r in payload[IpamOverviewKey.ROWS]] == [SUBNET_OBJECT_ID_NESTED_IN_A]
+    # Child rows carry the per-subnet full network range, like the top-level overview rows
+    child_row = payload[IpamOverviewKey.ROWS][0]
+    assert child_row[IpamOverviewKey.IP_RANGE] == _ip_range(parse_cidr(NESTED_IN_A_RANGE))
 
 
 def test_build_supernet_subnet_children_returns_empty_rows_when_subnet_has_no_children() -> None:
@@ -1741,6 +2016,29 @@ def test_build_supernet_subnet_children_annotates_is_valid_on_child_rows() -> No
     child_rows = payload[IpamOverviewKey.ROWS]
     assert all(IpamOverviewKey.IS_VALID in r for r in child_rows)
     assert child_rows[0][IpamOverviewKey.IS_VALID] is True
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         load_assigned_subnet_rows                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_load_assigned_subnet_rows_validates_then_returns_all_rows() -> None:
+    """The supernet is validated and every assigned subnet row is returned (no pagination)"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    rows = [_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), _make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B)]
+
+    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc) as mock_load, \
+         patch(f'{PATH}._build_linked_subnet_rows', return_value=rows):
+        result = load_assigned_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    mock_load.assert_called_once()
+    assert result == rows
+
+
+def test_load_assigned_subnet_rows_propagates_load_supernet_abort() -> None:
+    """An abort raised while validating the supernet propagates out"""
+    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+         pytest.raises(HTTPException):
+        load_assigned_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
