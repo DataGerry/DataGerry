@@ -1,4 +1,4 @@
-import { inject, Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { FileElement } from '../../model/file-element';
 import { BehaviorSubject } from 'rxjs';

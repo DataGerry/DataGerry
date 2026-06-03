@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { inject, Component, Input, OnInit, ViewEncapsulation } from '@angular/core';
+import { Component, inject, Input, OnInit, ViewEncapsulation } from '@angular/core';
 import { filter } from 'rxjs/operators';
 import { BreadcrumbItem } from './breadcrumb.model';
 import { BreadcrumbService } from './breadcrumb.service';

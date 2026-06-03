@@ -1,4 +1,4 @@
-import { Component, EventEmitter, inject, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { PasswordStrengthMeterService } from './password-strength-meter.service';
 
 @Component({

@@ -16,10 +16,10 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    Component,
     inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
-    Component,
     EventEmitter,
     Input,
     OnChanges,
@@ -28,7 +28,7 @@ import {
     Output,
     SimpleChanges,
     TemplateRef,
-    ViewChild
+    ViewChild,
 } from '@angular/core';
 import { Subject, finalize, takeUntil } from 'rxjs';
 

@@ -17,12 +17,12 @@
 */
 import {
     Component,
-    HostListener,
     inject,
+    HostListener,
     Input,
     OnChanges,
     OnInit,
-    SimpleChanges
+    SimpleChanges,
 } from '@angular/core';
 import { Router } from '@angular/router';
 

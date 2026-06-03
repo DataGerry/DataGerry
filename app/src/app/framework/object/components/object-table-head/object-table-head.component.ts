@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, EventEmitter, inject, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
 import { CmdbType } from '../../../models/cmdb-type';
 import { SupportedExporterExtension } from '../../../../export/export-objects/model/supported-exporter-extension';
 import { RenderResult } from '../../../models/cmdb-render';

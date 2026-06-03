@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { inject, Component, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 

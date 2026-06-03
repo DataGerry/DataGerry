@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { inject, Component, OnChanges, Input, SimpleChanges } from '@angular/core';
+import { Component, inject, OnChanges, Input, SimpleChanges } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 
 import { FileSaverService } from 'ngx-filesaver';

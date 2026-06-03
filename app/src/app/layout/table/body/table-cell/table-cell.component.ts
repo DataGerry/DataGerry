@@ -17,11 +17,13 @@
 */
 import {
     Component,
-    ComponentFactoryResolver, HostBinding, inject,
+    inject,
+    ComponentFactoryResolver,
+    HostBinding,
     Input,
     OnInit,
     ViewChild,
-    ViewContainerRef
+    ViewContainerRef,
 } from '@angular/core';
 import { Column } from '../../table.types';
 import { Router } from '@angular/router';
