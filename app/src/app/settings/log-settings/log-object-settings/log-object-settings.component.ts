@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter } from '@angular/core';
 import { LogService } from '../../../framework/services/log.service';
 import { CmdbLog } from '../../../framework/models/cmdb-log';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -51,8 +51,7 @@ export class DeleteModalComponent {
     @Input() publicID: number;
     @Output() isDismissClicked = new EventEmitter<boolean>();
 
-    constructor(public activeModal: NgbActiveModal) {
-    }
+    public readonly activeModal = inject(NgbActiveModal);
 
     handleModalDismiss() {
         this.activeModal.dismiss('Cross click')
