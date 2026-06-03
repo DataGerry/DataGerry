@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { StatusService } from '../../services/status.service';
 import { CmdbStatus } from '../../models/cmdb-status';
 
@@ -29,8 +29,7 @@ export class StatusListComponent implements OnInit {
 
   public statusList: CmdbStatus[];
 
-  constructor(private statusService: StatusService) {
-  }
+  private readonly statusService = inject(StatusService);
 
   public ngOnInit(): void {
     this.statusService.getStatusList().subscribe((respList: CmdbStatus[]) => {
