@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
@@ -25,7 +25,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
   standalone: false
 })
 export class LicensesComponent {
+  private readonly loaderService = inject(LoaderService);
+
   public isLoading$ = this.loaderService.isLoading$;
 
-  constructor(private loaderService: LoaderService) {}
 }

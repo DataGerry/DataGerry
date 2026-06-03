@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { IsmsConfig } from '../../../models/isms-config.model';
@@ -37,6 +37,13 @@ import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
     standalone: false
 })
 export class RiskCalculationComponent implements OnInit {
+  private readonly impactService = inject(ImpactService);
+  private readonly likelihoodService = inject(LikelihoodService);
+  private readonly riskClassService = inject(RiskClassService);
+  private readonly riskMatrixService = inject(RiskMatrixService);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+
   @Input() config: IsmsConfig;
 
   // Collections from services
@@ -59,16 +66,6 @@ export class RiskCalculationComponent implements OnInit {
   // Modal for assigning a risk class
   public showModal = false;
   public selectedCell: RiskMatrixCell | null = null;
-
-  constructor(
-    private impactService: ImpactService,
-    private likelihoodService: LikelihoodService,
-    private riskClassService: RiskClassService,
-    private riskMatrixService: RiskMatrixService,
-    private toast: ToastService,
-    private loaderService: LoaderService
-  ) { }
-
 
   ngOnInit(): void {
     this.loadAllData();
