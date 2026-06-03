@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit, ViewEncapsulation } from '@angular/core';
+import { inject, Component, Input, OnInit, ViewEncapsulation } from '@angular/core';
 import { filter } from 'rxjs/operators';
 import { BreadcrumbItem } from './breadcrumb.model';
 import { BreadcrumbService } from './breadcrumb.service';
@@ -42,10 +42,10 @@ export class BreadcrumbComponent implements OnInit {
 
   public isChecked: boolean;
 
-  public constructor(public breadcrumbService: BreadcrumbService, private activatedRoute: ActivatedRoute, private router: Router,
-    private sidebarService: SidebarService) {
-
-  }
+  public readonly breadcrumbService = inject(BreadcrumbService);
+  private readonly activatedRoute = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly sidebarService = inject(SidebarService);
 
   public hasParams(breadcrumb: BreadcrumbItem) {
     return Object.keys(breadcrumb.params).length ? [breadcrumb.url, breadcrumb.params] : [breadcrumb.url];

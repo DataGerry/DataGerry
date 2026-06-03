@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from '@angular/core';
+import { inject, Component, Input } from '@angular/core';
 import { Router } from '@angular/router';
 
 @Component({
@@ -27,8 +27,7 @@ import { Router } from '@angular/router';
 })
 export class RelationTableActionsComponent {
 
-  constructor(private router: Router,
-  ) { }
+  private readonly router = inject(Router);
 
 
   /**

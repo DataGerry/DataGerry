@@ -17,6 +17,7 @@
 */
 
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
@@ -76,8 +77,7 @@ export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
    */
   @Output() public columnSearchChange: EventEmitter<any[]> = new EventEmitter<any[]>();
 
-  public constructor(private fb: UntypedFormBuilder) {
-  }
+  private readonly fb = inject(UntypedFormBuilder);
 
   /**
    * Parse input field values

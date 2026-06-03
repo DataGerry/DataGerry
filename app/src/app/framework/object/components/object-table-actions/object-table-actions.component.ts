@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
+import { inject, Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -64,14 +64,10 @@ export class ObjectTableActionsComponent implements OnDestroy {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(
-        private locationService: LocationService, 
-        private objectService: ObjectService, 
-        private modalService: NgbModal,
-        private toastService: ToastService,
-    ) {
-
-    }
+    private readonly locationService = inject(LocationService);
+    private readonly objectService = inject(ObjectService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
 
 
     public ngOnDestroy(): void {

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { AfterViewInit, Component, Input, OnDestroy } from '@angular/core';
+import { inject, AfterViewInit, Component, Input, OnDestroy } from '@angular/core';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 
@@ -47,13 +47,9 @@ export class CleanupModalComponent implements AfterViewInit, OnDestroy {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(
-        private objectService: ObjectService,
-        public userService: UserService,
-        public activeModal: NgbActiveModal
-    ) {
-
-    }
+    private readonly objectService = inject(ObjectService);
+    public readonly userService = inject(UserService);
+    public readonly activeModal = inject(NgbActiveModal);
 
 
     public ngAfterViewInit(): void {

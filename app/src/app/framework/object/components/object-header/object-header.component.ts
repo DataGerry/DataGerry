@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { inject, Component, EventEmitter, Input, Output } from '@angular/core';
 import { RenderResult } from '../../../models/cmdb-render';
 import { ObjectService } from '../../../services/object.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
@@ -49,9 +49,9 @@ export class ObjectHeaderComponent {
     return this.result;
   }
 
-  public constructor(private objectService: ObjectService, private toastService: ToastService, private sidebarService : SidebarService) {
-
-  }
+  private readonly objectService = inject(ObjectService);
+  private readonly toastService = inject(ToastService);
+  private readonly sidebarService = inject(SidebarService);
 
   public toggleChange() {
     this.activeState = this.activeState !== true;

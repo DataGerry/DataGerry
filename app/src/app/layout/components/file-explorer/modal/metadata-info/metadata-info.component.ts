@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { inject, Component, Input, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { FileElement } from '../../model/file-element';
 import { BehaviorSubject } from 'rxjs';
@@ -24,8 +24,10 @@ export class MetadataInfoComponent implements OnInit {
   public username: string;
   public refId: number[];
 
-  constructor(public activeModal: NgbActiveModal, private objectService: ObjectService,
-              private typeService: TypeService, private userService: UserService) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly objectService = inject(ObjectService);
+  private readonly typeService = inject(TypeService);
+  private readonly userService = inject(UserService);
 
   ngOnInit(): void {
     const tempFile: any = Object.assign({}, this.fileElement);
