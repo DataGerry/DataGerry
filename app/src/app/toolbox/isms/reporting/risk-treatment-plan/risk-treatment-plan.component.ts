@@ -1,6 +1,10 @@
 
 import {
-  Component, OnInit, ViewChild, TemplateRef
+  Component,
+  inject,
+  OnInit,
+  ViewChild,
+  TemplateRef,
 } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 import { Column, Sort, SortDirection }
@@ -27,6 +31,11 @@ type ViewRow = Record<string, any>; // flattened for table / export
     standalone: false
 })
 export class RiskTreatmentPlanComponent implements OnInit {
+  private readonly api = inject(RiskTreatmentPlanService);
+  private readonly fileExp = inject(FileExportService);
+  private readonly loader = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly ismsValidationService = inject(IsmsValidationService);
 
   /* --------- cell templates --------- */
   @ViewChild('riskBeforeTpl', { static: true }) riskBeforeTpl!: TemplateRef<any>;
@@ -52,14 +61,6 @@ export class RiskTreatmentPlanComponent implements OnInit {
   public isLoading$ = this.loader.isLoading$;
 
   /* --------- ctor --------- */
-  constructor(
-    private readonly api: RiskTreatmentPlanService,
-    private readonly fileExp: FileExportService,
-    private readonly loader: LoaderService,
-    private readonly toast: ToastService,
-    private readonly ismsValidationService :IsmsValidationService
-    
-  ) { }
 
   /* ================================================================
    * life-cycle

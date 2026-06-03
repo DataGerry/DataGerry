@@ -20,7 +20,7 @@ import {
   inject,
   Input,
   OnInit,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -77,6 +77,7 @@ type Expanded = Record<'top' | 'before' | 'treatment' | 'after' | 'audit', boole
     standalone: false
 })
 export class RiskAssessmentAddComponent implements OnInit {
+  private readonly location = inject(Location);
 
   @ViewChild('treatmentBlock')
   private treatmentBlock!: RiskAssessmentTreatmentComponent;
@@ -162,8 +163,6 @@ export class RiskAssessmentAddComponent implements OnInit {
   /* ══════════════════════════════════════════════════════════════════════════
    *  Lifecycle
    * ═════════════════════════════════════════════════════════════════════════ */
-
-  constructor(private location: Location) { }
 
   ngOnInit(): void {
     if (this.initialized) return;
