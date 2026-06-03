@@ -16,13 +16,14 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
-    Component,
     Input,
     OnChanges,
     OnDestroy,
-    SimpleChanges
+    SimpleChanges,
 } from '@angular/core';
 import { Subject, finalize, takeUntil } from 'rxjs';
 
@@ -53,6 +54,10 @@ const VLAN_CARD_VISIBLE_LIMIT = 2;
     standalone: false
 })
 export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
+    private readonly ipamOverviewService = inject(IpamOverviewService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+    private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
 
@@ -70,13 +75,6 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public readonly isLoading$ = this.loaderService.isLoading$;
 
     private readonly destroy$ = new Subject<void>();
-
-    constructor(
-        private readonly ipamOverviewService: IpamOverviewService,
-        private readonly loaderService: LoaderService,
-        private readonly toastService: ToastService,
-        private readonly changesRef: ChangeDetectorRef
-    ) {}
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

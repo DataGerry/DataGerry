@@ -67,6 +67,10 @@ export class DeleteModalComponent {
     standalone: false
 })
 export class LogObjectSettingsComponent {
+    private readonly logService = inject(LogService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
 
     public activeLogList: CmdbLog[];
     public reloadActiveLogs: boolean = false;
@@ -89,14 +93,6 @@ export class LogObjectSettingsComponent {
      * Component un-subscriber.
      */
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
-
-    constructor(
-        private logService: LogService, 
-        private modalService: NgbModal, 
-        private toastService: ToastService,
-        private loaderService: LoaderService) {
-    }
-
 
     /**
    * Handles the click event on nav items.

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, OnDestroy, ViewChild, TemplateRef } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, ViewChild, TemplateRef } from '@angular/core';
 
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 
@@ -39,6 +39,10 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
     standalone: false
 })
 export class DocapiListComponent implements OnInit, OnDestroy {
+    private readonly docapiService = inject(DocapiService);
+    private readonly modalService = inject(NgbModal);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toast = inject(ToastService);
 
     public subscriber: ReplaySubject<void> = new ReplaySubject<void>();
     public messageBlock: string = 'Document Generator is an interface for generating PDF documents out of CMDB data. A user can design a\n' +
@@ -85,14 +89,6 @@ export class DocapiListComponent implements OnInit, OnDestroy {
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-    constructor(
-        private docapiService: DocapiService, 
-        private modalService: NgbModal,
-        private loaderService: LoaderService,
-        private toast: ToastService) {
-
-    }
-
 
     public ngOnInit(): void {
         this.columns = [

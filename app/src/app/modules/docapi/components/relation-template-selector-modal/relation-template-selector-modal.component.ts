@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, Output, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, EventEmitter, Input, Output, OnDestroy, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize, Subject, takeUntil } from 'rxjs';
 import { CmdbRelation } from 'src/app/framework/models/relation.model';
@@ -62,6 +62,11 @@ interface RelationTemplateStep {
   standalone: false
 })
 export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy {
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly relationService = inject(RelationService);
+  private readonly typeService = inject(TypeService);
+  private readonly loaderService = inject(LoaderService);
+
   @Input() rootTypeId: number | null = null;
   @Output() insertTemplate = new EventEmitter<string>();
 
@@ -75,13 +80,6 @@ export class RelationTemplateSelectorModalComponent implements OnInit, OnDestroy
   ];
 
   private destroy$ = new Subject<void>();
-
-  constructor(
-    public activeModal: NgbActiveModal,
-    private relationService: RelationService,
-    private typeService: TypeService,
-    private loaderService: LoaderService
-  ) {}
 
   ngOnInit(): void {
     if (this.rootTypeId) {

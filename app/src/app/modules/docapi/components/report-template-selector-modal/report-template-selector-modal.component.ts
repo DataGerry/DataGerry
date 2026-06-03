@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Output, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, EventEmitter, Output, OnDestroy, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize, Subject, takeUntil } from 'rxjs';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -30,6 +30,10 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
   standalone: false
 })
 export class ReportTemplateSelectorModalComponent implements OnInit, OnDestroy {
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly reportService = inject(ReportService);
+  private readonly loaderService = inject(LoaderService);
+
   @Output() insertTemplate = new EventEmitter<string>();
 
   public reports: Array<any> = [];
@@ -40,12 +44,6 @@ export class ReportTemplateSelectorModalComponent implements OnInit, OnDestroy {
   public selectedReport: any = null;
 
   private destroy$ = new Subject<void>();
-
-  constructor(
-    public activeModal: NgbActiveModal,
-    private reportService: ReportService,
-    private loaderService: LoaderService
-  ) {}
 
   ngOnInit(): void {
     this.loadReports();
