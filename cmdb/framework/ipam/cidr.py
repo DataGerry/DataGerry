@@ -14,41 +14,59 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Pure IPv4 CIDR helpers used across the IPAM feature
+Pure CIDR helpers used across the IPAM feature (IPv4 and IPv6)
 
 Consumers include both the validators (subnet, supernet, interface, range-change guards,
 enforcement) and the overview builders (subnet overview, supernet overview). Every helper
 here is stateless and free of DB / Flask access so it can be unit-tested in isolation.
-Prefix-length policy constants (point-to-point threshold, network/broadcast reservation)
-live in cmdb.models.special_type_model.ipam_constants.IpamPrefixPolicy
+Parsing accepts either address family via the ipaddress module's version-agnostic factories;
+the containment / overlap helpers treat two networks of different families as disjoint (the
+stdlib raises TypeError when mixing families, so each helper guards on '.version' first).
+Prefix-length policy constants (point-to-point threshold, network/broadcast reservation) live
+in cmdb.models.special_type_model.ipam_constants.IpamPrefixPolicy and apply to IPv4 only -
+IPv6 reserves neither a network nor a broadcast address
 """
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import (
+    ip_network,
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+)
 from typing import Any
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamAddressFormat,
     IpamPrefixPolicy,
     IpamValidationDetailKey,
+    IpVersion,
+    IpAddressFamily,
 )
 from cmdb.utils import build_error
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Family-agnostic aliases: an IPAM network / address is either the IPv4 or the IPv6 variant
+Network = IPv4Network | IPv6Network
+Address = IPv4Address | IPv6Address
 
-def parse_cidr(value: str) -> IPv4Network | None:
+
+def parse_cidr(value: str) -> Network | None:
     """
-    Parses a string as a strict IPv4 CIDR network in canonical 'A.B.C.D/N' notation
+    Parses a string as a strict IPv4 or IPv6 CIDR network in canonical 'address/N' notation
 
-    Strict on two axes. Host bits must be zero (e.g. '10.0.0.0/24' is accepted, '10.0.0.5/24'
-    is not). The prefix length must be a plain integer (e.g. '10.0.0.0/24'); Python's
-    IPv4Network would additionally accept '/A.B.C.D' netmask or hostmask forms ('/255.255.255.0',
-    '/0.0.0.255') and a bare address with no slash (interpreting it as a /32 host route), but
-    those forms are rejected here so stored values are always canonical CIDR
+    Strict on two axes. Host bits must be zero (e.g. '10.0.0.0/24' and '2001:db8::/32' are
+    accepted, '10.0.0.5/24' is not). The prefix length must be a plain integer; Python's
+    ip_network would additionally accept IPv4 '/A.B.C.D' netmask or hostmask forms
+    ('/255.255.255.0', '/0.0.0.255') and a bare address with no slash (interpreting it as a
+    host route), but those forms are rejected here so stored values are always canonical CIDR.
+    The address family is inferred from the value: a string with a ':' parses as IPv6
 
     Args:
         value (str): The candidate CIDR string
 
     Returns:
-        IPv4Network | None: The parsed network, or None if the input is not canonical CIDR
+        Network | None: The parsed IPv4Network / IPv6Network, or None if the input is not
+            canonical CIDR
     """
     if not isinstance(value, str):
         return None
@@ -62,7 +80,7 @@ def parse_cidr(value: str) -> IPv4Network | None:
         return None
 
     try:
-        return IPv4Network(value, strict=True)
+        return ip_network(value, strict=True)
     except ValueError:
         return None
 
@@ -70,10 +88,10 @@ def parse_cidr(value: str) -> IPv4Network | None:
 def validate_canonical_cidr_value(
     value: Any,
     error_code: str,
-) -> tuple[IPv4Network | None, list[dict[str, Any]]]:
+) -> tuple[Network | None, list[dict[str, Any]]]:
     """
-    Validates an arbitrary value is a canonical IPv4 CIDR string, surfacing a structured error
-    when it is not
+    Validates an arbitrary value is a canonical IPv4 or IPv6 CIDR string, surfacing a structured
+    error when it is not
 
     Accepts Any so callers passing a raw field value (which may be None / int / something else
     from a partially populated CmdbObject) don't have to guard the call themselves. Non-string
@@ -86,39 +104,46 @@ def validate_canonical_cidr_value(
             (callers pass their domain-specific code, e.g. SubnetErrorCode.CIDR_INVALID)
 
     Returns:
-        tuple[IPv4Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors;
+        tuple[Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors;
             empty list when the value is canonical)
     """
-    parsed: IPv4Network | None = parse_cidr(value) if isinstance(value, str) else None
+    parsed: Network | None = parse_cidr(value) if isinstance(value, str) else None
 
     if parsed is None:
         return None, [build_error(
             error_code,
-            f"'{value}' is not a canonical IPv4 CIDR (host bits must be zero)",
+            f"'{value}' is not a canonical IPv4/IPv6 CIDR (host bits must be zero)",
             {IpamValidationDetailKey.NETWORK_RANGE: value},
         )]
 
     return parsed, []
 
 
-def parse_ipv4(value: str) -> IPv4Address | None:
+def parse_ip(value: str) -> Address | None:
     """
-    Parses a string as an IPv4 address in dotted-quad notation
+    Parses a string as an IPv4 (dotted-quad) or IPv6 host address
 
-    Only the canonical dotted-quad form ('A.B.C.D') is accepted. Python's IPv4Address would
-    additionally accept integer-formatted strings (e.g. '3232235521' as 192.168.1.1) and bare
-    integers, but those forms are rejected here so that stored interface values are always
-    human-readable. The function returns None for any input that is not a four-octet string
+    The family is selected by syntax: a string containing ':' is parsed as IPv6, otherwise it
+    must be canonical dotted-quad IPv4 ('A.B.C.D'). For IPv4, Python's IPv4Address would also
+    accept integer-formatted strings (e.g. '3232235521' as 192.168.1.1) and bare integers, but
+    those forms are rejected via the dot-count guard so that stored interface values are always
+    human-readable. The function returns None for any input that is not a valid host address
 
     Args:
-        value (str): The candidate IPv4 address string
+        value (str): The candidate IP address string
 
     Returns:
-        IPv4Address | None: The parsed address, or None if the input is not a valid
-            dotted-quad IPv4 address
+        Address | None: The parsed IPv4Address / IPv6Address, or None if the input is not a
+            valid host address
     """
     if not isinstance(value, str):
         return None
+
+    if ':' in value:
+        try:
+            return IPv6Address(value)
+        except ValueError:
+            return None
 
     if value.count('.') != IpamAddressFormat.DOTTED_QUAD_DOT_COUNT:
         return None
@@ -129,73 +154,117 @@ def parse_ipv4(value: str) -> IPv4Address | None:
         return None
 
 
-def contains(parent: IPv4Network, child: IPv4Network) -> bool:
+def network_family(network: Network) -> str:
+    """
+    Returns the address-family token of a parsed network as an IpAddressFamily value
+
+    Single source of truth for mapping a parsed network to the 'ipv4' / 'ipv6' tokens used by
+    the SUBNET / SUPERNET 'dg-*-type' selectors, so the validators (family-consistency checks)
+    and the supernet overview (row grouping) agree on the mapping
+
+    Args:
+        network (Network): The parsed network
+
+    Returns:
+        str: IpAddressFamily.IPV6 for an IPv6 network, IpAddressFamily.IPV4 otherwise
+    """
+    return IpAddressFamily.IPV6 if network.version == IpVersion.V6 else IpAddressFamily.IPV4
+
+
+def contains(parent: Network, child: Network) -> bool:
     """
     Reports whether 'child' is a subnet of (or equal to) 'parent'
 
+    Networks of different address families are treated as disjoint (False) rather than raising,
+    so a cross-family pair can be compared safely without a TypeError
+
     Args:
-        parent (IPv4Network): The (potentially) enclosing network
-        child (IPv4Network): The (potentially) enclosed network
+        parent (Network): The (potentially) enclosing network
+        child (Network): The (potentially) enclosed network
 
     Returns:
-        bool: True if every address in 'child' is also in 'parent', False otherwise
+        bool: True if every address in 'child' is also in 'parent', False otherwise (including
+            when the two networks are of different families)
     """
+    if parent.version != child.version:
+        return False
+
     return child.subnet_of(parent)
 
 
-def is_strict_subnet(parent: IPv4Network, child: IPv4Network) -> bool:
+def is_strict_subnet(parent: Network, child: Network) -> bool:
     """
     Reports whether 'child' is strictly inside 'parent' (subnet, but not equal)
 
+    Networks of different address families are treated as disjoint (False) rather than raising
+
     Args:
-        parent (IPv4Network): The enclosing network
-        child (IPv4Network): The candidate child network
+        parent (Network): The enclosing network
+        child (Network): The candidate child network
 
     Returns:
         bool: True if 'child' is contained in 'parent' AND not the same network, False otherwise
+            (including when the two networks are of different families)
     """
+    if parent.version != child.version:
+        return False
+
     return child != parent and child.subnet_of(parent)
 
 
-def overlaps(a: IPv4Network, b: IPv4Network) -> bool:
+def overlaps(a: Network, b: Network) -> bool:
     """
-    Reports whether two IPv4 networks share any address
+    Reports whether two networks share any address
+
+    Networks of different address families are treated as non-overlapping (False) rather than
+    raising
 
     Args:
-        a (IPv4Network): First network
-        b (IPv4Network): Second network
+        a (Network): First network
+        b (Network): Second network
 
     Returns:
-        bool: True if the networks share at least one address, False otherwise
+        bool: True if the networks share at least one address, False otherwise (including when
+            the two networks are of different families)
     """
+    if a.version != b.version:
+        return False
+
     return a.overlaps(b)
 
 
-def ip_in_network(address: IPv4Address, network: IPv4Network) -> bool:
+def ip_in_network(address: Address, network: Network) -> bool:
     """
-    Reports whether an IPv4 address falls inside a given network
+    Reports whether an address falls inside a given network
+
+    An address of a different family than the network is never a member (False), matching the
+    address-family guard used by the network-to-network helpers
 
     Args:
-        address (IPv4Address): The address to test
-        network (IPv4Network): The network to test against
+        address (Address): The address to test
+        network (Network): The network to test against
 
     Returns:
-        bool: True if 'address' is part of 'network', False otherwise
+        bool: True if 'address' is part of 'network', False otherwise (including on a
+            family mismatch)
     """
+    if address.version != network.version:
+        return False
+
     return address in network
 
 
-def total_address_count(network: IPv4Network) -> int:
+def total_address_count(network: Network) -> int:
     """
     Returns the total number of addresses in a network, including the network and broadcast
     addresses
 
     This is the denominator used by the IP-Verteilung grid and the headline 'Gesamt IPs' KPI,
     where the address space is shown as a contiguous whole rather than split into 'usable' and
-    'reserved' subsets
+    'reserved' subsets. For IPv6 the value is a Python big int (e.g. 2**64 for a /64)
 
     Args:
-        network (IPv4Network): The parsed network
+        network (Network): The parsed network
 
     Returns:
         int: Total address count of the network (always >= 1)
@@ -203,62 +272,75 @@ def total_address_count(network: IPv4Network) -> int:
     return network.num_addresses
 
 
-def assignable_address_count(network: IPv4Network) -> int:
+def assignable_address_count(network: Network) -> int:
     """
     Returns the number of addresses the interface validator would accept inside a network
 
-    /32 reports 1 (host route), /31 reports 2 (RFC 3021 point-to-point), and /30 and shorter
-    report 'num_addresses - 2' to exclude the network and broadcast addresses. This is the
-    denominator used by 'free_ips' and by the paginated IP table, which only lists addresses
-    that can actually be assigned
+    IPv6 reserves neither a network nor a broadcast address, so every address counts as
+    assignable (num_addresses). For IPv4, /32 reports 1 (host route), /31 reports 2 (RFC 3021
+    point-to-point), and /30 and shorter report 'num_addresses - 2' to exclude the network and
+    broadcast addresses. This is the denominator used by 'free_ips' and by the paginated IP
+    table, which only lists addresses that can actually be assigned
 
     Args:
-        network (IPv4Network): The parsed network
+        network (Network): The parsed network
 
     Returns:
         int: Number of addresses an interface row may legitimately claim
     """
+    if network.version == IpVersion.V6:
+        return network.num_addresses
+
     if network.prefixlen >= IpamPrefixPolicy.POINT_TO_POINT_THRESHOLD:
         return network.num_addresses
 
     return network.num_addresses - IpamPrefixPolicy.RESERVED_ADDRESSES_PER_NETWORK
 
 
-def first_assignable_int(network: IPv4Network) -> int:
+def first_assignable_int(network: Network) -> int:
     """
     Returns the integer value of the first assignable address in a network
 
-    For /31 and /32 networks this is the network address itself (no exclusion applies). For
-    /30 and shorter the network address is skipped and the first host follows at
-    IpamPrefixPolicy.FIRST_HOST_OFFSET. Every valid IPv4 prefix has at least one assignable
-    address under the current policy, so the function always returns an int
+    IPv6 reserves no addresses, so the first assignable address is the network address itself.
+    For IPv4 /31 and /32 this is also the network address (no exclusion applies); for IPv4 /30
+    and shorter the network address is skipped and the first host follows at
+    IpamPrefixPolicy.FIRST_HOST_OFFSET. Every valid prefix has at least one assignable address
+    under the current policy, so the function always returns an int
 
     Args:
-        network (IPv4Network): The parsed network
+        network (Network): The parsed network
 
     Returns:
         int: Integer of the first assignable address
     """
+    if network.version == IpVersion.V6:
+        return int(network.network_address)
+
     if network.prefixlen >= IpamPrefixPolicy.POINT_TO_POINT_THRESHOLD:
         return int(network.network_address)
 
     return int(network.network_address) + IpamPrefixPolicy.FIRST_HOST_OFFSET
 
 
-def is_network_or_broadcast(address: IPv4Address, network: IPv4Network) -> bool:
+def is_network_or_broadcast(address: Address, network: Network) -> bool:
     """
     Reports whether an address equals the network address or the broadcast address of a network
 
-    For /31 and /32 networks neither concept applies, so the result is always False there
+    IPv6 has no broadcast address and reserves no network address, so the result is always
+    False for an IPv6 network. For IPv4 /31 and /32 networks neither concept applies either, so
+    the result is False there too
 
     Args:
-        address (IPv4Address): The address to test
-        network (IPv4Network): The network the address sits in
+        address (Address): The address to test
+        network (Network): The network the address sits in
 
     Returns:
         bool: True if 'address' is the reserved network or broadcast address, False otherwise
     """
+    if network.version == IpVersion.V6:
+        return False
+
     if network.prefixlen >= IpamPrefixPolicy.POINT_TO_POINT_THRESHOLD:
         return False
 
-    return address == network.network_address or address == network.broadcast_address
+    return address in (network.network_address, network.broadcast_address)

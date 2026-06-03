@@ -29,13 +29,24 @@ test_request_context. build_supernet_overview and ManagerProvider.get_manager ar
 the route module path so no DB or business logic runs
 """
 from typing import Any, Callable
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
+from openpyxl import load_workbook
 
-from cmdb.models.special_type_model.ipam_constants import IpamPagination, IpamSearch, IpamOverviewKey
-from cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes import get_supernet_overview
+from cmdb.models.special_type_model.ipam_constants import (
+    IpamPagination,
+    IpamSearch,
+    IpamOverviewKey,
+    IpamExport,
+    IpAddressFamily,
+)
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes import (
+    get_supernet_overview,
+    export_supernet_subnets,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes'
@@ -178,3 +189,64 @@ def test_route_forwards_public_id_argument_to_orchestrator(
         bare_get_supernet_overview(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
 
     assert patched_orchestrator.call_args.args[2] == SUPERNET_PUBLIC_ID
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          export_supernet_subnets                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.fixture(name='bare_export_supernet_subnets')
+def fixture_bare_export_supernet_subnets() -> Callable[..., Any]:
+    """Returns the undecorated export_supernet_subnets handler."""
+    return _unwrap(export_supernet_subnets)
+
+
+def test_export_route_returns_xlsx_attachment_download(
+    bare_export_supernet_subnets: Callable[..., Any],
+    flask_app: Flask,
+) -> None:
+    """The route returns the builder's bytes as an .xlsx attachment with the OpenXML mimetype"""
+    content: bytes = b'fake-xlsx-bytes'
+
+    with patch(f'{ROUTE_PATH}.build_supernet_subnets_xlsx', return_value=content) as mock_build, \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context('/'):
+        response = bare_export_supernet_subnets(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert response.mimetype == IpamExport.MIMETYPE
+    assert response.data == content
+
+    disposition: str = response.headers['Content-Disposition']
+    assert disposition.startswith('attachment; filename=')
+    assert f'supernet_{SUPERNET_PUBLIC_ID}_subnets_' in disposition
+    assert disposition.endswith('.xlsx')
+
+    mock_build.assert_called_once()
+
+
+def test_export_route_body_parses_as_a_valid_xlsx_workbook(
+    bare_export_supernet_subnets: Callable[..., Any],
+    flask_app: Flask,
+) -> None:
+    """End-to-end: with the real builder, the route's body is a parseable .xlsx with the expected rows"""
+    rows: list[dict[str, Any]] = [{
+        IpamOverviewKey.CIDR: '10.0.0.0/24',
+        IpamOverviewKey.IP_RANGE: {IpamOverviewKey.FIRST: '10.0.0.0', IpamOverviewKey.LAST: '10.0.0.255'},
+        IpamOverviewKey.USED_IPS: 3,
+        IpamOverviewKey.FREE_IPS: 253,
+        IpamOverviewKey.USAGE_PERCENT: 1.17,
+    }]
+
+    # Patch the data source + the family resolver (IPv4) so the real build runs and emits real bytes
+    with patch('cmdb.framework.ipam.subnet_export.load_assigned_subnet_rows', return_value=rows), \
+         patch('cmdb.framework.ipam.subnet_export.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context('/'):
+        response = bare_export_supernet_subnets(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
+
+    sheet = load_workbook(BytesIO(response.data)).active
+    sheet_rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
+
+    assert sheet.title == IpamExport.SHEET_TITLE
+    # IPv4 supernet export keeps the trailing 'Usage (%)' column
+    assert sheet_rows[0] == tuple(IpamExport.HEADERS + [IpamExport.USAGE_HEADER])
+    assert sheet_rows[1] == ('10.0.0.0/24', '10.0.0.0 - 10.0.0.255', 3, 253, 1.17)

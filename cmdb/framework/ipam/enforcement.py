@@ -42,11 +42,9 @@ from cmdb.models.object_model import (
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.utils import BaseStrEnum, ValidationErrorKey, build_error
-from cmdb.framework.ipam.cidr import validate_canonical_cidr_value
-from cmdb.framework.ipam.subnet_validator import (
-    validate_subnet,
-    SubnetErrorCode,
-)
+from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
+from cmdb.framework.ipam.subnet_validator import validate_subnet
+from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
 from cmdb.framework.ipam.references import (
@@ -123,6 +121,94 @@ def _coerce_int(value: Any) -> int | None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                            CANONICALISATION (ON STORE)                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _canonical_cidr(value: Any) -> Any:
+    """
+    Returns the canonical string form of a CIDR value, or the value unchanged when it doesn't parse
+
+    Args:
+        value (Any): The raw 'dg-network-range' field value
+
+    Returns:
+        Any: str(parse_cidr(value)) when parsable, otherwise the original value untouched
+    """
+    parsed = parse_cidr(value) if isinstance(value, str) else None
+
+    return str(parsed) if parsed is not None else value
+
+
+def _canonical_ip(value: Any) -> Any:
+    """
+    Returns the canonical string form of a host-IP value, or the value unchanged when it doesn't parse
+
+    Args:
+        value (Any): The raw 'dg-interface-ip-address' field value
+
+    Returns:
+        Any: str(parse_ip(value)) when parsable, otherwise the original value untouched
+    """
+    parsed = parse_ip(value) if isinstance(value, str) else None
+
+    return str(parsed) if parsed is not None else value
+
+
+def _canonicalize_range_field(candidate_object: dict[str, Any], field_name: str) -> None:
+    """
+    Rewrites the candidate's first flat field named ``field_name`` to its canonical CIDR form, in place
+
+    Args:
+        candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document (mutated)
+        field_name (str): The network-range field name to canonicalize
+    """
+    for field in candidate_object.get(CmdbObjectKey.FIELDS, []) or []:
+        if field.get(CmdbObjectFieldKey.NAME) == field_name:
+            field[CmdbObjectFieldKey.VALUE] = _canonical_cidr(field.get(CmdbObjectFieldKey.VALUE))
+            return
+
+
+def _canonicalize_interface_ips(candidate_object: dict[str, Any]) -> None:
+    """
+    Rewrites every dg-ipam-interface MDS row's IP value to its canonical form, in place
+
+    Args:
+        candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document (mutated)
+    """
+    for section in candidate_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+        if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
+            continue
+
+        for row in section.get(CmdbObjectMdsKey.VALUES, []) or []:
+            for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+                if entry.get(CmdbObjectFieldKey.NAME) == InterfaceField.IP:
+                    entry[CmdbObjectFieldKey.VALUE] = _canonical_ip(entry.get(CmdbObjectFieldKey.VALUE))
+
+
+def _normalize_ipam_object(candidate_object: dict[str, Any], special_type: SpecialType | None) -> None:
+    """
+    Rewrites the candidate's IPAM address / CIDR field values to their canonical string form, in place
+
+    Stores canonical values so that family-equivalent but textually-different inputs - notably
+    IPv6 (upper/lower case, zero-compression, leading zeros) - cannot evade the exact-match
+    interface-IP uniqueness check or collide in the assigned-IP map (which keys by the canonical
+    string). Only values that parse are rewritten; unparsable values are left untouched for the
+    validators to reject. IPv4 dotted-quad values are already canonical, so this is effectively an
+    IPv6 normalisation. Runs before validation so the uniqueness / containment checks see the
+    canonical form
+
+    Args:
+        candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document (mutated)
+        special_type (SpecialType | None): The candidate's resolved SpecialType, or None
+    """
+    if special_type == SpecialType.SUPERNET:
+        _canonicalize_range_field(candidate_object, SupernetField.NETWORK_RANGE)
+    elif special_type == SpecialType.SUBNET:
+        _canonicalize_range_field(candidate_object, SubnetField.NETWORK_RANGE)
+
+    _canonicalize_interface_ips(candidate_object)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                          PER-SPECIAL-TYPE ENFORCERS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def _enforce_subnet_object(
@@ -150,6 +236,7 @@ def _enforce_subnet_object(
     network_range: Any = extract_field_value(candidate_object, SubnetField.NETWORK_RANGE)
     parent_supernet_id: int | None = _coerce_int(extract_field_value(candidate_object, SubnetField.PARENT_SUPERNET))
     candidate_id: int | None = _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID))
+    subnet_type: Any = extract_field_value(candidate_object, SubnetField.TYPE)
 
     return validate_subnet(
         objects_manager,
@@ -157,13 +244,14 @@ def _enforce_subnet_object(
         network_range=network_range if isinstance(network_range, str) else '',
         parent_supernet_id=parent_supernet_id,
         exclude_subnet_id=candidate_id if previous_object is not None else None,
+        subnet_type=subnet_type if isinstance(subnet_type, str) else None,
     )
 
 
 def _enforce_supernet_object(candidate_object: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Runs the SUPERNET-object validators against the candidate; only the canonical-CIDR
-    check applies
+    Runs the SUPERNET-object validators against the candidate: canonical-CIDR and the
+    'dg-supernet-type' selector matching the CIDR's address family
 
     A CIDR change that would push child subnets outside the new range is permitted: those
     children surface as is_valid=False in the supernet overview so the user can repair or
@@ -176,10 +264,12 @@ def _enforce_supernet_object(candidate_object: dict[str, Any]) -> list[dict[str,
         list[dict[str, Any]]: Accumulated structured errors; empty when valid
     """
     network_range: Any = extract_field_value(candidate_object, SupernetField.NETWORK_RANGE)
+    supernet_type: Any = extract_field_value(candidate_object, SupernetField.TYPE)
 
-    _, parsed_errors = validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
-
-    return list(parsed_errors)
+    return validate_supernet(
+        network_range=network_range if isinstance(network_range, str) else '',
+        supernet_type=supernet_type if isinstance(supernet_type, str) else None,
+    )
 
 
 def _enforce_vlan_object(
@@ -291,6 +381,10 @@ def enforce_object_invariants(
     validates dg-ipam-interface MDS rows on any object that carries them. Caller is expected to
     abort 400 with format_errors_for_abort(errors) when the returned list is non-empty
 
+    Before validating, the candidate's IPAM address / CIDR field values are canonicalised in
+    place (see _normalize_ipam_object), so the persisted object - which both routes save from the
+    same dict passed here - always stores canonical (notably IPv6-canonical) values
+
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
@@ -308,6 +402,8 @@ def enforce_object_invariants(
     errors: list[dict[str, Any]] = []
 
     special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id)
+
+    _normalize_ipam_object(candidate_object, special_type)
 
     if special_type == SpecialType.SUPERNET:
         errors.extend(_enforce_supernet_object(candidate_object))

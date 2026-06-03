@@ -26,7 +26,6 @@ This module exposes pure helpers (CIDR math, row / summary shaping, parent-child
 plus two DB orchestrators: ``build_supernet_overview`` for the paginated top-level view and
 ``build_supernet_subnet_children`` for the direct-children fetch
 """
-from ipaddress import IPv4Network
 from typing import Any
 
 from flask import abort
@@ -36,12 +35,19 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
     SubnetField,
+    IpAddressFamily,
     InterfaceField,
     IpamSection,
     IpamPagination,
     IpamOverviewKey,
 )
-from cmdb.framework.ipam.cidr import parse_cidr, is_strict_subnet, total_address_count
+from cmdb.framework.ipam.cidr import (
+    Network,
+    parse_cidr,
+    is_strict_subnet,
+    network_family,
+    total_address_count,
+)
 from cmdb.models.object_model import (
     CmdbObjectKey,
     CmdbObjectFieldKey,
@@ -58,15 +64,15 @@ from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _ip_range(network: IPv4Network) -> dict[str, str]:
+def _ip_range(network: Network) -> dict[str, str]:
     """
-    Returns the lowest and highest address of an IPv4 network as strings
+    Returns the lowest and highest address of a network (IPv4 or IPv6) as strings
 
     'Lowest' is the network address and 'highest' is the broadcast address; neither is filtered
     out so the range reflects the literal bounds of the CIDR
 
     Args:
-        network (IPv4Network): The parsed network
+        network (Network): The parsed network
 
     Returns:
         dict[str, str]: {'first': <network address>, 'last': <broadcast address>}
@@ -94,6 +100,71 @@ def _percent(numerator: int, denominator: int) -> float:
     return round(numerator / denominator * 100, 2)
 
 
+def _resolve_family(obj: dict[str, Any], type_field: str, range_field: str) -> str:
+    """
+    Resolves the address family of an IPAM CmdbObject as an IpAddressFamily value ('ipv4' / 'ipv6')
+
+    CIDR-first: the family is derived from the actual ``range_field`` CIDR via ``network_family``
+    whenever it parses, because the CIDR is what determines real address-family behaviour
+    (containment, enumeration feasibility, counts). This keeps every view consistent with the
+    subnet IP-Übersicht, which derives the family straight from the parsed network. Only when the
+    CIDR is missing / unparsable does the explicit ``type_field`` selector decide, defaulting to
+    IPv4 (legacy objects pre-date the selector and the former range regex only admitted IPv4)
+
+    Args:
+        obj (dict[str, Any]): The SUBNET or SUPERNET CmdbObject document
+        type_field (str): The address-family selector field name (SubnetField.TYPE /
+            SupernetField.TYPE)
+        range_field (str): The network-range field name (SubnetField.NETWORK_RANGE /
+            SupernetField.NETWORK_RANGE)
+
+    Returns:
+        str: IpAddressFamily.IPV6 or IpAddressFamily.IPV4
+    """
+    raw_cidr: Any = extract_field_value(obj, range_field)
+    network: Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
+
+    if network is not None:
+        return network_family(network)
+
+    raw_type: Any = extract_field_value(obj, type_field)
+
+    return IpAddressFamily.IPV6 if raw_type == IpAddressFamily.IPV6 else IpAddressFamily.IPV4
+
+
+def _subnet_family(subnet_obj: dict[str, Any]) -> str:
+    """
+    Returns the address family of a SUBNET CmdbObject as an IpAddressFamily value ('ipv4' / 'ipv6')
+
+    Thin wrapper over ``_resolve_family`` bound to the SUBNET selector / range fields; see that
+    helper for the CIDR-first precedence and the selector / IPv4 fallback
+
+    Args:
+        subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
+
+    Returns:
+        str: IpAddressFamily.IPV6 or IpAddressFamily.IPV4
+    """
+    return _resolve_family(subnet_obj, SubnetField.TYPE, SubnetField.NETWORK_RANGE)
+
+
+def _supernet_family(supernet_obj: dict[str, Any]) -> str:
+    """
+    Returns the address family of a SUPERNET CmdbObject as an IpAddressFamily value ('ipv4' / 'ipv6')
+
+    Thin wrapper over ``_resolve_family`` bound to the SUPERNET selector / range fields. Drives
+    whether the supernet KPI strip reports address-ratio percentages (IPv4) or omits them as null
+    (IPv6), where used/total address ratios are meaningless against a 2**n address space
+
+    Args:
+        supernet_obj (dict[str, Any]): The SUPERNET CmdbObject document
+
+    Returns:
+        str: IpAddressFamily.IPV6 or IpAddressFamily.IPV4
+    """
+    return _resolve_family(supernet_obj, SupernetField.TYPE, SupernetField.NETWORK_RANGE)
+
+
 def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str, Any]:
     """
     Shapes a single SUBNET CmdbObject + its interface-IP usage count into one overview row
@@ -109,18 +180,27 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
         used_count (int): Number of dg-ipam-interface rows that reference this subnet
 
     Returns:
-        dict[str, Any]: One row with public_id, cidr, used_ips, free_ips, usage_percent
+        dict[str, Any]: One row with public_id, subnet_type, cidr, ip_range, used_ips, free_ips,
+                        usage_percent. 'subnet_type' is the row's address family ('ipv4' / 'ipv6';
+                        see _subnet_family). 'usage_percent' is None for IPv6 rows (an address
+                        ratio against a 2**n space is meaningless) and a percentage for IPv4.
+                        'ip_range' is the subnet's full network range ({first, last}), or None
+                        when the CIDR is missing/unparsable
     """
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
-    network: IPv4Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
+    network: Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
+    subnet_type: str = _subnet_family(subnet_obj)
+    is_ipv6: bool = subnet_type == IpAddressFamily.IPV6
 
     if network is None:
         return {
             CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            IpamOverviewKey.SUBNET_TYPE: subnet_type,
             IpamOverviewKey.CIDR: raw_cidr if isinstance(raw_cidr, str) else None,
+            IpamOverviewKey.IP_RANGE: None,
             IpamOverviewKey.USED_IPS: 0,
             IpamOverviewKey.FREE_IPS: 0,
-            IpamOverviewKey.USAGE_PERCENT: 0.0,
+            IpamOverviewKey.USAGE_PERCENT: None if is_ipv6 else 0.0,
         }
 
     total: int = total_address_count(network)
@@ -128,56 +208,69 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
 
     return {
         CmdbObjectKey.PUBLIC_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+        IpamOverviewKey.SUBNET_TYPE: subnet_type,
         IpamOverviewKey.CIDR: str(network),
+        IpamOverviewKey.IP_RANGE: _ip_range(network),
         IpamOverviewKey.USED_IPS: used_count,
         IpamOverviewKey.FREE_IPS: free,
-        IpamOverviewKey.USAGE_PERCENT: _percent(used_count, total),
+        IpamOverviewKey.USAGE_PERCENT: None if is_ipv6 else _percent(used_count, total),
     }
 
 
 def compute_supernet_summary(
-    supernet_network: IPv4Network | None,
+    supernet_network: Network | None,
     total_used: int,
     subnet_count: int,
+    family: str = IpAddressFamily.IPV4,
 ) -> dict[str, Any]:
     """
     Shapes the KPI strip values for the supernet as a whole
 
-    All percentages are computed against the supernet's total address count (network and
-    broadcast included), keeping the supernet KPI aligned with the per-subnet rows produced by
-    'compute_subnet_row' and with the subnet IP-Verteilung grid. 'utilization_percent' is
-    intentionally equal to 'used_percent' under this scheme. A degenerate summary with zeroed
-    counts is returned when the supernet's CIDR is missing or unparsable
+    For IPv4 supernets all percentages are computed against the supernet's total address count
+    (network and broadcast included), keeping the KPI aligned with the per-subnet rows produced
+    by 'compute_subnet_row' and with the subnet IP-Verteilung grid; 'utilization_percent' is
+    intentionally equal to 'used_percent'. For IPv6 supernets the three address-ratio percentages
+    are returned as None - used/free against a 2**n address space is meaningless - while the raw
+    counts (total_ips, used_ips, free_ips) are still reported as numbers. The resolved address
+    family is echoed under 'subnet_type'. A degenerate summary with zeroed counts is returned
+    when the supernet's CIDR is missing or unparsable
 
     Args:
-        supernet_network (IPv4Network | None): Parsed CIDR of the supernet, None if missing
+        supernet_network (Network | None): Parsed CIDR of the supernet, None if missing
             or unparsable
         total_used (int): Sum of used IPs across all subnets that reference the supernet
         subnet_count (int): Number of subnets that reference the supernet
+        family (str): The supernet's IpAddressFamily; IPv6 nulls the percentage fields
 
     Returns:
-        dict[str, Any]: cidr, ip_range, total_ips, used_ips, free_ips, used_percent,
-            free_percent, utilization_percent, subnet_count
+        dict[str, Any]: subnet_type, cidr, ip_range, total_ips, used_ips, free_ips, used_percent,
+            free_percent, utilization_percent, subnet_count. The three *_percent fields are None
+            for an IPv6 supernet
     """
+    is_ipv6: bool = family == IpAddressFamily.IPV6
+
     if supernet_network is None:
+        zero_percent: float | None = None if is_ipv6 else 0.0
         return {
+            IpamOverviewKey.SUBNET_TYPE: family,
             IpamOverviewKey.CIDR: None,
             IpamOverviewKey.IP_RANGE: None,
             IpamOverviewKey.TOTAL_IPS: 0,
             IpamOverviewKey.USED_IPS: total_used,
             IpamOverviewKey.FREE_IPS: 0,
-            IpamOverviewKey.USED_PERCENT: 0.0,
-            IpamOverviewKey.FREE_PERCENT: 0.0,
-            IpamOverviewKey.UTILIZATION_PERCENT: 0.0,
+            IpamOverviewKey.USED_PERCENT: zero_percent,
+            IpamOverviewKey.FREE_PERCENT: zero_percent,
+            IpamOverviewKey.UTILIZATION_PERCENT: zero_percent,
             IpamOverviewKey.SUBNET_COUNT: subnet_count,
         }
 
     total: int = total_address_count(supernet_network)
     free: int = max(0, total - total_used)
-    used_percent: float = _percent(total_used, total)
-    free_percent: float = _percent(free, total)
+    used_percent: float | None = None if is_ipv6 else _percent(total_used, total)
+    free_percent: float | None = None if is_ipv6 else _percent(free, total)
 
     return {
+        IpamOverviewKey.SUBNET_TYPE: family,
         IpamOverviewKey.CIDR: str(supernet_network),
         IpamOverviewKey.IP_RANGE: _ip_range(supernet_network),
         IpamOverviewKey.TOTAL_IPS: total,
@@ -190,9 +283,9 @@ def compute_supernet_summary(
     }
 
 
-def _network_sort_key(network: IPv4Network) -> tuple[int, int]:
+def _network_sort_key(network: Network) -> tuple[int, int]:
     """
-    Returns a stable sort key for an IPv4Network: (network address as int, prefix length)
+    Returns a stable sort key for a network: (network address as int, prefix length)
 
     Ordering by network address gives ascending IP order; prefix length as the tiebreaker
     ensures a broader (shorter-prefix) network sorts before any more-specific network that
@@ -200,7 +293,7 @@ def _network_sort_key(network: IPv4Network) -> tuple[int, int]:
     its single-pass parent linking
 
     Args:
-        network (IPv4Network): The parsed network
+        network (Network): The parsed network
 
     Returns:
         tuple[int, int]: (int(network_address), prefixlen)
@@ -208,16 +301,42 @@ def _network_sort_key(network: IPv4Network) -> tuple[int, int]:
     return (int(network.network_address), network.prefixlen)
 
 
+def _subnet_family_rank(row: dict[str, Any]) -> int:
+    """
+    Returns the family-group rank of a row: 0 for IPv4, 1 for IPv6
+
+    Drives the IPv4-before-IPv6 grouping in 'sort_and_link_subnets'. Only a row whose
+    'subnet_type' is exactly IpAddressFamily.IPV6 ranks 1; everything else (IpAddressFamily.IPV4 or a
+    row that predates / omits the key) ranks 0 so it stays in the IPv4 group
+
+    Args:
+        row (dict[str, Any]): An overview row carrying an optional 'subnet_type' key
+
+    Returns:
+        int: 1 when the row is IPv6, 0 otherwise
+    """
+    return 1 if row.get(IpamOverviewKey.SUBNET_TYPE) == IpAddressFamily.IPV6 else 0
+
+
 def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Sorts subnet rows by ascending IP and annotates each with the parent subnet's public_id
+    Groups subnet rows IPv4-before-IPv6, sorts each group by ascending IP and annotates each
+    with the parent subnet's public_id
 
-    Rows with a parsable 'cidr' are sorted by ascending network address (prefix length
-    ascending as a tiebreaker) and each is given a 'parent_id' equal to the public_id of
-    the most-specific other subnet in the same list that strictly contains it, or None
-    when no enclosing subnet is present (top-level under the supernet). Rows whose 'cidr'
-    is missing or unparsable are appended after the sorted rows in their original relative
-    order with parent_id set to None so the frontend can still display them
+    Within a family group, rows with a parsable 'cidr' are sorted by ascending network address
+    (prefix length ascending as a tiebreaker) and each is given a 'parent_id' equal to the
+    public_id of the most-specific other subnet in the same list that strictly contains it, or
+    None when no enclosing subnet is present (top-level under the supernet). Rows whose 'cidr'
+    is missing or unparsable get parent_id None and trail the sorted rows in their original
+    relative order so the frontend can still display them
+
+    A final stable partition by 'subnet_type' places every IPv4-family row ahead of every
+    IPv6-family row while preserving the ascending-CIDR order computed within each group. Both
+    families parse (parse_cidr is family-agnostic), so IPv6 rows are sorted and parent-linked
+    among themselves exactly like IPv4 rows; the partition only guarantees the IPv4-before-IPv6
+    grouping. Cross-family parent links cannot occur because is_strict_subnet treats networks of
+    different families as disjoint, so the single shared linking stack never links an IPv6 child
+    to an IPv4 parent (or vice versa)
 
     The linking pass uses a stack of (network, public_id) pairs: because parents always
     precede their children in the sort order, the top of the stack after popping non-
@@ -227,15 +346,15 @@ def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, A
         subnet_rows (list[dict[str, Any]]): Rows produced by 'compute_subnet_row'
 
     Returns:
-        list[dict[str, Any]]: A new list where every row has an added 'parent_id' key;
-            rows with parsable CIDRs come first in IP order, unparsable rows trail
+        list[dict[str, Any]]: A new list where every row has an added 'parent_id' key; IPv4-family
+            rows (parsable in IP order, then unparsable) come first, IPv6-family rows trail
     """
-    sortable: list[tuple[IPv4Network, dict[str, Any]]] = []
+    sortable: list[tuple[Network, dict[str, Any]]] = []
     unsortable: list[dict[str, Any]] = []
 
     for row in subnet_rows:
         cidr: Any = row.get(IpamOverviewKey.CIDR)
-        network: IPv4Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
+        network: Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
 
         if network is None:
             row[IpamOverviewKey.PARENT_ID] = None
@@ -245,7 +364,7 @@ def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, A
 
     sortable.sort(key=lambda item: _network_sort_key(item[0]))
 
-    stack: list[tuple[IPv4Network, Any]] = []
+    stack: list[tuple[Network, Any]] = []
 
     for network, row in sortable:
         while stack and not is_strict_subnet(stack[-1][0], network):
@@ -254,7 +373,10 @@ def sort_and_link_subnets(subnet_rows: list[dict[str, Any]]) -> list[dict[str, A
         row[IpamOverviewKey.PARENT_ID] = stack[-1][1] if stack else None
         stack.append((network, row.get(CmdbObjectKey.PUBLIC_ID)))
 
-    return [row for _, row in sortable] + unsortable
+    ordered: list[dict[str, Any]] = [row for _, row in sortable] + unsortable
+    ordered.sort(key=_subnet_family_rank)
+
+    return ordered
 
 
 def _index_children_by_parent(rows: list[dict[str, Any]]) -> dict[Any, list[dict[str, Any]]]:
@@ -341,7 +463,7 @@ def _annotate_has_children(
 
 def _annotate_is_valid(
     rows: list[dict[str, Any]],
-    supernet_network: IPv4Network | None,
+    supernet_network: Network | None,
 ) -> None:
     """
     Sets an 'is_valid' boolean on every row based on whether the row's CIDR sits strictly
@@ -356,7 +478,7 @@ def _annotate_is_valid(
 
     Args:
         rows (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets``
-        supernet_network (IPv4Network | None): Parsed CIDR of the supernet, or None when the
+        supernet_network (Network | None): Parsed CIDR of the supernet, or None when the
             supernet's CIDR is missing or unparsable
     """
     for row in rows:
@@ -365,7 +487,7 @@ def _annotate_is_valid(
             continue
 
         cidr: Any = row.get(IpamOverviewKey.CIDR)
-        network: IPv4Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
+        network: Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
 
         if network is None:
             row[IpamOverviewKey.IS_VALID] = False
@@ -541,9 +663,9 @@ def _load_supernet_object(
     return candidate
 
 
-def _parse_supernet_cidr(supernet_obj: dict[str, Any]) -> IPv4Network | None:
+def _parse_supernet_cidr(supernet_obj: dict[str, Any]) -> Network | None:
     """
-    Returns the parsed IPv4Network of a SUPERNET CmdbObject, or None when unparsable / missing
+    Returns the parsed Network of a SUPERNET CmdbObject, or None when unparsable / missing
 
     Reads the supernet's 'dg-network-range' field via ``extract_field_value`` and runs
     ``parse_cidr`` over it when the value is a string. Returns None when the field is missing,
@@ -553,7 +675,7 @@ def _parse_supernet_cidr(supernet_obj: dict[str, Any]) -> IPv4Network | None:
         supernet_obj (dict[str, Any]): The supernet CmdbObject document
 
     Returns:
-        IPv4Network | None: Parsed network, or None when the CIDR is missing or unparsable
+        Network | None: Parsed network, or None when the CIDR is missing or unparsable
     """
     raw_cidr: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
 
@@ -742,30 +864,85 @@ def _build_linked_subnet_rows(
     return ordered
 
 
+def load_assigned_subnet_rows(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    supernet_public_id: int,
+) -> list[dict[str, Any]]:
+    """
+    Returns every assigned subnet of a supernet as overview rows, without pagination
+
+    Validates that the supernet exists and is a SUPERNET (aborting otherwise, exactly like the
+    overview routes), then returns all subnet rows referencing it - every nesting depth - sorted
+    by ascending CIDR with parent_id and vlans populated. Intended for callers that need the full
+    set rather than a page (e.g. the subnets export)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        supernet_public_id (int): public_id of the SUPERNET whose assigned subnets are returned
+
+    Returns:
+        list[dict[str, Any]]: All assigned subnet rows (see compute_subnet_row / _build_linked_subnet_rows)
+    """
+    _load_supernet_object(objects_manager, types_manager, supernet_public_id)
+
+    return _build_linked_subnet_rows(objects_manager, types_manager, supernet_public_id)
+
+
+def resolve_supernet_family(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    supernet_public_id: int,
+) -> str:
+    """
+    Returns the address family ('ipv4' / 'ipv6') of a SUPERNET, loading and validating it first
+
+    Loads the supernet exactly like the overview routes (aborting 400/404 on a bad id) and
+    resolves its family via ``_supernet_family`` (CIDR-first, selector fallback). Intended for
+    callers that need the family without the subnet rows - e.g. the subnets export, which uses
+    it to decide whether the IPv4-only 'Usage (%)' column belongs in the sheet
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        supernet_public_id (int): public_id of the SUPERNET whose family is resolved
+
+    Returns:
+        str: IpAddressFamily.IPV6 or IpAddressFamily.IPV4
+    """
+    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, supernet_public_id)
+
+    return _supernet_family(supernet_obj)
+
+
 def _summarize_supernet(
     ordered_subnets: list[dict[str, Any]],
-    supernet_network: IPv4Network | None,
+    supernet_network: Network | None,
+    family: str,
 ) -> dict[str, Any]:
     """
-    Builds the supernet KPI strip from already-shaped subnet rows and the supernet network
+    Builds the supernet KPI strip from already-shaped subnet rows, the supernet network and family
 
     Sums the per-row 'used_ips' across every subnet under the supernet (regardless of nesting
-    depth) and passes the total, the subnet count, and the parsed supernet network through
-    ``compute_supernet_summary``. Keeping this sum-and-summarize step in one function lets the
-    overview orchestrator stay free of intermediate locals
+    depth) and passes the total, the subnet count, the parsed supernet network and the address
+    family through ``compute_supernet_summary`` (the family decides whether the percentage fields
+    are reported or nulled). Keeping this sum-and-summarize step in one function lets the overview
+    orchestrator stay free of intermediate locals
 
     Args:
         ordered_subnets (list[dict[str, Any]]): Rows produced by ``sort_and_link_subnets``
             (and already annotated with 'has_children'); every row must carry 'used_ips'
-        supernet_network (IPv4Network | None): Parsed CIDR of the supernet, None if missing
+        supernet_network (Network | None): Parsed CIDR of the supernet, None if missing
             or unparsable
+        family (str): The supernet's IpAddressFamily ('ipv4' / 'ipv6')
 
     Returns:
         dict[str, Any]: KPI strip dict as produced by ``compute_supernet_summary``
     """
     total_used: int = sum(row[IpamOverviewKey.USED_IPS] for row in ordered_subnets)
 
-    return compute_supernet_summary(supernet_network, total_used, len(ordered_subnets))
+    return compute_supernet_summary(supernet_network, total_used, len(ordered_subnets), family)
 
 
 def _prepare_supernet_view(
@@ -796,7 +973,8 @@ def _prepare_supernet_view(
             total number of invalid rows across the full row set)
     """
     supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
-    supernet_network: IPv4Network | None = _parse_supernet_cidr(supernet_obj)
+    supernet_network: Network | None = _parse_supernet_cidr(supernet_obj)
+    family: str = _supernet_family(supernet_obj)
 
     ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
         objects_manager, types_manager, public_id,
@@ -804,7 +982,7 @@ def _prepare_supernet_view(
     _annotate_has_children(ordered_subnets, _index_children_by_parent(ordered_subnets))
     _annotate_is_valid(ordered_subnets, supernet_network)
 
-    summary: dict[str, Any] = _summarize_supernet(ordered_subnets, supernet_network)
+    summary: dict[str, Any] = _summarize_supernet(ordered_subnets, supernet_network, family)
     invalid_count: int = _count_invalid_rows(ordered_subnets)
 
     return supernet_obj, ordered_subnets, summary, invalid_count

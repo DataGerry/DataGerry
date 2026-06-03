@@ -19,7 +19,6 @@ Validator for SUBNET CmdbObjects
 Surfaces canonical-CIDR, parent-supernet-existence, containment and sibling-overlap errors.
 Each check is decomposed into a small helper to remain unit-testable
 """
-from ipaddress import IPv4Network
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
@@ -31,7 +30,14 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamValidationDetailKey,
 )
 from cmdb.utils import BaseStrEnum, build_error
-from cmdb.framework.ipam.cidr import parse_cidr, contains, overlaps, validate_canonical_cidr_value
+from cmdb.framework.ipam.cidr import (
+    Network,
+    parse_cidr,
+    contains,
+    overlaps,
+    network_family,
+    validate_canonical_cidr_value,
+)
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -42,9 +48,11 @@ from cmdb.framework.ipam.references import resolve_special_type_id
 class SubnetErrorCode(BaseStrEnum):
     """Stable codes for structured subnet validation errors"""
     CIDR_INVALID = 'cidr_invalid'
+    TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
     PARENT_SUPERNET_TYPE_MISSING = 'parent_supernet_type_missing'
     PARENT_SUPERNET_NOT_FOUND = 'parent_supernet_not_found'
     PARENT_SUPERNET_BROKEN_STATE = 'parent_supernet_broken_state'
+    PARENT_SUPERNET_FAMILY_MISMATCH = 'parent_supernet_family_mismatch'
     NOT_IN_PARENT_SUPERNET = 'not_in_parent_supernet'
     SIBLING_OVERLAP = 'sibling_overlap'
 
@@ -105,10 +113,10 @@ def _find_subnets_by_field(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                INDIVIDUAL CHECKS                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _check_canonical_cidr(network_range: str) -> tuple[IPv4Network | None, list[dict[str, Any]]]:
+def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict[str, Any]]]:
     """
-    Validates the candidate CIDR is a strict (canonical) IPv4 CIDR, emitting CIDR_INVALID on
-    failure
+    Validates the candidate CIDR is a strict (canonical) IPv4 or IPv6 CIDR, emitting CIDR_INVALID
+    on failure
 
     Thin domain-specific alias over validate_canonical_cidr_value that binds the error code to
     SubnetErrorCode.CIDR_INVALID
@@ -117,15 +125,51 @@ def _check_canonical_cidr(network_range: str) -> tuple[IPv4Network | None, list[
         network_range (str): The candidate CIDR
 
     Returns:
-        tuple[IPv4Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors)
+        tuple[Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors)
     """
     return validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
+
+
+def _check_type_matches_family(candidate: Network, subnet_type: str | None) -> list[dict[str, Any]]:
+    """
+    Validates the SUBNET's 'dg-subnet-type' selector agrees with the CIDR's actual address family
+
+    The check is skipped when no subnet_type is supplied (the pre-validation route may omit it),
+    so callers that cannot provide the selector are not forced to. When supplied, an 'ipv4'
+    selector on an IPv6 CIDR (or vice versa) emits TYPE_FAMILY_MISMATCH. An unrecognised
+    selector value is treated as not matching the candidate's family
+
+    Args:
+        candidate (Network): The parsed candidate CIDR
+        subnet_type (str | None): The 'dg-subnet-type' value ('ipv4' / 'ipv6'), or None to skip
+
+    Returns:
+        list[dict[str, Any]]: A single-element error list on mismatch, empty when consistent
+            or when no subnet_type was supplied
+    """
+    if subnet_type is None:
+        return []
+
+    actual_family: str = network_family(candidate)
+
+    if subnet_type == actual_family:
+        return []
+
+    return [build_error(
+        SubnetErrorCode.TYPE_FAMILY_MISMATCH,
+        f"Subnet type '{subnet_type}' does not match the address family '{actual_family}' of {candidate}",
+        {
+            IpamValidationDetailKey.CANDIDATE: str(candidate),
+            IpamValidationDetailKey.SUBNET_TYPE: subnet_type,
+            IpamValidationDetailKey.CIDR_FAMILY: actual_family,
+        },
+    )]
 
 
 def _check_in_supernet(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
-    candidate: IPv4Network,
+    candidate: Network,
     supernet_object_id: int,
 ) -> list[dict[str, Any]]:
     """
@@ -134,7 +178,7 @@ def _check_in_supernet(
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        candidate (IPv4Network): The parsed candidate CIDR
+        candidate (Network): The parsed candidate CIDR
         supernet_object_id (int): public_id of the referenced SUPERNET CmdbObject
 
     Returns:
@@ -158,7 +202,7 @@ def _check_in_supernet(
         )]
 
     supernet_range_raw: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
-    supernet_net: IPv4Network | None = parse_cidr(supernet_range_raw) if isinstance(supernet_range_raw, str) else None
+    supernet_net: Network | None = parse_cidr(supernet_range_raw) if isinstance(supernet_range_raw, str) else None
 
     if supernet_net is None:
         return [build_error(
@@ -167,6 +211,20 @@ def _check_in_supernet(
             {
                 IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
                 IpamValidationDetailKey.STORED_VALUE: supernet_range_raw,
+            },
+        )]
+
+    if supernet_net.version != candidate.version:
+        return [build_error(
+            SubnetErrorCode.PARENT_SUPERNET_FAMILY_MISMATCH,
+            f"Candidate {candidate} ({network_family(candidate)}) does not match the address family "
+            f"'{network_family(supernet_net)}' of supernet {supernet_net}",
+            {
+                IpamValidationDetailKey.CANDIDATE: str(candidate),
+                IpamValidationDetailKey.CIDR_FAMILY: network_family(candidate),
+                IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
+                IpamValidationDetailKey.SUPERNET_RANGE: str(supernet_net),
+                IpamValidationDetailKey.SUPERNET_FAMILY: network_family(supernet_net),
             },
         )]
 
@@ -187,19 +245,21 @@ def _check_in_supernet(
 def _check_sibling_overlap(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
-    candidate: IPv4Network,
+    candidate: Network,
     parent_supernet_id: int,
     exclude_subnet_id: int | None,
 ) -> list[dict[str, Any]]:
     """
     Validates the candidate does not overlap with siblings sharing the same parent_supernet
 
-    Standalone candidates (no parent_supernet) have no sibling check per project policy
+    Standalone candidates (no parent_supernet) have no sibling check per project policy. A
+    sibling of a different address family never overlaps (overlaps() guards on family), so
+    mixed-family siblings under the same supernet do not flag each other
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        candidate (IPv4Network): The parsed candidate CIDR
+        candidate (Network): The parsed candidate CIDR
         parent_supernet_id (int): public_id of chosen SUPERNET
         exclude_subnet_id (int | None): public_id of the candidate itself when editing
 
@@ -224,7 +284,7 @@ def _check_sibling_overlap(
             continue
 
         sibling_range_raw: Any = extract_field_value(sibling, SubnetField.NETWORK_RANGE)
-        sibling_net: IPv4Network | None = parse_cidr(sibling_range_raw) if isinstance(sibling_range_raw, str) else None
+        sibling_net: Network | None = parse_cidr(sibling_range_raw) if isinstance(sibling_range_raw, str) else None
 
         if sibling_net is None:
             continue
@@ -252,20 +312,26 @@ def validate_subnet(
     network_range: str,
     parent_supernet_id: int | None = None,
     exclude_subnet_id: int | None = None,
+    subnet_type: str | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Validates a candidate SUBNET CmdbObject's network range and parent supernet reference
+    Validates a candidate SUBNET CmdbObject's network range, address family and parent supernet
+    reference
 
     Returns the accumulated list of errors so the caller can render or abort. An empty list
-    means valid
+    means valid. When ``subnet_type`` is supplied it must agree with the CIDR's actual family,
+    and when a ``parent_supernet_id`` is supplied the candidate's family must match the parent
+    supernet's family
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        network_range (str): The candidate IPv4 CIDR (must be canonical, host bits zeroed)
+        network_range (str): The candidate IPv4 or IPv6 CIDR (must be canonical, host bits zeroed)
         parent_supernet_id (int | None): Chosen SUPERNET object id when applicable
         exclude_subnet_id (int | None): Self-id during edits, so the candidate doesn't trip
             sibling-overlap checks against its own pre-edit state
+        subnet_type (str | None): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); when given it
+            is cross-checked against the CIDR family. None skips the family-vs-type check
 
     Returns:
         list[dict[str, Any]]: Structured validation errors; empty when the candidate is valid
@@ -274,6 +340,8 @@ def validate_subnet(
 
     if candidate is None:
         return errors
+
+    errors.extend(_check_type_matches_family(candidate, subnet_type))
 
     if parent_supernet_id is not None:
         errors.extend(_check_in_supernet(objects_manager, types_manager, candidate, parent_supernet_id))

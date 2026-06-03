@@ -25,7 +25,7 @@ are pinned via assert_called_once_with so a future refactor that loosens them fa
 Flask aborts are exercised via pytest.raises(HTTPException). For orchestrator tests the
 internal loaders are patched at the module path; each loader has its own dedicated tests
 """
-from ipaddress import IPv4Network
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -70,6 +70,9 @@ OWNER_TYPE_ID: int = 50
 
 SUBNET_RANGE: str = '10.0.0.0/24'
 SUBNET_NETWORK: IPv4Network = IPv4Network(SUBNET_RANGE)
+
+SUBNET_RANGE_V6: str = '2001:db8::/64'
+SUBNET_NETWORK_V6: IPv6Network = IPv6Network(SUBNET_RANGE_V6)
 
 PATH: str = 'cmdb.framework.ipam.subnet_unassign'
 
@@ -188,6 +191,36 @@ def test_normalize_ip_list_returns_canonical_ips_for_valid_input() -> None:
     result = normalize_ip_list(['10.0.0.1', '10.0.0.254'], SUBNET_NETWORK)
 
     assert result == ['10.0.0.1', '10.0.0.254']
+
+
+def test_normalize_ip_list_accepts_ipv6_within_network() -> None:
+    """IPv6 host strings inside an IPv6 subnet are accepted and returned canonical"""
+    result = normalize_ip_list(['2001:db8::5', '2001:db8::ffff'], SUBNET_NETWORK_V6)
+
+    assert result == ['2001:db8::5', '2001:db8::ffff']
+
+
+def test_normalize_ip_list_canonicalizes_and_dedups_ipv6_forms() -> None:
+    """Uppercase / leading-zero IPv6 forms canonicalize, so equivalent forms dedup to one entry"""
+    result = normalize_ip_list(['2001:DB8::0005', '2001:db8::5'], SUBNET_NETWORK_V6)
+
+    assert result == ['2001:db8::5']
+
+
+def test_normalize_ip_list_rejects_ipv4_ip_against_ipv6_network() -> None:
+    """A cross-family entry (IPv4 string, IPv6 subnet) is treated as outside the network -> 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_ip_list(['10.0.0.5'], SUBNET_NETWORK_V6)
+
+    assert exc_info.value.code == 400
+
+
+def test_normalize_ip_list_rejects_ipv6_outside_network() -> None:
+    """A valid IPv6 string outside the subnet network is rejected"""
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_ip_list(['2001:dead::1'], SUBNET_NETWORK_V6)
+
+    assert exc_info.value.code == 400
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -446,6 +479,13 @@ def test_parse_subnet_network_returns_parsed_network_on_success() -> None:
     result = parse_subnet_network(_make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE))
 
     assert result == SUBNET_NETWORK
+
+
+def test_parse_subnet_network_returns_ipv6_network_for_ipv6_subnet() -> None:
+    """An IPv6 subnet range parses to the corresponding IPv6Network"""
+    result = parse_subnet_network(_make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE_V6))
+
+    assert result == SUBNET_NETWORK_V6
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

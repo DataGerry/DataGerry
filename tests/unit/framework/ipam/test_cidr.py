@@ -23,7 +23,7 @@ the production code uses; tests act as specification-by-example so that an inadv
 policy change (e.g. flipping the point-to-point threshold) breaks the suite loudly
 """
 from typing import Any
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 
 import pytest
 
@@ -31,9 +31,13 @@ from cmdb.utils import ValidationErrorKey
 from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
 from cmdb.framework.ipam.cidr import (
     parse_cidr,
-    parse_ipv4,
+    parse_ip,
+    contains,
+    overlaps,
+    ip_in_network,
     is_strict_subnet,
     is_network_or_broadcast,
+    total_address_count,
     assignable_address_count,
     first_assignable_int,
     validate_canonical_cidr_value,
@@ -53,8 +57,24 @@ from cmdb.framework.ipam.cidr import (
     ('172.16.0.0/12', '172.16.0.0/12'),
 ])
 def test_parse_cidr_accepts_canonical(value: str, expected_cidr: str) -> None:
-    """Canonical CIDRs (host bits all zero) parse to the matching IPv4Network"""
+    """Canonical IPv4 CIDRs (host bits all zero) parse to the matching IPv4Network"""
     result: IPv4Network | None = parse_cidr(value)
+
+    assert result is not None
+    assert str(result) == expected_cidr
+
+
+@pytest.mark.parametrize('value, expected_cidr', [
+    ('2001:db8::/32', '2001:db8::/32'),
+    ('2001:db8::/64', '2001:db8::/64'),
+    ('fe80::/10', 'fe80::/10'),
+    ('::/0', '::/0'),
+    ('::1/128', '::1/128'),
+    ('2001:DB8:ABCD::/48', '2001:db8:abcd::/48'),
+])
+def test_parse_cidr_accepts_canonical_ipv6(value: str, expected_cidr: str) -> None:
+    """Canonical IPv6 CIDRs parse to the matching (lower-cased, compressed) IPv6Network"""
+    result: IPv6Network | None = parse_cidr(value)
 
     assert result is not None
     assert str(result) == expected_cidr
@@ -64,9 +84,11 @@ def test_parse_cidr_accepts_canonical(value: str, expected_cidr: str) -> None:
     '10.0.0.5/24',
     '192.168.1.7/16',
     '10.0.0.128/24',
+    '2001:db8::1/32',
+    '2001:db8:0:1::/16',
 ])
 def test_parse_cidr_rejects_non_canonical(value: str) -> None:
-    """Non-canonical CIDRs (host bits set) are rejected by strict mode"""
+    """Non-canonical CIDRs (host bits set) are rejected by strict mode, both families"""
     assert parse_cidr(value) is None
 
 
@@ -77,12 +99,13 @@ def test_parse_cidr_rejects_non_canonical(value: str) -> None:
     '10.0.0.0/33',
     '10.0.0.0/-1',
     '10.0.0.0/abc',
-    '::1/128',
+    '2001:db8::/129',
+    'fffff::/32',
     '10.0.0.0 ',
     ' 10.0.0.0/24',
 ])
 def test_parse_cidr_rejects_invalid_strings(value: str) -> None:
-    """Malformed CIDR strings return None instead of raising"""
+    """Malformed CIDR strings return None instead of raising (over-long prefix, bad hextet)"""
     assert parse_cidr(value) is None
 
 
@@ -127,7 +150,7 @@ def test_parse_cidr_rejects_non_string(value: Any) -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                    parse_ipv4                                                        #
+#                                                     parse_ip                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.mark.parametrize('value, expected_address', [
     ('10.0.0.1', '10.0.0.1'),
@@ -136,9 +159,24 @@ def test_parse_cidr_rejects_non_string(value: Any) -> None:
     ('255.255.255.255', '255.255.255.255'),
     ('172.16.0.42', '172.16.0.42'),
 ])
-def test_parse_ipv4_accepts_dotted_quad(value: str, expected_address: str) -> None:
+def test_parse_ip_accepts_dotted_quad(value: str, expected_address: str) -> None:
     """Valid dotted-quad addresses parse to IPv4Address"""
-    result: IPv4Address | None = parse_ipv4(value)
+    result: IPv4Address | None = parse_ip(value)
+
+    assert result is not None
+    assert str(result) == expected_address
+
+
+@pytest.mark.parametrize('value, expected_address', [
+    ('2001:db8::1', '2001:db8::1'),
+    ('::1', '::1'),
+    ('::', '::'),
+    ('2001:DB8:0:0:0:0:0:1', '2001:db8::1'),
+    ('fe80::a', 'fe80::a'),
+])
+def test_parse_ip_accepts_ipv6(value: str, expected_address: str) -> None:
+    """Valid IPv6 host addresses parse to IPv6Address (compressed, lower-cased)"""
+    result: IPv6Address | None = parse_ip(value)
 
     assert result is not None
     assert str(result) == expected_address
@@ -152,9 +190,9 @@ def test_parse_ipv4_accepts_dotted_quad(value: str, expected_address: str) -> No
     '10',
     '....',
 ])
-def test_parse_ipv4_rejects_wrong_dot_count(value: str) -> None:
-    """Anything other than exactly three dots is rejected before IPv4Address sees it"""
-    assert parse_ipv4(value) is None
+def test_parse_ip_rejects_wrong_dot_count(value: str) -> None:
+    """A colon-free string with other than exactly three dots is rejected before IPv4Address sees it"""
+    assert parse_ip(value) is None
 
 
 @pytest.mark.parametrize('value', [
@@ -164,10 +202,13 @@ def test_parse_ipv4_rejects_wrong_dot_count(value: str) -> None:
     '192.168.1.',
     '.192.168.1',
     '192.168..1',
+    '2001:db8::g',
+    '2001:::1',
+    'fffff::1',
 ])
-def test_parse_ipv4_rejects_invalid_octets(value: str) -> None:
-    """Dotted-quad form with invalid octets is rejected by IPv4Address"""
-    assert parse_ipv4(value) is None
+def test_parse_ip_rejects_invalid_octets_or_hextets(value: str) -> None:
+    """Dotted-quad with invalid octets, or colon-form with invalid hextets, is rejected"""
+    assert parse_ip(value) is None
 
 
 @pytest.mark.parametrize('value', [
@@ -178,9 +219,9 @@ def test_parse_ipv4_rejects_invalid_octets(value: str) -> None:
     ['192.168.1.1'],
     {'ip': '192.168.1.1'},
 ])
-def test_parse_ipv4_rejects_non_string(value: Any) -> None:
+def test_parse_ip_rejects_non_string(value: Any) -> None:
     """Non-string inputs are rejected by the isinstance guard"""
-    assert parse_ipv4(value) is None
+    assert parse_ip(value) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -201,13 +242,80 @@ def test_parse_ipv4_rejects_non_string(value: Any) -> None:
     ('10.0.0.0/16', '192.168.0.0/16', False),
 
     ('10.0.0.0/24', '10.0.0.0/16', False),
+
+    # IPv6 strict containment
+    ('2001:db8::/32', '2001:db8:1::/48', True),
+    ('::/0', '2001:db8::/32', True),
+    ('2001:db8::/32', '2001:db8::/32', False),
+    ('2001:db8::/48', '2001:db8:1::/48', False),
+
+    # Cross-family pairs are disjoint, never raise
+    ('10.0.0.0/8', '2001:db8::/32', False),
+    ('::/0', '10.0.0.0/8', False),
 ])
 def test_is_strict_subnet(parent_cidr: str, child_cidr: str, expected: bool) -> None:
-    """Strict-subnet means contained AND not equal: parent == child must return False"""
-    parent: IPv4Network = IPv4Network(parent_cidr)
-    child: IPv4Network = IPv4Network(child_cidr)
+    """Strict-subnet means contained AND not equal; cross-family pairs are False, not errors"""
+    parent: IPv4Network | IPv6Network = parse_cidr(parent_cidr)
+    child: IPv4Network | IPv6Network = parse_cidr(child_cidr)
 
     assert is_strict_subnet(parent, child) is expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          contains / overlaps / ip_in_network                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('parent_cidr, child_cidr, expected', [
+    ('10.0.0.0/8', '10.0.0.0/24', True),
+    ('10.0.0.0/8', '10.0.0.0/8', True),            # contains is inclusive of equality
+    ('2001:db8::/32', '2001:db8:1::/48', True),
+    ('2001:db8::/32', '2001:db8::/32', True),
+    ('10.0.0.0/8', '2001:db8::/32', False),        # cross-family
+    ('10.0.0.0/24', '10.0.1.0/24', False),
+])
+def test_contains(parent_cidr: str, child_cidr: str, expected: bool) -> None:
+    """contains is inclusive (equal networks contain each other); cross-family is False"""
+    assert contains(parse_cidr(parent_cidr), parse_cidr(child_cidr)) is expected
+
+
+@pytest.mark.parametrize('a_cidr, b_cidr, expected', [
+    ('10.0.0.0/24', '10.0.0.128/25', True),
+    ('10.0.0.0/24', '10.0.1.0/24', False),
+    ('2001:db8::/48', '2001:db8:0:1::/64', True),
+    ('2001:db8::/48', '2001:db8:1::/48', False),
+    ('10.0.0.0/8', '2001:db8::/32', False),        # cross-family never overlaps
+])
+def test_overlaps(a_cidr: str, b_cidr: str, expected: bool) -> None:
+    """overlaps reports shared addresses; cross-family pairs never overlap"""
+    assert overlaps(parse_cidr(a_cidr), parse_cidr(b_cidr)) is expected
+
+
+@pytest.mark.parametrize('ip, cidr, expected', [
+    ('10.0.0.5', '10.0.0.0/24', True),
+    ('10.0.1.5', '10.0.0.0/24', False),
+    ('2001:db8::5', '2001:db8::/64', True),
+    ('2001:dead::5', '2001:db8::/64', False),
+    ('10.0.0.5', '2001:db8::/64', False),          # IPv4 address in IPv6 network
+    ('2001:db8::5', '10.0.0.0/24', False),          # IPv6 address in IPv4 network
+])
+def test_ip_in_network(ip: str, cidr: str, expected: bool) -> None:
+    """Membership holds only within the same family; a cross-family pair is never a member"""
+    assert ip_in_network(parse_ip(ip), parse_cidr(cidr)) is expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              total_address_count                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('cidr, expected', [
+    ('10.0.0.0/24', 256),
+    ('10.0.0.0/16', 65536),
+    ('10.0.0.5/32', 1),
+    ('2001:db8::/64', 2 ** 64),
+    ('2001:db8::/32', 2 ** 96),
+    ('::1/128', 1),
+])
+def test_total_address_count(cidr: str, expected: int) -> None:
+    """Total address count includes network + broadcast; IPv6 returns a Python big int"""
+    assert total_address_count(parse_cidr(cidr)) == expected
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -235,10 +343,15 @@ def test_is_strict_subnet(parent_cidr: str, child_cidr: str, expected: bool) -> 
 
     ('10.0.0.5', '10.0.0.5/32', False),
     ('192.168.10.42', '192.168.10.42/32', False),
+
+    # IPv6 reserves neither a network nor a broadcast address: always False
+    ('2001:db8::', '2001:db8::/64', False),
+    ('2001:db8::ffff:ffff:ffff:ffff', '2001:db8::/64', False),
+    ('2001:db8::1', '2001:db8::/64', False),
 ])
 def test_is_network_or_broadcast(address: str, cidr: str, expected: bool) -> None:
-    """Network/broadcast reservation applies to /≤30 only; /31 and /32 carve out"""
-    assert is_network_or_broadcast(IPv4Address(address), IPv4Network(cidr)) is expected
+    """IPv4 network/broadcast reservation applies to /<=30 only; /31, /32 and all IPv6 carve out"""
+    assert is_network_or_broadcast(parse_ip(address), parse_cidr(cidr)) is expected
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -262,10 +375,15 @@ def test_is_network_or_broadcast(address: str, cidr: str, expected: bool) -> Non
     ('10.0.0.0/16', 65534),
     ('10.0.0.0/8', 16777214),
     ('0.0.0.0/0', 4294967294),
+
+    # IPv6 reserves nothing: every address is assignable (num_addresses)
+    ('2001:db8::/64', 2 ** 64),
+    ('2001:db8::/126', 4),
+    ('::1/128', 1),
 ])
 def test_assignable_address_count(cidr: str, expected: int) -> None:
-    """Per-prefix assignable count: /32 -> 1, /31 -> 2, /<=30 -> num_addresses - 2"""
-    assert assignable_address_count(IPv4Network(cidr)) == expected
+    """IPv4: /32->1, /31->2, /<=30->num_addresses-2. IPv6: always num_addresses (no reservation)"""
+    assert assignable_address_count(parse_cidr(cidr)) == expected
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -283,11 +401,16 @@ def test_assignable_address_count(cidr: str, expected: int) -> None:
 
     ('10.0.0.5/32', '10.0.0.5'),
     ('192.168.10.42/32', '192.168.10.42'),
+
+    # IPv6 reserves nothing: the first assignable address is the network address itself
+    ('2001:db8::/64', '2001:db8::'),
+    ('2001:db8:abcd::/48', '2001:db8:abcd::'),
+    ('::1/128', '::1'),
 ])
 def test_first_assignable_int(cidr: str, expected_first_address: str) -> None:
-    """First assignable: skip network for /<=30; include network address for /31 and /32"""
-    network: IPv4Network = IPv4Network(cidr)
-    expected_int: int = int(IPv4Address(expected_first_address))
+    """IPv4: skip network for /<=30, include it for /31, /32. IPv6: always the network address"""
+    network: IPv4Network | IPv6Network = parse_cidr(cidr)
+    expected_int: int = int(parse_ip(expected_first_address))
 
     assert first_assignable_int(network) == expected_int
 

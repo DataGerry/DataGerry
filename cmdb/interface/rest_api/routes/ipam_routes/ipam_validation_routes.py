@@ -32,6 +32,7 @@ from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.subnet_validator import validate_subnet
+from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -134,10 +135,12 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
     HTTP `POST` route that pre-validates a subnet candidate without writing anything
 
     Body:
-        network_range (str): The candidate IPv4 CIDR
+        network_range (str): The candidate IPv4 or IPv6 CIDR
         parent_supernet_id (int, optional): Chosen SUPERNET object id
         exclude_subnet_id (int, optional): Self-id when editing, so the sibling check
             doesn't compare the candidate against its own pre-edit state
+        subnet_type (str, optional): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); when
+            supplied it is cross-checked against the candidate CIDR's actual address family
 
     Args:
         request_user (CmdbUser): CmdbUser making the request
@@ -153,6 +156,8 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
         if not isinstance(network_range, str) or not network_range:
             abort(400, "'network_range' is required and must be a string")
 
+        subnet_type: Any = payload.get('subnet_type')
+
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
@@ -162,6 +167,7 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
             network_range=network_range,
             parent_supernet_id=_coerce_optional_int(payload.get('parent_supernet_id')),
             exclude_subnet_id=_coerce_optional_int(payload.get('exclude_subnet_id')),
+            subnet_type=subnet_type if isinstance(subnet_type, str) else None,
         )
 
         return DefaultResponse(_build_validation_response(errors)).make_response()
@@ -170,6 +176,50 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[validate_subnet_route] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An internal server error occured while validating the subnet candidate!")
+
+
+@ipam_validation_blueprint.route('/supernet', methods=['POST'])
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@insert_request_user
+def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+    """
+    HTTP `POST` route that pre-validates a supernet candidate without writing anything
+
+    request_user is injected by the auth decorator but unused: supernet validation is stateless
+    (no parent / sibling lookups), so no managers are needed
+
+    Body:
+        network_range (str): The candidate IPv4 or IPv6 CIDR
+        supernet_type (str, optional): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); when
+            supplied it is cross-checked against the candidate CIDR's actual address family
+
+    Args:
+        request_user (CmdbUser): CmdbUser making the request (unused; see above)
+
+    Returns:
+        Response: {'valid': bool, 'errors': list[{code, message, details}]}
+    """
+    try:
+        payload: dict[str, Any] = request.get_json(silent=True) or {}
+
+        network_range: Any = payload.get('network_range')
+
+        if not isinstance(network_range, str) or not network_range:
+            abort(400, "'network_range' is required and must be a string")
+
+        supernet_type: Any = payload.get('supernet_type')
+
+        errors: list[dict[str, Any]] = validate_supernet(
+            network_range=network_range,
+            supernet_type=supernet_type if isinstance(supernet_type, str) else None,
+        )
+
+        return DefaultResponse(_build_validation_response(errors)).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        LOGGER.error("[validate_supernet_route] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
+        abort(500, "An internal server error occured while validating the supernet candidate!")
 
 
 @ipam_validation_blueprint.route('/vlan', methods=['POST'])

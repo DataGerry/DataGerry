@@ -25,7 +25,7 @@ loosens them fails loudly. Flask aborts are exercised via pytest.raises(HTTPExce
 orchestrator tests the internal loaders are patched at the module path; each loader has its
 own dedicated tests in this file
 """
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Network
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -41,6 +41,7 @@ from cmdb.models.object_model import (
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
+    IpAddressFamily,
     InterfaceField,
     IpamSection,
     IpamOverviewKey,
@@ -66,6 +67,7 @@ from cmdb.framework.ipam.subnet_overview import (
     _compute_grid_dimensions,
     _compute_sort_key,
     _extract_row_fields,
+    _format_ip,
     _load_assigned_rows_map,
     _load_subnet_object,
     _page_slice_ips,
@@ -76,6 +78,7 @@ from cmdb.framework.ipam.subnet_overview import (
     _resolve_candidate_ips,
     _resolve_type_meta,
     _sort_candidate_ips,
+    _sorted_assigned_ips,
     _sorted_invalid_ips,
     build_invalid_subnet_overview,
     build_subnet_overview,
@@ -107,16 +110,20 @@ def _make_cmdb_object(public_id: int, type_id: int, fields: list[dict[str, Any]]
     }
 
 
-def _make_subnet_doc(public_id: int, network_range: Any) -> dict[str, Any]:
-    """Builds a SUBNET CmdbObject doc with a network-range field entry."""
-    return _make_cmdb_object(
-        public_id=public_id,
-        type_id=SUBNET_TYPE_ID,
-        fields=[{
-            CmdbObjectFieldKey.NAME: SubnetField.NETWORK_RANGE,
-            CmdbObjectFieldKey.VALUE: network_range,
-        }],
-    )
+def _make_subnet_doc(public_id: int, network_range: Any, subnet_type: Any = None) -> dict[str, Any]:
+    """Builds a SUBNET CmdbObject doc with a network-range field and an optional type field."""
+    fields: list[dict[str, Any]] = [{
+        CmdbObjectFieldKey.NAME: SubnetField.NETWORK_RANGE,
+        CmdbObjectFieldKey.VALUE: network_range,
+    }]
+
+    if subnet_type is not None:
+        fields.append({
+            CmdbObjectFieldKey.NAME: SubnetField.TYPE,
+            CmdbObjectFieldKey.VALUE: subnet_type,
+        })
+
+    return _make_cmdb_object(public_id=public_id, type_id=SUBNET_TYPE_ID, fields=fields)
 
 
 def _make_interface_row(
@@ -1126,7 +1133,7 @@ def test_bucket_used_by_type_skips_ip_outside_the_subnet() -> None:
 
 
 def test_bucket_used_by_type_skips_unparseable_ip_string() -> None:
-    """An ip_str that parse_ipv4 cannot parse is skipped without raising"""
+    """An ip_str that parse_ip cannot parse is skipped without raising"""
     breakdowns = _bucket_used_by_type(
         {'not-an-ip': {}}, IPv4Network('10.0.0.0/24'), sector_size=4, total_cells=64,
     )
@@ -1875,6 +1882,21 @@ def test_build_subnet_overview_returns_degenerate_payload_when_cidr_unparsable()
     assert payload[IpamOverviewKey.TYPE_DISTRIBUTION] == []
     assert payload[IpamOverviewKey.IP_DISTRIBUTION] == {}
     assert payload[IpamOverviewKey.VLANS] == []
+
+
+def test_build_subnet_overview_broken_state_reports_family_from_selector() -> None:
+    """With an unparsable CIDR the degenerate payload's subnet_type comes from the selector (ipv6), else ipv4"""
+    ipv6_doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr', subnet_type=IpAddressFamily.IPV6)
+    legacy_doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    with patch(f'{PATH}._load_subnet_object', return_value=ipv6_doc):
+        ipv6_payload = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=legacy_doc):
+        legacy_payload = build_subnet_overview(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert ipv6_payload[IpamOverviewKey.SUBNET][IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV6
+    assert legacy_payload[IpamOverviewKey.SUBNET][IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV4
 
 
 def test_build_subnet_overview_omits_ip_range_from_subnet_block() -> None:
@@ -2680,3 +2702,172 @@ def test_build_invalid_subnet_overview_returns_degenerate_payload_when_cidr_unpa
 
     assert payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS] == []
     assert payload[IpamOverviewKey.INVALID_COUNT] == 0
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              IPv6 ADAPTATIONS                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+SUBNET_RANGE_V6: str = '2001:db8::/64'
+
+
+def test_format_ip_renders_ipv4_and_ipv6_from_int() -> None:
+    """_format_ip picks the address family by the flag; IPv6 ints exceed the IPv4 range"""
+    assert _format_ip(int(IPv4Address('10.0.0.5')), is_ipv6=False) == '10.0.0.5'
+    assert _format_ip(0, is_ipv6=False) == '0.0.0.0'
+    assert _format_ip(int(IPv6Network(SUBNET_RANGE_V6).network_address), is_ipv6=True) == '2001:db8::'
+
+
+def test_sorted_assigned_ips_selects_by_validity_and_sorts_ipv6_numerically() -> None:
+    """_sorted_assigned_ips returns valid/invalid IPv6 rows sorted by integer address value"""
+    assigned = {
+        '2001:db8::10': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '2001:db8::2': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '2001:dead::1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=False),
+    }
+
+    assert _sorted_assigned_ips(assigned, valid=True) == ['2001:db8::2', '2001:db8::10']
+    assert _sorted_assigned_ips(assigned, valid=False) == ['2001:dead::1']
+
+
+def test_resolve_candidate_ips_ipv6_lists_assigned_only_never_enumerates() -> None:
+    """For IPv6 the candidates are the assigned IPs only (valid first, invalid trailing); no free space"""
+    assigned = {
+        '2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '2001:db8::2': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '2001:dead::9': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=False),
+    }
+
+    result = _resolve_candidate_ips(
+        IPv6Network(SUBNET_RANGE_V6), search='', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        status_filter=None, type_filter=[], assigned=assigned, type_meta={},
+        objects_manager=MagicMock(), is_ipv6=True,
+    )
+
+    assert result == ['2001:db8::2', '2001:db8::5', '2001:dead::9']
+
+
+def test_resolve_candidate_ips_ipv6_search_filters_within_assigned() -> None:
+    """An active search narrows the assigned-only candidate list by substring"""
+    assigned = {
+        '2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '2001:db8::beef': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+    }
+
+    result = _resolve_candidate_ips(
+        IPv6Network(SUBNET_RANGE_V6), search='beef', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        status_filter=None, type_filter=[], assigned=assigned, type_meta={},
+        objects_manager=MagicMock(), is_ipv6=True,
+    )
+
+    assert result == ['2001:db8::beef']
+
+
+def test_resolve_candidate_ips_ipv6_status_free_yields_empty() -> None:
+    """status=free has no free rows to return for IPv6 (assigned-only), so the page is empty"""
+    assigned = {'2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)}
+
+    result = _resolve_candidate_ips(
+        IPv6Network(SUBNET_RANGE_V6), search='', sort_col=None, sort_dir=IpamSortDirection.ASC,
+        status_filter=IpamRowStatus.FREE, type_filter=[], assigned=assigned, type_meta={},
+        objects_manager=MagicMock(), is_ipv6=True,
+    )
+
+    assert result == []
+
+
+def test_build_type_distribution_ipv6_drops_free_bucket_and_nulls_percentage() -> None:
+    """IPv6: per-type + Unknown counts only, no Free bucket, percentage None on every bucket"""
+    assigned = {
+        '2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '2001:db8::6': _make_assigned_entry(OWNER_OBJECT_ID, 999, None),  # orphan -> Unknown
+    }
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    distribution = _build_type_distribution(assigned, type_meta, total=2 ** 64, is_ipv6=True)
+
+    labels = [b[IpamOverviewKey.LABEL] for b in distribution]
+    assert labels == ['Server', IpamBucketLabel.UNKNOWN]
+    assert IpamBucketLabel.FREE not in labels
+    assert all(b[IpamOverviewKey.PERCENTAGE] is None for b in distribution)
+    assert all(b[IpamOverviewKey.COUNT] == 1 for b in distribution)
+
+
+def test_compose_sector_type_stats_ipv6_nulls_percentage() -> None:
+    """IPv6 sector type-stats keep counts but null the percentage"""
+    stats = _compose_sector_type_stats({None: 3}, type_meta={}, is_ipv6=True)
+
+    assert stats[0][IpamOverviewKey.COUNT] == 3
+    assert stats[0][IpamOverviewKey.PERCENTAGE] is None
+
+
+def test_compose_sector_ipv6_renders_ipv6_labels_and_nulls_percentage() -> None:
+    """IPv6 sector renders IPv6 ip_start/ip_end, keeps used_count, nulls percentage + type_stats %"""
+    first_int = int(IPv6Network(SUBNET_RANGE_V6).network_address)
+
+    sector = _compose_sector(first_int, sector_size=2 ** 58, breakdown={None: 1}, type_meta={}, is_ipv6=True)
+
+    expected_end: str = str(IPv6Network(SUBNET_RANGE_V6).network_address + (2 ** 58 - 1))
+    assert sector[IpamOverviewKey.IP_START] == '2001:db8::'
+    assert sector[IpamOverviewKey.IP_END] == expected_end
+    assert sector[IpamOverviewKey.USED_COUNT] == 1
+    assert sector[IpamOverviewKey.PERCENTAGE] is None
+    assert sector[IpamOverviewKey.TYPE_STATS][0][IpamOverviewKey.PERCENTAGE] is None
+
+
+def test_build_ip_distribution_ipv6_buckets_assigned_ip_into_correct_sector() -> None:
+    """An assigned IPv6 address increments exactly its sector's used_count (128-bit bucketing math)"""
+    assigned = {'2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)}
+
+    grid = _build_ip_distribution(IPv6Network(SUBNET_RANGE_V6), assigned, {})
+
+    # offset 5 // sector_size(2**58) == 0, so range 0 / sector 0 holds the single assigned IP
+    first_range = grid[IpamOverviewKey.RANGES][0]
+    assert first_range[IpamOverviewKey.SECTORS][0][IpamOverviewKey.USED_COUNT] == 1
+    total_used = sum(
+        sector[IpamOverviewKey.USED_COUNT]
+        for range_block in grid[IpamOverviewKey.RANGES]
+        for sector in range_block[IpamOverviewKey.SECTORS]
+    )
+    assert total_used == 1
+
+
+def test_build_ip_distribution_ipv6_emits_grid_with_ipv6_labels_and_null_percentages() -> None:
+    """An IPv6 /64 still emits the full grid, but with IPv6 boundary labels and null percentages"""
+    assigned = {'2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)}
+
+    grid = _build_ip_distribution(IPv6Network(SUBNET_RANGE_V6), assigned, {})
+
+    assert grid[IpamOverviewKey.SECTOR_SIZE] == 2 ** 64 // 64
+    first_range = grid[IpamOverviewKey.RANGES][0]
+    assert first_range[IpamOverviewKey.IP_START] == '2001:db8::'
+    assert all(
+        sector[IpamOverviewKey.PERCENTAGE] is None
+        for range_block in grid[IpamOverviewKey.RANGES]
+        for sector in range_block[IpamOverviewKey.SECTORS]
+    )
+
+
+def test_build_subnet_overview_ipv6_is_assigned_only_with_family_and_null_percentages() -> None:
+    """IPv6 overview: subnet_type=ipv6, ips list only assigned rows, type_distribution has no Free + null %"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE_V6)
+    assigned = {'2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
+        payload = build_subnet_overview(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    assert payload[IpamOverviewKey.SUBNET][IpamOverviewKey.SUBNET_TYPE] == IpAddressFamily.IPV6
+    # IP table shows only the assigned address - no enumerated free rows
+    ip_rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
+    assert [r[IpamOverviewKey.IP] for r in ip_rows] == ['2001:db8::5']
+    assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 1
+    # type_distribution: one type bucket, no Free, percentage null
+    labels = [b[IpamOverviewKey.LABEL] for b in payload[IpamOverviewKey.TYPE_DISTRIBUTION]]
+    assert IpamBucketLabel.FREE not in labels
+    assert all(b[IpamOverviewKey.PERCENTAGE] is None for b in payload[IpamOverviewKey.TYPE_DISTRIBUTION])

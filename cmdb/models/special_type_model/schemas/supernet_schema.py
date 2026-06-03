@@ -20,7 +20,7 @@ from typing import Any
 
 from cmdb.models.type_model import FieldType, SectionType, FieldKey, SectionKey, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SupernetField, IpamSection
+from cmdb.models.special_type_model.ipam_constants import SupernetField, IpAddressFamily, IpamSection
 from cmdb.models.special_type_model.schemas.cidr_regex import CIDR_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -28,8 +28,9 @@ def get_supernet_schema() -> dict[str, Any]:
     """
     Builds the section/field blueprint for the SUPERNET SpecialType
 
-    The 'dg-network-range' field is required and validated as an IPv4 or IPv6 CIDR; subnet objects
-    are later checked for containment within this range
+    The 'dg-supernet-type' field is a required IPv4/IPv6 address-family selector and the
+    'dg-network-range' field is required and validated as an IPv4 or IPv6 CIDR; subnet objects
+    are later checked for same-family containment within this range
 
     Returns:
         dict[str, Any]: Blueprint with the SUPERNET sections, fields and 'special_type' marker
@@ -50,6 +51,7 @@ def get_supernet_schema() -> dict[str, Any]:
                 SectionKey.NAME: IpamSection.NETWORK_DETAILS,
                 SectionKey.LABEL: 'Network Details',
                 SectionKey.FIELDS: [
+                    SupernetField.TYPE,
                     SupernetField.NETWORK_RANGE,
                 ],
             },
@@ -59,6 +61,24 @@ def get_supernet_schema() -> dict[str, Any]:
                 FieldKey.TYPE: FieldType.TEXT,
                 FieldKey.NAME: SupernetField.NAME,
                 FieldKey.LABEL: 'Name',
+            },
+            {
+                # Required address-family selector, mirroring the SUBNET type field; the validators
+                # cross-check it against the network range's actual family
+                FieldKey.TYPE: FieldType.SELECT,
+                FieldKey.NAME: SupernetField.TYPE,
+                FieldKey.LABEL: 'Type',
+                FieldKey.REQUIRED: True,
+                FieldKey.OPTIONS: [
+                    {
+                        FieldKey.NAME: IpAddressFamily.IPV4,
+                        FieldKey.LABEL: 'IPv4',
+                    },
+                    {
+                        FieldKey.NAME: IpAddressFamily.IPV6,
+                        FieldKey.LABEL: 'IPv6',
+                    },
+                ],
             },
             {
                 FieldKey.TYPE: FieldType.TEXT,

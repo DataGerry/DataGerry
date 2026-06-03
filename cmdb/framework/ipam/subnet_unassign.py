@@ -33,7 +33,6 @@ Validate-all-or-nothing: if any requested IP is not currently assigned to this s
 orchestrator aborts HTTP 400 with the offending IPs and no write happens. Mirrors the
 all-or-nothing semantics of the supernet 'unassign subnets' route
 """
-from ipaddress import IPv4Network
 from typing import Any
 
 from flask import abort
@@ -55,7 +54,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.framework.ipam.cidr import parse_cidr, parse_ipv4, ip_in_network
+from cmdb.framework.ipam.cidr import Network, parse_cidr, parse_ip, ip_in_network
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -63,26 +62,27 @@ from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def normalize_ip_list(raw: Any, network: IPv4Network) -> list[str]:
+def normalize_ip_list(raw: Any, network: Network) -> list[str]:
     """
-    Coerces the request payload's ``ips`` value into a deduplicated list of canonical IPv4 strings
+    Coerces the request payload's ``ips`` value into a deduplicated list of canonical IP strings
 
     The payload field is rejected with HTTP 400 when it is missing, not a list, empty, or
-    contains a non-string entry. Each entry must parse as a canonical dotted-quad IPv4 address
-    via ``parse_ipv4`` (rejecting integer-formatted '3232235521' style strings) AND fall inside
-    ``network``. Duplicates are removed while preserving the order of the first occurrence so
-    the response payload echoes the list back in the caller's input order
+    contains a non-string entry. Each entry must parse as a canonical IPv4 dotted-quad or IPv6
+    address via ``parse_ip`` (rejecting integer-formatted '3232235521' style strings) AND fall
+    inside ``network`` (an entry of a different family than the subnet is treated as outside).
+    Duplicates are removed while preserving the order of the first occurrence so the response
+    payload echoes the list back in the caller's input order
 
     Args:
         raw (Any): The raw value read off the JSON body for the 'ips' key
-        network (IPv4Network): The parsed subnet network; entries outside this network are
+        network (Network): The parsed subnet network; entries outside this network are
             rejected so a typo cannot accidentally target an unrelated subnet's interface rows
 
     Returns:
-        list[str]: The deduplicated, canonical IPv4 strings in input order
+        list[str]: The deduplicated, canonical IP strings in input order
     """
     if not isinstance(raw, list) or not raw:
-        abort(400, f"'{IpamUnassignKey.IPS}' must be a non-empty list of IPv4 strings!")
+        abort(400, f"'{IpamUnassignKey.IPS}' must be a non-empty list of IP strings!")
 
     deduped: list[str] = []
     seen: set[str] = set()
@@ -91,10 +91,10 @@ def normalize_ip_list(raw: Any, network: IPv4Network) -> list[str]:
         if not isinstance(entry, str):
             abort(400, f"'{IpamUnassignKey.IPS}' contains a non-string entry: {entry!r}")
 
-        parsed = parse_ipv4(entry)
+        parsed = parse_ip(entry)
 
         if parsed is None:
-            abort(400, f"'{IpamUnassignKey.IPS}' contains an invalid IPv4 address: {entry!r}")
+            abort(400, f"'{IpamUnassignKey.IPS}' contains an invalid IP address: {entry!r}")
 
         if not ip_in_network(parsed, network):
             abort(400, f"IP {entry!r} is outside subnet {network}!")
@@ -337,9 +337,9 @@ def assert_subnet_exists(
     return candidate
 
 
-def parse_subnet_network(subnet_obj: dict[str, Any]) -> IPv4Network:
+def parse_subnet_network(subnet_obj: dict[str, Any]) -> Network:
     """
-    Returns the parsed IPv4Network of a SUBNET CmdbObject or aborts when the CIDR is broken
+    Returns the parsed network of a SUBNET CmdbObject or aborts when the CIDR is broken
 
     Reads the subnet's 'dg-network-range' field via ``extract_field_value`` and runs
     ``parse_cidr`` against it. A missing, non-string, or unparsable CIDR aborts HTTP 400 -
@@ -349,14 +349,14 @@ def parse_subnet_network(subnet_obj: dict[str, Any]) -> IPv4Network:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
 
     Returns:
-        IPv4Network: Parsed network
+        Network: Parsed IPv4 or IPv6 network
     """
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
 
     if not isinstance(raw_cidr, str):
         abort(400, "Subnet has no network range defined; cannot unassign interface rows!")
 
-    network: IPv4Network | None = parse_cidr(raw_cidr)
+    network: Network | None = parse_cidr(raw_cidr)
 
     if network is None:
         abort(400, f"Subnet network range {raw_cidr!r} is not a canonical CIDR; cannot unassign!")
@@ -497,7 +497,7 @@ def unassign_ips_from_subnet(
             dg-ipam-interface rows whose subnet reference was cleared
     """
     subnet_obj: dict[str, Any] = assert_subnet_exists(objects_manager, types_manager, subnet_public_id)
-    network: IPv4Network = parse_subnet_network(subnet_obj)
+    network: Network = parse_subnet_network(subnet_obj)
     ips: list[str] = normalize_ip_list(raw_ips, network)
 
     owner_docs: list[dict[str, Any]] = load_interface_owners(objects_manager, subnet_public_id)
