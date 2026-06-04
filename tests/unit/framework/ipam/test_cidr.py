@@ -28,8 +28,9 @@ from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 import pytest
 
 from cmdb.utils import ValidationErrorKey
-from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
+from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamValidationDetailKey
 from cmdb.framework.ipam.cidr import (
+    address_family,
     parse_cidr,
     parse_ip,
     contains,
@@ -426,7 +427,7 @@ def test_validate_canonical_cidr_value_returns_network_and_no_errors_for_canonic
     network, errors = validate_canonical_cidr_value('10.0.0.0/24', SAMPLE_ERROR_CODE)
 
     assert network == IPv4Network('10.0.0.0/24')
-    assert errors == []
+    assert not errors
 
 
 @pytest.mark.parametrize('invalid_value', [
@@ -470,3 +471,16 @@ def test_validate_canonical_cidr_value_uses_caller_supplied_error_code() -> None
 
     assert first_errors[0][ValidationErrorKey.CODE] == 'code_a'
     assert second_errors[0][ValidationErrorKey.CODE] == 'code_b'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  address_family                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_address_family_returns_ipv4_for_ipv4_address() -> None:
+    """A parsed IPv4 address maps to the IpAddressFamily.IPV4 token"""
+    assert address_family(parse_ip('10.0.0.5')) == IpAddressFamily.IPV4
+
+
+def test_address_family_returns_ipv6_for_ipv6_address() -> None:
+    """A parsed IPv6 address maps to the IpAddressFamily.IPV6 token"""
+    assert address_family(parse_ip('2001:db8::5')) == IpAddressFamily.IPV6

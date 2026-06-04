@@ -51,6 +51,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpamUnassignKey,
+    IpamUnassignMode,
 )
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
@@ -248,6 +249,100 @@ def clear_subnet_ref_in_owner(
     return new_doc, total_cleared
 
 
+def delete_subnet_rows(
+    rows: list[dict[str, Any]],
+    subnet_id: int,
+    target_ips: set[str],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """
+    Returns the row list with each target row removed entirely, plus the set of removed IPs
+
+    A row is a target when it references this subnet AND its IP is in ``target_ips`` (the same
+    predicate ``clear_subnet_ref_in_rows`` uses). Target rows are dropped from the returned list
+    rather than rewritten, so the whole dg-ipam-interface entry (IP, MAC and all) disappears.
+    Non-target rows pass through unchanged. The removed-IP set is built from rows actually
+    dropped, so an empty ``target_ips`` or rows referencing a different subnet do not inflate it
+
+    Args:
+        rows (list[dict[str, Any]]): The 'values' list of a dg-ipam-interface MDS section
+        subnet_id (int): public_id of the subnet whose rows should be removed
+        target_ips (set[str]): Canonical IP strings flagged for removal
+
+    Returns:
+        tuple[list[dict[str, Any]], set[str]]: (new rows list without the target rows, set of
+            canonical IPs whose row was removed)
+    """
+    new_rows: list[dict[str, Any]] = []
+    removed: set[str] = set()
+
+    for row in rows:
+        row_subnet: Any = None
+        row_ip: Any = None
+
+        for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
+            name: Any = entry.get(CmdbObjectFieldKey.NAME)
+
+            if name == InterfaceField.SUBNET:
+                row_subnet = entry.get(CmdbObjectFieldKey.VALUE)
+            elif name == InterfaceField.IP:
+                row_ip = entry.get(CmdbObjectFieldKey.VALUE)
+
+        if row_subnet == subnet_id and isinstance(row_ip, str) and row_ip in target_ips:
+            removed.add(row_ip)
+            continue
+
+        new_rows.append(row)
+
+    return new_rows, removed
+
+
+def delete_subnet_rows_in_owner(
+    owner_doc: dict[str, Any],
+    subnet_id: int,
+    target_ips: set[str],
+) -> tuple[dict[str, Any], set[str]]:
+    """
+    Returns a copy of the owner with every matching dg-ipam-interface row removed
+
+    Parallel to ``clear_subnet_ref_in_owner`` but uses ``delete_subnet_rows`` so the matched rows
+    are dropped from each dg-ipam-interface section's 'values' rather than having their subnet ref
+    blanked. Other sections and non-target rows pass through unchanged. Operates on shallow copies
+    (new doc, new section dicts); surviving rows are forwarded by reference
+
+    Args:
+        owner_doc (dict[str, Any]): The CmdbObject document to delete rows from
+        subnet_id (int): public_id of the subnet whose rows should be removed
+        target_ips (set[str]): Canonical IP strings flagged for removal
+
+    Returns:
+        tuple[dict[str, Any], set[str]]: (new owner doc, set of canonical IPs whose row was
+            removed on this owner)
+    """
+    new_doc: dict[str, Any] = dict(owner_doc)
+    new_sections: list[dict[str, Any]] = []
+    total_removed: set[str] = set()
+
+    for section in owner_doc.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
+        if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
+            new_sections.append(section)
+            continue
+
+        new_values, removed_ips = delete_subnet_rows(
+            section.get(CmdbObjectMdsKey.VALUES, []) or [],
+            subnet_id,
+            target_ips,
+        )
+        total_removed |= removed_ips
+
+        new_section: dict[str, Any] = dict(section)
+        new_section[CmdbObjectMdsKey.VALUES] = new_values
+        new_sections.append(new_section)
+
+    new_doc[CmdbObjectKey.MULTI_DATA_SECTIONS] = new_sections
+
+    return new_doc, total_removed
+
+
 def collect_present_ips(
     owner_docs: list[dict[str, Any]],
     subnet_id: int,
@@ -408,42 +503,51 @@ def load_interface_owners(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      WRITES                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-def clear_subnet_ref_in_owners(
+# Per-owner mutators keyed by unassign mode: each takes (owner_doc, subnet_id, target_ips) and
+# returns (new_owner_doc, set_of_affected_ips). REFERENCE blanks the subnet ref; ROW drops the row
+_OWNER_MUTATORS = {
+    IpamUnassignMode.REFERENCE: clear_subnet_ref_in_owner,
+    IpamUnassignMode.ROW: delete_subnet_rows_in_owner,
+}
+
+
+def apply_unassign_to_owners(
     objects_manager: ObjectsManager,
     owner_docs: list[dict[str, Any]],
     subnet_id: int,
     target_ips: set[str],
     request_user: CmdbUser,
+    mode: str,
 ) -> int:
     """
-    Clears the subnet ref on each owner's matching rows and returns the total cleared-row count
+    Applies the chosen unassign ``mode`` to each owner's matching rows and returns the affected count
 
-    Iterates the candidate owners, runs ``clear_subnet_ref_in_owner`` to build the post-clear
-    doc, and only calls ``objects_manager.update_object`` for owners that actually had at
-    least one row's subnet ref cleared (so an owner that referenced this subnet only at non-
-    target IPs is skipped and incurs no write). Each ``update_object`` call goes through the
-    standard ACL / version / hook path so a user without UPDATE permission on the owner's
-    CmdbType fails fast
+    Iterates the candidate owners, builds the post-mutation doc with the mode's per-owner mutator
+    (REFERENCE -> ``clear_subnet_ref_in_owner``, ROW -> ``delete_subnet_rows_in_owner``), and only
+    calls ``objects_manager.update_object`` for owners that actually changed (so an owner that
+    referenced this subnet only at non-target IPs is skipped and incurs no write). Each
+    ``update_object`` goes through the standard ACL / version / hook path, so a user without UPDATE
+    permission on the owner's CmdbType fails fast. Note the per-owner writes are sequential and not
+    wrapped in a cross-owner transaction
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        owner_docs (list[dict[str, Any]]): Candidate owners (typically from
-            ``load_interface_owners``)
-        subnet_id (int): public_id of the subnet whose interface rows should have their ref
-            cleared
-        target_ips (set[str]): Canonical IPv4 strings flagged for clearing
+        owner_docs (list[dict[str, Any]]): Candidate owners (typically from ``load_interface_owners``)
+        subnet_id (int): public_id of the subnet whose interface rows are unassigned
+        target_ips (set[str]): Canonical IP strings flagged for unassigning
         request_user (CmdbUser): User making the request; forwarded to update_object for ACL
+        mode (str): An IpamUnassignMode value selecting the per-owner mutation
 
     Returns:
-        int: Total number of dg-ipam-interface rows whose subnet ref was cleared across all
-            touched owners
+        int: Total number of dg-ipam-interface rows affected across all touched owners
     """
-    total_cleared: int = 0
+    mutate = _OWNER_MUTATORS[mode]
+    total_affected: int = 0
 
     for owner in owner_docs:
-        new_doc, cleared = clear_subnet_ref_in_owner(owner, subnet_id, target_ips)
+        new_doc, affected = mutate(owner, subnet_id, target_ips)
 
-        if not cleared:
+        if not affected:
             continue
 
         objects_manager.update_object(
@@ -452,37 +556,94 @@ def clear_subnet_ref_in_owners(
             request_user,
             AccessControlPermission.UPDATE,
         )
-        total_cleared += len(cleared)
+        total_affected += len(affected)
 
-    return total_cleared
+    return total_affected
+
+
+def clear_subnet_ref_in_owners(
+    objects_manager: ObjectsManager,
+    owner_docs: list[dict[str, Any]],
+    subnet_id: int,
+    target_ips: set[str],
+    request_user: CmdbUser,
+) -> int:
+    """
+    Clears the subnet ref on each owner's matching rows (the REFERENCE mode of unassign)
+
+    Thin wrapper over ``apply_unassign_to_owners`` bound to IpamUnassignMode.REFERENCE; see that
+    helper for the per-owner write semantics
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        owner_docs (list[dict[str, Any]]): Candidate owners (typically from ``load_interface_owners``)
+        subnet_id (int): public_id of the subnet whose interface rows should have their ref cleared
+        target_ips (set[str]): Canonical IP strings flagged for clearing
+        request_user (CmdbUser): User making the request; forwarded to update_object for ACL
+
+    Returns:
+        int: Total number of dg-ipam-interface rows whose subnet ref was cleared
+    """
+    return apply_unassign_to_owners(
+        objects_manager, owner_docs, subnet_id, target_ips, request_user, IpamUnassignMode.REFERENCE,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   ORCHESTRATOR                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _resolve_unassign_mode(raw_mode: Any) -> str:
+    """
+    Normalizes the request 'mode' value to an IpamUnassignMode, defaulting to REFERENCE
+
+    A missing / empty mode falls back to REFERENCE (clear the subnet ref - the original behaviour),
+    a recognised value is returned as-is, and any other value aborts HTTP 400
+
+    Args:
+        raw_mode (Any): The raw value read off the JSON body for the 'mode' key
+
+    Returns:
+        str: A valid IpamUnassignMode value
+    """
+    if raw_mode is None or raw_mode == '':
+        return IpamUnassignMode.REFERENCE
+
+    if not IpamUnassignMode.is_valid(raw_mode):
+        abort(
+            400,
+            f"'{raw_mode}' is not a valid unassign mode "
+            f"(expected '{IpamUnassignMode.REFERENCE}' or '{IpamUnassignMode.ROW}')!",
+        )
+
+    return IpamUnassignMode(raw_mode)
+
+
 def unassign_ips_from_subnet(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     subnet_public_id: int,
     raw_ips: Any,
     request_user: CmdbUser,
+    raw_mode: Any = None,
 ) -> dict[str, Any]:
     """
-    Validates the payload and clears the subnet reference on the matching dg-ipam-interface rows
+    Validates the payload and unassigns the matching dg-ipam-interface rows in the chosen mode
 
     Pipeline:
       1. Confirm ``subnet_public_id`` resolves to a SUBNET CmdbObject and parse its CIDR
          (aborts 400/404 on missing / wrong type / broken CIDR)
-      2. Coerce ``raw_ips`` to a deduplicated list of canonical IPv4 strings, each within the
+      2. Resolve ``raw_mode`` to an IpamUnassignMode (default REFERENCE; aborts 400 on an
+         unknown value)
+      3. Coerce ``raw_ips`` to a deduplicated list of canonical IP strings, each within the
          subnet (aborts 400 on bad shape / non-string / non-canonical / out-of-network)
-      3. Load every CmdbObject with a dg-ipam-interface row referencing this subnet
-      4. Collect the set of IPs currently assigned within the subnet; if any requested IP is
+      4. Load every CmdbObject with a dg-ipam-interface row referencing this subnet
+      5. Collect the set of IPs currently assigned within the subnet; if any requested IP is
          absent, abort 400 with the offending IPs - the call is validate-all-or-nothing, so
          no write happens
-      5. Otherwise call ``clear_subnet_ref_in_owners`` to flip the ``dg-interface-subnet``
-         value to None on each matching row, each via ``objects_manager.update_object`` so
-         ACL / versioning / hooks all run. The rows themselves and their IP / MAC values are
-         preserved
+      6. Otherwise apply the mode via ``apply_unassign_to_owners``: REFERENCE flips each matching
+         row's ``dg-interface-subnet`` value to None (the row, IP and MAC are kept); ROW deletes
+         the whole matching row. Each owner is written via ``objects_manager.update_object`` so
+         ACL / versioning / hooks all run. The mode applies to every IP, not per row
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -490,14 +651,16 @@ def unassign_ips_from_subnet(
         subnet_public_id (int): public_id of the SUBNET to unassign rows from
         raw_ips (Any): The raw value read off the JSON body for the 'ips' key
         request_user (CmdbUser): User making the request; forwarded to update_object for ACL
+        raw_mode (Any): The raw value read off the JSON body for the 'mode' key (default REFERENCE)
 
     Returns:
-        dict[str, Any]: {'ips': [str, ...], 'unassigned_count': int} where 'ips' echoes the
-            deduplicated request order and 'unassigned_count' is the number of
-            dg-ipam-interface rows whose subnet reference was cleared
+        dict[str, Any]: {'ips': [str, ...], 'mode': str, 'unassigned_count': int} where 'ips'
+            echoes the deduplicated request order, 'mode' echoes the resolved mode and
+            'unassigned_count' is the number of dg-ipam-interface rows affected
     """
     subnet_obj: dict[str, Any] = assert_subnet_exists(objects_manager, types_manager, subnet_public_id)
     network: Network = parse_subnet_network(subnet_obj)
+    mode: str = _resolve_unassign_mode(raw_mode)
     ips: list[str] = normalize_ip_list(raw_ips, network)
 
     owner_docs: list[dict[str, Any]] = load_interface_owners(objects_manager, subnet_public_id)
@@ -511,11 +674,12 @@ def unassign_ips_from_subnet(
             f" {subnet_public_id}!",
         )
 
-    unassigned_count: int = clear_subnet_ref_in_owners(
-        objects_manager, owner_docs, subnet_public_id, set(ips), request_user,
+    unassigned_count: int = apply_unassign_to_owners(
+        objects_manager, owner_docs, subnet_public_id, set(ips), request_user, mode,
     )
 
     return {
         IpamUnassignKey.IPS: ips,
+        IpamUnassignKey.MODE: mode,
         IpamUnassignKey.UNASSIGNED_COUNT: unassigned_count,
     }

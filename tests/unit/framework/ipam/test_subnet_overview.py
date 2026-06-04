@@ -49,6 +49,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamBucketLabel,
     IpamSortColumn,
     IpamSortDirection,
+    IpamSubnetIpsExport,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.subnet_overview import (
@@ -80,8 +81,13 @@ from cmdb.framework.ipam.subnet_overview import (
     _sort_candidate_ips,
     _sorted_assigned_ips,
     _sorted_invalid_ips,
+    _require_sector_grid,
+    _resolve_sector_bounds,
+    _abort_if_export_too_big,
     build_invalid_subnet_overview,
     build_subnet_overview,
+    build_subnet_sector_ips,
+    build_subnet_ip_export_rows,
     list_all_assignable_ips,
     list_assignable_ips_matching_substring,
 )
@@ -2871,3 +2877,223 @@ def test_build_subnet_overview_ipv6_is_assigned_only_with_family_and_null_percen
     labels = [b[IpamOverviewKey.LABEL] for b in payload[IpamOverviewKey.TYPE_DISTRIBUTION]]
     assert IpamBucketLabel.FREE not in labels
     assert all(b[IpamOverviewKey.PERCENTAGE] is None for b in payload[IpamOverviewKey.TYPE_DISTRIBUTION])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          SINGLE-SECTOR DRILL-DOWN                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_require_sector_grid_returns_sector_size_for_slash_24() -> None:
+    """A /24 fills the full 4x16 grid; the sector size is 256 / 64 = 4 addresses"""
+    assert _require_sector_grid(SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24')) == 4
+
+
+def test_require_sector_grid_aborts_when_subnet_too_small() -> None:
+    """A /27 cannot fill the full grid, so there are no clickable sectors -> 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        _require_sector_grid(SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/27'))
+
+    assert exc_info.value.code == 400
+
+
+def test_resolve_sector_bounds_returns_inclusive_window_for_aligned_start() -> None:
+    """An aligned start yields the [lo, hi] integer window of that sector"""
+    network = IPv4Network('10.0.0.0/24')
+    lo, hi = _resolve_sector_bounds(network, '10.0.0.4', sector_size=4)
+
+    assert (lo, hi) == (int(IPv4Address('10.0.0.4')), int(IPv4Address('10.0.0.7')))
+
+
+def test_resolve_sector_bounds_aborts_for_unaligned_start() -> None:
+    """A start that is not on a sector boundary aborts 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_sector_bounds(IPv4Network('10.0.0.0/24'), '10.0.0.5', sector_size=4)
+
+    assert exc_info.value.code == 400
+
+
+def test_resolve_sector_bounds_aborts_for_wrong_family_or_out_of_range() -> None:
+    """A cross-family start, an out-of-subnet start, or an unparsable string all abort 400"""
+    network = IPv4Network('10.0.0.0/24')
+
+    for bad_start in ('2001:db8::', '192.168.1.0', 'nonsense'):
+        with pytest.raises(HTTPException) as exc_info:
+            _resolve_sector_bounds(network, bad_start, sector_size=4)
+        assert exc_info.value.code == 400
+
+
+def test_build_subnet_sector_ips_ipv4_lists_assignable_window_free_and_assigned() -> None:
+    """An IPv4 mid sector lists its assignable addresses (free + assigned), echoing the window"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)  # 10.0.0.0/24 -> sector_size 4
+    assigned = {'10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server'}}):
+        payload = build_subnet_sector_ips(objects_manager, MagicMock(), SUBNET_OBJECT_ID, '10.0.0.4')
+
+    assert payload[IpamOverviewKey.SECTOR] == {
+        IpamOverviewKey.IP_START: '10.0.0.4', IpamOverviewKey.IP_END: '10.0.0.7',
+    }
+    ips = payload[IpamOverviewKey.IPS]
+    assert ips[IpamOverviewKey.TOTAL] == 4
+    assert [r[IpamOverviewKey.IP] for r in ips[IpamOverviewKey.ROWS]] == \
+        ['10.0.0.4', '10.0.0.5', '10.0.0.6', '10.0.0.7']
+    statuses = {r[IpamOverviewKey.IP]: r[IpamOverviewKey.STATUS] for r in ips[IpamOverviewKey.ROWS]}
+    assert statuses['10.0.0.5'] == IpamRowStatus.ASSIGNED
+    assert statuses['10.0.0.4'] == IpamRowStatus.FREE
+
+
+def test_build_subnet_sector_ips_ipv4_first_sector_excludes_network_address() -> None:
+    """The first sector clamps to the assignable range, dropping the network address"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    objects_manager = MagicMock()
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        payload = build_subnet_sector_ips(objects_manager, MagicMock(), SUBNET_OBJECT_ID, '10.0.0.0')
+
+    ips = payload[IpamOverviewKey.IPS]
+    assert ips[IpamOverviewKey.TOTAL] == 3  # .0 (network) excluded, .1 .2 .3 remain
+    assert [r[IpamOverviewKey.IP] for r in ips[IpamOverviewKey.ROWS]] == ['10.0.0.1', '10.0.0.2', '10.0.0.3']
+
+
+def test_build_subnet_sector_ips_ipv6_is_assigned_only_within_the_sector() -> None:
+    """An IPv6 sector lists only the assigned addresses inside its window (no free enumeration)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, '2001:db8::/64')  # sector_size 2**58
+    # '2001:db8::5' is in sector 0; the all-ffff host is in the last sector
+    in_sector_0 = _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)
+    in_last_sector = _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)
+    assigned = {'2001:db8::5': in_sector_0, '2001:db8::ffff:ffff:ffff:ffff': in_last_sector}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server'}}):
+        payload = build_subnet_sector_ips(objects_manager, MagicMock(), SUBNET_OBJECT_ID, '2001:db8::')
+
+    ips = payload[IpamOverviewKey.IPS]
+    assert ips[IpamOverviewKey.TOTAL] == 1
+    assert [r[IpamOverviewKey.IP] for r in ips[IpamOverviewKey.ROWS]] == ['2001:db8::5']
+
+
+def test_build_subnet_sector_ips_aborts_for_subnet_without_grid() -> None:
+    """A subnet too small to expose a grid aborts 400 (no sectors to drill into)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, '10.0.0.0/27')
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_sector_ips(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, '10.0.0.0')
+
+    assert exc_info.value.code == 400
+
+
+def test_build_subnet_sector_ips_aborts_for_misaligned_sector_start() -> None:
+    """A sector_start that is not a sector boundary aborts 400"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_sector_ips(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, '10.0.0.5')
+
+    assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          _abort_if_export_too_big                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_abort_if_export_too_big_raises_400_over_the_limit() -> None:
+    """One row over IpamSubnetIpsExport.MAX_EXPORT_ROWS aborts 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        _abort_if_export_too_big(SUBNET_OBJECT_ID, IpamSubnetIpsExport.MAX_EXPORT_ROWS + 1)
+
+    assert exc_info.value.code == 400
+
+
+def test_abort_if_export_too_big_allows_the_limit_exactly() -> None:
+    """Exactly MAX_EXPORT_ROWS rows is allowed (the guard returns without raising)"""
+    assert _abort_if_export_too_big(SUBNET_OBJECT_ID, IpamSubnetIpsExport.MAX_EXPORT_ROWS) is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        build_subnet_ip_export_rows                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_subnet_ip_export_rows_ipv4_emits_free_and_assigned() -> None:
+    """An IPv4 subnet exports every assignable address (free + assigned) in ascending IP order"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    assigned = {'10.0.0.5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'aa:bb:cc:dd:ee:ff')}
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#FF0000'}}
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value=type_meta):
+        rows = build_subnet_ip_export_rows(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    # /24 has 254 assignable addresses (network + broadcast excluded)
+    assert len(rows) == 254
+    assert rows[0][IpamOverviewKey.IP] == '10.0.0.1'
+    assigned_rows = [r for r in rows if r[IpamOverviewKey.STATUS] == IpamRowStatus.ASSIGNED]
+    assert [r[IpamOverviewKey.IP] for r in assigned_rows] == ['10.0.0.5']
+    assert assigned_rows[0][IpamOverviewKey.TYPE_INFO][IpamOverviewKey.LABEL] == 'Server'
+
+
+def test_build_subnet_ip_export_rows_ipv6_emits_assigned_only() -> None:
+    """An IPv6 subnet exports only its in-CIDR assigned addresses (no free rows, no out-of-CIDR rows)"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, '2001:db8::/64')
+    assigned = {
+        '2001:db8::20': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'aa:bb:cc:dd:ee:01'),
+        '2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'aa:bb:cc:dd:ee:02'),
+        '2002:db8::9': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'x', is_valid=False),
+    }
+    objects_manager = MagicMock()
+    objects_manager.get_summary_line.return_value = 'Server: web01'
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value=assigned), \
+         patch(f'{PATH}._resolve_type_meta', return_value={}):
+        rows = build_subnet_ip_export_rows(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
+
+    # only the two in-CIDR assigned IPs, ascending; the out-of-CIDR (invalid) row is excluded
+    assert [r[IpamOverviewKey.IP] for r in rows] == ['2001:db8::5', '2001:db8::20']
+    assert all(r[IpamOverviewKey.STATUS] == IpamRowStatus.ASSIGNED for r in rows)
+
+
+def test_build_subnet_ip_export_rows_aborts_400_when_ipv4_too_big_without_enumerating() -> None:
+    """A large IPv4 subnet aborts 400 on the cheap assignable count, never enumerating the space"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, '10.0.0.0/20')  # 4094 assignable > 2500
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         patch(f'{PATH}._load_assigned_rows_map', return_value={}), \
+         patch(f'{PATH}.list_all_assignable_ips') as mock_enumerate, \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_ip_export_rows(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert exc_info.value.code == 400
+    mock_enumerate.assert_not_called()
+
+
+def test_build_subnet_ip_export_rows_aborts_400_when_range_unparsable() -> None:
+    """A subnet whose network range is missing / unparsable aborts 400"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-cidr')
+
+    with patch(f'{PATH}._load_subnet_object', return_value=subnet_doc), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_ip_export_rows(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert exc_info.value.code == 400
+
+
+def test_build_subnet_ip_export_rows_propagates_load_subnet_aborts() -> None:
+    """An abort raised by _load_subnet_object (missing / non-subnet object) propagates out"""
+    with patch(f'{PATH}._load_subnet_object', side_effect=NotFound('not found')), \
+         pytest.raises(HTTPException) as exc_info:
+        build_subnet_ip_export_rows(MagicMock(), MagicMock(), SUBNET_OBJECT_ID)
+
+    assert exc_info.value.code == 404

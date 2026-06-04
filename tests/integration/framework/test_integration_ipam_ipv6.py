@@ -27,13 +27,22 @@ A SUPERNET + SUBNET + carrier CmdbType and one IPv6 supernet / subnet / interfac
 seeded directly into the collections; the framework helpers then run against that real data.
 """
 from datetime import datetime, timezone
+from io import BytesIO
 from typing import Any
 
 import pytest
+from openpyxl import load_workbook
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.models.object_model import CmdbObject, CmdbObjectKey, extract_field_value
+from cmdb.models.object_model import (
+    CmdbObject,
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    extract_field_value,
+)
 from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
@@ -43,10 +52,16 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
     IpamBucketLabel,
     IpAddressFamily,
+    IpamRowStatus,
+    IpamUnassignKey,
+    IpamUnassignMode,
+    IpamSubnetIpsExport,
 )
 from cmdb.framework.ipam.subnet_validator import SubnetErrorCode, validate_subnet
 from cmdb.framework.ipam.supernet_overview import build_supernet_overview
-from cmdb.framework.ipam.subnet_overview import build_subnet_overview
+from cmdb.framework.ipam.subnet_overview import build_subnet_overview, build_subnet_sector_ips
+from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
+from cmdb.framework.ipam.subnet_export import build_subnet_ips_xlsx
 from cmdb.framework.ipam.enforcement import enforce_object_invariants
 from cmdb.utils import ValidationErrorKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -59,13 +74,18 @@ SUPERNET_ID: int = 9420
 SUBNET_ID: int = 9421
 CARRIER_ID: int = 9422
 CANON_SUBNET_ID: int = 9423
+UNASSIGN_REF_OWNER_ID: int = 9430
+UNASSIGN_ROW_OWNER_ID: int = 9431
 
 SUPERNET_RANGE_V6: str = '2001:db8::/48'
 SUBNET_RANGE_V6: str = '2001:db8:0:1::/64'
 ASSIGNED_IP_V6: str = '2001:db8:0:1::5'
 
 TYPE_IDS: list[int] = [SUPERNET_TYPE_ID, SUBNET_TYPE_ID, CARRIER_TYPE_ID]
-OBJECT_IDS: list[int] = [SUPERNET_ID, SUBNET_ID, CARRIER_ID, CANON_SUBNET_ID]
+OBJECT_IDS: list[int] = [
+    SUPERNET_ID, SUBNET_ID, CARRIER_ID, CANON_SUBNET_ID,
+    UNASSIGN_REF_OWNER_ID, UNASSIGN_ROW_OWNER_ID,
+]
 
 
 def _type_doc(public_id: int, name: str, label: str, special_type: str | None) -> dict[str, Any]:
@@ -111,6 +131,17 @@ def _object_doc(public_id: int, type_id: int, fields: list[dict[str, Any]],
         doc['multi_data_sections'] = mds
 
     return doc
+
+
+def _interface_carrier(owner_id: int, ip: str) -> dict[str, Any]:
+    """Builds a carrier object with one dg-ipam-interface row referencing the test subnet at ``ip``."""
+    return _object_doc(owner_id, CARRIER_TYPE_ID, [_field('dg-name', f'host-{owner_id}')], mds=[{
+        CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+        CmdbObjectMdsKey.VALUES: [{CmdbObjectMdsRowKey.DATA: [
+            _field(InterfaceField.SUBNET, SUBNET_ID),
+            _field(InterfaceField.IP, ip),
+        ]}],
+    }])
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -219,6 +250,21 @@ def test_subnet_overview_ipv6_is_assigned_only_with_null_percentages(
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                          SECTOR DRILL-DOWN (IPv6)                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_subnet_sector_ipv6_returns_only_assigned_ips_in_the_window(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """Drilling into the first sector of the IPv6 /64 returns only its assigned address, from real Mongo"""
+    payload = build_subnet_sector_ips(objects_manager, types_manager, SUBNET_ID, '2001:db8:0:1::')
+
+    assert payload[IpamOverviewKey.SECTOR][IpamOverviewKey.IP_START] == '2001:db8:0:1::'
+    ips_block = payload[IpamOverviewKey.IPS]
+    assert ips_block[IpamOverviewKey.TOTAL] == 1
+    assert [r[IpamOverviewKey.IP] for r in ips_block[IpamOverviewKey.ROWS]] == [ASSIGNED_IP_V6]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                            SUBNET VALIDATION (IPv6)                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_validate_subnet_ipv6_candidate_inside_ipv6_supernet_is_valid(
@@ -244,6 +290,78 @@ def test_validate_subnet_ipv4_candidate_under_ipv6_supernet_is_family_mismatch(
 
     codes = {e[ValidationErrorKey.CODE] for e in errors}
     assert SubnetErrorCode.PARENT_SUPERNET_FAMILY_MISMATCH in codes
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          UNASSIGN MODES (IPv6, real Mongo)                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_unassign_reference_mode_clears_subnet_ref_against_mongo(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+    database_manager: MongoDatabaseManager, database_name: str, full_access_user,
+) -> None:
+    """reference mode finds the owner via the real interface query, clears the ref, and keeps the row"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    objects.insert_one(_interface_carrier(UNASSIGN_REF_OWNER_ID, '2001:db8:0:1::6'))
+
+    try:
+        result = unassign_ips_from_subnet(
+            objects_manager, types_manager, SUBNET_ID, ['2001:db8:0:1::6'], full_access_user,
+            raw_mode='reference',
+        )
+
+        assert result[IpamUnassignKey.MODE] == IpamUnassignMode.REFERENCE
+        assert result[IpamUnassignKey.UNASSIGNED_COUNT] == 1
+
+        stored = objects.find_one({CmdbObjectKey.PUBLIC_ID: UNASSIGN_REF_OWNER_ID})
+        row_data = stored[CmdbObjectKey.MULTI_DATA_SECTIONS][0][CmdbObjectMdsKey.VALUES][0][CmdbObjectMdsRowKey.DATA]
+        subnet_entry = next(e for e in row_data if e[CmdbObjectFieldKey.NAME] == InterfaceField.SUBNET)
+        assert subnet_entry[CmdbObjectFieldKey.VALUE] is None  # ref cleared, the row (IP) is kept
+    finally:
+        objects.delete_one({CmdbObjectKey.PUBLIC_ID: UNASSIGN_REF_OWNER_ID})
+
+
+def test_unassign_row_mode_deletes_the_interface_row_against_mongo(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+    database_manager: MongoDatabaseManager, database_name: str, full_access_user,
+) -> None:
+    """row mode deletes the whole matching dg-ipam-interface row from the owner, persisted to Mongo"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    objects.insert_one(_interface_carrier(UNASSIGN_ROW_OWNER_ID, '2001:db8:0:1::7'))
+
+    try:
+        result = unassign_ips_from_subnet(
+            objects_manager, types_manager, SUBNET_ID, ['2001:db8:0:1::7'], full_access_user,
+            raw_mode='row',
+        )
+
+        assert result[IpamUnassignKey.MODE] == IpamUnassignMode.ROW
+        assert result[IpamUnassignKey.UNASSIGNED_COUNT] == 1
+
+        stored = objects.find_one({CmdbObjectKey.PUBLIC_ID: UNASSIGN_ROW_OWNER_ID})
+        # the interface section survives but its single row was removed (owner object kept)
+        assert stored[CmdbObjectKey.MULTI_DATA_SECTIONS][0][CmdbObjectMdsKey.VALUES] == []
+    finally:
+        objects.delete_one({CmdbObjectKey.PUBLIC_ID: UNASSIGN_ROW_OWNER_ID})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       SUBNET IP EXPORT (IPv6, real Mongo)                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_subnet_ips_xlsx_ipv6_exports_assigned_only_against_mongo(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """The IPv6 subnet export runs the real assigned-rows query and emits only the assigned IP row"""
+    content: bytes = build_subnet_ips_xlsx(objects_manager, types_manager, SUBNET_ID)
+
+    sheet = load_workbook(BytesIO(content)).active
+    rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
+
+    assert sheet.title == IpamSubnetIpsExport.SHEET_TITLE
+    assert rows[0] == tuple(IpamSubnetIpsExport.HEADERS)
+    # IPv6 exports assigned addresses only: the seeded carrier at ::5 is the single data row
+    assert len(rows) == 2
+    assert rows[1][0] == ASSIGNED_IP_V6
+    assert rows[1][2] == IpamRowStatus.ASSIGNED
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

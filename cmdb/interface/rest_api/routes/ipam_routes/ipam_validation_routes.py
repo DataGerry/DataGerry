@@ -31,6 +31,10 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.special_type_model.ipam_constants import (
+    IpamValidationRequestKey,
+    IpamValidationResponseKey,
+)
 from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
@@ -79,12 +83,15 @@ def _build_validation_response(errors: list[dict[str, Any]]) -> dict[str, Any]:
     Returns:
         dict[str, Any]: {'valid': bool, 'errors': list[...]}
     """
-    return {'valid': not errors, 'errors': errors}
+    return {
+        IpamValidationResponseKey.VALID: not errors,
+        IpamValidationResponseKey.ERRORS: errors,
+    }
 
 
 def _parse_interface_rows_payload(
     raw_rows: list[Any],
-) -> list[tuple[int, int | None, str | None]]:
+) -> list[tuple[int, int | None, str | None, str | None]]:
     """
     Normalizes the inline `/validate/interface` row list into the tuple shape the batch
     validator expects
@@ -93,33 +100,39 @@ def _parse_interface_rows_payload(
     'row_index' fails the request because the response must echo the index back so the
     frontend can map errors to form rows. Missing / non-coercible 'subnet_id' or
     'ip_address' are treated as None — those rows still get cross-row dupe scrutiny but
-    are skipped by the per-row DB check, matching save-time semantics for incomplete rows
+    are skipped by the per-row DB check, matching save-time semantics for incomplete rows.
+    A missing / empty 'interface_type' is treated as None so the type-family consistency
+    check is skipped for that row, matching save-time semantics for legacy rows
 
     Args:
         raw_rows (list[Any]): The 'rows' field straight off the JSON payload
 
     Returns:
-        list[tuple[int, int | None, str | None]]: (row_index, subnet_ref, ip) tuples
+        list[tuple[int, int | None, str | None, str | None]]: (row_index, subnet_ref, ip,
+            interface_type) tuples
     """
-    rows: list[tuple[int, int | None, str | None]] = []
+    rows: list[tuple[int, int | None, str | None, str | None]] = []
 
     for index, raw in enumerate(raw_rows):
         if not isinstance(raw, dict):
             abort(400, f"rows[{index}] must be an object")
 
-        row_index_raw: Any = raw.get('row_index')
+        row_index_raw: Any = raw.get(IpamValidationRequestKey.ROW_INDEX)
 
         try:
             row_index: int = int(row_index_raw)
         except (TypeError, ValueError):
-            abort(400, f"rows[{index}].row_index is required and must be an integer")
+            abort(400, f"rows[{index}].{IpamValidationRequestKey.ROW_INDEX.value} is required and must be an integer")
 
-        subnet_ref: int | None = _coerce_optional_int(raw.get('subnet_id'))
+        subnet_ref: int | None = _coerce_optional_int(raw.get(IpamValidationRequestKey.SUBNET_ID))
 
-        ip_raw: Any = raw.get('ip_address')
+        ip_raw: Any = raw.get(IpamValidationRequestKey.IP_ADDRESS)
         ip_address: str | None = ip_raw if isinstance(ip_raw, str) and ip_raw else None
 
-        rows.append((row_index, subnet_ref, ip_address))
+        type_raw: Any = raw.get(IpamValidationRequestKey.INTERFACE_TYPE)
+        interface_type: str | None = type_raw if isinstance(type_raw, str) and type_raw else None
+
+        rows.append((row_index, subnet_ref, ip_address, interface_type))
 
     return rows
 
@@ -151,12 +164,12 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        network_range: Any = payload.get('network_range')
+        network_range: Any = payload.get(IpamValidationRequestKey.NETWORK_RANGE)
 
         if not isinstance(network_range, str) or not network_range:
             abort(400, "'network_range' is required and must be a string")
 
-        subnet_type: Any = payload.get('subnet_type')
+        subnet_type: Any = payload.get(IpamValidationRequestKey.SUBNET_TYPE)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -165,8 +178,8 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
             objects_manager,
             types_manager,
             network_range=network_range,
-            parent_supernet_id=_coerce_optional_int(payload.get('parent_supernet_id')),
-            exclude_subnet_id=_coerce_optional_int(payload.get('exclude_subnet_id')),
+            parent_supernet_id=_coerce_optional_int(payload.get(IpamValidationRequestKey.PARENT_SUPERNET_ID)),
+            exclude_subnet_id=_coerce_optional_int(payload.get(IpamValidationRequestKey.EXCLUDE_SUBNET_ID)),
             subnet_type=subnet_type if isinstance(subnet_type, str) else None,
         )
 
@@ -202,12 +215,12 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        network_range: Any = payload.get('network_range')
+        network_range: Any = payload.get(IpamValidationRequestKey.NETWORK_RANGE)
 
         if not isinstance(network_range, str) or not network_range:
             abort(400, "'network_range' is required and must be a string")
 
-        supernet_type: Any = payload.get('supernet_type')
+        supernet_type: Any = payload.get(IpamValidationRequestKey.SUPERNET_TYPE)
 
         errors: list[dict[str, Any]] = validate_supernet(
             network_range=network_range,
@@ -241,7 +254,7 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        subnet_id: int | None = _coerce_optional_int(payload.get('subnet_id'))
+        subnet_id: int | None = _coerce_optional_int(payload.get(IpamValidationRequestKey.SUBNET_ID))
 
         if subnet_id is None:
             abort(400, "'subnet_id' is required and must be an integer")
@@ -277,8 +290,12 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
               row_index (int): Position of the row in the MDS section
               subnet_id (int): The id of the subnet the row references
               ip_address (str): The interface IP
+              interface_type (str, optional): The row's 'dg-interface-type' selector
+                ('ipv4' / 'ipv6'); when supplied it is cross-checked against the IP's
+                address family and the referenced subnet's CIDR family
             Rows missing either subnet_id or ip_address are still accepted but skipped by the
-            per-row check (so a half-typed row does not produce noise)
+            per-row check (so a half-typed row does not produce noise); rows without
+            interface_type skip the type-family consistency check
         exclude_object_id (int, optional): Self-id when editing an existing object, so the
             object's own pre-edit rows are not flagged as collisions against the candidate
 
@@ -291,12 +308,12 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        raw_rows: Any = payload.get('rows')
+        raw_rows: Any = payload.get(IpamValidationRequestKey.ROWS)
 
         if not isinstance(raw_rows, list):
             abort(400, "'rows' is required and must be a list of {row_index, subnet_id, ip_address}")
 
-        rows: list[tuple[int, int | None, str | None]] = _parse_interface_rows_payload(raw_rows)
+        rows: list[tuple[int, int | None, str | None, str | None]] = _parse_interface_rows_payload(raw_rows)
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -305,7 +322,7 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
             objects_manager,
             types_manager,
             rows,
-            exclude_object_id=_coerce_optional_int(payload.get('exclude_object_id')),
+            exclude_object_id=_coerce_optional_int(payload.get(IpamValidationRequestKey.EXCLUDE_OBJECT_ID)),
         )
 
         return DefaultResponse(_build_validation_response(errors)).make_response()

@@ -99,13 +99,23 @@ def test_build_validation_response_invalid_for_non_empty_errors() -> None:
 #                                          _parse_interface_rows_payload                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_parse_interface_rows_payload_maps_rows_to_tuples() -> None:
-    """Each row dict maps to (row_index, subnet_ref, ip); missing optional fields become None"""
+    """Each row dict maps to (row_index, subnet_ref, ip, interface_type); missing fields become None"""
     rows = _parse_interface_rows_payload([
         {'row_index': 0, 'subnet_id': 200, 'ip_address': '2001:db8::5'},
         {'row_index': 1},
     ])
 
-    assert rows == [(0, 200, '2001:db8::5'), (1, None, None)]
+    assert rows == [(0, 200, '2001:db8::5', None), (1, None, None, None)]
+
+
+def test_parse_interface_rows_payload_passes_interface_type_through() -> None:
+    """A non-empty 'interface_type' lands in the fourth tuple slot; an empty one becomes None"""
+    rows = _parse_interface_rows_payload([
+        {'row_index': 0, 'subnet_id': 200, 'ip_address': '2001:db8::5', 'interface_type': 'ipv6'},
+        {'row_index': 1, 'interface_type': ''},
+    ])
+
+    assert rows == [(0, 200, '2001:db8::5', 'ipv6'), (1, None, None, None)]
 
 
 def test_parse_interface_rows_payload_aborts_for_non_dict_entry() -> None:
@@ -261,7 +271,7 @@ def test_validate_interface_route_forwards_parsed_rows_and_exclude(flask_app: Fl
         bare(request_user=MagicMock())
 
     args, kwargs = mock_validate.call_args
-    assert args[2] == [(0, 200, '2001:db8::5')]
+    assert args[2] == [(0, 200, '2001:db8::5', None)]
     assert kwargs == {'exclude_object_id': 300}
 
 

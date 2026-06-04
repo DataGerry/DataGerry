@@ -132,7 +132,7 @@ def _resolve_family(obj: dict[str, Any], type_field: str, range_field: str) -> s
     return IpAddressFamily.IPV6 if raw_type == IpAddressFamily.IPV6 else IpAddressFamily.IPV4
 
 
-def _subnet_family(subnet_obj: dict[str, Any]) -> str:
+def subnet_family(subnet_obj: dict[str, Any]) -> str:
     """
     Returns the address family of a SUBNET CmdbObject as an IpAddressFamily value ('ipv4' / 'ipv6')
 
@@ -148,7 +148,7 @@ def _subnet_family(subnet_obj: dict[str, Any]) -> str:
     return _resolve_family(subnet_obj, SubnetField.TYPE, SubnetField.NETWORK_RANGE)
 
 
-def _supernet_family(supernet_obj: dict[str, Any]) -> str:
+def supernet_family(supernet_obj: dict[str, Any]) -> str:
     """
     Returns the address family of a SUPERNET CmdbObject as an IpAddressFamily value ('ipv4' / 'ipv6')
 
@@ -182,14 +182,14 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
     Returns:
         dict[str, Any]: One row with public_id, subnet_type, cidr, ip_range, used_ips, free_ips,
                         usage_percent. 'subnet_type' is the row's address family ('ipv4' / 'ipv6';
-                        see _subnet_family). 'usage_percent' is None for IPv6 rows (an address
+                        see subnet_family). 'usage_percent' is None for IPv6 rows (an address
                         ratio against a 2**n space is meaningless) and a percentage for IPv4.
                         'ip_range' is the subnet's full network range ({first, last}), or None
                         when the CIDR is missing/unparsable
     """
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
     network: Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
-    subnet_type: str = _subnet_family(subnet_obj)
+    subnet_type: str = subnet_family(subnet_obj)
     is_ipv6: bool = subnet_type == IpAddressFamily.IPV6
 
     if network is None:
@@ -624,7 +624,7 @@ def _paginate_rows(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   DATA LOADING                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _load_supernet_object(
+def load_supernet_object(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     public_id: int,
@@ -685,7 +685,7 @@ def _parse_supernet_cidr(supernet_obj: dict[str, Any]) -> Network | None:
     return parse_cidr(raw_cidr)
 
 
-def _load_subnets_for_supernet(
+def load_subnets_for_supernet(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
@@ -843,7 +843,7 @@ def _build_linked_subnet_rows(
         list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set and
             ``vlans`` populated; rows with unparsable CIDRs trail the sorted block
     """
-    subnet_objs: list[dict[str, Any]] = _load_subnets_for_supernet(
+    subnet_objs: list[dict[str, Any]] = load_subnets_for_supernet(
         objects_manager, types_manager, supernet_public_id,
     )
     subnet_ids: list[int] = [s[CmdbObjectKey.PUBLIC_ID] for s in subnet_objs if CmdbObjectKey.PUBLIC_ID in s]
@@ -885,7 +885,7 @@ def load_assigned_subnet_rows(
     Returns:
         list[dict[str, Any]]: All assigned subnet rows (see compute_subnet_row / _build_linked_subnet_rows)
     """
-    _load_supernet_object(objects_manager, types_manager, supernet_public_id)
+    load_supernet_object(objects_manager, types_manager, supernet_public_id)
 
     return _build_linked_subnet_rows(objects_manager, types_manager, supernet_public_id)
 
@@ -899,7 +899,7 @@ def resolve_supernet_family(
     Returns the address family ('ipv4' / 'ipv6') of a SUPERNET, loading and validating it first
 
     Loads the supernet exactly like the overview routes (aborting 400/404 on a bad id) and
-    resolves its family via ``_supernet_family`` (CIDR-first, selector fallback). Intended for
+    resolves its family via ``supernet_family`` (CIDR-first, selector fallback). Intended for
     callers that need the family without the subnet rows - e.g. the subnets export, which uses
     it to decide whether the IPv4-only 'Usage (%)' column belongs in the sheet
 
@@ -911,9 +911,9 @@ def resolve_supernet_family(
     Returns:
         str: IpAddressFamily.IPV6 or IpAddressFamily.IPV4
     """
-    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, supernet_public_id)
+    supernet_obj: dict[str, Any] = load_supernet_object(objects_manager, types_manager, supernet_public_id)
 
-    return _supernet_family(supernet_obj)
+    return supernet_family(supernet_obj)
 
 
 def _summarize_supernet(
@@ -972,9 +972,9 @@ def _prepare_supernet_view(
             (supernet CmdbObject document, annotated rows in CIDR order, KPI summary dict,
             total number of invalid rows across the full row set)
     """
-    supernet_obj: dict[str, Any] = _load_supernet_object(objects_manager, types_manager, public_id)
+    supernet_obj: dict[str, Any] = load_supernet_object(objects_manager, types_manager, public_id)
     supernet_network: Network | None = _parse_supernet_cidr(supernet_obj)
-    family: str = _supernet_family(supernet_obj)
+    family: str = supernet_family(supernet_obj)
 
     ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
         objects_manager, types_manager, public_id,
@@ -1092,7 +1092,7 @@ def build_supernet_subnet_children(
     Returns:
         dict[str, Any]: {'parent': {'public_id': subnet_public_id}, 'rows': [child_row, ...]}
     """
-    supernet_obj: dict[str, Any] = _load_supernet_object(
+    supernet_obj: dict[str, Any] = load_supernet_object(
         objects_manager, types_manager, supernet_public_id,
     )
 

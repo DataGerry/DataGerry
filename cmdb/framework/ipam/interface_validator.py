@@ -38,10 +38,12 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
     IpamValidationDetailKey,
 )
-from cmdb.utils import BaseStrEnum, build_error
+from cmdb.utils import BaseStrEnum, ValidationErrorKey, build_error
 from cmdb.framework.ipam.cidr import (
     Network,
     Address,
+    address_family,
+    network_family,
     parse_cidr,
     parse_ip,
     ip_in_network,
@@ -64,6 +66,7 @@ class InterfaceErrorCode(BaseStrEnum):
     IP_NOT_IN_SUBNET = 'ip_not_in_subnet'
     IP_RESERVED = 'ip_reserved'
     IP_DUPLICATE = 'ip_duplicate'
+    TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -167,8 +170,8 @@ def _check_ip_membership(ip: Address, subnet_net: Network) -> list[dict[str, Any
     Validates that the IP sits inside the subnet and is neither the network nor broadcast address
 
     Args:
-        ip (IPv4Address): The parsed candidate IP
-        subnet_net (IPv4Network): The subnet's parsed network
+        ip (Address): The parsed candidate IP (IPv4 or IPv6)
+        subnet_net (Network): The subnet's parsed network (IPv4 or IPv6)
 
     Returns:
         list[dict[str, Any]]: Errors found, empty when membership is valid
@@ -394,17 +397,19 @@ def validate_interface(
 
 
 def find_intra_submission_duplicates(
-    rows: list[tuple[int, int | None, str | None]],
+    rows: list[tuple[int, int | None, str | None, str | None]],
 ) -> list[dict[str, Any]]:
     """
     Reports interface rows in the same submission that share both subnet ref and IP
 
     Rows missing either the subnet ref or the IP are skipped (treated as incomplete, surfaced
-    by the per-row check instead). The first occurrence of a (subnet_ref, ip) pair seeds the
-    seen-set; every subsequent matching row is reported as a duplicate against that first row
+    by the per-row check instead); the row's interface-type token plays no role here. The
+    first occurrence of a (subnet_ref, ip) pair seeds the seen-set; every subsequent matching
+    row is reported as a duplicate against that first row
 
     Args:
-        rows (list[tuple[int, int | None, str | None]]): (row_index, subnet_ref, ip) tuples
+        rows (list[tuple[int, int | None, str | None, str | None]]): (row_index, subnet_ref,
+            ip, interface_type) tuples
 
     Returns:
         list[dict[str, Any]]: One IP_DUPLICATE error per duplicate occurrence, with details
@@ -413,7 +418,7 @@ def find_intra_submission_duplicates(
     seen: dict[tuple[int, str], int] = {}
     errors: list[dict[str, Any]] = []
 
-    for row_index, subnet_ref, ip in rows:
+    for row_index, subnet_ref, ip, _ in rows:
         if subnet_ref is None or ip is None:
             continue
 
@@ -439,7 +444,7 @@ def find_intra_submission_duplicates(
 
 
 def find_subnet_without_ip(
-    rows: list[tuple[int, int | None, str | None]],
+    rows: list[tuple[int, int | None, str | None, str | None]],
 ) -> list[dict[str, Any]]:
     """
     Reports interface rows that have a subnet reference selected but no IP address
@@ -449,11 +454,12 @@ def find_subnet_without_ip(
     uniqueness, and would not contribute to any subnet's used-IP roll-up. The inverse case (IP
     without subnet) is intentionally not flagged here - that is the literal request scope, and
     a row with neither field set is treated as a still-empty placeholder row, accepted silently
-    by every caller of this batch validator
+    by every caller of this batch validator. The row's interface-type token plays no role here
 
     Args:
-        rows (list[tuple[int, int | None, str | None]]): (row_index, subnet_ref, ip) tuples as
-            produced by _extract_interface_rows in cmdb.framework.ipam.enforcement
+        rows (list[tuple[int, int | None, str | None, str | None]]): (row_index, subnet_ref,
+            ip, interface_type) tuples as produced by _extract_interface_rows in
+            cmdb.framework.ipam.enforcement
 
     Returns:
         list[dict[str, Any]]: One SUBNET_WITHOUT_IP error per offending row, with details
@@ -461,7 +467,7 @@ def find_subnet_without_ip(
     """
     errors: list[dict[str, Any]] = []
 
-    for row_index, subnet_ref, ip in rows:
+    for row_index, subnet_ref, ip, _ in rows:
         if subnet_ref is None or ip is not None:
             continue
 
@@ -477,10 +483,187 @@ def find_subnet_without_ip(
     return errors
 
 
+def _load_subnets_by_ids(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    subnet_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    """
+    Loads the SUBNET CmdbObjects for the given public_ids in one query, keyed by public_id
+
+    Ids that match no SUBNET object are simply absent from the result - the per-row check
+    (``_load_subnet_object``) is responsible for reporting unknown subnet references, so this
+    batch loader stays silent about them. Returns an empty dict when no SUBNET CmdbType is
+    defined or the id list is empty
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        subnet_ids (list[int]): public_ids of the referenced subnets (deduplicated by caller)
+
+    Returns:
+        dict[int, dict[str, Any]]: {public_id: subnet document} for every id that resolved
+    """
+    if not subnet_ids:
+        return {}
+
+    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
+
+    if subnet_type_id is None:
+        return {}
+
+    matches: list[dict[str, Any]] = objects_manager.find_objects(
+        {CmdbObjectKey.PUBLIC_ID: {'$in': subnet_ids}, CmdbObjectKey.TYPE_ID: subnet_type_id},
+        as_dict=True,
+    )
+
+    return {m[CmdbObjectKey.PUBLIC_ID]: m for m in matches if CmdbObjectKey.PUBLIC_ID in m}
+
+
+def _check_row_type_against_ip(row_index: int, interface_type: str, ip_address: str) -> list[dict[str, Any]]:
+    """
+    Validates the row's interface-type token agrees with the address family of the row's IP
+
+    Skipped (no error) when the IP does not parse - an unparsable IP is reported as IP_INVALID
+    by the per-row check when the row is complete, and a half-typed IP should not produce
+    family noise on top. An unrecognised token (anything but the IpAddressFamily values) can
+    never equal the parsed family, so it is reported as a mismatch
+
+    Args:
+        row_index (int): Position of the row in the MDS section, echoed in the error details
+        interface_type (str): The row's 'dg-interface-type' token
+        ip_address (str): The row's IP address string
+
+    Returns:
+        list[dict[str, Any]]: A single-element error list on mismatch, empty when consistent
+            or when the IP is unparsable
+    """
+    parsed: Address | None = parse_ip(ip_address)
+
+    if parsed is None:
+        return []
+
+    ip_family: str = address_family(parsed)
+
+    if interface_type == ip_family:
+        return []
+
+    return [build_error(
+        InterfaceErrorCode.TYPE_FAMILY_MISMATCH,
+        f"Interface row {row_index}: type '{interface_type}' does not match the address family "
+        f"'{ip_family}' of IP {ip_address}",
+        {
+            IpamValidationDetailKey.ROW_INDEX: row_index,
+            IpamValidationDetailKey.INTERFACE_TYPE: interface_type,
+            IpamValidationDetailKey.IP_ADDRESS: ip_address,
+            IpamValidationDetailKey.IP_FAMILY: ip_family,
+        },
+    )]
+
+
+def _check_row_type_against_subnet(
+    row_index: int,
+    interface_type: str,
+    subnet_obj: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Validates the row's interface-type token agrees with the referenced subnet's CIDR family
+
+    Skipped (no error) when the subnet's 'dg-network-range' is missing or unparsable - that
+    degenerate state is reported as SUBNET_BROKEN_STATE by the per-row check when the row is
+    complete. An unrecognised token can never equal the parsed family, so it is reported as a
+    mismatch
+
+    Args:
+        row_index (int): Position of the row in the MDS section, echoed in the error details
+        interface_type (str): The row's 'dg-interface-type' token
+        subnet_obj (dict[str, Any]): The referenced SUBNET CmdbObject document
+
+    Returns:
+        list[dict[str, Any]]: A single-element error list on mismatch, empty when consistent
+            or when the subnet's CIDR is unparsable
+    """
+    raw_range: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
+    network: Network | None = parse_cidr(raw_range) if isinstance(raw_range, str) else None
+
+    if network is None:
+        return []
+
+    subnet_fam: str = network_family(network)
+
+    if interface_type == subnet_fam:
+        return []
+
+    return [build_error(
+        InterfaceErrorCode.TYPE_FAMILY_MISMATCH,
+        f"Interface row {row_index}: type '{interface_type}' does not match the address family "
+        f"'{subnet_fam}' of subnet {network} (object {subnet_obj.get(CmdbObjectKey.PUBLIC_ID)})",
+        {
+            IpamValidationDetailKey.ROW_INDEX: row_index,
+            IpamValidationDetailKey.INTERFACE_TYPE: interface_type,
+            IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
+            IpamValidationDetailKey.SUBNET_RANGE: str(network),
+            IpamValidationDetailKey.SUBNET_FAMILY: subnet_fam,
+        },
+    )]
+
+
+def find_type_family_mismatches(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    rows: list[tuple[int, int | None, str | None, str | None]],
+) -> list[dict[str, Any]]:
+    """
+    Reports interface rows whose 'dg-interface-type' token contradicts the row's data
+
+    For every row carrying a type token, the token is checked against the address family of
+    the row's IP (when an IP is present) and against the CIDR family of the referenced subnet
+    (when a subnet ref is present), so a token can produce up to two mismatch errors per row.
+    Rows without a token are skipped entirely - legacy rows pre-date the selector, mirroring
+    the skip-when-missing policy of the subnet / supernet selectors. Unknown subnet refs,
+    unparsable IPs and unparsable subnet CIDRs are skipped here because the per-row check
+    reports those states under their own codes
+
+    The referenced subnets of all typed rows are loaded in one batch query, so the check adds
+    at most one DB round-trip regardless of row count
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        rows (list[tuple[int, int | None, str | None, str | None]]): (row_index, subnet_ref,
+            ip, interface_type) tuples
+
+    Returns:
+        list[dict[str, Any]]: One TYPE_FAMILY_MISMATCH error per contradiction found
+    """
+    typed_rows: list[tuple[int, int | None, str | None, str]] = [
+        (row_index, subnet_ref, ip, interface_type)
+        for row_index, subnet_ref, ip, interface_type in rows
+        if interface_type is not None
+    ]
+
+    if not typed_rows:
+        return []
+
+    subnet_ids: list[int] = sorted({subnet_ref for _, subnet_ref, _, _ in typed_rows if subnet_ref is not None})
+    subnets_by_id: dict[int, dict[str, Any]] = _load_subnets_by_ids(objects_manager, types_manager, subnet_ids)
+
+    errors: list[dict[str, Any]] = []
+
+    for row_index, subnet_ref, ip, interface_type in typed_rows:
+        if ip is not None:
+            errors.extend(_check_row_type_against_ip(row_index, interface_type, ip))
+
+        if subnet_ref is not None and subnet_ref in subnets_by_id:
+            errors.extend(_check_row_type_against_subnet(row_index, interface_type, subnets_by_id[subnet_ref]))
+
+    return errors
+
+
 def validate_interface_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
-    rows: list[tuple[int, int | None, str | None]],
+    rows: list[tuple[int, int | None, str | None, str | None]],
     exclude_object_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """
@@ -492,7 +675,10 @@ def validate_interface_rows(
          placeholder rows pass through silently
       2. Cross-row duplicate detection via find_intra_submission_duplicates so two rows on the
          same form sharing a (subnet, IP) pair are flagged before they hit the DB
-      3. Per-row validation via validate_interface for each row that has both subnet_ref and IP
+      3. Type-family consistency via find_type_family_mismatches so a row whose
+         'dg-interface-type' token contradicts its IP's family or its subnet's CIDR family is
+         flagged; rows without a token are skipped (legacy rows pre-date the selector)
+      4. Per-row validation via validate_interface for each row that has both subnet_ref and IP
          set; the row's index is injected into every per-row error's 'details.row_index' so the
          caller can map errors back to the originating row
 
@@ -502,7 +688,8 @@ def validate_interface_rows(
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        rows (list[tuple[int, int | None, str | None]]): (row_index, subnet_ref, ip) tuples
+        rows (list[tuple[int, int | None, str | None, str | None]]): (row_index, subnet_ref,
+            ip, interface_type) tuples
         exclude_object_id (int | None): public_id of the editing object so its own pre-edit
             row is not flagged as a collision against itself
 
@@ -514,8 +701,9 @@ def validate_interface_rows(
 
     errors: list[dict[str, Any]] = find_subnet_without_ip(rows)
     errors.extend(find_intra_submission_duplicates(rows))
+    errors.extend(find_type_family_mismatches(objects_manager, types_manager, rows))
 
-    for row_index, subnet_ref, ip in rows:
+    for row_index, subnet_ref, ip, _ in rows:
         if subnet_ref is None or ip is None:
             continue
 
@@ -529,7 +717,7 @@ def validate_interface_rows(
         )
 
         for err in row_errors:
-            err.setdefault('details', {})['row_index'] = row_index
+            err.setdefault(ValidationErrorKey.DETAILS, {})[IpamValidationDetailKey.ROW_INDEX] = row_index
 
         errors.extend(row_errors)
 

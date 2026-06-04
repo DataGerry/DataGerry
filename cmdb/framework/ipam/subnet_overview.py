@@ -41,6 +41,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamBucketLabel,
     IpamSortColumn,
     IpamSortDirection,
+    IpamSubnetIpsExport,
 )
 from cmdb.framework.ipam.cidr import (
     Network,
@@ -1743,3 +1744,281 @@ def build_invalid_subnet_overview(
         ).get(public_id, []),
         IpamOverviewKey.INVALID_COUNT: invalid_count,
     }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              SINGLE-SECTOR DRILL-DOWN                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _require_sector_grid(public_id: int, network: Network) -> int:
+    """
+    Returns the grid sector size for a subnet, aborting HTTP 400 when no full grid is exposed
+
+    Mirrors ``_build_ip_distribution``'s emit rule: the IP-Verteilung grid (and therefore any
+    clickable sector) only exists when the subnet fills the full MAX_RANGES x MAX_SECTORS grid
+    (/26 and shorter). Narrower subnets have no sectors, so the drill-down has nothing to resolve
+
+    Args:
+        public_id (int): public_id of the subnet (for the error message)
+        network (Network): The parsed subnet network
+
+    Returns:
+        int: The number of addresses each grid sector covers
+    """
+    ranges_count, sectors_per_range, sector_size = _compute_grid_dimensions(total_address_count(network))
+    max_grid_cells: int = IpamDistributionLimits.MAX_RANGES * IpamDistributionLimits.MAX_SECTORS_PER_RANGE
+
+    if ranges_count * sectors_per_range < max_grid_cells:
+        abort(400, f"Subnet with ID {public_id} is too small to expose an IP-distribution grid!")
+
+    return sector_size
+
+
+def _resolve_sector_bounds(network: Network, sector_start: Any, sector_size: int) -> tuple[int, int]:
+    """
+    Validates a sector-start address and returns the [lo, hi] integer bounds of that sector
+
+    The start must parse in the subnet's address family, sit inside the subnet, and align to a
+    sector boundary (offset divisible by ``sector_size``) so the window matches exactly one cell
+    of the IP-Verteilung grid. Any violation aborts HTTP 400
+
+    Args:
+        network (Network): The parsed subnet network
+        sector_start (Any): The candidate sector start address (canonical IP string)
+        sector_size (int): Number of addresses each grid cell covers
+
+    Returns:
+        tuple[int, int]: (sector_lo, sector_hi) inclusive integer bounds of the sector
+    """
+    start_addr: Address | None = parse_ip(sector_start) if isinstance(sector_start, str) else None
+
+    if start_addr is None or start_addr.version != network.version:
+        abort(400, f"'{sector_start}' is not a valid {network_family(network)} sector start address!")
+
+    offset: int = int(start_addr) - int(network.network_address)
+
+    if offset < 0 or offset >= total_address_count(network) or offset % sector_size != 0:
+        abort(400, f"'{sector_start}' is not an aligned sector boundary of this subnet!")
+
+    return int(network.network_address) + offset, int(network.network_address) + offset + sector_size - 1
+
+
+def _sector_assigned_only_page(
+    assigned: dict[str, dict[str, Any]],
+    sector_lo: int,
+    sector_hi: int,
+    page: int,
+    page_size: int,
+) -> tuple[list[str], int, int, int]:
+    """
+    Paginates the assigned IPs that fall inside a sector window (the IPv6 path - no free enumeration)
+
+    Args:
+        assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by _load_assigned_rows_map
+        sector_lo (int): Inclusive integer lower bound of the sector
+        sector_hi (int): Inclusive integer upper bound of the sector
+        page (int): Requested 1-based page number; clamped server-side
+        page_size (int): Requested page size; clamped server-side
+
+    Returns:
+        tuple[list[str], int, int, int]: (page_ips, total_count, safe_page, safe_size)
+    """
+    candidates: list[str] = [
+        ip for ip in _sorted_assigned_ips(assigned, valid=True)
+        if sector_lo <= int(parse_ip(ip)) <= sector_hi
+    ]
+    safe_page, safe_size = clamp_page(page, page_size, len(candidates))
+    start: int = (safe_page - 1) * safe_size
+
+    return candidates[start:start + safe_size], len(candidates), safe_page, safe_size
+
+
+def _sector_assignable_page(
+    network: Network,
+    sector_lo: int,
+    sector_hi: int,
+    page: int,
+    page_size: int,
+) -> tuple[list[str], int, int, int]:
+    """
+    Paginates the assignable addresses (free + assigned) inside a sector window (the IPv4 path)
+
+    The sector window is intersected with the subnet's contiguous assignable range so the
+    network / broadcast addresses are excluded at the first / last sector exactly as the full IP
+    table excludes them. The page is sliced by integer offset (O(page_size)), so even a sector of
+    a large subnet paginates without materializing the whole window
+
+    Args:
+        network (Network): The parsed subnet network (IPv4)
+        sector_lo (int): Inclusive integer lower bound of the sector
+        sector_hi (int): Inclusive integer upper bound of the sector
+        page (int): Requested 1-based page number; clamped server-side
+        page_size (int): Requested page size; clamped server-side
+
+    Returns:
+        tuple[list[str], int, int, int]: (page_ips, total_count, safe_page, safe_size)
+    """
+    assignable_lo: int = first_assignable_int(network)
+    assignable_hi: int = assignable_lo + assignable_address_count(network) - 1
+
+    lo: int = max(sector_lo, assignable_lo)
+    hi: int = min(sector_hi, assignable_hi)
+    total_count: int = max(0, hi - lo + 1)
+
+    safe_page, safe_size = clamp_page(page, page_size, total_count)
+    start: int = (safe_page - 1) * safe_size
+    end: int = min(start + safe_size, total_count)
+    page_ips: list[str] = [_format_ip(lo + offset, False) for offset in range(start, end)]
+
+    return page_ips, total_count, safe_page, safe_size
+
+
+def build_subnet_sector_ips(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+    sector_start: Any,
+    page: int = 1,
+    page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
+    """
+    Builds the paginated IP list for a single IP-Verteilung sector of a subnet
+
+    Backs the 'click a heatmap sector' drill-down: instead of the whole subnet, only the IPs of
+    the clicked sector are returned. The sector window is derived from the same grid dimensions
+    the overview's ip_distribution used, so it matches the clicked cell exactly. For IPv4 the page
+    lists the sector's assignable addresses (free + assigned, network / broadcast excluded); for
+    IPv6 it lists only the assigned addresses inside the sector (never enumerating the space). Rows
+    reuse the IP-table row shape (assigned / free) so the frontend can render the same row template
+
+    Aborts HTTP 404 when the subnet does not exist, HTTP 400 when the public_id is not a SUBNET /
+    no SUBNET CmdbType is defined, when the subnet has no grid (CIDR missing / unparsable, or the
+    subnet is too small to expose the full grid), or when ``sector_start`` is not an aligned sector
+    boundary of the subnet
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the SUBNET CmdbObject
+        sector_start (Any): The clicked sector's start address (its ip_start from ip_distribution)
+        page (int): 1-based page number for the sector's IP list (clamped server-side)
+        page_size (int): Page size (clamped to [IpamPagination.MIN_PAGE_SIZE, MAX_PAGE_SIZE])
+
+    Returns:
+        dict[str, Any]: {'sector': {ip_start, ip_end}, 'ips': {page, page_size, total, rows}}
+    """
+    subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
+    network: Network | None = _parse_subnet_network(subnet_obj)
+
+    if network is None:
+        abort(400, f"Subnet with ID {public_id} has no IP-distribution grid (network range missing or unparsable)!")
+
+    sector_size: int = _require_sector_grid(public_id, network)
+    sector_lo, sector_hi = _resolve_sector_bounds(network, sector_start, sector_size)
+
+    assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
+    type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, [
+        info[_AssignedField.TYPE_ID]
+        for info in assigned.values()
+        if isinstance(info.get(_AssignedField.TYPE_ID), int)
+    ])
+
+    is_ipv6: bool = network_family(network) == IpAddressFamily.IPV6
+    page_ips, total_count, safe_page, safe_size = (
+        _sector_assigned_only_page(assigned, sector_lo, sector_hi, page, page_size)
+        if is_ipv6
+        else _sector_assignable_page(network, sector_lo, sector_hi, page, page_size)
+    )
+
+    return {
+        IpamOverviewKey.SECTOR: {
+            IpamOverviewKey.IP_START: _format_ip(sector_lo, is_ipv6),
+            IpamOverviewKey.IP_END: _format_ip(sector_hi, is_ipv6),
+        },
+        IpamOverviewKey.IPS: {
+            IpamOverviewKey.PAGE: safe_page,
+            IpamOverviewKey.PAGE_SIZE: safe_size,
+            IpamOverviewKey.TOTAL: total_count,
+            IpamOverviewKey.ROWS: [
+                _compose_ip_row(ip, assigned, type_meta, objects_manager) for ip in page_ips
+            ],
+        },
+    }
+
+
+def _abort_if_export_too_big(public_id: int, row_count: int) -> None:
+    """
+    Aborts HTTP 400 when ``row_count`` exceeds IpamSubnetIpsExport.MAX_EXPORT_ROWS
+
+    Guards the IP export so an oversized subnet is rejected before any workbook is built. The
+    counted volume is the family-specific export size the caller computed cheaply (the IPv4
+    assignable count or the IPv6 assigned count), never an enumerated address space
+
+    Args:
+        public_id (int): public_id of the subnet being exported (for the error message)
+        row_count (int): Number of IP rows the export would emit
+
+    Raises:
+        HTTPException: 400 when ``row_count`` is over the export limit
+    """
+    if row_count > IpamSubnetIpsExport.MAX_EXPORT_ROWS:
+        abort(
+            400,
+            f"Subnet with ID {public_id} is too big to export: {row_count} entries exceed the "
+            f"{IpamSubnetIpsExport.MAX_EXPORT_ROWS}-row export limit!",
+        )
+
+
+def build_subnet_ip_export_rows(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    public_id: int,
+) -> list[dict[str, Any]]:
+    """
+    Builds every IP-table row of a subnet for the Excel export, in ascending IP order
+
+    Mirrors the default (unfiltered) IP table of ``build_subnet_overview``: an IPv4 subnet
+    exports all in-CIDR assignable addresses (free + assigned), an IPv6 subnet exports only its
+    in-CIDR assigned addresses. The out-of-CIDR (invalid) rows surfaced by the separate
+    ``/invalid`` view are not part of the export.
+
+    The export size is checked against IpamSubnetIpsExport.MAX_EXPORT_ROWS BEFORE any address
+    space is enumerated - for IPv4 against the cheap ``assignable_address_count`` and for IPv6
+    against the already-loaded assigned-row count - so an oversized subnet aborts 400 without
+    materializing a multi-thousand-entry list
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the subnet whose IPs are exported
+
+    Returns:
+        list[dict[str, Any]]: IP-table rows (assigned / free shapes as produced by
+            ``_compose_ip_row``) in ascending IP order
+
+    Raises:
+        HTTPException: 404 / 400 from ``_load_subnet_object`` (missing or non-subnet object),
+            400 when the subnet's network range is missing / unparsable, and 400 when the
+            export would exceed IpamSubnetIpsExport.MAX_EXPORT_ROWS
+    """
+    subnet_obj: dict[str, Any] = _load_subnet_object(objects_manager, types_manager, public_id)
+    network: Network | None = _parse_subnet_network(subnet_obj)
+
+    if network is None:
+        abort(400, f"Subnet with ID {public_id} has no exportable IPs: its network range is missing or invalid!")
+
+    assigned: dict[str, dict[str, Any]] = _load_assigned_rows_map(objects_manager, public_id, network)
+
+    if network_family(network) == IpAddressFamily.IPV6:
+        candidate_ips: list[str] = _sorted_assigned_ips(assigned, valid=True)
+        _abort_if_export_too_big(public_id, len(candidate_ips))
+    else:
+        _abort_if_export_too_big(public_id, assignable_address_count(network))
+        candidate_ips = list_all_assignable_ips(network)
+
+    type_meta: dict[int, dict[str, Any]] = _resolve_type_meta(types_manager, [
+        info[_AssignedField.TYPE_ID]
+        for info in assigned.values()
+        if isinstance(info.get(_AssignedField.TYPE_ID), int)
+    ])
+
+    return [_compose_ip_row(ip, assigned, type_meta, objects_manager) for ip in candidate_ips]

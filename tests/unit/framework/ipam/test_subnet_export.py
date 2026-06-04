@@ -26,11 +26,19 @@ from unittest.mock import MagicMock, patch
 
 from openpyxl import load_workbook
 
-from cmdb.models.special_type_model.ipam_constants import IpamOverviewKey, IpamExport, IpAddressFamily
+from cmdb.models.special_type_model.ipam_constants import (
+    IpamOverviewKey,
+    IpamExport,
+    IpamSubnetIpsExport,
+    IpamRowStatus,
+    IpAddressFamily,
+)
 from cmdb.framework.ipam.subnet_export import (
     _format_ip_range,
     _subnet_export_row,
+    _subnet_ip_export_row,
     build_supernet_subnets_xlsx,
+    build_subnet_ips_xlsx,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -130,3 +138,64 @@ def test_build_supernet_subnets_xlsx_emits_header_only_when_no_subnets() -> None
     rows: list[tuple[Any, ...]] = list(load_workbook(BytesIO(content)).active.iter_rows(values_only=True))
 
     assert rows == [tuple(IpamExport.HEADERS + [IpamExport.USAGE_HEADER])]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            _subnet_ip_export_row                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+IP_ROW_ASSIGNED: dict[str, Any] = {
+    IpamOverviewKey.IP: '10.0.0.5',
+    IpamOverviewKey.STATUS: IpamRowStatus.ASSIGNED,
+    IpamOverviewKey.TYPE_INFO: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: '#fff'},
+    IpamOverviewKey.ASSIGNED_TO: {IpamOverviewKey.SUMMARY_LINE: 'Server: web01'},
+    IpamOverviewKey.MAC_ADDRESS: 'aa:bb:cc:dd:ee:ff',
+}
+IP_ROW_FREE: dict[str, Any] = {
+    IpamOverviewKey.IP: '10.0.0.6',
+    IpamOverviewKey.STATUS: IpamRowStatus.FREE,
+    IpamOverviewKey.TYPE_INFO: None,
+    IpamOverviewKey.ASSIGNED_TO: None,
+    IpamOverviewKey.MAC_ADDRESS: None,
+}
+
+
+def test_subnet_ip_export_row_maps_assigned_row_to_human_readable_cells() -> None:
+    """An assigned row carries the type label, status, owner summary line and MAC"""
+    assert _subnet_ip_export_row(IP_ROW_ASSIGNED) == [
+        '10.0.0.5', 'Server', IpamRowStatus.ASSIGNED, 'Server: web01', 'aa:bb:cc:dd:ee:ff',
+    ]
+
+
+def test_subnet_ip_export_row_blanks_type_owner_and_mac_for_free_row() -> None:
+    """A free row leaves the type, assigned-to and MAC cells blank (not None)"""
+    assert _subnet_ip_export_row(IP_ROW_FREE) == ['10.0.0.6', '', IpamRowStatus.FREE, '', '']
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            build_subnet_ips_xlsx                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_build_subnet_ips_xlsx_writes_headers_and_rows() -> None:
+    """The workbook carries the IP-export sheet title, header row and one data row per IP"""
+    with patch(f'{MODULE}.build_subnet_ip_export_rows', return_value=[IP_ROW_ASSIGNED, IP_ROW_FREE]):
+        content: bytes = build_subnet_ips_xlsx(MagicMock(), MagicMock(), 7)
+
+    sheet = load_workbook(BytesIO(content)).active
+    assert sheet.title == IpamSubnetIpsExport.SHEET_TITLE
+
+    rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
+    assert rows[0] == tuple(IpamSubnetIpsExport.HEADERS)
+    assert rows[1] == ('10.0.0.5', 'Server', IpamRowStatus.ASSIGNED, 'Server: web01', 'aa:bb:cc:dd:ee:ff')
+    # the free row's blank cells round-trip back through openpyxl as empty (None) cells
+    assert rows[2] == ('10.0.0.6', None, IpamRowStatus.FREE, None, None)
+
+
+def test_build_subnet_ips_xlsx_emits_header_only_when_no_rows() -> None:
+    """With no exportable IPs the workbook still carries just the header row"""
+    with patch(f'{MODULE}.build_subnet_ip_export_rows', return_value=[]):
+        content: bytes = build_subnet_ips_xlsx(MagicMock(), MagicMock(), 7)
+
+    rows: list[tuple[Any, ...]] = list(load_workbook(BytesIO(content)).active.iter_rows(values_only=True))
+
+    assert rows == [tuple(IpamSubnetIpsExport.HEADERS)]
