@@ -187,12 +187,12 @@ def setup_ipam_range_change_fixture(request, connector: MongoConnector, database
         _type_doc(
             TYPE_SUPERNET, 'supernet', 'Supernet',
             special_type='SUPERNET',
-            extra_field_names=['dg-network-range'],
+            extra_field_names=['dg-network-range', 'dg-supernet-type'],
         ),
         _type_doc(
             TYPE_SUBNET, 'subnet', 'Subnet',
             special_type='SUBNET',
-            extra_field_names=['dg-network-range', 'dg-supernet-ref'],
+            extra_field_names=['dg-network-range', 'dg-supernet-ref', 'dg-subnet-type'],
         ),
         _type_doc(
             TYPE_SERVER, 'server', 'Server',
@@ -207,6 +207,7 @@ def setup_ipam_range_change_fixture(request, connector: MongoConnector, database
             fields=[
                 {'name': 'dg-name', 'value': 'supernet-a'},
                 {'name': 'dg-network-range', 'value': SUPERNET_A_OLD_CIDR},
+                {'name': 'dg-supernet-type', 'value': 'ipv4'},
             ],
         ),
         _object_doc(
@@ -215,6 +216,7 @@ def setup_ipam_range_change_fixture(request, connector: MongoConnector, database
                 {'name': 'dg-name', 'value': 'child-subnet-a'},
                 {'name': 'dg-network-range', 'value': CHILD_SUBNET_A_CIDR},
                 {'name': 'dg-supernet-ref', 'value': OBJ_SUPERNET_A},
+                {'name': 'dg-subnet-type', 'value': 'ipv4'},
             ],
         ),
         # Scenario B: orphan SUBNET (no parent) with a Server carrying an interface IP inside it
@@ -223,6 +225,7 @@ def setup_ipam_range_change_fixture(request, connector: MongoConnector, database
             fields=[
                 {'name': 'dg-name', 'value': 'orphan-subnet-b'},
                 {'name': 'dg-network-range', 'value': SUBNET_B_OLD_CIDR},
+                {'name': 'dg-subnet-type', 'value': 'ipv4'},
             ],
         ),
         _object_doc(

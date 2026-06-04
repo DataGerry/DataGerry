@@ -152,8 +152,9 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
         parent_supernet_id (int, optional): Chosen SUPERNET object id
         exclude_subnet_id (int, optional): Self-id when editing, so the sibling check
             doesn't compare the candidate against its own pre-edit state
-        subnet_type (str, optional): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); when
-            supplied it is cross-checked against the candidate CIDR's actual address family
+        subnet_type (str): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); required - when
+            omitted the validator reports TYPE_MISSING, when supplied it is cross-checked
+            against the candidate CIDR's actual address family
 
     Args:
         request_user (CmdbUser): CmdbUser making the request
@@ -203,8 +204,9 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
 
     Body:
         network_range (str): The candidate IPv4 or IPv6 CIDR
-        supernet_type (str, optional): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); when
-            supplied it is cross-checked against the candidate CIDR's actual address family
+        supernet_type (str): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); required - when
+            omitted the validator reports TYPE_MISSING, when supplied it is cross-checked
+            against the candidate CIDR's actual address family
 
     Args:
         request_user (CmdbUser): CmdbUser making the request (unused; see above)
@@ -290,12 +292,13 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
               row_index (int): Position of the row in the MDS section
               subnet_id (int): The id of the subnet the row references
               ip_address (str): The interface IP
-              interface_type (str, optional): The row's 'dg-interface-type' selector
-                ('ipv4' / 'ipv6'); when supplied it is cross-checked against the IP's
-                address family and the referenced subnet's CIDR family
+              interface_type (str): The row's 'dg-interface-type' selector
+                ('ipv4' / 'ipv6'); required on every row carrying a subnet_id and/or an
+                ip_address - missing is reported as TYPE_MISSING - and cross-checked against
+                the IP's address family and the referenced subnet's CIDR family
             Rows missing either subnet_id or ip_address are still accepted but skipped by the
-            per-row check (so a half-typed row does not produce noise); rows without
-            interface_type skip the type-family consistency check
+            per-row check (so a half-typed row does not produce noise); completely empty
+            placeholder rows are accepted silently
         exclude_object_id (int, optional): Self-id when editing an existing object, so the
             object's own pre-edit rows are not flagged as collisions against the candidate
 

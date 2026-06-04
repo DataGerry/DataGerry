@@ -136,7 +136,7 @@ def test_ipam_interface_template_structure(creator: SectionTemplateCreator) -> N
     fields: dict[str, dict[str, Any]] = _fields_by_name(template)
     assert set(fields) == {
         'dg-interface-active',
-        'dg-interface-type',
+        InterfaceField.TYPE,
         InterfaceField.SUBNET,
         InterfaceField.IP,
         'dg-interface-host',
@@ -147,6 +147,10 @@ def test_ipam_interface_template_structure(creator: SectionTemplateCreator) -> N
     subnet_field: dict[str, Any] = fields[InterfaceField.SUBNET]
     assert subnet_field[FieldKey.TYPE] == FieldType.REFERENCE
     assert subnet_field[FieldKey.REF_TYPES] == []
+
+    # The address-family selector is required: it drives the subnet picker and the
+    # save-time type-family enforcement
+    assert fields[InterfaceField.TYPE][FieldKey.REQUIRED] is True
 
     assert FieldKey.REGEX in fields[InterfaceField.MAC]
     assert FieldKey.REGEX in fields[InterfaceField.IP]

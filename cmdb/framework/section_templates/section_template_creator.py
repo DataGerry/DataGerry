@@ -238,6 +238,7 @@ class SectionTemplateCreator:
                     "type": FieldType.SELECT,
                     "name": "dg-interface-type",
                     "label": "Type",
+                    "required": True,
                     "options": [
                         {
                             "name": "ipv4",
