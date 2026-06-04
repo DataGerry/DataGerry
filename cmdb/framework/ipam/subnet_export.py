@@ -14,13 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Excel (.xlsx) export of all assigned subnets of a supernet
+Excel (.xlsx) exports for the IPAM overviews
 
-Builds a single-sheet workbook listing every subnet referencing the supernet, one row each, with
-the columns CIDR, IP range (first - last), used IPs and free IPs. An IPv4 supernet's sheet also
-carries a trailing 'Usage (%)' column; an IPv6 supernet omits it, since a used/total ratio against
-a 2**n address space is meaningless. The subnet rows come from the same overview pipeline that
-powers the supernet view, so the exported figures match what the UI shows.
+Two single-sheet exports live here:
+- ``build_supernet_subnets_xlsx`` lists every subnet referencing a supernet, one row each, with the
+  columns CIDR, IP range (first - last), used IPs and free IPs. An IPv4 supernet's sheet also carries
+  a trailing 'Usage (%)' column; an IPv6 supernet omits it, since a used/total ratio against a 2**n
+  address space is meaningless.
+- ``build_subnet_ips_xlsx`` lists a subnet's IP-table rows, one row each, with the columns IP, type,
+  status, assigned-to summary and MAC. An IPv4 subnet exports all assignable addresses (free +
+  assigned); an IPv6 subnet exports only its assigned addresses.
+
+Both pull their rows from the same overview pipelines that power the UI, so the exported figures
+match what the user sees.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -30,8 +36,15 @@ from openpyxl import Workbook
 
 from cmdb.manager import ObjectsManager, TypesManager
 
-from cmdb.models.special_type_model.ipam_constants import IpamOverviewKey, IpamExport, IpAddressFamily
+from cmdb.models.special_type_model.ipam_constants import (
+    IpamOverviewKey,
+    IpamExport,
+    IpamSubnetIpsExport,
+    IpamRowStatus,
+    IpAddressFamily,
+)
 from cmdb.framework.ipam.supernet_overview import load_assigned_subnet_rows, resolve_supernet_family
+from cmdb.framework.ipam.subnet_overview import build_subnet_ip_export_rows
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -112,6 +125,77 @@ def build_supernet_subnets_xlsx(
 
     for row in rows:
         sheet.append(_subnet_export_row(row, include_usage=not is_ipv6))
+
+    buffer: BytesIO = BytesIO()
+    workbook.save(buffer)
+
+    return buffer.getvalue()
+
+
+def _subnet_ip_export_row(row: dict[str, Any]) -> list[Any]:
+    """
+    Maps one overview IP row to its export cell values, matching IpamSubnetIpsExport.HEADERS
+
+    The type and assigned-to columns carry the human-readable label / summary line (the same text
+    the UI shows); a free row leaves type, assigned-to and MAC blank. The status enum is written as
+    its plain value ('assigned' / 'free') - openpyxl would otherwise stringify the enum member to
+    'IpamRowStatus.ASSIGNED'.
+
+    Args:
+        row (dict[str, Any]): An IP-table row (assigned / free shape as produced by _compose_ip_row)
+
+    Returns:
+        list[Any]: [ip, type_label, status, assigned_to_summary, mac]
+    """
+    type_info: dict[str, Any] | None = row.get(IpamOverviewKey.TYPE_INFO)
+    assigned_to: dict[str, Any] | None = row.get(IpamOverviewKey.ASSIGNED_TO)
+    status: Any = row.get(IpamOverviewKey.STATUS)
+
+    return [
+        row.get(IpamOverviewKey.IP),
+        type_info.get(IpamOverviewKey.LABEL) if type_info else '',
+        status.value if isinstance(status, IpamRowStatus) else status,
+        assigned_to.get(IpamOverviewKey.SUMMARY_LINE) if assigned_to else '',
+        row.get(IpamOverviewKey.MAC_ADDRESS) or '',
+    ]
+
+
+def build_subnet_ips_xlsx(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    subnet_public_id: int,
+) -> bytes:
+    """
+    Builds an XLSX workbook listing a subnet's IP rows and returns its bytes
+
+    Validation of the subnet (exists / is a SUBNET / has a parsable range) and the oversized-export
+    guard (IpamSubnetIpsExport.MAX_EXPORT_ROWS) are delegated to ``build_subnet_ip_export_rows``,
+    which aborts before this function builds any workbook. IPv4 subnets export all assignable
+    addresses (free + assigned); IPv6 subnets export only the assigned ones. The column set is the
+    same for both families.
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        subnet_public_id (int): public_id of the SUBNET whose IPs are exported
+
+    Returns:
+        bytes: The serialized .xlsx workbook
+
+    Raises:
+        HTTPException: 404 / 400 propagated from ``build_subnet_ip_export_rows`` (bad id,
+            unparsable range, or an export exceeding the row limit)
+    """
+    rows: list[dict[str, Any]] = build_subnet_ip_export_rows(objects_manager, types_manager, subnet_public_id)
+
+    workbook: Workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = IpamSubnetIpsExport.SHEET_TITLE
+
+    sheet.append(IpamSubnetIpsExport.HEADERS)
+
+    for row in rows:
+        sheet.append(_subnet_ip_export_row(row))
 
     buffer: BytesIO = BytesIO()
     workbook.save(buffer)

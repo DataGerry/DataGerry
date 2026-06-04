@@ -171,6 +171,23 @@ def network_family(network: Network) -> str:
     return IpAddressFamily.IPV6 if network.version == IpVersion.V6 else IpAddressFamily.IPV4
 
 
+def address_family(address: Address) -> str:
+    """
+    Returns the address-family token of a parsed host address as an IpAddressFamily value
+
+    Address counterpart of ``network_family``: maps a parsed IP to the same 'ipv4' / 'ipv6'
+    tokens the IPAM selectors use, so per-row family-consistency checks (e.g. the interface
+    row's 'dg-interface-type' against its IP) agree with the network-level mapping
+
+    Args:
+        address (Address): The parsed host address
+
+    Returns:
+        str: IpAddressFamily.IPV6 for an IPv6 address, IpAddressFamily.IPV4 otherwise
+    """
+    return IpAddressFamily.IPV6 if address.version == IpVersion.V6 else IpAddressFamily.IPV4
+
+
 def contains(parent: Network, child: Network) -> bool:
     """
     Reports whether 'child' is a subnet of (or equal to) 'parent'

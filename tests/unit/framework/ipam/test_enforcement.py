@@ -118,8 +118,12 @@ def _make_field(name: Any, value: Any) -> dict[str, Any]:
     return {CmdbObjectFieldKey.NAME: name, CmdbObjectFieldKey.VALUE: value}
 
 
-def _make_interface_row(subnet_id: int | None, ip: str | None) -> dict[str, Any]:
-    """Builds one MDS interface row."""
+def _make_interface_row(
+    subnet_id: int | None,
+    ip: str | None,
+    interface_type: str | None = None,
+) -> dict[str, Any]:
+    """Builds one MDS interface row with an optional dg-interface-type entry."""
     data: list[dict[str, Any]] = []
 
     if subnet_id is not None:
@@ -127,6 +131,9 @@ def _make_interface_row(subnet_id: int | None, ip: str | None) -> dict[str, Any]
 
     if ip is not None:
         data.append(_make_field(InterfaceField.IP, ip))
+
+    if interface_type is not None:
+        data.append(_make_field(InterfaceField.TYPE, interface_type))
 
     return {CmdbObjectMdsRowKey.DATA: data}
 
@@ -256,7 +263,7 @@ def test_extract_interface_rows_returns_empty_when_no_mds_sections() -> None:
     """An object with no multi_data_sections list yields no rows"""
     obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID)
 
-    assert _extract_interface_rows(obj) == []
+    assert not _extract_interface_rows(obj)
 
 
 def test_extract_interface_rows_skips_non_interface_sections() -> None:
@@ -268,7 +275,7 @@ def test_extract_interface_rows_skips_non_interface_sections() -> None:
         },
     ])
 
-    assert _extract_interface_rows(obj) == []
+    assert not _extract_interface_rows(obj)
 
 
 def test_extract_interface_rows_returns_subnet_and_ip_for_complete_row() -> None:
@@ -277,7 +284,7 @@ def test_extract_interface_rows_returns_subnet_and_ip_for_complete_row() -> None
         _make_interface_section([_make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5')]),
     ])
 
-    assert _extract_interface_rows(obj) == [(0, SIBLING_SUBNET_ID, '10.0.0.5')]
+    assert _extract_interface_rows(obj) == [(0, SIBLING_SUBNET_ID, '10.0.0.5', None)]
 
 
 def test_extract_interface_rows_yields_none_pair_for_empty_row() -> None:
@@ -286,7 +293,7 @@ def test_extract_interface_rows_yields_none_pair_for_empty_row() -> None:
         _make_interface_section([{CmdbObjectMdsRowKey.DATA: []}]),
     ])
 
-    assert _extract_interface_rows(obj) == [(0, None, None)]
+    assert _extract_interface_rows(obj) == [(0, None, None, None)]
 
 
 def test_extract_interface_rows_treats_empty_string_ip_as_none() -> None:
@@ -295,7 +302,27 @@ def test_extract_interface_rows_treats_empty_string_ip_as_none() -> None:
         _make_interface_section([_make_interface_row(SIBLING_SUBNET_ID, '')]),
     ])
 
-    assert _extract_interface_rows(obj) == [(0, SIBLING_SUBNET_ID, None)]
+    assert _extract_interface_rows(obj) == [(0, SIBLING_SUBNET_ID, None, None)]
+
+
+def test_extract_interface_rows_passes_interface_type_token_through() -> None:
+    """A non-empty dg-interface-type value lands in the tuple's fourth slot verbatim"""
+    obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, mds=[
+        _make_interface_section([
+            _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5', interface_type=IpAddressFamily.IPV4),
+        ]),
+    ])
+
+    assert _extract_interface_rows(obj) == [(0, SIBLING_SUBNET_ID, '10.0.0.5', IpAddressFamily.IPV4)]
+
+
+def test_extract_interface_rows_treats_empty_string_type_as_none() -> None:
+    """An empty dg-interface-type value is normalized to None so the family check is skipped"""
+    obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, mds=[
+        _make_interface_section([_make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5', interface_type='')]),
+    ])
+
+    assert _extract_interface_rows(obj) == [(0, SIBLING_SUBNET_ID, '10.0.0.5', None)]
 
 
 def test_extract_interface_rows_preserves_row_indices_in_order() -> None:
@@ -364,7 +391,7 @@ def test_enforce_subnet_object_on_insert_runs_validate_subnet() -> None:
     with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock:
         errors = _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=None)
 
-    assert errors == []
+    assert not errors
     validate_mock.assert_called_once()
     assert validate_mock.call_args.kwargs['exclude_subnet_id'] is None
 
@@ -392,7 +419,7 @@ def test_enforce_subnet_object_allows_range_change_even_when_interface_ips_would
     with patch(f'{ENF_PATH}.validate_subnet', return_value=[]) as validate_mock:
         errors = _enforce_subnet_object(MagicMock(), MagicMock(), candidate, previous_object=previous)
 
-    assert errors == []
+    assert not errors
     validate_mock.assert_called_once()
 
 
@@ -427,7 +454,7 @@ def test_enforce_supernet_object_returns_empty_for_canonical_cidr_without_type()
     """A canonical CIDR with no type selector passes (the family check is skipped)"""
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
 
-    assert _enforce_supernet_object(candidate) == []
+    assert not _enforce_supernet_object(candidate)
 
 
 def test_enforce_supernet_object_returns_empty_when_type_matches_cidr_family() -> None:
@@ -435,8 +462,8 @@ def test_enforce_supernet_object_returns_empty_when_type_matches_cidr_family() -
     ipv4 = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, supernet_type=IpAddressFamily.IPV4)
     ipv6 = _make_supernet_candidate(CANDIDATE_OBJECT_ID, '2001:db8::/32', supernet_type=IpAddressFamily.IPV6)
 
-    assert _enforce_supernet_object(ipv4) == []
-    assert _enforce_supernet_object(ipv6) == []
+    assert not _enforce_supernet_object(ipv4)
+    assert not _enforce_supernet_object(ipv6)
 
 
 def test_enforce_supernet_object_emits_type_family_mismatch_when_selector_disagrees() -> None:
@@ -457,7 +484,7 @@ def test_enforce_supernet_object_allows_range_change_even_when_child_subnets_wou
     """
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
 
-    assert _enforce_supernet_object(candidate) == []
+    assert not _enforce_supernet_object(candidate)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -470,7 +497,7 @@ def test_enforce_vlan_object_returns_empty_when_no_subnet_ref_present() -> None:
     with patch(f'{ENF_PATH}.validate_vlan') as validate_mock:
         errors = _enforce_vlan_object(MagicMock(), MagicMock(), candidate)
 
-    assert errors == []
+    assert not errors
     validate_mock.assert_not_called()
 
 
@@ -500,7 +527,7 @@ def test_enforce_interface_rows_returns_empty_when_no_rows_present() -> None:
     with patch(f'{ENF_PATH}.validate_interface_rows') as validate_mock:
         errors = _enforce_interface_rows(MagicMock(), MagicMock(), candidate, previous_object=None)
 
-    assert errors == []
+    assert not errors
     validate_mock.assert_not_called()
 
 
@@ -585,7 +612,7 @@ def test_enforce_object_invariants_canonicalizes_ipv6_range_before_save() -> Non
     with patch(f'{ENF_PATH}._resolve_object_special_type', return_value=SpecialType.SUBNET):
         errors = enforce_object_invariants(MagicMock(), MagicMock(), candidate)
 
-    assert errors == []
+    assert not errors
     assert extract_field_value(candidate, SubnetField.NETWORK_RANGE) == '2001:db8::/32'
 
 
@@ -597,7 +624,7 @@ def test_guard_supernet_delete_returns_empty_when_no_subnets_reference_it() -> N
     with patch(f'{ENF_PATH}.find_subnets_referencing_supernet', return_value=[]):
         errors = _guard_supernet_delete(MagicMock(), MagicMock(), PARENT_SUPERNET_ID)
 
-    assert errors == []
+    assert not errors
 
 
 def test_guard_supernet_delete_returns_guard_error_when_subnets_reference_it() -> None:
@@ -621,7 +648,7 @@ def test_guard_subnet_delete_returns_empty_when_no_references_exist() -> None:
          patch(f'{ENF_PATH}.find_interfaces_referencing_subnet', return_value=[]):
         errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
 
-    assert errors == []
+    assert not errors
 
 
 def test_guard_subnet_delete_returns_only_vlan_error_when_only_vlans_reference_it() -> None:
@@ -673,7 +700,7 @@ def test_enforce_object_invariants_returns_empty_when_type_id_is_not_int() -> No
 
     errors = enforce_object_invariants(MagicMock(), MagicMock(), candidate)
 
-    assert errors == []
+    assert not errors
 
 
 def test_enforce_object_invariants_dispatches_to_supernet_enforcer() -> None:
@@ -766,7 +793,7 @@ def test_enforce_delete_guards_returns_empty_for_invalid_type_id() -> None:
 
     errors = enforce_delete_guards(MagicMock(), MagicMock(), target)
 
-    assert errors == []
+    assert not errors
 
 
 def test_enforce_delete_guards_returns_empty_for_invalid_object_id() -> None:
@@ -775,7 +802,7 @@ def test_enforce_delete_guards_returns_empty_for_invalid_object_id() -> None:
 
     errors = enforce_delete_guards(MagicMock(), MagicMock(), target)
 
-    assert errors == []
+    assert not errors
 
 
 def test_enforce_delete_guards_dispatches_to_supernet_guard_for_supernet_target() -> None:
@@ -813,7 +840,7 @@ def test_enforce_delete_guards_returns_empty_for_vlan_target() -> None:
          patch(f'{ENF_PATH}._guard_subnet_delete') as subnet_mock:
         errors = enforce_delete_guards(MagicMock(), MagicMock(), target)
 
-    assert errors == []
+    assert not errors
     supernet_mock.assert_not_called()
     subnet_mock.assert_not_called()
 
@@ -827,6 +854,6 @@ def test_enforce_delete_guards_returns_empty_for_non_special_type_target() -> No
          patch(f'{ENF_PATH}._guard_subnet_delete') as subnet_mock:
         errors = enforce_delete_guards(MagicMock(), MagicMock(), target)
 
-    assert errors == []
+    assert not errors
     supernet_mock.assert_not_called()
     subnet_mock.assert_not_called()

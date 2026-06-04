@@ -299,17 +299,24 @@ def _enforce_vlan_object(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          INTERFACE ROW ENFORCEMENT                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int, int | None, str | None]]:
+def _extract_interface_rows(
+    candidate_object: dict[str, Any],
+) -> list[tuple[int, int | None, str | None, str | None]]:
     """
     Walks the candidate's dg-ipam-interface MDS rows and returns one tuple per row
+
+    The interface-type token ('dg-interface-type') is passed through as-is when it is a
+    non-empty string and None otherwise; legacy rows without the selector therefore skip the
+    type-family consistency check downstream
 
     Args:
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
 
     Returns:
-        list[tuple[int, int | None, str | None]]: (row_index, subnet_ref, ip_address) tuples
+        list[tuple[int, int | None, str | None, str | None]]: (row_index, subnet_ref,
+            ip_address, interface_type) tuples
     """
-    rows_out: list[tuple[int, int | None, str | None]] = []
+    rows_out: list[tuple[int, int | None, str | None, str | None]] = []
 
     for section in candidate_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
         if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
@@ -318,6 +325,7 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
         for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
             subnet_ref: int | None = None
             ip_address: str | None = None
+            interface_type: str | None = None
 
             for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
                 name: Any = entry.get(CmdbObjectFieldKey.NAME)
@@ -327,8 +335,10 @@ def _extract_interface_rows(candidate_object: dict[str, Any]) -> list[tuple[int,
                     subnet_ref = _coerce_int(value)
                 elif name == InterfaceField.IP:
                     ip_address = value if isinstance(value, str) and value else None
+                elif name == InterfaceField.TYPE:
+                    interface_type = value if isinstance(value, str) and value else None
 
-            rows_out.append((row_index, subnet_ref, ip_address))
+            rows_out.append((row_index, subnet_ref, ip_address, interface_type))
 
     return rows_out
 
@@ -352,7 +362,7 @@ def _enforce_interface_rows(
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when all rows are valid
     """
-    rows: list[tuple[int, int | None, str | None]] = _extract_interface_rows(candidate_object)
+    rows: list[tuple[int, int | None, str | None, str | None]] = _extract_interface_rows(candidate_object)
 
     if not rows:
         return []

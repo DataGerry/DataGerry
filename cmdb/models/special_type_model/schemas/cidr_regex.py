@@ -17,10 +17,10 @@
 Shared IP validation regexes used by the IPAM schemas and section templates
 
 CIDR_REGEX matches a network range (address plus '/prefix'); IP_ADDRESS_REGEX matches a bare host
-address. Both accept either IPv4 or IPv6. These are coarse field-level guards only - the canonical
-validation (host-bits-zero, family-specific semantics) is done in code via the ipaddress module in
-cmdb.framework.ipam.cidr. Note: the IPAM processing layer (cidr.py, validators, overviews) is still
-IPv4-only, so an IPv6 value passes these regexes but is not yet processed as IPv6 downstream
+address. Both accept either IPv4 or IPv6, matching the downstream IPAM processing layer (cidr.py,
+validators, overviews), which handles both families. These are coarse field-level guards only -
+the canonical validation (host-bits-zero, family-specific semantics) is done in code via the
+ipaddress module in cmdb.framework.ipam.cidr
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 

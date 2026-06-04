@@ -63,8 +63,8 @@ from cmdb.framework.ipam.supernet_overview import (
     _filter_rows_by_network_substring,
     _index_children_by_parent,
     _ip_range,
-    _load_subnets_for_supernet,
-    _load_supernet_object,
+    load_subnets_for_supernet,
+    load_supernet_object,
     _paginate_rows,
     _parse_supernet_cidr,
     _percent,
@@ -73,15 +73,16 @@ from cmdb.framework.ipam.supernet_overview import (
     _select_invalid_listed_rows,
     _select_invalid_rows,
     _select_listed_rows,
-    _subnet_family,
+    subnet_family,
     _subnet_family_rank,
-    _supernet_family,
+    supernet_family,
     _summarize_supernet,
     build_invalid_subnet_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
     compute_subnet_row,
     load_assigned_subnet_rows,
+    resolve_supernet_family,
     compute_supernet_summary,
     sort_and_link_subnets,
 )
@@ -352,20 +353,20 @@ def test_compute_subnet_row_keeps_usage_percent_for_ipv4() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               _subnet_family                                                        #
+#                                               subnet_family                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_subnet_family_derives_ipv6_from_ipv6_cidr() -> None:
     """A parsable IPv6 CIDR maps to IpAddressFamily.IPV6"""
     subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/32', subnet_type=IpAddressFamily.IPV6)
 
-    assert _subnet_family(subnet) == IpAddressFamily.IPV6
+    assert subnet_family(subnet) == IpAddressFamily.IPV6
 
 
 def test_subnet_family_derives_ipv4_from_ipv4_cidr() -> None:
     """A parsable IPv4 CIDR maps to IpAddressFamily.IPV4"""
     subnet = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4)
 
-    assert _subnet_family(subnet) == IpAddressFamily.IPV4
+    assert subnet_family(subnet) == IpAddressFamily.IPV4
 
 
 def test_subnet_family_prefers_cidr_over_mismatched_selector() -> None:
@@ -373,8 +374,8 @@ def test_subnet_family_prefers_cidr_over_mismatched_selector() -> None:
     ipv6_cidr_ipv4_selector = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/48', subnet_type=IpAddressFamily.IPV4)
     ipv4_cidr_ipv6_selector = _make_subnet_doc(SUBNET_OBJECT_ID_B, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV6)
 
-    assert _subnet_family(ipv6_cidr_ipv4_selector) == IpAddressFamily.IPV6
-    assert _subnet_family(ipv4_cidr_ipv6_selector) == IpAddressFamily.IPV4
+    assert subnet_family(ipv6_cidr_ipv4_selector) == IpAddressFamily.IPV6
+    assert subnet_family(ipv4_cidr_ipv6_selector) == IpAddressFamily.IPV4
 
 
 def test_subnet_family_derives_from_cidr_for_missing_or_unknown_selector() -> None:
@@ -383,9 +384,9 @@ def test_subnet_family_derives_from_cidr_for_missing_or_unknown_selector() -> No
     unknown = _make_subnet_doc(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B, subnet_type='something-else')
     missing_v6 = _make_subnet_doc(SUBNET_OBJECT_ID_A, '2001:db8::/48')
 
-    assert _subnet_family(missing) == IpAddressFamily.IPV4
-    assert _subnet_family(unknown) == IpAddressFamily.IPV4
-    assert _subnet_family(missing_v6) == IpAddressFamily.IPV6
+    assert subnet_family(missing) == IpAddressFamily.IPV4
+    assert subnet_family(unknown) == IpAddressFamily.IPV4
+    assert subnet_family(missing_v6) == IpAddressFamily.IPV6
 
 
 def test_subnet_family_falls_back_to_selector_when_cidr_unparsable() -> None:
@@ -393,8 +394,8 @@ def test_subnet_family_falls_back_to_selector_when_cidr_unparsable() -> None:
     with_selector = _make_subnet_doc(SUBNET_OBJECT_ID_A, 'not-a-cidr', subnet_type=IpAddressFamily.IPV6)
     without_selector = _make_subnet_doc(SUBNET_OBJECT_ID_A, 'not-a-cidr')
 
-    assert _subnet_family(with_selector) == IpAddressFamily.IPV6
-    assert _subnet_family(without_selector) == IpAddressFamily.IPV4
+    assert subnet_family(with_selector) == IpAddressFamily.IPV6
+    assert subnet_family(without_selector) == IpAddressFamily.IPV4
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -512,21 +513,21 @@ def test_compute_supernet_summary_nulls_percentages_for_ipv6_degenerate_network(
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               _supernet_family                                                      #
+#                                               supernet_family                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_supernet_family_prefers_cidr_over_mismatched_selector() -> None:
     """CIDR-first: a parsable CIDR decides the family even when the selector disagrees (fix #1)"""
     supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE, supernet_type=IpAddressFamily.IPV6)
 
     # SUPERNET_RANGE is an IPv4 CIDR, so the family is ipv4 despite the ipv6 selector
-    assert _supernet_family(supernet) == IpAddressFamily.IPV4
+    assert supernet_family(supernet) == IpAddressFamily.IPV4
 
 
 def test_supernet_family_derives_from_cidr_when_selector_missing() -> None:
     """A missing selector on an IPv6 CIDR derives ipv6 from the actual range"""
     supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, '2001:db8::/32')
 
-    assert _supernet_family(supernet) == IpAddressFamily.IPV6
+    assert supernet_family(supernet) == IpAddressFamily.IPV6
 
 
 def test_supernet_family_falls_back_to_selector_when_cidr_unparsable() -> None:
@@ -534,8 +535,8 @@ def test_supernet_family_falls_back_to_selector_when_cidr_unparsable() -> None:
     with_selector = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr', supernet_type=IpAddressFamily.IPV6)
     without_selector = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')
 
-    assert _supernet_family(with_selector) == IpAddressFamily.IPV6
-    assert _supernet_family(without_selector) == IpAddressFamily.IPV4
+    assert supernet_family(with_selector) == IpAddressFamily.IPV6
+    assert supernet_family(without_selector) == IpAddressFamily.IPV4
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1150,7 +1151,7 @@ def test_paginate_rows_returns_empty_page_for_empty_input() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            _load_supernet_object                                                     #
+#                                            load_supernet_object                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_load_supernet_object_aborts_400_when_supernet_type_not_defined() -> None:
     """No SUPERNET CmdbType → HTTP 400; no object query is issued"""
@@ -1159,7 +1160,7 @@ def test_load_supernet_object_aborts_400_when_supernet_type_not_defined() -> Non
     types_manager.get_one_by.return_value = None
 
     with pytest.raises(HTTPException) as exc_info:
-        _load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+        load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     assert exc_info.value.code == 400
     objects_manager.find_objects.assert_not_called()
@@ -1173,7 +1174,7 @@ def test_load_supernet_object_aborts_404_when_object_not_found() -> None:
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
 
     with pytest.raises(HTTPException) as exc_info:
-        _load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+        load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     assert exc_info.value.code == 404
 
@@ -1187,7 +1188,7 @@ def test_load_supernet_object_aborts_400_when_object_is_not_a_supernet() -> None
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
 
     with pytest.raises(HTTPException) as exc_info:
-        _load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+        load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     assert exc_info.value.code == 400
 
@@ -1200,7 +1201,7 @@ def test_load_supernet_object_returns_candidate_on_happy_path() -> None:
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
 
-    result = _load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    result = load_supernet_object(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     assert result is supernet_doc
     objects_manager.find_objects.assert_called_once_with(
@@ -1243,7 +1244,7 @@ def test_parse_supernet_cidr_returns_none_for_unparsable_string() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          _load_subnets_for_supernet                                                  #
+#                                          load_subnets_for_supernet                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_load_subnets_for_supernet_returns_empty_when_subnet_type_not_defined() -> None:
     """No SUBNET CmdbType → empty list, no DB query"""
@@ -1251,7 +1252,7 @@ def test_load_subnets_for_supernet_returns_empty_when_subnet_type_not_defined() 
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = None
 
-    result = _load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    result = load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     assert result == []
     objects_manager.find_objects.assert_not_called()
@@ -1265,7 +1266,7 @@ def test_load_subnets_for_supernet_returns_manager_result_when_type_defined() ->
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
 
-    result = _load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    result = load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     assert result is subnet_docs
 
@@ -1277,7 +1278,7 @@ def test_load_subnets_for_supernet_queries_with_parent_supernet_field_filter() -
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
 
-    _load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     objects_manager.find_objects.assert_called_once_with(
         {
@@ -1466,14 +1467,14 @@ def test_attach_vlans_to_rows_isolates_each_rows_vlans_from_the_source_bucket() 
     assert bucket == [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X}]
 
 
-def test_attach_vlans_to_rows_returns_none_and_mutates_in_place() -> None:
-    """The helper returns None; rows are mutated in place"""
+def test_attach_vlans_to_rows_mutates_in_place() -> None:
+    """The helper mutates each row in place, setting the VLANS key (returns nothing)"""
     row = _make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A)
 
-    result = _attach_vlans_to_rows([row], {})
+    _attach_vlans_to_rows([row], {})
 
-    assert result is None
     assert IpamOverviewKey.VLANS in row
+    assert row[IpamOverviewKey.VLANS] == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1481,7 +1482,7 @@ def test_attach_vlans_to_rows_returns_none_and_mutates_in_place() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_linked_subnet_rows_returns_empty_when_no_subnets_under_supernet() -> None:
     """No SUBNET docs → empty list (the count helper is also bypassed)"""
-    with patch(f'{PATH}._load_subnets_for_supernet', return_value=[]), \
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=[]), \
          patch(f'{PATH}._count_used_ips_per_subnet') as count_mock:
         result = _build_linked_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1506,7 +1507,7 @@ def test_build_linked_subnet_rows_shapes_rows_and_links_parents() -> None:
         SUBNET_OBJECT_ID_A: [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X}],
     }
 
-    with patch(f'{PATH}._load_subnets_for_supernet', return_value=subnet_objs), \
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=subnet_objs), \
          patch(f'{PATH}._count_used_ips_per_subnet', return_value=used_counts), \
          patch(f'{PATH}.load_vlans_by_subnets', return_value=vlans_by_subnet):
         result = _build_linked_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
@@ -1564,8 +1565,8 @@ def test_summarize_supernet_forwards_none_network_and_family_unchanged() -> None
 #                                            _prepare_supernet_view                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_prepare_supernet_view_propagates_load_supernet_aborts() -> None:
-    """An abort raised by _load_supernet_object propagates out of the prep helper"""
-    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+    """An abort raised by load_supernet_object propagates out of the prep helper"""
+    with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         _prepare_supernet_view(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1577,7 +1578,7 @@ def test_prepare_supernet_view_returns_four_tuple_with_expected_types() -> None:
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     row_in = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_in]):
         returned_doc, rows, summary, invalid_count = _prepare_supernet_view(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
@@ -1597,7 +1598,7 @@ def test_build_supernet_overview_ipv6_summary_has_family_and_null_percentages() 
         IpamOverviewKey.USED_IPS: 5,
     }
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1616,7 +1617,7 @@ def test_prepare_supernet_view_annotates_rows_with_has_children_and_is_valid_bef
     row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
     row_outside = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid, row_outside]):
         _, rows, _summary, _invalid = _prepare_supernet_view(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
@@ -1634,7 +1635,7 @@ def test_prepare_supernet_view_returns_invalid_count_matching_annotated_rows() -
     row_outside = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.USED_IPS: 0}
     row_unparsable = {**_make_row(99, 'not-a-cidr'), IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(
              f'{PATH}._build_linked_subnet_rows',
              return_value=[row_valid, row_outside, row_unparsable],
@@ -1651,7 +1652,7 @@ def test_prepare_supernet_view_marks_every_row_invalid_when_supernet_cidr_unpars
     broken_supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')
     row_in = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=broken_supernet), \
+    with patch(f'{PATH}.load_supernet_object', return_value=broken_supernet), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_in]):
         _, rows, _summary, invalid_count = _prepare_supernet_view(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID,
@@ -1665,8 +1666,8 @@ def test_prepare_supernet_view_marks_every_row_invalid_when_supernet_cidr_unpars
 #                                          build_supernet_overview                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_supernet_overview_propagates_load_supernet_aborts() -> None:
-    """An abort raised by _load_supernet_object propagates out of the orchestrator"""
-    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+    """An abort raised by load_supernet_object propagates out of the orchestrator"""
+    with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1683,7 +1684,7 @@ def test_build_supernet_overview_returns_payload_with_supernet_and_subnets_block
     row_b = {**_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B), IpamOverviewKey.PARENT_ID: None,
              IpamOverviewKey.USED_IPS: 2}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_nested, row_b]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1706,7 +1707,7 @@ def test_build_supernet_overview_aggregates_total_used_across_all_subnets() -> N
     row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
                   IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 1}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_nested]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1724,7 +1725,7 @@ def test_build_supernet_overview_annotates_has_children_on_top_level_rows() -> N
     row_b = {**_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B), IpamOverviewKey.PARENT_ID: None,
              IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_nested, row_b]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1741,7 +1742,7 @@ def test_build_supernet_overview_paginates_top_level_rows() -> None:
     row_b = {**_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B), IpamOverviewKey.PARENT_ID: None,
              IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_b]):
         payload = build_supernet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, page=1, page_size=1,
@@ -1757,7 +1758,7 @@ def test_build_supernet_overview_returns_empty_rows_when_no_subnets_exist() -> N
     """When the supernet has zero subnets, the payload still emits the expected envelope"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1776,7 +1777,7 @@ def test_build_supernet_overview_returns_flat_rows_across_nesting_depths_when_se
     row_top_b = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.PARENT_ID: None,
                  IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_top_a, row_nested, row_top_b]):
         payload = build_supernet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='10.0.0',
@@ -1798,7 +1799,7 @@ def test_build_supernet_overview_kpi_summary_is_invariant_under_search_filter() 
                  IpamOverviewKey.USED_IPS: 2}
     all_rows = [row_top_a, row_nested, row_top_b]
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=all_rows):
         no_search = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
         with_search = build_supernet_overview(
@@ -1816,7 +1817,7 @@ def test_build_supernet_overview_falls_back_to_top_level_for_search_below_min_le
     row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
                   IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_top_a, row_nested]):
         payload = build_supernet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='1',
@@ -1834,7 +1835,7 @@ def test_build_supernet_overview_treats_whitespace_only_search_as_no_filter() ->
     row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
                   IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_top_a, row_nested]):
         payload = build_supernet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='   ',
@@ -1850,7 +1851,7 @@ def test_build_supernet_overview_returns_empty_rows_when_search_has_no_matches()
     row_top_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
                  IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_top_a]):
         payload = build_supernet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='172.16',
@@ -1868,7 +1869,7 @@ def test_build_supernet_overview_paginates_flat_search_results() -> None:
     row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
                   IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_top_a, row_nested]):
         payload = build_supernet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, page=1, page_size=1, search='10.0',
@@ -1888,7 +1889,7 @@ def test_build_supernet_overview_annotates_is_valid_on_top_level_rows() -> None:
     row_outside = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'), IpamOverviewKey.PARENT_ID: None,
                    IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_inside, row_outside]):
         payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -1907,7 +1908,7 @@ def test_build_supernet_overview_invalid_count_reflects_all_nesting_depths() -> 
     row_top_invalid = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.1.0/24'),
                        IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(
              f'{PATH}._build_linked_subnet_rows',
              return_value=[row_top_valid, row_nested_invalid, row_top_invalid],
@@ -1925,7 +1926,7 @@ def test_build_supernet_overview_invalid_count_is_invariant_under_search() -> No
     row_invalid_b = {**_make_row(SUBNET_OBJECT_ID_B, '172.16.0.0/24'),
                      IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_invalid_a, row_invalid_b]):
         no_search = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
         with_search = build_supernet_overview(
@@ -1941,8 +1942,8 @@ def test_build_supernet_overview_invalid_count_is_invariant_under_search() -> No
 #                                       build_supernet_subnet_children                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_supernet_subnet_children_propagates_load_supernet_aborts() -> None:
-    """An abort raised by _load_supernet_object propagates out of the children orchestrator"""
-    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+    """An abort raised by load_supernet_object propagates out of the children orchestrator"""
+    with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         build_supernet_subnet_children(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A)
 
@@ -1953,7 +1954,7 @@ def test_build_supernet_subnet_children_aborts_400_when_parent_subnet_not_under_
     """A subnet id that doesn't appear among the supernet's linked rows → HTTP 400"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[]), \
          pytest.raises(HTTPException) as exc_info:
         build_supernet_subnet_children(
@@ -1971,7 +1972,7 @@ def test_build_supernet_subnet_children_returns_direct_children_of_parent_subnet
     row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
                   IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_nested]):
         payload = build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
@@ -1990,7 +1991,7 @@ def test_build_supernet_subnet_children_returns_empty_rows_when_subnet_has_no_ch
     row_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
              IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a]):
         payload = build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
@@ -2007,7 +2008,7 @@ def test_build_supernet_subnet_children_annotates_is_valid_on_child_rows() -> No
     child_inside = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
                     IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, child_inside]):
         payload = build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
@@ -2026,7 +2027,7 @@ def test_load_assigned_subnet_rows_validates_then_returns_all_rows() -> None:
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     rows = [_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), _make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B)]
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc) as mock_load, \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc) as mock_load, \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=rows):
         result = load_assigned_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -2036,7 +2037,7 @@ def test_load_assigned_subnet_rows_validates_then_returns_all_rows() -> None:
 
 def test_load_assigned_subnet_rows_propagates_load_supernet_abort() -> None:
     """An abort raised while validating the supernet propagates out"""
-    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+    with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException):
         load_assigned_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -2045,8 +2046,8 @@ def test_load_assigned_subnet_rows_propagates_load_supernet_abort() -> None:
 #                                       build_invalid_subnet_overview                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_invalid_subnet_overview_propagates_load_supernet_aborts() -> None:
-    """An abort raised by _load_supernet_object propagates out of the orchestrator"""
-    with patch(f'{PATH}._load_supernet_object', side_effect=NotFound('not found')), \
+    """An abort raised by load_supernet_object propagates out of the orchestrator"""
+    with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
         build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -2059,7 +2060,7 @@ def test_build_invalid_subnet_overview_returns_envelope_keys_matching_main_overv
     row_invalid = {**_make_row(SUBNET_OBJECT_ID_A, '192.168.0.0/24'),
                    IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_invalid]):
         payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -2082,7 +2083,7 @@ def test_build_invalid_subnet_overview_returns_only_invalid_subnets_in_rows() ->
                           IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A,
                           IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(
              f'{PATH}._build_linked_subnet_rows',
              return_value=[row_valid, row_invalid_top, row_invalid_nested],
@@ -2100,7 +2101,7 @@ def test_build_invalid_subnet_overview_returns_empty_rows_when_every_subnet_is_v
     row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
                  IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid]):
         payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
@@ -2117,7 +2118,7 @@ def test_build_invalid_subnet_overview_kpi_summary_matches_main_overview() -> No
     row_invalid = {**_make_row(SUBNET_OBJECT_ID_B, '192.168.0.0/24'),
                    IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 2}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid, row_invalid]):
         main_payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
         invalid_payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
@@ -2134,7 +2135,7 @@ def test_build_invalid_subnet_overview_paginates_the_invalid_list() -> None:
         {**_make_row(203, '192.168.2.0/24'), IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0},
     ]
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=invalid_rows):
         payload = build_invalid_subnet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, page=1, page_size=2,
@@ -2155,7 +2156,7 @@ def test_build_invalid_subnet_overview_search_filters_subnets_total_but_not_inva
     invalid_172 = {**_make_row(202, '172.16.0.0/24'),
                    IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=supernet_doc), \
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[invalid_192, invalid_172]):
         payload = build_invalid_subnet_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='192.168',
@@ -2175,9 +2176,35 @@ def test_build_invalid_subnet_overview_marks_every_row_invalid_when_supernet_cid
     row_b = {**_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B),
              IpamOverviewKey.PARENT_ID: None, IpamOverviewKey.USED_IPS: 0}
 
-    with patch(f'{PATH}._load_supernet_object', return_value=broken_supernet), \
+    with patch(f'{PATH}.load_supernet_object', return_value=broken_supernet), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_b]):
         payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert payload[IpamOverviewKey.INVALID_COUNT] == 2
     assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.TOTAL] == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             resolve_supernet_family                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_resolve_supernet_family_loads_then_resolves_via_supernet_family() -> None:
+    """The supernet is loaded through the validating loader and its family resolved CIDR-first"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, '2001:db8::/32')
+
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc) as mock_load:
+        family = resolve_supernet_family(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+
+    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    assert family == IpAddressFamily.IPV6
+
+
+def test_resolve_supernet_family_defaults_to_ipv4_without_cidr_or_selector() -> None:
+    """A supernet with neither parsable CIDR nor selector resolves to the IPv4 legacy default"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, None)
+
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc):
+        family = resolve_supernet_family(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert family == IpAddressFamily.IPV4

@@ -63,6 +63,7 @@ class InterfaceField(BaseStrEnum):
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
     MAC = 'dg-interface-mac-address'
+    TYPE = 'dg-interface-type'
 
 
 class IpAddressFamily(BaseStrEnum):
@@ -206,10 +207,52 @@ class IpamValidationDetailKey(BaseStrEnum):
     SUPERNET_TYPE = 'supernet_type'
     CIDR_FAMILY = 'cidr_family'
     SUPERNET_FAMILY = 'supernet_family'
+    INTERFACE_TYPE = 'interface_type'
+    IP_FAMILY = 'ip_family'
+    SUBNET_FAMILY = 'subnet_family'
 
     # Generic fall-throughs
     STORED_VALUE = 'stored_value'
     REFERENCES = 'references'
+
+
+class IpamValidationRequestKey(BaseStrEnum):
+    """
+    Request-body keys accepted by the IPAM pre-validation routes (/ipam/validate/*)
+
+    Names every JSON body field the four inline pre-check routes read, so route parsing and
+    the frontend stay aligned on field names. ROWS / ROW_INDEX / SUBNET_ID / IP_ADDRESS /
+    INTERFACE_TYPE / EXCLUDE_OBJECT_ID belong to the interface batch route; NETWORK_RANGE,
+    the two selector keys and the parent / exclusion ids belong to the subnet / supernet /
+    vlan candidate routes. Keys of the response envelope live in IpamValidationResponseKey,
+    keys inside an error's 'details' dict in IpamValidationDetailKey
+    """
+    # Subnet / supernet / vlan candidate routes
+    NETWORK_RANGE = 'network_range'
+    SUBNET_TYPE = 'subnet_type'
+    SUPERNET_TYPE = 'supernet_type'
+    SUBNET_ID = 'subnet_id'
+    PARENT_SUPERNET_ID = 'parent_supernet_id'
+    EXCLUDE_SUBNET_ID = 'exclude_subnet_id'
+
+    # Interface batch route
+    ROWS = 'rows'
+    ROW_INDEX = 'row_index'
+    IP_ADDRESS = 'ip_address'
+    INTERFACE_TYPE = 'interface_type'
+    EXCLUDE_OBJECT_ID = 'exclude_object_id'
+
+
+class IpamValidationResponseKey(BaseStrEnum):
+    """
+    Response-envelope keys returned by every IPAM pre-validation route (/ipam/validate/*)
+
+    VALID is the boolean summary flag (True when the error list is empty); ERRORS carries the
+    structured error list whose per-error keys are named in ValidationErrorKey and whose
+    'details' keys are named in IpamValidationDetailKey
+    """
+    VALID = 'valid'
+    ERRORS = 'errors'
 
 
 class IpamOverviewKey(BaseStrEnum):
@@ -291,6 +334,38 @@ class IpamOverviewKey(BaseStrEnum):
     USED_COUNT = 'used_count'
     TYPE_STATS = 'type_stats'
 
+    # Single-sector drill-down (subnet sector route): request param + response echo
+    SECTOR_START = 'sector_start'
+    SECTOR = 'sector'
+
+
+class IpamTreeKey(BaseStrEnum):
+    """
+    Output payload keys returned by the IPAM sidebar-tree routes
+
+    Names every dict key emitted to the frontend by the tree builders
+    (cmdb.framework.ipam.tree_overview). SUPERNETS and UNASSIGNED are the two blocks of the
+    initial tree payload: a flat list of every SUPERNET (each entry carrying HAS_CHILDREN so
+    the FE can render an expand caret without a probe request) and a flat list of every
+    SUBNET without a parent supernet. CHILDREN is the recursive nesting key of the
+    per-supernet subtree payload. The node-level keys (NAME, CIDR, TYPE, HAS_CHILDREN) are
+    scoped here even where their string values coincide with IpamOverviewKey members because
+    the tree nodes form their own wire schema: TYPE carries the node's address family
+    (IpAddressFamily token), unlike the overview routes where 'type' is a type-filter query
+    parameter. The node's 'public_id' key is CmdbObjectKey.PUBLIC_ID, matching the overview
+    rows
+    """
+    # Envelope blocks of the tree payloads
+    SUPERNETS = 'supernets'
+    UNASSIGNED = 'unassigned'
+    CHILDREN = 'children'
+
+    # Per-node fields
+    NAME = 'name'
+    CIDR = 'cidr'
+    TYPE = 'type'
+    HAS_CHILDREN = 'has_children'
+
 
 class IpamRowStatus(BaseStrEnum):
     """
@@ -310,15 +385,32 @@ class IpamUnassignKey(BaseStrEnum):
 
     SUBNET_IDS is the request-body field of the supernet route carrying the list of subnet
     public_ids the caller asks to detach from the supernet. IPS is the request-body field of
-    the subnet route carrying the list of canonical IPv4 strings whose dg-ipam-interface rows
-    should be removed from their owner CmdbObjects. UNASSIGNED_COUNT is the response field
-    echoing how many entries the route actually cleared. All three are scoped to the unassign
+    the subnet route carrying the list of canonical IP strings whose dg-ipam-interface rows
+    should be unassigned from their owner CmdbObjects. MODE is the optional request-body field
+    of the subnet route selecting whether to clear the subnet reference or delete the whole row
+    (see IpamUnassignMode); it is also echoed in the response. UNASSIGNED_COUNT is the response
+    field echoing how many rows the route actually affected. All four are scoped to the unassign
     routes alone - keys shared with the read-side overview payload live in IpamOverviewKey
     instead
     """
     SUBNET_IDS = 'subnet_ids'
     IPS = 'ips'
+    MODE = 'mode'
     UNASSIGNED_COUNT = 'unassigned_count'
+
+
+class IpamUnassignMode(BaseStrEnum):
+    """
+    Allowed values of the subnet unassign route's 'mode' field
+
+    REFERENCE clears only the dg-interface-subnet reference on each matching dg-ipam-interface
+    row (the row, its IP and MAC are kept; the row is just detached from the subnet). ROW deletes
+    the whole matching row from its owner object. The mode applies to every IP in one request -
+    it is not chosen per row. REFERENCE is the default when the field is omitted, preserving the
+    original behaviour
+    """
+    REFERENCE = 'reference'
+    ROW = 'row'
 
 
 class IpamBucketLabel(BaseStrEnum):
@@ -396,3 +488,21 @@ class IpamExport:
     IP_RANGE_SEPARATOR: str = ' - '
     MIMETYPE: str = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     FILENAME_TEMPLATE: str = 'supernet_{public_id}_subnets_{timestamp}.xlsx'
+
+
+class IpamSubnetIpsExport:
+    """
+    Constants for the subnet 'IP overview' Excel (.xlsx) export
+
+    SHEET_TITLE names the single worksheet; HEADERS is the ordered column row, identical for both
+    address families (the family difference is which rows are emitted, not which columns). The
+    columns mirror the overview IP table: the address, its type label, its status, the assigned
+    owner's summary line and its MAC. MAX_EXPORT_ROWS caps how many IP rows may be exported - an
+    export that would exceed it is rejected (HTTP 400) and no workbook is built; the counted volume
+    is the IPv4 assignable count (free + assigned) or the IPv6 assigned count. FILENAME_TEMPLATE
+    builds the download filename. The OpenXML content type is shared via IpamExport.MIMETYPE
+    """
+    SHEET_TITLE: str = 'Subnet IPs'
+    HEADERS: list[str] = ['IP', 'Type', 'Status', 'Assigned To', 'MAC Address']
+    MAX_EXPORT_ROWS: int = 2500
+    FILENAME_TEMPLATE: str = 'subnet_{public_id}_ips_{timestamp}.xlsx'
