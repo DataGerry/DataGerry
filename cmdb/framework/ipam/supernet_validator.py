@@ -23,7 +23,7 @@ check is a small helper to remain unit-testable, mirroring subnet_validator
 """
 from typing import Any
 
-from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
+from cmdb.models.special_type_model.ipam_constants import SupernetField, IpamValidationDetailKey
 from cmdb.utils import BaseStrEnum, build_error
 from cmdb.framework.ipam.cidr import Network, network_family, validate_canonical_cidr_value
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -35,6 +35,7 @@ from cmdb.framework.ipam.cidr import Network, network_family, validate_canonical
 class SupernetErrorCode(BaseStrEnum):
     """Stable codes for structured supernet validation errors"""
     CIDR_INVALID = 'cidr_invalid'
+    TYPE_MISSING = 'type_missing'
     TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
 
 
@@ -60,23 +61,31 @@ def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict
 
 def _check_type_matches_family(candidate: Network, supernet_type: str | None) -> list[dict[str, Any]]:
     """
-    Validates the SUPERNET's 'dg-supernet-type' selector agrees with the CIDR's actual family
+    Validates the SUPERNET's 'dg-supernet-type' selector is set and agrees with the CIDR's
+    actual family
 
-    The check is skipped when no supernet_type is supplied (the pre-validation route may omit it),
-    so callers that cannot provide the selector are not forced to. When supplied, an 'ipv4'
-    selector on an IPv6 CIDR (or vice versa) emits TYPE_FAMILY_MISMATCH. An unrecognised selector
-    value is treated as not matching the candidate's family
+    The selector is required: a missing (None) value emits TYPE_MISSING - the field is a
+    required SELECT in the SUPERNET schema and the address family is part of the supernet's
+    identity, so a legacy object without the value must be repaired on its next save (the
+    stored-data backfill is part of the planned baseline migration). When supplied, an 'ipv4'
+    selector on an IPv6 CIDR (or vice versa) emits TYPE_FAMILY_MISMATCH. An unrecognised
+    selector value is treated as not matching the candidate's family
 
     Args:
         candidate (Network): The parsed candidate CIDR
-        supernet_type (str | None): The 'dg-supernet-type' value ('ipv4' / 'ipv6'), or None to skip
+        supernet_type (str | None): The 'dg-supernet-type' value ('ipv4' / 'ipv6'), or None
+            when the candidate carries no selector value
 
     Returns:
-        list[dict[str, Any]]: A single-element error list on mismatch, empty when consistent
-            or when no supernet_type was supplied
+        list[dict[str, Any]]: A single-element error list on a missing selector or a mismatch,
+            empty when consistent
     """
     if supernet_type is None:
-        return []
+        return [build_error(
+            SupernetErrorCode.TYPE_MISSING,
+            f"Supernet type ('{SupernetField.TYPE.value}') is required",
+            {IpamValidationDetailKey.CANDIDATE: str(candidate)},
+        )]
 
     actual_family: str = network_family(candidate)
 
@@ -102,13 +111,15 @@ def validate_supernet(network_range: str, supernet_type: str | None = None) -> l
     Validates a candidate SUPERNET CmdbObject's network range and address family
 
     Returns the accumulated list of errors so the caller can render or abort. An empty list means
-    valid. When ``supernet_type`` is supplied it must agree with the CIDR's actual family. There
+    valid. The ``supernet_type`` selector is required once the CIDR parses: a missing value is
+    reported as TYPE_MISSING and a supplied value must agree with the CIDR's actual family. There
     is no parent / sibling / containment check - a supernet stands on its own
 
     Args:
         network_range (str): The candidate IPv4 or IPv6 CIDR (must be canonical, host bits zeroed)
-        supernet_type (str | None): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); when given
-            it is cross-checked against the CIDR family. None skips the family-vs-type check
+        supernet_type (str | None): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); required -
+            None is reported as TYPE_MISSING, a given value is cross-checked against the CIDR
+            family
 
     Returns:
         list[dict[str, Any]]: Structured validation errors; empty when the candidate is valid

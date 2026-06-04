@@ -48,6 +48,7 @@ from cmdb.framework.ipam.references import resolve_special_type_id
 class SubnetErrorCode(BaseStrEnum):
     """Stable codes for structured subnet validation errors"""
     CIDR_INVALID = 'cidr_invalid'
+    TYPE_MISSING = 'type_missing'
     TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
     PARENT_SUPERNET_TYPE_MISSING = 'parent_supernet_type_missing'
     PARENT_SUPERNET_NOT_FOUND = 'parent_supernet_not_found'
@@ -132,23 +133,31 @@ def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict
 
 def _check_type_matches_family(candidate: Network, subnet_type: str | None) -> list[dict[str, Any]]:
     """
-    Validates the SUBNET's 'dg-subnet-type' selector agrees with the CIDR's actual address family
+    Validates the SUBNET's 'dg-subnet-type' selector is set and agrees with the CIDR's actual
+    address family
 
-    The check is skipped when no subnet_type is supplied (the pre-validation route may omit it),
-    so callers that cannot provide the selector are not forced to. When supplied, an 'ipv4'
+    The selector is required: a missing (None) value emits TYPE_MISSING - the field is a
+    required SELECT in the SUBNET schema and the address family is part of the subnet's
+    identity, so a legacy object without the value must be repaired on its next save (the
+    stored-data backfill is part of the planned baseline migration). When supplied, an 'ipv4'
     selector on an IPv6 CIDR (or vice versa) emits TYPE_FAMILY_MISMATCH. An unrecognised
     selector value is treated as not matching the candidate's family
 
     Args:
         candidate (Network): The parsed candidate CIDR
-        subnet_type (str | None): The 'dg-subnet-type' value ('ipv4' / 'ipv6'), or None to skip
+        subnet_type (str | None): The 'dg-subnet-type' value ('ipv4' / 'ipv6'), or None when
+            the candidate carries no selector value
 
     Returns:
-        list[dict[str, Any]]: A single-element error list on mismatch, empty when consistent
-            or when no subnet_type was supplied
+        list[dict[str, Any]]: A single-element error list on a missing selector or a mismatch,
+            empty when consistent
     """
     if subnet_type is None:
-        return []
+        return [build_error(
+            SubnetErrorCode.TYPE_MISSING,
+            f"Subnet type ('{SubnetField.TYPE.value}') is required",
+            {IpamValidationDetailKey.CANDIDATE: str(candidate)},
+        )]
 
     actual_family: str = network_family(candidate)
 
@@ -319,8 +328,9 @@ def validate_subnet(
     reference
 
     Returns the accumulated list of errors so the caller can render or abort. An empty list
-    means valid. When ``subnet_type`` is supplied it must agree with the CIDR's actual family,
-    and when a ``parent_supernet_id`` is supplied the candidate's family must match the parent
+    means valid. The ``subnet_type`` selector is required once the CIDR parses: a missing value
+    is reported as TYPE_MISSING and a supplied value must agree with the CIDR's actual family.
+    When a ``parent_supernet_id`` is supplied the candidate's family must match the parent
     supernet's family
 
     Args:
@@ -330,8 +340,9 @@ def validate_subnet(
         parent_supernet_id (int | None): Chosen SUPERNET object id when applicable
         exclude_subnet_id (int | None): Self-id during edits, so the candidate doesn't trip
             sibling-overlap checks against its own pre-edit state
-        subnet_type (str | None): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); when given it
-            is cross-checked against the CIDR family. None skips the family-vs-type check
+        subnet_type (str | None): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); required -
+            None is reported as TYPE_MISSING, a given value is cross-checked against the CIDR
+            family
 
     Returns:
         list[dict[str, Any]]: Structured validation errors; empty when the candidate is valid

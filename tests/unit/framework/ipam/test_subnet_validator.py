@@ -24,6 +24,7 @@ types_manager.get_one_by; for the orchestrator both type lookups co-occur, so ge
 side_effect that switches on the SpecialType in the filter
 """
 from typing import Any
+from ipaddress import IPv4Network
 
 from unittest.mock import MagicMock
 
@@ -123,7 +124,7 @@ def test_check_canonical_cidr_returns_network_and_no_errors_for_canonical_input(
 
     assert network is not None
     assert str(network) == VALID_CANDIDATE_RANGE
-    assert errors == []
+    assert not errors
 
 
 def test_check_canonical_cidr_reports_cidr_invalid_for_garbage_input() -> None:
@@ -148,19 +149,23 @@ def test_check_canonical_cidr_rejects_non_canonical_cidr_with_host_bits_set() ->
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           _check_type_matches_family                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_check_type_matches_family_returns_empty_when_subnet_type_is_none() -> None:
-    """A None selector (route omitted it) skips the family-vs-type check entirely"""
-    assert _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), None) == []
+def test_check_type_matches_family_reports_type_missing_when_subnet_type_is_none() -> None:
+    """A None selector emits TYPE_MISSING - the selector is required on every subnet"""
+    errors = _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), None)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.TYPE_MISSING
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.CANDIDATE] == VALID_CANDIDATE_RANGE
 
 
 def test_check_type_matches_family_returns_empty_when_ipv4_selector_matches_ipv4_cidr() -> None:
     """An 'ipv4' selector on an IPv4 CIDR is consistent → no errors"""
-    assert _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), IpAddressFamily.IPV4) == []
+    assert not _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), IpAddressFamily.IPV4)
 
 
 def test_check_type_matches_family_returns_empty_when_ipv6_selector_matches_ipv6_cidr() -> None:
     """An 'ipv6' selector on an IPv6 CIDR is consistent → no errors"""
-    assert _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE_V6), IpAddressFamily.IPV6) == []
+    assert not _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE_V6), IpAddressFamily.IPV6)
 
 
 def test_check_type_matches_family_reports_mismatch_for_ipv4_selector_on_ipv6_cidr() -> None:
@@ -269,7 +274,6 @@ def test_find_subnets_by_field_builds_type_scoped_elem_match_filter() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def _candidate_network() -> Any:
     """Returns the parsed IPv4Network used as 'candidate' in containment tests."""
-    from ipaddress import IPv4Network
     return IPv4Network(VALID_CANDIDATE_RANGE)
 
 
@@ -344,8 +348,6 @@ def test_check_in_supernet_reports_broken_state_when_supernet_range_is_non_strin
 
 def test_check_in_supernet_reports_not_in_supernet_when_candidate_outside_range() -> None:
     """A candidate that doesn't fit inside the parent supernet → NOT_IN_PARENT_SUPERNET"""
-    from ipaddress import IPv4Network
-
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE)]
     types_manager = MagicMock()
@@ -371,7 +373,7 @@ def test_check_in_supernet_returns_no_errors_when_candidate_fits_supernet() -> N
 
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_in_supernet_returns_no_errors_when_ipv6_candidate_fits_ipv6_supernet() -> None:
@@ -385,7 +387,7 @@ def test_check_in_supernet_returns_no_errors_when_ipv6_candidate_fits_ipv6_super
         objects_manager, types_manager, parse_cidr(VALID_CANDIDATE_RANGE_V6), SUPERNET_OBJECT_ID,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_in_supernet_reports_family_mismatch_for_ipv6_candidate_under_ipv4_supernet() -> None:
@@ -419,7 +421,7 @@ def test_check_sibling_overlap_returns_empty_when_subnet_cmdbtype_not_defined() 
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    assert errors == []
+    assert not errors
     objects_manager.find_objects.assert_not_called()
 
 
@@ -434,7 +436,7 @@ def test_check_sibling_overlap_returns_empty_when_no_siblings_under_parent() -> 
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_sibling_overlap_skips_excluded_subnet_id() -> None:
@@ -449,7 +451,7 @@ def test_check_sibling_overlap_skips_excluded_subnet_id() -> None:
         exclude_subnet_id=SIBLING_SUBNET_ID,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_sibling_overlap_skips_sibling_with_unparseable_range() -> None:
@@ -463,7 +465,7 @@ def test_check_sibling_overlap_skips_sibling_with_unparseable_range() -> None:
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_sibling_overlap_reports_overlap_with_one_sibling() -> None:
@@ -525,9 +527,11 @@ def test_validate_subnet_skips_parent_checks_when_no_parent_supernet_id_provided
     objects_manager = MagicMock()
     types_manager = MagicMock()
 
-    errors = validate_subnet(objects_manager, types_manager, VALID_CANDIDATE_RANGE)
+    errors = validate_subnet(
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE, subnet_type=IpAddressFamily.IPV4,
+    )
 
-    assert errors == []
+    assert not errors
     objects_manager.find_objects.assert_not_called()
     types_manager.get_one_by.assert_not_called()
 
@@ -546,10 +550,11 @@ def test_validate_subnet_returns_empty_when_valid_cidr_and_supernet_and_no_sibli
     })
 
     errors = validate_subnet(
-        objects_manager, types_manager, VALID_CANDIDATE_RANGE, parent_supernet_id=SUPERNET_OBJECT_ID,
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE,
+        parent_supernet_id=SUPERNET_OBJECT_ID, subnet_type=IpAddressFamily.IPV4,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_validate_subnet_accumulates_supernet_and_overlap_errors() -> None:
@@ -590,9 +595,10 @@ def test_validate_subnet_excludes_self_id_from_sibling_overlap_during_edit() -> 
     errors = validate_subnet(
         objects_manager, types_manager, VALID_CANDIDATE_RANGE,
         parent_supernet_id=SUPERNET_OBJECT_ID, exclude_subnet_id=SUBNET_OBJECT_ID,
+        subnet_type=IpAddressFamily.IPV4,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_validate_subnet_reports_type_family_mismatch_without_touching_db() -> None:
@@ -627,4 +633,4 @@ def test_validate_subnet_passes_for_consistent_ipv6_candidate_in_ipv6_supernet()
         parent_supernet_id=SUPERNET_OBJECT_ID, subnet_type=IpAddressFamily.IPV6,
     )
 
-    assert errors == []
+    assert not errors

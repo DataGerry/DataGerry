@@ -36,6 +36,7 @@ from cmdb.database.updater.versions.updater_20251203 import Update20251203
 from cmdb.database.updater.versions.updater_20260225 import Update20260225
 from cmdb.database.updater.versions.updater_20260226 import Update20260226
 from cmdb.database.updater.versions.updater_20260417 import Update20260417
+from cmdb.database.updater.versions.updater_20260604 import Update20260604
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -56,6 +57,7 @@ def _new(updater_cls: type[BaseDatabaseUpdate]) -> BaseDatabaseUpdate:
     (Update20260225, 20260225),
     (Update20260226, 20260226),
     (Update20260417, 20260417),
+    (Update20260604, 20260604),
 ], ids=str)
 def test_creation_date_and_description(updater_cls: type[BaseDatabaseUpdate], expected_date: int) -> None:
     """Each updater reports the date encoded in its name and a non-empty description"""

@@ -66,6 +66,7 @@ class InterfaceErrorCode(BaseStrEnum):
     IP_NOT_IN_SUBNET = 'ip_not_in_subnet'
     IP_RESERVED = 'ip_reserved'
     IP_DUPLICATE = 'ip_duplicate'
+    TYPE_MISSING = 'type_missing'
     TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
 
 
@@ -619,10 +620,10 @@ def find_type_family_mismatches(
     For every row carrying a type token, the token is checked against the address family of
     the row's IP (when an IP is present) and against the CIDR family of the referenced subnet
     (when a subnet ref is present), so a token can produce up to two mismatch errors per row.
-    Rows without a token are skipped entirely - legacy rows pre-date the selector, mirroring
-    the skip-when-missing policy of the subnet / supernet selectors. Unknown subnet refs,
-    unparsable IPs and unparsable subnet CIDRs are skipped here because the per-row check
-    reports those states under their own codes
+    Rows without a token are skipped here - their absence is reported as TYPE_MISSING by
+    ``find_missing_types`` when the row carries data. Unknown subnet refs, unparsable IPs and
+    unparsable subnet CIDRs are skipped here because the per-row check reports those states
+    under their own codes
 
     The referenced subnets of all typed rows are loaded in one batch query, so the check adds
     at most one DB round-trip regardless of row count
@@ -660,6 +661,46 @@ def find_type_family_mismatches(
     return errors
 
 
+def find_missing_types(
+    rows: list[tuple[int, int | None, str | None, str | None]],
+) -> list[dict[str, Any]]:
+    """
+    Reports interface rows that carry data but no 'dg-interface-type' token
+
+    The type selector is required on every row that holds a subnet reference and/or an IP -
+    the field is a required SELECT in the dg-ipam-interface template and the family drives the
+    subnet picker, so a data-carrying row without it must be repaired on its next save (the
+    stored-data backfill is part of the planned baseline migration). Completely empty
+    placeholder rows stay silent, consistent with the completeness policy of
+    ``find_subnet_without_ip``. Token validity is not judged here - an unrecognised token is
+    surfaced by ``find_type_family_mismatches`` against the row's actual data
+
+    Args:
+        rows (list[tuple[int, int | None, str | None, str | None]]): (row_index, subnet_ref,
+            ip, interface_type) tuples
+
+    Returns:
+        list[dict[str, Any]]: One TYPE_MISSING error per data-carrying row without a token,
+            with details carrying the row index
+    """
+    errors: list[dict[str, Any]] = []
+
+    for row_index, subnet_ref, ip, interface_type in rows:
+        if interface_type is not None:
+            continue
+
+        if subnet_ref is None and ip is None:
+            continue
+
+        errors.append(build_error(
+            InterfaceErrorCode.TYPE_MISSING,
+            f"Interface row {row_index}: type ('{InterfaceField.TYPE.value}') is required",
+            {IpamValidationDetailKey.ROW_INDEX: row_index},
+        ))
+
+    return errors
+
+
 def validate_interface_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -675,10 +716,12 @@ def validate_interface_rows(
          placeholder rows pass through silently
       2. Cross-row duplicate detection via find_intra_submission_duplicates so two rows on the
          same form sharing a (subnet, IP) pair are flagged before they hit the DB
-      3. Type-family consistency via find_type_family_mismatches so a row whose
+      3. Required-type check via find_missing_types so a data-carrying row without a
+         'dg-interface-type' token is flagged; empty placeholder rows stay silent
+      4. Type-family consistency via find_type_family_mismatches so a row whose
          'dg-interface-type' token contradicts its IP's family or its subnet's CIDR family is
-         flagged; rows without a token are skipped (legacy rows pre-date the selector)
-      4. Per-row validation via validate_interface for each row that has both subnet_ref and IP
+         flagged
+      5. Per-row validation via validate_interface for each row that has both subnet_ref and IP
          set; the row's index is injected into every per-row error's 'details.row_index' so the
          caller can map errors back to the originating row
 
@@ -701,6 +744,7 @@ def validate_interface_rows(
 
     errors: list[dict[str, Any]] = find_subnet_without_ip(rows)
     errors.extend(find_intra_submission_duplicates(rows))
+    errors.extend(find_missing_types(rows))
     errors.extend(find_type_family_mismatches(objects_manager, types_manager, rows))
 
     for row_index, subnet_ref, ip, _ in rows:

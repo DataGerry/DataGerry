@@ -44,7 +44,7 @@ def test_check_canonical_cidr_returns_network_and_no_errors_for_canonical_ipv4()
 
     assert network is not None
     assert str(network) == VALID_RANGE_V4
-    assert errors == []
+    assert not errors
 
 
 def test_check_canonical_cidr_returns_network_and_no_errors_for_canonical_ipv6() -> None:
@@ -53,7 +53,7 @@ def test_check_canonical_cidr_returns_network_and_no_errors_for_canonical_ipv6()
 
     assert network is not None
     assert str(network) == VALID_RANGE_V6
-    assert errors == []
+    assert not errors
 
 
 def test_check_canonical_cidr_reports_cidr_invalid_for_garbage_input() -> None:
@@ -69,19 +69,23 @@ def test_check_canonical_cidr_reports_cidr_invalid_for_garbage_input() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           _check_type_matches_family                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_check_type_matches_family_returns_empty_when_supernet_type_is_none() -> None:
-    """A None selector (route omitted it) skips the family-vs-type check entirely"""
-    assert _check_type_matches_family(parse_cidr(VALID_RANGE_V4), None) == []
+def test_check_type_matches_family_reports_type_missing_when_supernet_type_is_none() -> None:
+    """A None selector emits TYPE_MISSING - the selector is required on every supernet"""
+    errors = _check_type_matches_family(parse_cidr(VALID_RANGE_V4), None)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_MISSING
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.CANDIDATE] == VALID_RANGE_V4
 
 
 def test_check_type_matches_family_returns_empty_when_ipv4_selector_matches_ipv4_cidr() -> None:
     """An 'ipv4' selector on an IPv4 CIDR is consistent -> no errors"""
-    assert _check_type_matches_family(parse_cidr(VALID_RANGE_V4), IpAddressFamily.IPV4) == []
+    assert not _check_type_matches_family(parse_cidr(VALID_RANGE_V4), IpAddressFamily.IPV4)
 
 
 def test_check_type_matches_family_returns_empty_when_ipv6_selector_matches_ipv6_cidr() -> None:
     """An 'ipv6' selector on an IPv6 CIDR is consistent -> no errors"""
-    assert _check_type_matches_family(parse_cidr(VALID_RANGE_V6), IpAddressFamily.IPV6) == []
+    assert not _check_type_matches_family(parse_cidr(VALID_RANGE_V6), IpAddressFamily.IPV6)
 
 
 def test_check_type_matches_family_reports_mismatch_for_ipv6_selector_on_ipv4_cidr() -> None:
@@ -114,16 +118,19 @@ def test_validate_supernet_returns_only_cidr_error_for_invalid_cidr() -> None:
     assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.CIDR_INVALID
 
 
-def test_validate_supernet_returns_empty_for_canonical_cidr_without_type() -> None:
-    """A canonical CIDR with no selector is valid (family check skipped)"""
-    assert validate_supernet(VALID_RANGE_V4) == []
-    assert validate_supernet(VALID_RANGE_V6) == []
+def test_validate_supernet_reports_type_missing_for_canonical_cidr_without_type() -> None:
+    """A canonical CIDR with no selector is rejected: the selector is required"""
+    for valid_range in (VALID_RANGE_V4, VALID_RANGE_V6):
+        errors = validate_supernet(valid_range)
+
+        assert len(errors) == 1
+        assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_MISSING
 
 
 def test_validate_supernet_returns_empty_when_type_matches_family() -> None:
     """A selector that matches the CIDR family is valid, both families"""
-    assert validate_supernet(VALID_RANGE_V4, supernet_type=IpAddressFamily.IPV4) == []
-    assert validate_supernet(VALID_RANGE_V6, supernet_type=IpAddressFamily.IPV6) == []
+    assert not validate_supernet(VALID_RANGE_V4, supernet_type=IpAddressFamily.IPV4)
+    assert not validate_supernet(VALID_RANGE_V6, supernet_type=IpAddressFamily.IPV6)
 
 
 def test_validate_supernet_reports_type_family_mismatch() -> None:

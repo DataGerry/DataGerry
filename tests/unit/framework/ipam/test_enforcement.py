@@ -450,11 +450,14 @@ def test_enforce_supernet_object_emits_cidr_invalid_for_unparseable_range() -> N
     assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.CIDR_INVALID
 
 
-def test_enforce_supernet_object_returns_empty_for_canonical_cidr_without_type() -> None:
-    """A canonical CIDR with no type selector passes (the family check is skipped)"""
+def test_enforce_supernet_object_reports_type_missing_for_canonical_cidr_without_type() -> None:
+    """A canonical CIDR with no type selector is rejected: the selector is required"""
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
 
-    assert not _enforce_supernet_object(candidate)
+    errors = _enforce_supernet_object(candidate)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_MISSING
 
 
 def test_enforce_supernet_object_returns_empty_when_type_matches_cidr_family() -> None:
@@ -482,7 +485,7 @@ def test_enforce_supernet_object_allows_range_change_even_when_child_subnets_wou
     outside the new range: those children surface as is_valid=False in the supernet overview
     so the user can repair or detach them after the fact, instead of the save being blocked
     """
-    candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE)
+    candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, NEW_RANGE, supernet_type=IpAddressFamily.IPV4)
 
     assert not _enforce_supernet_object(candidate)
 

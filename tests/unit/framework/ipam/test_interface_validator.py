@@ -60,6 +60,7 @@ from cmdb.framework.ipam.interface_validator import (
     _load_subnets_by_ids,
     _row_matches,
     find_intra_submission_duplicates,
+    find_missing_types,
     find_subnet_without_ip,
     find_type_family_mismatches,
     validate_interface,
@@ -781,20 +782,23 @@ def test_validate_interface_rows_returns_empty_for_an_empty_batch() -> None:
 
 
 def test_validate_interface_rows_concatenates_batch_and_per_row_errors_in_order() -> None:
-    """Completeness errors come first, then duplicates, then type mismatches, then per-row results"""
+    """Order: completeness, duplicates, missing types, type mismatches, then per-row results"""
     completeness_error = build_error(InterfaceErrorCode.SUBNET_WITHOUT_IP, 'no ip')
     duplicate_error = build_error(InterfaceErrorCode.IP_DUPLICATE, 'twice')
+    missing_type_error = build_error(InterfaceErrorCode.TYPE_MISSING, 'no type')
     type_error = build_error(InterfaceErrorCode.TYPE_FAMILY_MISMATCH, 'wrong family')
     row_error = build_error(InterfaceErrorCode.IP_NOT_IN_SUBNET, 'outside')
     rows: list[tuple[int, int | None, str | None, str | None]] = [(0, SUBNET_OBJECT_ID, '10.0.0.5', None)]
 
     with patch(f'{PATH}.find_subnet_without_ip', return_value=[completeness_error]), \
          patch(f'{PATH}.find_intra_submission_duplicates', return_value=[duplicate_error]), \
+         patch(f'{PATH}.find_missing_types', return_value=[missing_type_error]) as mock_missing_types, \
          patch(f'{PATH}.find_type_family_mismatches', return_value=[type_error]) as mock_type_check, \
          patch(f'{PATH}.validate_interface', return_value=[row_error]):
         errors = validate_interface_rows(MagicMock(), MagicMock(), rows)
 
-    assert errors == [completeness_error, duplicate_error, type_error, row_error]
+    assert errors == [completeness_error, duplicate_error, missing_type_error, type_error, row_error]
+    assert mock_missing_types.call_args.args[0] is rows
     assert mock_type_check.call_args.args[2] is rows
 
 
@@ -1044,3 +1048,31 @@ def test_find_type_family_mismatches_loads_referenced_subnets_in_one_sorted_batc
 
     criteria = objects_manager.find_objects.call_args.args[0]
     assert criteria[CmdbObjectKey.PUBLIC_ID] == {'$in': [SUBNET_OBJECT_ID, SUBNET_OBJECT_ID + 1]}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                find_missing_types                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_find_missing_types_flags_data_carrying_rows_without_a_token() -> None:
+    """Rows with a subnet ref and/or an IP but no type token emit TYPE_MISSING with the row index"""
+    rows: list[tuple[int, int | None, str | None, str | None]] = [
+        (0, SUBNET_OBJECT_ID, None, None),
+        (1, None, '10.0.0.5', None),
+        (2, SUBNET_OBJECT_ID, '10.0.0.7', None),
+    ]
+
+    errors = find_missing_types(rows)
+
+    assert len(errors) == 3
+    assert all(e[ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_MISSING for e in errors)
+    assert [e[ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] for e in errors] == [0, 1, 2]
+
+
+def test_find_missing_types_accepts_typed_rows_and_empty_placeholders() -> None:
+    """A row with a token and a completely empty placeholder row both stay silent"""
+    rows: list[tuple[int, int | None, str | None, str | None]] = [
+        (0, SUBNET_OBJECT_ID, '10.0.0.5', IpAddressFamily.IPV4),
+        (1, None, None, None),
+    ]
+
+    assert not find_missing_types(rows)
