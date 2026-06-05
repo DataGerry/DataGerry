@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, Input } from '@angular/core';
+import {Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 /* -------------------------------------------------------------------------- */
 
@@ -36,6 +36,6 @@ export class GeneralModalComponent {
   @Input() buttonDeny = 'Cancel';
   @Input() buttonAccept = 'Accept';
 
-  constructor(public activeModal: NgbActiveModal) {}
+  public readonly activeModal = inject(NgbActiveModal);
 
 }

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
 import { ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
@@ -36,6 +36,12 @@ import { ReportService } from '../../../services/report.service';
     standalone: false
 })
 export class ReportOverviewComponent implements OnInit, OnDestroy {
+  private readonly reportService = inject(ReportService);
+  private readonly modalService = inject(NgbModal);
+  private readonly toast = inject(ToastService);
+  private readonly router = inject(Router);
+  private readonly loaderService = inject(LoaderService);
+
   private unsubscribe$ = new ReplaySubject<void>(1);
   public reports: Array<any> = [];
   public totalReports: number = 0;
@@ -51,15 +57,6 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
   public columns: Array<any>;
 
   /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
-
-  constructor(
-    private reportService: ReportService,
-    private modalService: NgbModal,
-    private toast: ToastService,
-    private router: Router,
-    private loaderService: LoaderService
-  ) { }
-
 
   ngOnInit(): void {
     this.columns = [

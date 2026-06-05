@@ -16,9 +16,10 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
-    Component,
     EventEmitter,
     Input,
     OnChanges,
@@ -27,7 +28,7 @@ import {
     Output,
     SimpleChanges,
     TemplateRef,
-    ViewChild
+    ViewChild,
 } from '@angular/core';
 import { Subject, finalize, takeUntil } from 'rxjs';
 
@@ -89,12 +90,10 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     private readonly childrenCache = new Map<number, IpamSubnetSummary[]>();
     private readonly destroy$ = new Subject<void>();
 
-    constructor(
-        private readonly ipamOverviewService: IpamOverviewService,
-        private readonly loaderService: LoaderService,
-        private readonly toastService: ToastService,
-        private readonly changesRef: ChangeDetectorRef
-    ) {}
+    private readonly ipamOverviewService = inject(IpamOverviewService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+    private readonly changesRef = inject(ChangeDetectorRef);
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

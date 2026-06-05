@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { StatusService } from '../services/status.service';
 
 @Component({
@@ -9,8 +9,7 @@ import { StatusService } from '../services/status.service';
 })
 export class StatusComponent implements OnInit {
 
-  constructor(private statusService: StatusService) {
-  }
+  private readonly statusService = inject(StatusService);
 
   public ngOnInit(): void {
   }

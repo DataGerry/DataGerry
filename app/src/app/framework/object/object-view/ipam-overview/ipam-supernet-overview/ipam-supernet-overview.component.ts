@@ -16,14 +16,15 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
-    Component,
     Input,
     OnChanges,
     OnDestroy,
     OnInit,
-    SimpleChanges
+    SimpleChanges,
 } from '@angular/core';
 import { FormControl } from '@angular/forms';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -61,6 +62,11 @@ type SubnetViewMode = 'all' | 'invalid';
     standalone: false
 })
 export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestroy {
+    private readonly ipamOverviewService = inject(IpamOverviewService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+    private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
 
@@ -79,14 +85,6 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
 
     private searchTerm = '';
     private readonly destroy$ = new Subject<void>();
-
-    constructor(
-        private readonly ipamOverviewService: IpamOverviewService,
-        private readonly loaderService: LoaderService,
-        private readonly toastService: ToastService,
-        private readonly modalService: NgbModal,
-        private readonly changesRef: ChangeDetectorRef
-    ) {}
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

@@ -17,14 +17,15 @@
 */
 
 import {
-  ChangeDetectionStrategy,
   Component,
+  inject,
+  ChangeDetectionStrategy,
   EventEmitter,
   Input,
   OnDestroy,
   OnInit,
   Output,
-  ViewEncapsulation
+  ViewEncapsulation,
 } from '@angular/core';
 import { Column } from '../../table.types';
 import { UntypedFormArray, UntypedFormBuilder, UntypedFormGroup } from '@angular/forms';
@@ -76,8 +77,7 @@ export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
    */
   @Output() public columnSearchChange: EventEmitter<any[]> = new EventEmitter<any[]>();
 
-  public constructor(private fb: UntypedFormBuilder) {
-  }
+  private readonly fb = inject(UntypedFormBuilder);
 
   /**
    * Parse input field values

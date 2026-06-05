@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, SimpleChanges } from '@angular/core';
 import { User } from '../../../../../management/models/user';
 import { UserService } from '../../../../../management/services/user.service';
 
@@ -34,8 +34,7 @@ export class ObjectLogUserComponent implements OnChanges {
   public logUser: User;
   public userExists: boolean = false;
 
-  constructor(private userService: UserService) {
-  }
+  private readonly userService = inject(UserService);
 
   public ngOnChanges(changes: SimpleChanges): void {
     if (changes.userID !== undefined && changes.userID.isFirstChange()) {

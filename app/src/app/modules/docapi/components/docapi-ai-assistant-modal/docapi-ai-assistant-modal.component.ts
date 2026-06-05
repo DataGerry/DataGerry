@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { firstValueFrom } from 'rxjs';
@@ -41,11 +41,8 @@ export class DocapiAiAssistantModalComponent {
     public isGenerating = false;
     public previewMode: PreviewMode = 'preview';
 
-    constructor(
-        public readonly activeModal: NgbActiveModal,
-        private readonly aiAssistantService: DocapiAiAssistantService
-    ) {
-    }
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly aiAssistantService = inject(DocapiAiAssistantService);
 
 
     public get promptControl(): UntypedFormControl {

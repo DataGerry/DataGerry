@@ -40,6 +40,7 @@
                                                     [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
                     <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
                         <ng-select #locationSelect
+                            [clearable]="clearable"
                             [items]="locationsList"
                             class="ng-select-valid form-select ref-simple-select"
                             [groupBy]="groupByFn"

@@ -17,9 +17,10 @@
 */
 import {
     Component,
+    inject,
     OnInit,
     TemplateRef,
-    ViewChild
+    ViewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -66,16 +67,13 @@ export class ControlmeasuresListComponent implements OnInit {
     public sourceOptions: ExtendableOption[] = [];
     public implementationStateOptions: ExtendableOption[] = [];
 
-    constructor(
-        private router: Router,
-        private toast: ToastService,
-        private loaderService: LoaderService,
-        private modalService: NgbModal,
-        private filterBuilderService: FilterBuilderService,
-        private controlmeasureservice: ControlMeasureService,
-        private extendableOptionService: ExtendableOptionService
-
-    ) { }
+    private readonly router = inject(Router);
+    private readonly toast = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly modalService = inject(NgbModal);
+    private readonly filterBuilderService = inject(FilterBuilderService);
+    private readonly controlmeasureservice = inject(ControlMeasureService);
+    private readonly extendableOptionService = inject(ExtendableOptionService);
 
     ngOnInit(): void {
         this.setupColumns();

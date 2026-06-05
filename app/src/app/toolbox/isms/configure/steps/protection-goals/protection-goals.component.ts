@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -27,12 +27,10 @@ export class ProtectionGoalsComponent implements OnInit {
   public loading = false;
   public columns: Array<any> = [];
 
-  constructor(
-    private protectionGoalService: ProtectionGoalService,
-    private toast: ToastService,
-    private modalService: NgbModal,
-    private loaderService: LoaderService
-  ) { }
+  private readonly protectionGoalService = inject(ProtectionGoalService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+  private readonly loaderService = inject(LoaderService);
 
 
   ngOnInit(): void {

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { ConnectorsService } from './services/connectors.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
@@ -26,9 +26,9 @@ import { LoaderService } from 'src/app/core/services/loader.service';
   standalone: false
 })
 export class ConnectorsComponent implements OnInit {
-  public isLoading$ = this.loaderService.isLoading$;
+  private readonly loaderService = inject(LoaderService);
 
-  constructor(private loaderService: LoaderService) {}
+  public isLoading$ = this.loaderService.isLoading$;
 
   ngOnInit(): void {
   }

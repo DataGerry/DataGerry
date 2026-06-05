@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Output, OnInit } from '@angular/core';
+import { Component, inject, EventEmitter, Output, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { TypeService } from 'src/app/framework/services/type.service';
@@ -43,12 +43,10 @@ export class ExternalObjectSelectorModalComponent implements OnInit {
   public loading = false;
   private objectCache = new Map<number, RenderResult>();
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private typeService: TypeService,
-    private loaderService: LoaderService,
-    private objectService: ObjectService<RenderResult>
-  ) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly typeService = inject(TypeService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly objectService: ObjectService<RenderResult> = inject(ObjectService);
 
   ngOnInit(): void {
     // Fetch all type IDs so objects can be loaded by selector

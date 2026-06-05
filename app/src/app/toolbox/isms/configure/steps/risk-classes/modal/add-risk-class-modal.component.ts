@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
@@ -20,12 +20,10 @@ export class RiskClassModalComponent implements OnInit {
   public isSubmitting = false;
   public isEditMode = false;
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private fb: FormBuilder,
-    private riskClassService: RiskClassService,
-    private toast: ToastService
-  ) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fb = inject(FormBuilder);
+  private readonly riskClassService = inject(RiskClassService);
+  private readonly toast = inject(ToastService);
 
   
   ngOnInit(): void {

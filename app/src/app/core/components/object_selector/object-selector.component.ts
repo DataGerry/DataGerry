@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnInit, Output, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnInit, Output, OnChanges, SimpleChanges } from '@angular/core';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -33,6 +33,12 @@ import { ObjectSearchFilterService } from 'src/app/core/services/object-search-f
     standalone: false
 })
 export class ObjectSelectorComponent implements OnInit, OnChanges {
+  private readonly objectService = inject(ObjectService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly infiniteScrollService = inject(InfiniteScrollService);
+  private readonly objectSearchFilterService = inject(ObjectSearchFilterService);
+
   @Input() typeIds: number[] = [];
   @Input() allObjects = false;
   @Input() multiple = false;
@@ -62,14 +68,6 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
 
   // Unique identifier for infinite scroll
   private readonly scrollUniqueId = 'object-selector-scroll';
-
-  constructor(
-    private objectService: ObjectService,
-    private loaderService: LoaderService,
-    private toast: ToastService,
-    private infiniteScrollService: InfiniteScrollService,
-    private objectSearchFilterService: ObjectSearchFilterService
-  ) {}
 
   ngOnInit(): void {
     this.isLoading$ = this.useInlineLoader ? this.inlineLoading$.asObservable()

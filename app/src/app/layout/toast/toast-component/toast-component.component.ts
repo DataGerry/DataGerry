@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, Input} from '@angular/core';
+import {Component, inject, Input} from '@angular/core';
 import {ToastService} from '../toast.service';
 
 @Component({
@@ -38,8 +38,7 @@ export class ToastComponentComponent {
     return this._toast;
   }
 
-  constructor(public toastService: ToastService) {
-  }
+  public readonly toastService = inject(ToastService);
 
   /**
    * Sets the animation of the Progressbar

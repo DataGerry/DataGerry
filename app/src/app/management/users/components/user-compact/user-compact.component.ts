@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 import { User } from '../../../models/user';
 import { UserService } from '../../../services/user.service';
 import { ReplaySubject } from 'rxjs';
@@ -36,9 +36,7 @@ export class UserCompactComponent implements OnChanges, OnDestroy {
   @Input() public userID: number | null = null;
   @Input() public prefetchedUser: Partial<User> | null = null;
 
-  public constructor(private userService: UserService) {
-
-  }
+  private readonly userService = inject(UserService);
 
   public ngOnChanges(changes: SimpleChanges): void {
     if (changes.prefetchedUser && this.prefetchedUser) {

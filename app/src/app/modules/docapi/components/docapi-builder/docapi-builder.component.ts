@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { AfterViewInit, Component, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
@@ -45,6 +45,13 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     standalone: false
 })
 export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
+    private readonly docapiService = inject(DocapiService);
+    private readonly router = inject(Router);
+    private readonly toast = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+    private readonly fileSaverService = inject(FileSaverService);
+    private readonly loaderService = inject(LoaderService);
+
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
     @Output() public labelChanged = new EventEmitter<string>();
@@ -76,17 +83,6 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-    constructor(
-        private docapiService: DocapiService,
-        private router: Router,
-        private toast: ToastService,
-        private modalService: NgbModal,
-        private fileSaverService: FileSaverService,
-        private loaderService: LoaderService
-    ) {
-
-    }
 
     public ngAfterViewInit(): void {
         this.registerTypeChangeHandlers();

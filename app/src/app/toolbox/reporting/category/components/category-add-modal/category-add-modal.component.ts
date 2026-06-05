@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs';
@@ -30,17 +30,16 @@ import { ReportCategoryService } from '../../../services/report-category.service
     standalone: false
 })
 export class AddCategoryModalComponent implements OnInit {
+    public readonly modal = inject(NgbActiveModal);
+    private readonly categoryService = inject(ReportCategoryService);
+    private readonly toast = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+
     @Input() mode: 'add' | 'edit' | 'delete';
     @Input() categoryData: any = { name: '', predefined: false };
 
     public addCategoryForm: UntypedFormGroup;
     public isLoading$ = this.loaderService.isLoading$;
-
-    constructor(public modal: NgbActiveModal, 
-        private categoryService: ReportCategoryService,
-        private toast: ToastService,
-        private loaderService: LoaderService
-    ) { }
 
     ngOnInit(): void {
         this.addCategoryForm = new UntypedFormGroup({

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnInit, Output } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
@@ -70,12 +70,10 @@ export class ExtendableOptionManagerComponent implements OnInit {
   public editingItemId?: number;
   public editingItemValue = '';
 
-  constructor(
-    private extendableOptionService: ExtendableOptionService,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private modalService: NgbModal
-  ) { }
+  private readonly extendableOptionService = inject(ExtendableOptionService);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly modalService = inject(NgbModal);
 
   ngOnInit(): void {
     // Make a local copy so user can edit them freely
