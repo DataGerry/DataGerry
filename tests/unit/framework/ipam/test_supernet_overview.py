@@ -27,7 +27,7 @@ dedicated tests in this file
 """
 from ipaddress import IPv4Network
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from werkzeug.exceptions import HTTPException, NotFound
@@ -69,7 +69,6 @@ from cmdb.framework.ipam.supernet_overview import (
     _parse_supernet_cidr,
     _percent,
     _prepare_supernet_view,
-    _row_subnet_ref,
     _select_invalid_listed_rows,
     _select_invalid_rows,
     _select_listed_rows,
@@ -683,7 +682,7 @@ def test_sort_and_link_subnets_keeps_ipv6_rows_unlinked_at_the_end() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_index_children_by_parent_returns_empty_dict_for_empty_input() -> None:
     """No rows → no index entries"""
-    assert _index_children_by_parent([]) == {}
+    assert not _index_children_by_parent([])
 
 
 def test_index_children_by_parent_groups_rows_by_parent_id() -> None:
@@ -899,14 +898,14 @@ def test_select_invalid_rows_includes_rows_missing_the_key() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_filter_rows_by_network_substring_returns_empty_for_empty_input() -> None:
     """No rows in → empty list out, no errors"""
-    assert _filter_rows_by_network_substring([], '10.0') == []
+    assert not _filter_rows_by_network_substring([], '10.0')
 
 
 def test_filter_rows_by_network_substring_returns_empty_when_no_row_matches() -> None:
     """Zero matches yields an empty list, not None"""
     rows = [_make_row(1, '10.0.0.0/24'), _make_row(2, '10.1.0.0/24')]
 
-    assert _filter_rows_by_network_substring(rows, '172.16') == []
+    assert not _filter_rows_by_network_substring(rows, '172.16')
 
 
 def test_filter_rows_by_network_substring_returns_matches_in_input_order() -> None:
@@ -1305,82 +1304,41 @@ def test_count_used_ips_per_subnet_returns_empty_counts_for_empty_subnet_ids() -
     counts = _count_used_ips_per_subnet(objects_manager, [])
 
     assert counts == {}
-    objects_manager.find_objects.assert_not_called()
+    objects_manager.aggregate_objects.assert_not_called()
 
 
 def test_count_used_ips_per_subnet_initializes_all_ids_to_zero() -> None:
-    """Every requested subnet id appears in the counts dict, even when zero interface rows reference it"""
+    """Every requested subnet id appears in the counts dict, even with no aggregation rows"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
+    objects_manager.aggregate_objects.return_value = iter([])
 
     counts = _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B])
 
     assert counts == {SUBNET_OBJECT_ID_A: 0, SUBNET_OBJECT_ID_B: 0}
 
 
-def test_count_used_ips_per_subnet_counts_one_row_per_matching_interface_reference() -> None:
-    """Each matching dg-ipam-interface row increments the count for its referenced subnet"""
+def test_count_used_ips_per_subnet_overlays_the_aggregated_totals() -> None:
+    """Aggregation rows ({_id, count}) land on their subnet; unmentioned ids stay zero"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_interface_carrier(public_id=701, subnet_refs=[SUBNET_OBJECT_ID_A]),
-        _make_interface_carrier(public_id=702, subnet_refs=[SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]),
-    ]
+    objects_manager.aggregate_objects.return_value = iter([
+        {'_id': SUBNET_OBJECT_ID_A, IpamOverviewKey.COUNT: 2},
+    ])
 
     counts = _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B])
 
-    assert counts[SUBNET_OBJECT_ID_A] == 2
-    assert counts[SUBNET_OBJECT_ID_B] == 1
+    assert counts == {SUBNET_OBJECT_ID_A: 2, SUBNET_OBJECT_ID_B: 0}
 
 
-def test_count_used_ips_per_subnet_skips_non_interface_mds_sections() -> None:
-    """Sections whose section_id is not the interface template are ignored"""
+def test_count_used_ips_per_subnet_pins_the_aggregation_pipeline() -> None:
+    """The pipeline unwinds the interface rows and groups matching subnet refs server-side"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [{
-        CmdbObjectKey.PUBLIC_ID: 701,
-        CmdbObjectKey.MULTI_DATA_SECTIONS: [
-            {
-                CmdbObjectMdsKey.SECTION_ID: IpamSection.INFORMATION,
-                CmdbObjectMdsKey.VALUES: [
-                    {
-                        CmdbObjectMdsRowKey.DATA: [
-                            {
-                                CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
-                                CmdbObjectFieldKey.VALUE: SUBNET_OBJECT_ID_A,
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    }]
+    objects_manager.aggregate_objects.return_value = iter([])
+    subnet_ids = [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
 
-    counts = _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A])
+    _count_used_ips_per_subnet(objects_manager, subnet_ids)
 
-    assert counts[SUBNET_OBJECT_ID_A] == 0
-
-
-def test_count_used_ips_per_subnet_ignores_subnet_refs_not_in_target_list() -> None:
-    """Rows referencing subnets outside the requested id set do not increment any count"""
-    other_subnet_id: int = 999
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_interface_carrier(public_id=701, subnet_refs=[other_subnet_id]),
-    ]
-
-    counts = _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A])
-
-    assert counts[SUBNET_OBJECT_ID_A] == 0
-
-
-def test_count_used_ips_per_subnet_uses_in_filter_to_scope_the_db_query() -> None:
-    """Mongo filter pins the nested $elemMatch chain with $in over the subnet id list"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-
-    _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B])
-
-    objects_manager.find_objects.assert_called_once_with(
-        {
+    objects_manager.aggregate_objects.assert_called_once_with([
+        {'$match': {
             CmdbObjectKey.MULTI_DATA_SECTIONS: {
                 '$elemMatch': {
                     CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
@@ -1389,48 +1347,27 @@ def test_count_used_ips_per_subnet_uses_in_filter_to_scope_the_db_query() -> Non
                             CmdbObjectMdsRowKey.DATA: {
                                 '$elemMatch': {
                                     CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
-                                    CmdbObjectFieldKey.VALUE: {
-                                        '$in': [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
-                                    },
+                                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
                                 },
                             },
                         },
                     },
                 },
             },
-        },
-        as_dict=True,
-    )
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                _row_subnet_ref                                                       #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_row_subnet_ref_returns_subnet_value_when_present() -> None:
-    """A row containing the subnet field returns its value"""
-    row = {
-        CmdbObjectMdsRowKey.DATA: [
-            {CmdbObjectFieldKey.NAME: InterfaceField.SUBNET, CmdbObjectFieldKey.VALUE: SUBNET_OBJECT_ID_A},
-        ],
-    }
-
-    assert _row_subnet_ref(row) == SUBNET_OBJECT_ID_A
-
-
-def test_row_subnet_ref_returns_none_when_subnet_field_absent() -> None:
-    """A row with no subnet field entry returns None"""
-    row = {
-        CmdbObjectMdsRowKey.DATA: [
-            {CmdbObjectFieldKey.NAME: InterfaceField.IP, CmdbObjectFieldKey.VALUE: '10.0.0.5'},
-        ],
-    }
-
-    assert _row_subnet_ref(row) is None
-
-
-def test_row_subnet_ref_returns_none_when_data_key_missing() -> None:
-    """A row missing the 'data' key is treated as empty, returning None"""
-    assert _row_subnet_ref({}) is None
+        }},
+        {'$unwind': '$multi_data_sections'},
+        {'$match': {'multi_data_sections.section_id': IpamSection.INTERFACE}},
+        {'$unwind': '$multi_data_sections.values'},
+        {'$unwind': '$multi_data_sections.values.data'},
+        {'$match': {
+            'multi_data_sections.values.data.name': InterfaceField.SUBNET,
+            'multi_data_sections.values.data.value': {'$in': subnet_ids},
+        }},
+        {'$group': {
+            '_id': '$multi_data_sections.values.data.value',
+            IpamOverviewKey.COUNT: {'$sum': 1},
+        }},
+    ])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1492,7 +1429,6 @@ def test_build_linked_subnet_rows_returns_empty_when_no_subnets_under_supernet()
 
 def any_value() -> Any:
     """Returns an `ANY`-style matcher for MagicMock assertions on positional args we don't care about."""
-    from unittest.mock import ANY
     return ANY
 
 

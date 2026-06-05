@@ -728,9 +728,11 @@ def _count_used_ips_per_subnet(
     """
     Counts dg-ipam-interface rows by referenced subnet across every CmdbObject in the system
 
-    A single Mongo query selects candidate CmdbObjects whose interface section references
-    any of the given subnet ids. Bucketing happens in Python to keep the pipeline portable
-    (Cosmos Mongo API friendly: no aggregation stages required)
+    A single aggregation selects candidate CmdbObjects whose interface section references any
+    of the given subnet ids, unwinds the interface rows and counts the matching
+    dg-interface-subnet entries server-side, so only the tiny per-subnet totals leave the
+    database instead of every carrier document. Only $match / $unwind / $group are used - all
+    available since MongoDB 4.4
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -745,55 +747,46 @@ def _count_used_ips_per_subnet(
     if not subnet_ids:
         return counts
 
-    criteria: dict[str, Any] = {
-        CmdbObjectKey.MULTI_DATA_SECTIONS: {
-            '$elemMatch': {
-                CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
-                CmdbObjectMdsKey.VALUES: {
-                    '$elemMatch': {
-                        CmdbObjectMdsRowKey.DATA: {
-                            '$elemMatch': {
-                                CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
-                                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+    mds_key: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+    rows_path: str = f'{mds_key}.{CmdbObjectMdsKey.VALUES.value}'
+    data_path: str = f'{rows_path}.{CmdbObjectMdsRowKey.DATA.value}'
+
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {
+            CmdbObjectKey.MULTI_DATA_SECTIONS: {
+                '$elemMatch': {
+                    CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+                    CmdbObjectMdsKey.VALUES: {
+                        '$elemMatch': {
+                            CmdbObjectMdsRowKey.DATA: {
+                                '$elemMatch': {
+                                    CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+                                },
                             },
                         },
                     },
                 },
             },
-        },
-    }
+        }},
+        {'$unwind': f'${mds_key}'},
+        {'$match': {f'{mds_key}.{CmdbObjectMdsKey.SECTION_ID.value}': IpamSection.INTERFACE}},
+        {'$unwind': f'${rows_path}'},
+        {'$unwind': f'${data_path}'},
+        {'$match': {
+            f'{data_path}.{CmdbObjectFieldKey.NAME.value}': InterfaceField.SUBNET,
+            f'{data_path}.{CmdbObjectFieldKey.VALUE.value}': {'$in': subnet_ids},
+        }},
+        {'$group': {
+            '_id': f'${data_path}.{CmdbObjectFieldKey.VALUE.value}',
+            IpamOverviewKey.COUNT: {'$sum': 1},
+        }},
+    ]
 
-    candidates: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
-
-    for candidate in candidates:
-        for section in candidate.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []) or []:
-            if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
-                continue
-
-            for row in section.get(CmdbObjectMdsKey.VALUES, []) or []:
-                row_subnet_id: Any = _row_subnet_ref(row)
-
-                if row_subnet_id in counts:
-                    counts[row_subnet_id] += 1
+    for row in objects_manager.aggregate_objects(pipeline):
+        counts[row['_id']] = row[IpamOverviewKey.COUNT]
 
     return counts
-
-
-def _row_subnet_ref(row: dict[str, Any]) -> Any:
-    """
-    Returns the dg-interface-subnet value of a single dg-ipam-interface MDS row, or None
-
-    Args:
-        row (dict[str, Any]): One entry from an MDS section's 'values' list
-
-    Returns:
-        Any: The referenced subnet's public_id, or None if the row has no such field
-    """
-    for entry in row.get(CmdbObjectMdsRowKey.DATA, []) or []:
-        if entry.get(CmdbObjectFieldKey.NAME) == InterfaceField.SUBNET:
-            return entry.get(CmdbObjectFieldKey.VALUE)
-
-    return None
 
 
 def _attach_vlans_to_rows(

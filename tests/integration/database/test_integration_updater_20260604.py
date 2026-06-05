@@ -23,11 +23,13 @@ stored dg-ipam-interface section template without the required flag, a CmdbType 
 template (materialized copy), and a carrier object with un-typed interface MDS rows.
 
 Covered end to end: the selector field definitions land in the type schemas (definition +
-section layout), object values are derived from the real CIDRs, the stored template gains
-'required: true' and the change propagates into the using type via the real
-handle_section_template_changes, interface rows are backfilled with the IP-first / subnet-
-fallback precedence, the persisted updater version is bumped, a second run is a no-op
-(idempotency), and a migrated subnet passes the save-time enforcement
+section layout), the IPv4-only 'dg-network-range' regexes are synced to the dual-family
+CIDR_REGEX, object values are derived from the real CIDRs, the stored template gains
+'required: true' plus the dual-family IP_ADDRESS_REGEX on its regex-less IP field and the
+changes propagate into the using type via the real handle_section_template_changes,
+interface rows are backfilled with the IP-first / subnet-fallback precedence, the persisted
+updater version is bumped, a second run is a no-op (idempotency), and a migrated subnet
+passes the save-time enforcement
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -55,6 +57,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpAddressFamily,
     IpamSection,
 )
+from cmdb.models.special_type_model.schemas.cidr_regex import CIDR_REGEX, IP_ADDRESS_REGEX
 from cmdb.framework.ipam.enforcement import enforce_object_invariants
 from cmdb.database.updater.versions.updater_20260604 import (
     RENDER_META_KEY,
@@ -86,6 +89,13 @@ PRESET_ROW_IP_V4: str = '10.0.0.5'
 UPDATER_SETTINGS_ID: str = 'updater'
 SETTINGS_COLLECTION: str = 'settings.conf'
 
+# The pre-migration baseline regex of 'dg-network-range' (IPv4-only, replaced by CIDR_REGEX)
+LEGACY_IPV4_CIDR_REGEX: str = (
+    r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)'
+    r'(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})'
+    r'/(?:3[0-2]|[12]?\d)$'
+)
+
 TYPE_IDS: list[int] = [SUPERNET_TYPE_ID, SUBNET_TYPE_ID, CARRIER_TYPE_ID]
 OBJECT_IDS: list[int] = [SUPERNET_V4_ID, SUPERNET_V6_ID, SUBNET_V6_ID, SUBNET_BROKEN_ID, CARRIER_ID]
 
@@ -93,9 +103,14 @@ OBJECT_IDS: list[int] = [SUPERNET_V4_ID, SUPERNET_V6_ID, SUBNET_V6_ID, SUBNET_BR
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   FIXTURES                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _field_def(field_type: str, name: str, label: str) -> dict[str, Any]:
-    """Builds one CmdbType / template field definition."""
-    return {FieldKey.TYPE: field_type, FieldKey.NAME: name, FieldKey.LABEL: label}
+def _field_def(field_type: str, name: str, label: str, regex: str | None = None) -> dict[str, Any]:
+    """Builds one CmdbType / template field definition, optionally carrying a regex."""
+    field: dict[str, Any] = {FieldKey.TYPE: field_type, FieldKey.NAME: name, FieldKey.LABEL: label}
+
+    if regex is not None:
+        field[FieldKey.REGEX] = regex
+
+    return field
 
 
 def _section(section_type: str, name: str, label: str, field_names: list[str]) -> dict[str, Any]:
@@ -166,7 +181,8 @@ def _object_doc(
 
 
 def _baseline_interface_field_defs() -> list[dict[str, Any]]:
-    """The pre-migration dg-ipam-interface field definitions: the type SELECT lacks 'required'."""
+    """The pre-migration dg-ipam-interface field definitions: the type SELECT lacks 'required',
+    the IP field carries no regex."""
     return [
         _field_def(FieldType.REFERENCE, InterfaceField.SUBNET, 'Network'),
         _field_def(FieldType.TEXT, InterfaceField.IP, 'IP-Address'),
@@ -197,7 +213,8 @@ def fixture_seeded_baseline(database_manager: MongoDatabaseManager, database_nam
             SUPERNET_TYPE_ID, 'it-mig-supernet',
             fields=[
                 _field_def(FieldType.TEXT, SupernetField.NAME, 'Name'),
-                _field_def(FieldType.TEXT, SupernetField.NETWORK_RANGE, 'Network'),
+                _field_def(FieldType.TEXT, SupernetField.NETWORK_RANGE, 'Network',
+                           regex=LEGACY_IPV4_CIDR_REGEX),
             ],
             sections=[
                 _section(SectionType.SECTION, IpamSection.INFORMATION, 'Information', [SupernetField.NAME]),
@@ -211,7 +228,8 @@ def fixture_seeded_baseline(database_manager: MongoDatabaseManager, database_nam
             fields=[
                 _field_def(FieldType.TEXT, SubnetField.NAME, 'Name'),
                 _field_def(FieldType.REFERENCE, SubnetField.PARENT_SUPERNET, 'Supernet'),
-                _field_def(FieldType.TEXT, SubnetField.NETWORK_RANGE, 'Network'),
+                _field_def(FieldType.TEXT, SubnetField.NETWORK_RANGE, 'Network',
+                           regex=LEGACY_IPV4_CIDR_REGEX),
             ],
             sections=[
                 _section(SectionType.SECTION, IpamSection.INFORMATION, 'Information', [SubnetField.NAME]),
@@ -352,6 +370,20 @@ def test_selector_definition_added_to_the_special_type(
     assert layout.index(selector) == layout.index(anchor) - 1
 
 
+@pytest.mark.parametrize('type_id, range_field', [
+    (SUPERNET_TYPE_ID, SupernetField.NETWORK_RANGE),
+    (SUBNET_TYPE_ID, SubnetField.NETWORK_RANGE),
+], ids=['supernet', 'subnet'])
+def test_range_regex_synced_to_the_dual_family_blueprint(
+    types_collection, type_id: int, range_field: str,
+) -> None:
+    """The IPv4-only baseline regex on 'dg-network-range' is replaced by CIDR_REGEX"""
+    type_doc = types_collection.find_one({CmdbObjectKey.PUBLIC_ID: type_id})
+
+    range_def = _type_field_def(type_doc, range_field)
+    assert range_def[FieldKey.REGEX] == CIDR_REGEX
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              OBJECT VALUE BACKFILL                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -385,6 +417,18 @@ def test_stored_template_gains_the_required_flag(
     assert type_def[FieldKey.REQUIRED] is True
 
 
+def test_stored_template_gains_the_dual_family_ip_regex(
+    database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """The stored template's regex-less IP field now carries IP_ADDRESS_REGEX"""
+    templates = database_manager.get_collection(CmdbSectionTemplate.COLLECTION, database_name)
+    template_doc = templates.find_one({CmdbObjectKey.PUBLIC_ID: TEMPLATE_ID})
+
+    ip_def = _type_field_def(template_doc, InterfaceField.IP)
+    assert ip_def is not None
+    assert ip_def[FieldKey.REGEX] == IP_ADDRESS_REGEX
+
+
 def test_template_change_propagates_into_the_using_type(types_collection) -> None:
     """The carrier type's materialized template copy carries the required flag exactly once"""
     carrier_doc = types_collection.find_one({CmdbObjectKey.PUBLIC_ID: CARRIER_TYPE_ID})
@@ -394,6 +438,9 @@ def test_template_change_propagates_into_the_using_type(types_collection) -> Non
     ]
     assert len(matching_defs) == 1
     assert matching_defs[0][FieldKey.REQUIRED] is True
+
+    ip_def = _type_field_def(carrier_doc, InterfaceField.IP)
+    assert ip_def[FieldKey.REGEX] == IP_ADDRESS_REGEX
 
     interface_section = next(
         s for s in carrier_doc[RENDER_META_KEY][SECTIONS_KEY]

@@ -45,8 +45,7 @@ def find_ipam_capable_type_ids(types_manager: TypesManager) -> list[int]:
     Returns the public_ids of every CmdbType whose schema contains the dg-ipam-interface section
 
     Issues one Mongo find against the types collection with an ``$elemMatch`` on
-    ``render_meta.sections`` matching the IPAM interface section name. The query shape stays
-    Cosmos-compatible (single-field elemMatch, no aggregation stages). Types whose schema
+    ``render_meta.sections`` matching the IPAM interface section name. Types whose schema
     cannot be deserialized are dropped by the underlying ``find_types`` call; their absence
     here simply means objects of those types will not appear in the assignable picker until
     the type document is repaired

@@ -32,7 +32,6 @@ from bson.min_key import MinKey
 from bson.max_key import MaxKey
 from bson.timestamp import Timestamp
 from pymongo.errors import PyMongoError
-from azure.core.exceptions import HttpResponseError
 
 from cmdb.database import database_utils
 from cmdb.database.database_utils import object_hook, default, retry_operation, MAX_RETRIES
@@ -195,13 +194,6 @@ class _Recorder:
         return "ok"
 
 
-def _cosmos_error(status_code: int) -> HttpResponseError:
-    """Builds an HttpResponseError carrying the given status_code"""
-    err = HttpResponseError(message=f"cosmos {status_code}")
-    err.status_code = status_code
-    return err
-
-
 @pytest.fixture(autouse=True)
 def _instant_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the retry backoff instant and deterministic"""
@@ -229,19 +221,3 @@ def test_retry_operation_reraises_after_max_retries() -> None:
     with pytest.raises(PyMongoError):
         recorder.op()
     assert recorder.calls == MAX_RETRIES
-
-
-def test_retry_operation_retries_recognised_cosmos_error() -> None:
-    """A Cosmos DB error with a recognised status code is retried up to MAX_RETRIES"""
-    recorder = _Recorder(always=_cosmos_error(429))
-    with pytest.raises(HttpResponseError):
-        recorder.op()
-    assert recorder.calls == MAX_RETRIES
-
-
-def test_retry_operation_reraises_unrecognised_cosmos_error_immediately() -> None:
-    """A Cosmos DB error with an unrecognised status code is re-raised without retrying"""
-    recorder = _Recorder(always=_cosmos_error(418))
-    with pytest.raises(HttpResponseError):
-        recorder.op()
-    assert recorder.calls == 1

@@ -16,8 +16,8 @@
 """
 Unit tests for cmdb.database.updater.versions.updater_20260604
 
-Covers the pure helpers (family derivation, field-value / field-definition / section-layout
-ensurers, interface-row backfill, blueprint extraction) and the orchestration methods with
+Covers the pure helpers (family derivation, field-value / field-definition / field-regex /
+section-layout ensurers, interface-row backfill, blueprint extraction) and the orchestration methods with
 mocked managers, following the established version-updater test pattern (instances built via
 __new__ with the needed managers attached). The metadata contract (creation_date /
 description) is covered by the shared parametrized test in test_version_updaters
@@ -45,6 +45,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.special_type_model.schemas.subnet_schema import get_subnet_schema
 from cmdb.models.special_type_model.schemas.supernet_schema import get_supernet_schema
+from cmdb.models.special_type_model.schemas.cidr_regex import CIDR_REGEX, IP_ADDRESS_REGEX
 from cmdb.errors.updater import UpdaterException
 from cmdb.database.updater.versions.updater_20260604 import (
     RENDER_META_KEY,
@@ -55,9 +56,10 @@ from cmdb.database.updater.versions.updater_20260604 import (
     derive_family_from_range,
     derive_row_family,
     ensure_field_definition,
+    ensure_field_regex,
     ensure_field_value,
     ensure_section_layout,
-    get_interface_type_field_def,
+    get_interface_field_def,
     get_selector_field_def,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -76,6 +78,13 @@ UNPARSABLE_RANGE: str = 'not-a-cidr'
 
 IP_V4: str = '10.0.0.5'
 IP_V6: str = '2001:db8::5'
+
+# The pre-migration baseline regex of 'dg-network-range' (IPv4-only, replaced by CIDR_REGEX)
+LEGACY_IPV4_CIDR_REGEX: str = (
+    r'^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)'
+    r'(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)){3})'
+    r'/(?:3[0-2]|[12]?\d)$'
+)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -234,6 +243,42 @@ def test_ensure_field_definition_is_a_noop_when_already_required() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                ensure_field_regex                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_ensure_field_regex_replaces_a_legacy_regex() -> None:
+    """A field carrying the IPv4-only baseline regex is synced to the blueprint value"""
+    field = {FieldKey.NAME: SubnetField.NETWORK_RANGE, FieldKey.REGEX: LEGACY_IPV4_CIDR_REGEX}
+    fields = [field]
+
+    assert ensure_field_regex(fields, SubnetField.NETWORK_RANGE, CIDR_REGEX) is True
+    assert field[FieldKey.REGEX] == CIDR_REGEX
+
+
+def test_ensure_field_regex_adds_a_missing_regex() -> None:
+    """A field without any regex (the baseline interface IP field) gains the blueprint value"""
+    field = {FieldKey.NAME: InterfaceField.IP, FieldKey.LABEL: 'IP-Address'}
+    fields = [field]
+
+    assert ensure_field_regex(fields, InterfaceField.IP, IP_ADDRESS_REGEX) is True
+    assert field[FieldKey.REGEX] == IP_ADDRESS_REGEX
+
+
+def test_ensure_field_regex_is_a_noop_when_already_current() -> None:
+    """A field already carrying the blueprint regex reports no change"""
+    fields = [{FieldKey.NAME: SubnetField.NETWORK_RANGE, FieldKey.REGEX: CIDR_REGEX}]
+
+    assert ensure_field_regex(fields, SubnetField.NETWORK_RANGE, CIDR_REGEX) is False
+
+
+def test_ensure_field_regex_skips_an_absent_field() -> None:
+    """A definition list without the field is left untouched"""
+    fields: list[dict[str, Any]] = [{FieldKey.NAME: SubnetField.NAME}]
+
+    assert ensure_field_regex(fields, SubnetField.NETWORK_RANGE, CIDR_REGEX) is False
+    assert fields == [{FieldKey.NAME: SubnetField.NAME}]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                               ensure_section_layout                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_ensure_section_layout_inserts_before_the_anchor_in_the_named_section() -> None:
@@ -342,12 +387,20 @@ def test_backfill_interface_rows_ignores_other_sections() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              blueprint extraction                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_get_interface_type_field_def_returns_the_required_select() -> None:
+def test_get_interface_field_def_returns_the_required_type_select() -> None:
     """The extracted template definition is the required dg-interface-type SELECT"""
-    field_def = get_interface_type_field_def()
+    field_def = get_interface_field_def(InterfaceField.TYPE)
 
     assert field_def[FieldKey.NAME] == InterfaceField.TYPE
     assert field_def[FieldKey.REQUIRED] is True
+
+
+def test_get_interface_field_def_returns_the_dual_family_ip_regex() -> None:
+    """The extracted IP definition carries the dual-family blueprint regex"""
+    field_def = get_interface_field_def(InterfaceField.IP)
+
+    assert field_def[FieldKey.NAME] == InterfaceField.IP
+    assert field_def[FieldKey.REGEX] == IP_ADDRESS_REGEX
 
 
 def test_get_selector_field_def_extracts_from_both_blueprints() -> None:
@@ -418,11 +471,33 @@ def test_backfill_special_type_adds_definition_and_backfills_objects() -> None:
     assert result == {SUBNET_OBJECT_ID: IpAddressFamily.IPV6}
 
 
+def test_backfill_special_type_syncs_the_legacy_range_regex() -> None:
+    """A type migrated except for the IPv4-only range regex gets exactly the regex synced"""
+    updater = _new_updater()
+    selector_def = get_selector_field_def(get_subnet_schema(), SubnetField.TYPE)
+    range_def = {FieldKey.NAME: SubnetField.NETWORK_RANGE, FieldKey.REGEX: LEGACY_IPV4_CIDR_REGEX}
+    type_doc = _make_type_doc(SUBNET_TYPE_ID, [selector_def, range_def], [
+        _make_section(IpamSection.NETWORK_DETAILS, [SubnetField.TYPE, SubnetField.NETWORK_RANGE]),
+    ])
+    updater.types_manager = types_manager = MagicMock()
+    types_manager.get_one_by.return_value = type_doc
+    updater.objects_manager = objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+
+    updater.backfill_special_type(
+        SpecialType.SUBNET, get_subnet_schema(), SubnetField.TYPE, SubnetField.NETWORK_RANGE,
+    )
+
+    types_manager.update_type.assert_called_once_with(SUBNET_TYPE_ID, type_doc)
+    assert range_def[FieldKey.REGEX] == CIDR_REGEX
+
+
 def test_backfill_special_type_writes_nothing_on_migrated_data() -> None:
-    """A type with the required def and objects with values produce no update calls"""
+    """A type with the required def, current regex and objects with values produce no update calls"""
     updater = _new_updater()
     field_def = get_selector_field_def(get_subnet_schema(), SubnetField.TYPE)
-    type_doc = _make_type_doc(SUBNET_TYPE_ID, [field_def], [
+    range_def = {FieldKey.NAME: SubnetField.NETWORK_RANGE, FieldKey.REGEX: CIDR_REGEX}
+    type_doc = _make_type_doc(SUBNET_TYPE_ID, [field_def, range_def], [
         _make_section(IpamSection.NETWORK_DETAILS, [SubnetField.TYPE, SubnetField.NETWORK_RANGE]),
     ])
     subnet_obj = {
@@ -494,8 +569,8 @@ def test_update_interface_template_persists_and_propagates_the_required_flag() -
     assert FieldKey.REQUIRED not in template_doc[TypeSchemaKey.FIELDS][0]
 
 
-def test_update_interface_template_skips_when_already_required() -> None:
-    """A template whose type field is already required produces no writes"""
+def test_update_interface_template_syncs_the_missing_ip_regex() -> None:
+    """A template migrated except for the regex-less IP field is updated and propagated"""
     updater = _new_updater()
     updater.dbm = MagicMock()
     updater.db_name = 'cmdb-test'
@@ -503,7 +578,38 @@ def test_update_interface_template_skips_when_already_required() -> None:
         CmdbObjectKey.PUBLIC_ID: TEMPLATE_PUBLIC_ID,
         SectionKey.NAME: IpamSection.INTERFACE,
         SectionKey.LABEL: 'Interfaces',
-        TypeSchemaKey.FIELDS: [{FieldKey.NAME: InterfaceField.TYPE, FieldKey.REQUIRED: True}],
+        TypeSchemaKey.FIELDS: [
+            {FieldKey.NAME: InterfaceField.TYPE, FieldKey.REQUIRED: True},
+            {FieldKey.NAME: InterfaceField.IP, FieldKey.LABEL: 'IP-Address'},
+        ],
+    }
+    manager = MagicMock()
+    manager.get_one_by.return_value = template_doc
+
+    with patch(f'{PATH}.SectionTemplatesManager', return_value=manager):
+        updater.update_interface_template()
+
+    new_params = manager.update_section_template.call_args.args[1]
+    ip_def = next(
+        f for f in new_params[TypeSchemaKey.FIELDS] if f[FieldKey.NAME] == InterfaceField.IP
+    )
+    assert ip_def[FieldKey.REGEX] == IP_ADDRESS_REGEX
+    manager.handle_section_template_changes.assert_called_once()
+
+
+def test_update_interface_template_skips_when_already_migrated() -> None:
+    """A template with the required type field and current IP regex produces no writes"""
+    updater = _new_updater()
+    updater.dbm = MagicMock()
+    updater.db_name = 'cmdb-test'
+    template_doc: dict[str, Any] = {
+        CmdbObjectKey.PUBLIC_ID: TEMPLATE_PUBLIC_ID,
+        SectionKey.NAME: IpamSection.INTERFACE,
+        SectionKey.LABEL: 'Interfaces',
+        TypeSchemaKey.FIELDS: [
+            {FieldKey.NAME: InterfaceField.TYPE, FieldKey.REQUIRED: True},
+            {FieldKey.NAME: InterfaceField.IP, FieldKey.REGEX: IP_ADDRESS_REGEX},
+        ],
     }
     manager = MagicMock()
     manager.get_one_by.return_value = template_doc

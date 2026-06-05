@@ -45,6 +45,7 @@ from cmdb.framework.ipam.references import (
     find_interfaces_referencing_subnet,
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
+    _field_value_expr,
     load_vlans_by_subnets,
     resolve_special_type_id,
 )
@@ -391,12 +392,12 @@ def test_load_vlans_by_subnets_returns_empty_dict_for_empty_subnet_ids() -> None
     result = load_vlans_by_subnets(objects_manager, types_manager, [])
 
     assert result == {}
-    objects_manager.find_objects.assert_not_called()
+    objects_manager.aggregate_objects.assert_not_called()
     types_manager.get_one_by.assert_not_called()
 
 
 def test_load_vlans_by_subnets_returns_empty_dict_when_vlan_type_not_defined() -> None:
-    """No VLAN CmdbType → empty dict, no DB query against objects"""
+    """No VLAN CmdbType → empty dict, no aggregation against objects"""
     objects_manager = MagicMock()
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = None
@@ -404,15 +405,18 @@ def test_load_vlans_by_subnets_returns_empty_dict_when_vlan_type_not_defined() -
     result = load_vlans_by_subnets(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
 
     assert result == {}
-    objects_manager.find_objects.assert_not_called()
+    objects_manager.aggregate_objects.assert_not_called()
 
 
-def test_load_vlans_by_subnets_buckets_vlans_under_their_referenced_subnet() -> None:
-    """Each VLAN appears under the bucket for the subnet its dg-subnet-ref points at"""
-    vlan_x = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_X)
-    vlan_y = _make_vlan_doc(VLAN_OBJECT_ID_Y, subnet_ref=SUBNET_OBJECT_ID_B, name=VLAN_NAME_Y)
+def test_load_vlans_by_subnets_maps_grouped_rows_onto_their_subnet() -> None:
+    """Each aggregation group ({_id, vlans}) lands under its subnet id unchanged"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [vlan_x, vlan_y]
+    objects_manager.aggregate_objects.return_value = iter([
+        {'_id': SUBNET_OBJECT_ID_A,
+         IpamOverviewKey.VLANS: [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X}]},
+        {'_id': SUBNET_OBJECT_ID_B,
+         IpamOverviewKey.VLANS: [{CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_Y, IpamOverviewKey.NAME: VLAN_NAME_Y}]},
+    ])
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
 
@@ -426,73 +430,62 @@ def test_load_vlans_by_subnets_buckets_vlans_under_their_referenced_subnet() -> 
     }
 
 
-def test_load_vlans_by_subnets_sorts_each_bucket_by_ascending_public_id() -> None:
-    """Within a bucket, entries are ordered by ascending public_id regardless of DB order"""
-    vlan_higher = _make_vlan_doc(VLAN_OBJECT_ID_Z, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_Z)
-    vlan_lower = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_X)
+def test_load_vlans_by_subnets_pins_the_aggregation_pipeline() -> None:
+    """The pipeline matches, projects ref + name, re-filters, sorts by public_id and groups"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [vlan_higher, vlan_lower]
+    objects_manager.aggregate_objects.return_value = iter([])
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
+    subnet_ids = [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
 
-    result = load_vlans_by_subnets(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
+    load_vlans_by_subnets(objects_manager, types_manager, subnet_ids)
 
-    public_ids = [entry[CmdbObjectKey.PUBLIC_ID] for entry in result[SUBNET_OBJECT_ID_A]]
-    assert public_ids == [VLAN_OBJECT_ID_X, VLAN_OBJECT_ID_Z]
-
-
-def test_load_vlans_by_subnets_ignores_vlans_whose_subnet_ref_is_outside_target_set() -> None:
-    """A VLAN whose dg-subnet-ref drifts outside subnet_ids is dropped, not bucketed"""
-    in_scope = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=VLAN_NAME_X)
-    out_of_scope = _make_vlan_doc(VLAN_OBJECT_ID_Y, subnet_ref=9_999, name=VLAN_NAME_Y)
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [in_scope, out_of_scope]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = load_vlans_by_subnets(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
-
-    assert set(result.keys()) == {SUBNET_OBJECT_ID_A}
-    assert [e[CmdbObjectKey.PUBLIC_ID] for e in result[SUBNET_OBJECT_ID_A]] == [VLAN_OBJECT_ID_X]
-
-
-def test_load_vlans_by_subnets_uses_in_filter_to_scope_the_db_query() -> None:
-    """Mongo filter pins TYPE_ID plus FIELDS $elemMatch on SUBNET_REF with $in over subnet ids"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    load_vlans_by_subnets(
-        objects_manager, types_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
-    )
-
-    objects_manager.find_objects.assert_called_once_with(
-        {
+    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN})
+    objects_manager.aggregate_objects.assert_called_once_with([
+        {'$match': {
             CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID,
             CmdbObjectKey.FIELDS: {
                 '$elemMatch': {
                     CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
-                    CmdbObjectFieldKey.VALUE: {'$in': [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]},
+                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
                 },
             },
-        },
-        as_dict=True,
-    )
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN})
+        }},
+        {'$project': {
+            '_id': 0,
+            CmdbObjectKey.PUBLIC_ID: 1,
+            VlanField.SUBNET_REF.value: _field_value_expr(VlanField.SUBNET_REF),
+            IpamOverviewKey.NAME: _field_value_expr(VlanField.NAME),
+        }},
+        {'$match': {VlanField.SUBNET_REF.value: {'$in': subnet_ids}}},
+        {'$sort': {CmdbObjectKey.PUBLIC_ID: 1}},
+        {'$group': {
+            '_id': f'${VlanField.SUBNET_REF.value}',
+            IpamOverviewKey.VLANS: {'$push': {
+                CmdbObjectKey.PUBLIC_ID: '$public_id',
+                IpamOverviewKey.NAME: '$name',
+            }},
+        }},
+    ])
 
 
-def test_load_vlans_by_subnets_preserves_null_vlan_name() -> None:
-    """A VLAN object whose dg-name field is missing/None flows through as 'name': None"""
-    vlan = _make_vlan_doc(VLAN_OBJECT_ID_X, subnet_ref=SUBNET_OBJECT_ID_A, name=None)
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [vlan]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = load_vlans_by_subnets(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
-
-    assert result[SUBNET_OBJECT_ID_A] == [{
-        CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X,
-        IpamOverviewKey.NAME: None,
-    }]
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _field_value_expr                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_field_value_expr_builds_the_first_value_extraction() -> None:
+    """The expression filters by field name, maps to values, takes element 0, nulls when absent"""
+    assert _field_value_expr(VlanField.NAME) == {'$ifNull': [
+        {'$arrayElemAt': [
+            {'$map': {
+                'input': {'$filter': {
+                    'input': '$fields',
+                    'as': 'field',
+                    'cond': {'$eq': ['$$field.name', VlanField.NAME]},
+                }},
+                'as': 'field',
+                'in': '$$field.value',
+            }},
+            0,
+        ]},
+        None,
+    ]}
