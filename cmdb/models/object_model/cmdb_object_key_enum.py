@@ -46,11 +46,14 @@ class CmdbObjectFieldKey(BaseStrEnum):
     """
     Dict keys of one entry inside a CmdbObject 'fields' list, or inside an MDS row's 'data' list
 
-    Both contexts store the same shape ({'name': ..., 'value': ...}), so the same enum applies
-    to a top-level field entry and to a field entry nested inside a multi-data-section row
+    Both contexts store the same shape ({'name': ..., 'value': ..., 'type': ...}), so the same
+    enum applies to a top-level field entry and to a field entry nested inside a
+    multi-data-section row. TYPE mirrors the FieldType of the field's definition on the
+    CmdbType (e.g. 'text', 'select') and is mandatory on every stored entry
     """
     NAME = 'name'
     VALUE = 'value'
+    TYPE = 'type'
 
 
 class CmdbObjectMdsKey(BaseStrEnum):
@@ -69,6 +72,6 @@ class CmdbObjectMdsRowKey(BaseStrEnum):
     Dict keys of one row inside a CmdbObject MDS section's 'values' list
 
     Each row stores its captured field entries under 'data' as a list of
-    {name, value}-shaped dicts (see CmdbObjectFieldKey for that inner shape)
+    {name, value, type}-shaped dicts (see CmdbObjectFieldKey for that inner shape)
     """
     DATA = 'data'

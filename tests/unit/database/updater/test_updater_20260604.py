@@ -33,7 +33,7 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
-from cmdb.models.type_model import FieldKey, SectionKey
+from cmdb.models.type_model import FieldKey, FieldType, SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -91,8 +91,17 @@ LEGACY_IPV4_CIDR_REGEX: str = (
 #                                                   FIXTURES                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 def _make_field_entry(name: str, value: Any) -> dict[str, Any]:
-    """Builds one stored field/data entry."""
+    """Builds one pre-migration stored field/data entry (the legacy {name, value} shape)."""
     return {CmdbObjectFieldKey.NAME: name, CmdbObjectFieldKey.VALUE: value}
+
+
+def _make_field_triple(name: str, value: Any, field_type: str = FieldType.SELECT) -> dict[str, Any]:
+    """Builds one complete {name, value, type} field/data entry (the post-migration shape)."""
+    return {
+        CmdbObjectFieldKey.NAME: name,
+        CmdbObjectFieldKey.VALUE: value,
+        CmdbObjectFieldKey.TYPE: field_type,
+    }
 
 
 def _make_interface_row(entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -189,28 +198,36 @@ def test_derive_row_family_defaults_to_ipv4_as_last_resort() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ensure_field_value                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_ensure_field_value_appends_a_missing_entry() -> None:
-    """A fields list without the entry gains it and reports a change"""
+def test_ensure_field_value_appends_a_missing_entry_as_a_full_triple() -> None:
+    """A fields list without the entry gains the complete {name, value, type} entry"""
     fields: list[dict[str, Any]] = []
 
-    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV4) is True
-    assert fields == [_make_field_entry(SubnetField.TYPE, IpAddressFamily.IPV4)]
+    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV4, FieldType.SELECT) is True
+    assert fields == [_make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV4)]
 
 
 def test_ensure_field_value_sets_an_empty_entry() -> None:
-    """An entry with None / empty value is set in place"""
+    """An entry with None / empty value is set in place and completed with the field type"""
     fields = [_make_field_entry(SubnetField.TYPE, None)]
 
-    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV6) is True
-    assert fields[0][CmdbObjectFieldKey.VALUE] == IpAddressFamily.IPV6
+    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV6, FieldType.SELECT) is True
+    assert fields[0] == _make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV6)
 
 
-def test_ensure_field_value_keeps_an_existing_value() -> None:
-    """A non-empty value is never overwritten"""
+def test_ensure_field_value_keeps_an_existing_value_but_repairs_a_missing_type() -> None:
+    """A non-empty value is never overwritten; an entry lacking the 'type' key gains it"""
     fields = [_make_field_entry(SubnetField.TYPE, IpAddressFamily.IPV6)]
 
-    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV4) is False
-    assert fields[0][CmdbObjectFieldKey.VALUE] == IpAddressFamily.IPV6
+    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV4, FieldType.SELECT) is True
+    assert fields[0] == _make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV6)
+
+
+def test_ensure_field_value_is_a_noop_on_a_complete_entry() -> None:
+    """An entry already carrying a non-empty value and type reports no change"""
+    fields = [_make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV6)]
+
+    assert ensure_field_value(fields, SubnetField.TYPE, IpAddressFamily.IPV4, FieldType.SELECT) is False
+    assert fields == [_make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV6)]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -225,21 +242,32 @@ def test_ensure_field_definition_appends_a_missing_definition() -> None:
     assert fields == [field_def]
 
 
-def test_ensure_field_definition_marks_an_existing_definition_required() -> None:
-    """A present definition only gets required=True; other keys stay untouched"""
+def test_ensure_field_definition_syncs_key_attributes_on_an_existing_definition() -> None:
+    """A present stub gets type, options and required synced; a custom label stays untouched"""
+    blueprint_def = get_selector_field_def(get_subnet_schema(), SubnetField.TYPE)
     existing = {FieldKey.NAME: SubnetField.TYPE, FieldKey.LABEL: 'Custom Label'}
     fields = [existing]
 
-    assert ensure_field_definition(fields, get_selector_field_def(get_subnet_schema(), SubnetField.TYPE)) is True
+    assert ensure_field_definition(fields, blueprint_def) is True
+    assert existing[FieldKey.TYPE] == blueprint_def[FieldKey.TYPE]
+    assert existing[FieldKey.OPTIONS] == blueprint_def[FieldKey.OPTIONS]
     assert existing[FieldKey.REQUIRED] is True
     assert existing[FieldKey.LABEL] == 'Custom Label'
 
 
-def test_ensure_field_definition_is_a_noop_when_already_required() -> None:
-    """An already-required definition reports no change"""
-    fields = [{FieldKey.NAME: SubnetField.TYPE, FieldKey.REQUIRED: True}]
+def test_ensure_field_definition_is_a_noop_when_key_attributes_match() -> None:
+    """A definition already carrying the blueprint's key attributes reports no change"""
+    blueprint_def = get_selector_field_def(get_subnet_schema(), SubnetField.TYPE)
+    existing = {
+        FieldKey.NAME: SubnetField.TYPE,
+        FieldKey.TYPE: blueprint_def[FieldKey.TYPE],
+        FieldKey.OPTIONS: blueprint_def[FieldKey.OPTIONS],
+        FieldKey.REQUIRED: True,
+    }
+    fields = [existing]
 
-    assert ensure_field_definition(fields, get_selector_field_def(get_subnet_schema(), SubnetField.TYPE)) is False
+    assert ensure_field_definition(fields, blueprint_def) is False
+    assert fields == [existing]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -347,14 +375,14 @@ def test_backfill_interface_rows_fills_untyped_data_rows() -> None:
     changed = backfill_interface_rows(sections, {SUBNET_OBJECT_ID: IpAddressFamily.IPV6})
 
     assert changed is True
-    assert _make_field_entry(InterfaceField.TYPE, IpAddressFamily.IPV6) in row[CmdbObjectMdsRowKey.DATA]
+    assert _make_field_triple(InterfaceField.TYPE, IpAddressFamily.IPV6) in row[CmdbObjectMdsRowKey.DATA]
 
 
 def test_backfill_interface_rows_skips_typed_and_empty_rows() -> None:
-    """A row with a non-empty type and an empty placeholder row stay untouched"""
+    """A row with a complete type entry and an empty placeholder row stay untouched"""
     typed_row = _make_interface_row([
         _make_field_entry(InterfaceField.IP, IP_V4),
-        _make_field_entry(InterfaceField.TYPE, IpAddressFamily.IPV4),
+        _make_field_triple(InterfaceField.TYPE, IpAddressFamily.IPV4),
     ])
     empty_row = _make_interface_row([])
     sections = _make_interface_sections([typed_row, empty_row])
@@ -363,14 +391,25 @@ def test_backfill_interface_rows_skips_typed_and_empty_rows() -> None:
     assert empty_row[CmdbObjectMdsRowKey.DATA] == []
 
 
+def test_backfill_interface_rows_repairs_a_valued_entry_missing_the_type_key() -> None:
+    """A row whose type entry has a value but no 'type' key (pre-fix run) keeps the value
+    and gains the key"""
+    type_entry = _make_field_entry(InterfaceField.TYPE, IpAddressFamily.IPV6)
+    row = _make_interface_row([_make_field_entry(InterfaceField.IP, IP_V4), type_entry])
+    sections = _make_interface_sections([row])
+
+    assert backfill_interface_rows(sections, {}) is True
+    assert type_entry == _make_field_triple(InterfaceField.TYPE, IpAddressFamily.IPV6)
+
+
 def test_backfill_interface_rows_sets_an_empty_type_entry_in_place() -> None:
-    """A row whose type entry exists but is empty gets the value set on that entry"""
+    """A row whose type entry exists but is empty gets value and field type set on that entry"""
     type_entry = _make_field_entry(InterfaceField.TYPE, '')
     row = _make_interface_row([_make_field_entry(InterfaceField.IP, IP_V4), type_entry])
     sections = _make_interface_sections([row])
 
     assert backfill_interface_rows(sections, {}) is True
-    assert type_entry[CmdbObjectFieldKey.VALUE] == IpAddressFamily.IPV4
+    assert type_entry == _make_field_triple(InterfaceField.TYPE, IpAddressFamily.IPV4)
 
 
 def test_backfill_interface_rows_ignores_other_sections() -> None:
@@ -467,7 +506,7 @@ def test_backfill_special_type_adds_definition_and_backfills_objects() -> None:
         filter_query={CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID},
         update={'$set': {CmdbObjectKey.FIELDS: subnet_obj[CmdbObjectKey.FIELDS]}},
     )
-    assert _make_field_entry(SubnetField.TYPE, IpAddressFamily.IPV6) in subnet_obj[CmdbObjectKey.FIELDS]
+    assert _make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV6) in subnet_obj[CmdbObjectKey.FIELDS]
     assert result == {SUBNET_OBJECT_ID: IpAddressFamily.IPV6}
 
 
@@ -504,7 +543,7 @@ def test_backfill_special_type_writes_nothing_on_migrated_data() -> None:
         CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID,
         CmdbObjectKey.FIELDS: [
             _make_field_entry(SubnetField.NETWORK_RANGE, RANGE_V4),
-            _make_field_entry(SubnetField.TYPE, IpAddressFamily.IPV4),
+            _make_field_triple(SubnetField.TYPE, IpAddressFamily.IPV4),
         ],
     }
     updater.types_manager = types_manager = MagicMock()
@@ -579,7 +618,7 @@ def test_update_interface_template_syncs_the_missing_ip_regex() -> None:
         SectionKey.NAME: IpamSection.INTERFACE,
         SectionKey.LABEL: 'Interfaces',
         TypeSchemaKey.FIELDS: [
-            {FieldKey.NAME: InterfaceField.TYPE, FieldKey.REQUIRED: True},
+            get_interface_field_def(InterfaceField.TYPE),
             {FieldKey.NAME: InterfaceField.IP, FieldKey.LABEL: 'IP-Address'},
         ],
     }
@@ -598,7 +637,7 @@ def test_update_interface_template_syncs_the_missing_ip_regex() -> None:
 
 
 def test_update_interface_template_skips_when_already_migrated() -> None:
-    """A template with the required type field and current IP regex produces no writes"""
+    """A template with the blueprint type field and current IP regex produces no writes"""
     updater = _new_updater()
     updater.dbm = MagicMock()
     updater.db_name = 'cmdb-test'
@@ -607,7 +646,7 @@ def test_update_interface_template_skips_when_already_migrated() -> None:
         SectionKey.NAME: IpamSection.INTERFACE,
         SectionKey.LABEL: 'Interfaces',
         TypeSchemaKey.FIELDS: [
-            {FieldKey.NAME: InterfaceField.TYPE, FieldKey.REQUIRED: True},
+            get_interface_field_def(InterfaceField.TYPE),
             {FieldKey.NAME: InterfaceField.IP, FieldKey.REGEX: IP_ADDRESS_REGEX},
         ],
     }
@@ -638,7 +677,7 @@ def test_backfill_interface_carriers_updates_only_changed_objects() -> None:
         CmdbObjectKey.MULTI_DATA_SECTIONS: _make_interface_sections([
             _make_interface_row([
                 _make_field_entry(InterfaceField.IP, IP_V4),
-                _make_field_entry(InterfaceField.TYPE, IpAddressFamily.IPV4),
+                _make_field_triple(InterfaceField.TYPE, IpAddressFamily.IPV4),
             ]),
         ]),
     }
