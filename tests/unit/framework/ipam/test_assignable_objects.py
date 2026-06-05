@@ -38,7 +38,7 @@ from cmdb.framework.ipam.assignable_objects import (
     _apply_search,
     _build_row,
     _build_type_label_lookup,
-    _load_assignable_rows,
+    _shape_rows,
     build_assignable_objects_page,
     find_ipam_capable_type_ids,
 )
@@ -50,7 +50,6 @@ from cmdb.framework.ipam.assignable_objects import (
 # -------------------------------------------------------------------------------------------------------------------- #
 SERVER_TYPE_ID: int = 11
 ROUTER_TYPE_ID: int = 12
-SWITCH_TYPE_ID: int = 13
 
 SERVER_LABEL: str = 'Server'
 ROUTER_LABEL: str = 'Router'
@@ -301,17 +300,14 @@ def test_apply_search_skips_rows_with_empty_summary_when_filter_is_active() -> N
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       _load_assignable_rows                                                          #
+#                                               _shape_rows                                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_load_assignable_rows_scopes_type_label_lookup_to_types_present_on_objects() -> None:
+def test_shape_rows_scopes_type_label_lookup_to_types_present_on_objects() -> None:
     """
-    Only the type ids actually present on the loaded objects are looked up - capable types
-    with no objects do not contribute to the bulk type-label fetch
+    Only the type ids actually present on the given docs are looked up - the helper never sees
+    capable types that have no objects, so they cannot contribute to the bulk type-label fetch
     """
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
-    ]
     objects_manager.get_summary_lines_lookup.return_value = {OBJECT_ID_A: SUMMARY_LINE_A}
 
     types_manager = MagicMock()
@@ -319,28 +315,67 @@ def test_load_assignable_rows_scopes_type_label_lookup_to_types_present_on_objec
         SERVER_TYPE_ID: _make_type_mock(SERVER_TYPE_ID, SERVER_LABEL),
     }
 
-    _load_assignable_rows(
+    _shape_rows(
         objects_manager,
         types_manager,
-        capable_type_ids=[SERVER_TYPE_ID, ROUTER_TYPE_ID, SWITCH_TYPE_ID],
+        [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID)],
     )
 
     forwarded: list[int] = types_manager.get_types_lookup.call_args.args[0]
     assert sorted(forwarded) == [SERVER_TYPE_ID]
 
 
-def test_load_assignable_rows_skips_summary_lookup_when_no_objects() -> None:
-    """No objects in the capable set → no summary-line round-trip is issued"""
+def test_shape_rows_passes_given_docs_to_summary_lookup_without_refetch() -> None:
+    """The already-loaded docs are forwarded via the object_docs kwarg so no per-id re-fetch
+    happens; the requested ids mirror the docs in input order"""
+    object_docs: list[dict[str, Any]] = [
+        _make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
+        _make_object_doc(OBJECT_ID_B, SERVER_TYPE_ID),
+    ]
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
+    objects_manager.get_summary_lines_lookup.return_value = {
+        OBJECT_ID_A: SUMMARY_LINE_A,
+        OBJECT_ID_B: SUMMARY_LINE_B,
+    }
+    types_manager = MagicMock()
+    types_manager.get_types_lookup.return_value = {
+        SERVER_TYPE_ID: _make_type_mock(SERVER_TYPE_ID, SERVER_LABEL),
+    }
+
+    _shape_rows(objects_manager, types_manager, object_docs)
+
+    objects_manager.find_objects.assert_not_called()
+    objects_manager.get_summary_lines_lookup.assert_called_once_with(
+        [OBJECT_ID_A, OBJECT_ID_B], with_type=True, object_docs=object_docs,
+    )
+
+
+def test_shape_rows_skips_summary_lookup_when_no_objects() -> None:
+    """No docs handed in → no summary-line round-trip is issued"""
+    objects_manager = MagicMock()
     types_manager = MagicMock()
 
-    result: list[dict[str, Any]] = _load_assignable_rows(
-        objects_manager, types_manager, capable_type_ids=[SERVER_TYPE_ID],
-    )
+    result: list[dict[str, Any]] = _shape_rows(objects_manager, types_manager, [])
 
     assert result == []
     objects_manager.get_summary_lines_lookup.assert_not_called()
+
+
+def test_shape_rows_preserves_input_order() -> None:
+    """Rows come back in the same order as the input docs"""
+    object_docs: list[dict[str, Any]] = [
+        _make_object_doc(OBJECT_ID_C, ROUTER_TYPE_ID),
+        _make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
+        _make_object_doc(OBJECT_ID_B, SERVER_TYPE_ID),
+    ]
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {}
+    types_manager = MagicMock()
+    types_manager.get_types_lookup.return_value = {}
+
+    rows: list[dict[str, Any]] = _shape_rows(objects_manager, types_manager, object_docs)
+
+    assert [row[CmdbObjectKey.PUBLIC_ID] for row in rows] == [OBJECT_ID_C, OBJECT_ID_A, OBJECT_ID_B]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -553,3 +588,49 @@ def test_build_assignable_objects_page_row_payload_carries_type_info_and_summary
         IpamOverviewKey.LABEL: SERVER_LABEL,
     }
     assert first_row[IpamOverviewKey.SUMMARY_LINE] == SUMMARY_LINE_A
+
+
+def test_build_assignable_objects_page_without_search_shapes_only_the_page_slice(
+    types_manager_two_capable_types: MagicMock,
+    objects_manager_four_objects: MagicMock,
+) -> None:
+    """No active search → docs are sliced first and only the page's docs are shaped, so the
+    summary-line lookup is scoped to that slice while total reflects the unfiltered count"""
+    payload: dict[str, Any] = build_assignable_objects_page(
+        objects_manager_four_objects,
+        types_manager_two_capable_types,
+        page=2,
+        page_size=2,
+        search='',
+    )
+
+    assert payload[IpamOverviewKey.TOTAL] == 4
+
+    forwarded_ids, kwargs = objects_manager_four_objects.get_summary_lines_lookup.call_args
+    shaped_docs: list[dict[str, Any]] = kwargs['object_docs']
+    assert forwarded_ids[0] == [OBJECT_ID_C, OBJECT_ID_D]
+    assert [doc[CmdbObjectKey.PUBLIC_ID] for doc in shaped_docs] == [OBJECT_ID_C, OBJECT_ID_D]
+
+
+def test_build_assignable_objects_page_with_search_shapes_all_docs_and_totals_filtered(
+    types_manager_two_capable_types: MagicMock,
+    objects_manager_four_objects: MagicMock,
+) -> None:
+    """An active search → every doc is shaped (so the substring filter can run against each
+    summary line) while total reflects only the post-filter count"""
+    payload: dict[str, Any] = build_assignable_objects_page(
+        objects_manager_four_objects,
+        types_manager_two_capable_types,
+        page=1,
+        page_size=10,
+        search='Router',
+    )
+
+    assert payload[IpamOverviewKey.TOTAL] == 2
+
+    forwarded_ids, kwargs = objects_manager_four_objects.get_summary_lines_lookup.call_args
+    shaped_docs: list[dict[str, Any]] = kwargs['object_docs']
+    assert forwarded_ids[0] == [OBJECT_ID_A, OBJECT_ID_B, OBJECT_ID_C, OBJECT_ID_D]
+    assert [doc[CmdbObjectKey.PUBLIC_ID] for doc in shaped_docs] == [
+        OBJECT_ID_A, OBJECT_ID_B, OBJECT_ID_C, OBJECT_ID_D,
+    ]

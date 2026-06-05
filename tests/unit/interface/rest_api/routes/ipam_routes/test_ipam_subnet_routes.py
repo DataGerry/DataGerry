@@ -123,7 +123,7 @@ def test_get_invalid_subnet_overview_forwards_page_size_and_search(flask_app: Fl
     """The invalid-only route forwards the page / page_size / search subset"""
     bare = _unwrap(get_invalid_subnet_overview)
 
-    with patch(f'{ROUTE_PATH}.build_invalid_subnet_overview', return_value={}) as mock_build, \
+    with patch(f'{ROUTE_PATH}.build_invalid_ips_overview', return_value={}) as mock_build, \
          patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
          flask_app.test_request_context('/overview/5/invalid?page=3&page_size=20&search=dead'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
@@ -138,7 +138,7 @@ def test_get_invalid_subnet_overview_truncates_search_at_max_query_length(flask_
     bare = _unwrap(get_invalid_subnet_overview)
     long_search: str = 'b' * (IpamSearch.MAX_QUERY_LENGTH + 5)
 
-    with patch(f'{ROUTE_PATH}.build_invalid_subnet_overview', return_value={}) as mock_build, \
+    with patch(f'{ROUTE_PATH}.build_invalid_ips_overview', return_value={}) as mock_build, \
          patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
          flask_app.test_request_context(f'/overview/5/invalid?search={long_search}'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())

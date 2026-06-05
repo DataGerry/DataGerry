@@ -36,6 +36,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     VlanField,
     InterfaceField,
+    IpamSection,
     IpamOverviewKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -118,34 +119,39 @@ def _find_objects_with_field_value(
     return _project_to_reference_dicts(matches)
 
 
-def _field_value_expr(field_name: str) -> dict[str, Any]:
+def field_value_expr(field_name: str, array_path: str = '') -> dict[str, Any]:
     """
-    Builds the aggregation expression extracting the first value of a named object field
+    Builds the aggregation expression extracting the first value of a named name/value entry
 
-    Filters the document's 'fields' array down to entries with the given name, maps them to
-    their 'value' and takes the first element; $ifNull turns a missing field into an explicit
-    None so projected documents always carry the key. Every operator used ($filter, $map,
-    $arrayElemAt, $ifNull) exists since well before MongoDB 4.4
+    Filters a name/value entry array down to entries with the given name, maps them to
+    their 'value' and takes the first element via $first; $ifNull turns a missing entry into
+    an explicit None so projected documents always carry the key. Defaults to the document's
+    top-level 'fields' array; pass ``array_path`` to target another entry array of the same
+    shape (e.g. an unwound MDS row's 'data'). Compatible with the project-wide MongoDB 6.0
+    floor
 
     Args:
-        field_name (str): The object field name to extract
+        field_name (str): The entry name whose value is extracted
+        array_path (str): Dotted document path of the name/value array (without the leading
+            '$'); empty selects the top-level 'fields' array
 
     Returns:
         dict[str, Any]: The aggregation expression for use inside a $project stage
     """
+    source_path: str = array_path or CmdbObjectKey.FIELDS.value
+
     return {'$ifNull': [
-        {'$arrayElemAt': [
-            {'$map': {
+        {'$first': {
+            '$map': {
                 'input': {'$filter': {
-                    'input': f'${CmdbObjectKey.FIELDS.value}',
+                    'input': f'${source_path}',
                     'as': 'field',
                     'cond': {'$eq': [f'$$field.{CmdbObjectFieldKey.NAME.value}', field_name]},
                 }},
                 'as': 'field',
                 'in': f'$$field.{CmdbObjectFieldKey.VALUE.value}',
-            }},
-            0,
-        ]},
+            },
+        }},
         None,
     ]}
 
@@ -160,9 +166,9 @@ def load_vlans_by_subnets(
 
     A single aggregation selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
     ``subnet_ids``, extracts each VLAN's subnet reference and 'dg-name' (None when unset),
-    sorts by ascending public_id and groups the {'public_id', 'name'} entries server-side
-    under their subnet. Only $match / $project / $sort / $group with $filter / $map /
-    $arrayElemAt / $ifNull expressions are used - all available since MongoDB 4.4
+    groups the {'public_id', 'name'} entries server-side under their subnet and sorts each
+    (small) per-subnet bucket by ascending public_id via $sortArray (MongoDB 6.0) - cheaper
+    than the previous blocking $sort over the whole match set before grouping
 
     Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
     subnets without referencing VLANs do not appear in the returned dict (callers should treat
@@ -199,16 +205,22 @@ def load_vlans_by_subnets(
         {'$project': {
             '_id': 0,
             CmdbObjectKey.PUBLIC_ID: 1,
-            subnet_ref_key: _field_value_expr(VlanField.SUBNET_REF),
-            IpamOverviewKey.NAME: _field_value_expr(VlanField.NAME),
+            subnet_ref_key: field_value_expr(VlanField.SUBNET_REF),
+            IpamOverviewKey.NAME: field_value_expr(VlanField.NAME),
         }},
         {'$match': {subnet_ref_key: {'$in': subnet_ids}}},
-        {'$sort': {CmdbObjectKey.PUBLIC_ID: 1}},
         {'$group': {
             '_id': f'${subnet_ref_key}',
             IpamOverviewKey.VLANS: {'$push': {
                 CmdbObjectKey.PUBLIC_ID: f'${CmdbObjectKey.PUBLIC_ID.value}',
                 IpamOverviewKey.NAME: f'${IpamOverviewKey.NAME.value}',
+            }},
+        }},
+        # Sort each per-subnet bucket instead of the whole match set ($sortArray: MongoDB 6.0)
+        {'$project': {
+            IpamOverviewKey.VLANS: {'$sortArray': {
+                'input': f'${IpamOverviewKey.VLANS.value}',
+                'sortBy': {CmdbObjectKey.PUBLIC_ID.value: 1},
             }},
         }},
     ]
@@ -282,7 +294,10 @@ def find_interfaces_referencing_subnet(
     Returns CmdbObjects that have at least one 'dg-ipam-interface' MDS row whose
     'dg-interface-subnet' field points at the given subnet object
 
-    Spans every CmdbType because the dg-ipam-interface section template is global
+    Spans every CmdbType because the dg-ipam-interface section template is global. The
+    $elemMatch is scoped to the dg-ipam-interface section (SECTION_ID), matching
+    ``load_interface_owners`` - a row in some other section whose data happened to carry the
+    same field name must not count as an interface reference
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -295,6 +310,7 @@ def find_interfaces_referencing_subnet(
     criteria: dict[str, Any] = {
         CmdbObjectKey.MULTI_DATA_SECTIONS: {
             '$elemMatch': {
+                CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
                 CmdbObjectMdsKey.VALUES: {
                     '$elemMatch': {
                         CmdbObjectMdsRowKey.DATA: {

@@ -24,8 +24,8 @@ check is a small helper to remain unit-testable, mirroring subnet_validator
 from typing import Any
 
 from cmdb.models.special_type_model.ipam_constants import SupernetField, IpamValidationDetailKey
-from cmdb.utils import BaseStrEnum, build_error
-from cmdb.framework.ipam.cidr import Network, network_family, validate_canonical_cidr_value
+from cmdb.utils import BaseStrEnum
+from cmdb.framework.ipam.cidr import Network, validate_canonical_cidr_value, validate_family_selector
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -64,12 +64,9 @@ def _check_type_matches_family(candidate: Network, supernet_type: str | None) ->
     Validates the SUPERNET's 'dg-supernet-type' selector is set and agrees with the CIDR's
     actual family
 
-    The selector is required: a missing (None) value emits TYPE_MISSING - the field is a
-    required SELECT in the SUPERNET schema and the address family is part of the supernet's
-    identity, so a legacy object without the value must be repaired on its next save (the
-    stored-data backfill is part of the planned baseline migration). When supplied, an 'ipv4'
-    selector on an IPv6 CIDR (or vice versa) emits TYPE_FAMILY_MISMATCH. An unrecognised
-    selector value is treated as not matching the candidate's family
+    Thin domain-specific binding of the shared ``validate_family_selector`` core (see that
+    helper for the required-selector / mismatch semantics) to the SUPERNET selector field,
+    detail key and error codes
 
     Args:
         candidate (Network): The parsed candidate CIDR
@@ -80,27 +77,15 @@ def _check_type_matches_family(candidate: Network, supernet_type: str | None) ->
         list[dict[str, Any]]: A single-element error list on a missing selector or a mismatch,
             empty when consistent
     """
-    if supernet_type is None:
-        return [build_error(
-            SupernetErrorCode.TYPE_MISSING,
-            f"Supernet type ('{SupernetField.TYPE.value}') is required",
-            {IpamValidationDetailKey.CANDIDATE: str(candidate)},
-        )]
-
-    actual_family: str = network_family(candidate)
-
-    if supernet_type == actual_family:
-        return []
-
-    return [build_error(
-        SupernetErrorCode.TYPE_FAMILY_MISMATCH,
-        f"Supernet type '{supernet_type}' does not match the address family '{actual_family}' of {candidate}",
-        {
-            IpamValidationDetailKey.CANDIDATE: str(candidate),
-            IpamValidationDetailKey.SUPERNET_TYPE: supernet_type,
-            IpamValidationDetailKey.CIDR_FAMILY: actual_family,
-        },
-    )]
+    return validate_family_selector(
+        candidate,
+        supernet_type,
+        selector_field_name=SupernetField.TYPE.value,
+        selector_detail_key=IpamValidationDetailKey.SUPERNET_TYPE,
+        missing_code=SupernetErrorCode.TYPE_MISSING,
+        mismatch_code=SupernetErrorCode.TYPE_FAMILY_MISMATCH,
+        subject_label='Supernet',
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

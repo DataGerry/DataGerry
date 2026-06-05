@@ -28,6 +28,7 @@ import copy
 
 from cmdb.manager import TypesManager, SectionTemplatesManager
 
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -36,6 +37,9 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
 )
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -59,8 +63,8 @@ def ensure_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) 
         bool: True when 'ref_types' was modified, False otherwise
     """
     for field in fields:
-        if field.get('name') == field_name:
-            ref_types: list[int] = field.setdefault('ref_types', [])
+        if field.get(FieldKey.NAME) == field_name:
+            ref_types: list[int] = field.setdefault(FieldKey.REF_TYPES, [])
 
             if ref_id not in ref_types:
                 ref_types.append(ref_id)
@@ -96,19 +100,23 @@ def handle_special_types(
         special_type_id (int): public_id of the CmdbType carrying 'special_type'
     """
     if special_type == SpecialType.SUPERNET:
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
+            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET},
+        )
 
         if not subnet_type:
             return
 
-        updated: bool = ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, special_type_id)
+        updated: bool = ensure_ref_type(
+            subnet_type[TypeSchemaKey.FIELDS], SubnetField.PARENT_SUPERNET, special_type_id,
+        )
 
         if updated:
-            types_manager.update_type(subnet_type['public_id'], subnet_type)
+            types_manager.update_type(subnet_type[CmdbObjectKey.PUBLIC_ID], subnet_type)
 
     elif special_type == SpecialType.SUBNET:
         interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
-            {'name': IpamSection.INTERFACE}
+            {SectionKey.NAME: IpamSection.INTERFACE}
         )
 
         if interface_template:
@@ -118,10 +126,14 @@ def handle_special_types(
                 copy.deepcopy(interface_template),
             )
 
-            tpl_updated: bool = ensure_ref_type(interface_template['fields'], InterfaceField.SUBNET, special_type_id)
+            tpl_updated: bool = ensure_ref_type(
+                interface_template[SectionKey.FIELDS], InterfaceField.SUBNET, special_type_id,
+            )
 
             if tpl_updated:
-                section_templates_manager.update_section_template(interface_template["public_id"], interface_template)
+                section_templates_manager.update_section_template(
+                    interface_template[CmdbObjectKey.PUBLIC_ID], interface_template,
+                )
                 # Propagate the new ref_types into every CmdbType that has already
                 # inlined the 'dg-ipam-interface' section; section templates are
                 # copied at apply-time, so without this call the materialized
@@ -131,39 +143,57 @@ def handle_special_types(
                     interface_template, current_template_model,
                 )
 
-        vlan_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.VLAN})
+        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
+            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN},
+        )
 
         if vlan_type:
-            vlan_updated: bool = ensure_ref_type(vlan_type['fields'], VlanField.SUBNET_REF, special_type_id)
+            vlan_updated: bool = ensure_ref_type(
+                vlan_type[TypeSchemaKey.FIELDS], VlanField.SUBNET_REF, special_type_id,
+            )
 
             if vlan_updated:
-                types_manager.update_type(vlan_type['public_id'], vlan_type)
+                types_manager.update_type(vlan_type[CmdbObjectKey.PUBLIC_ID], vlan_type)
 
-        supernet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUPERNET})
+        supernet_type: dict[str, Any] | None = types_manager.get_one_by(
+            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUPERNET},
+        )
 
         if not supernet_type:
             return
 
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by({'public_id': special_type_id})
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
+            {CmdbObjectKey.PUBLIC_ID: special_type_id},
+        )
 
         if not subnet_type:
             return
 
-        if ensure_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, supernet_type['public_id']):
+        if ensure_ref_type(
+            subnet_type[TypeSchemaKey.FIELDS],
+            SubnetField.PARENT_SUPERNET,
+            supernet_type[CmdbObjectKey.PUBLIC_ID],
+        ):
             types_manager.update_type(special_type_id, subnet_type)
 
     elif special_type == SpecialType.VLAN:
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by({'special_type': SpecialType.SUBNET})
+        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
+            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET},
+        )
 
         if not subnet_type:
             return
 
-        vlan_type: dict[str, Any] | None = types_manager.get_one_by({'public_id': special_type_id})
+        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
+            {CmdbObjectKey.PUBLIC_ID: special_type_id},
+        )
 
         if not vlan_type:
             return
 
-        updated = ensure_ref_type(vlan_type['fields'], VlanField.SUBNET_REF, subnet_type['public_id'])
+        updated = ensure_ref_type(
+            vlan_type[TypeSchemaKey.FIELDS], VlanField.SUBNET_REF, subnet_type[CmdbObjectKey.PUBLIC_ID],
+        )
 
         if updated:
-            types_manager.update_type(vlan_type['public_id'], vlan_type)
+            types_manager.update_type(vlan_type[CmdbObjectKey.PUBLIC_ID], vlan_type)

@@ -119,6 +119,65 @@ def validate_canonical_cidr_value(
     return parsed, []
 
 
+def validate_family_selector(
+    candidate: Network,
+    selector_value: str | None,
+    selector_field_name: str,
+    selector_detail_key: str,
+    missing_code: str,
+    mismatch_code: str,
+    subject_label: str,
+) -> list[dict[str, Any]]:
+    """
+    Validates an address-family selector ('ipv4' / 'ipv6') against a parsed network's family
+
+    Shared core of the SUBNET / SUPERNET 'dg-*-type' checks - the per-validator wrappers bind
+    their field name, detail key, error codes and subject wording. The selector is required:
+    a missing (None) value emits ``missing_code`` - the field is a required SELECT in the
+    SpecialType schemas and the address family is part of the object's identity, so a legacy
+    object without the value must be repaired on its next save. When supplied, a selector
+    that does not equal the candidate's actual family (including any unrecognised token,
+    which can never equal it) emits ``mismatch_code``
+
+    Args:
+        candidate (Network): The parsed candidate CIDR
+        selector_value (str | None): The stored selector value, or None when absent
+        selector_field_name (str): The selector field's name, echoed in the missing-value
+            message (e.g. SubnetField.TYPE.value)
+        selector_detail_key (str): Detail key carrying the rejected selector value
+            (e.g. IpamValidationDetailKey.SUBNET_TYPE)
+        missing_code (str): Error code emitted when the selector is None
+        mismatch_code (str): Error code emitted when the selector contradicts the family
+        subject_label (str): Subject word opening the messages ('Subnet' / 'Supernet')
+
+    Returns:
+        list[dict[str, Any]]: A single-element error list on a missing selector or a
+            mismatch, empty when consistent
+    """
+    if selector_value is None:
+        return [build_error(
+            missing_code,
+            f"{subject_label} type ('{selector_field_name}') is required",
+            {IpamValidationDetailKey.CANDIDATE: str(candidate)},
+        )]
+
+    actual_family: str = network_family(candidate)
+
+    if selector_value == actual_family:
+        return []
+
+    return [build_error(
+        mismatch_code,
+        f"{subject_label} type '{selector_value}' does not match the address family "
+        f"'{actual_family}' of {candidate}",
+        {
+            IpamValidationDetailKey.CANDIDATE: str(candidate),
+            selector_detail_key: selector_value,
+            IpamValidationDetailKey.CIDR_FAMILY: actual_family,
+        },
+    )]
+
+
 def parse_ip(value: str) -> Address | None:
     """
     Parses a string as an IPv4 (dotted-quad) or IPv6 host address

@@ -42,8 +42,18 @@ from cmdb.framework.ipam.cidr import (
     assignable_address_count,
     first_assignable_int,
     validate_canonical_cidr_value,
+    validate_family_selector,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+SELECTOR_FIELD_NAME: str = 'dg-test-type'
+SELECTOR_DETAIL_KEY: str = 'test_type'
+MISSING_CODE: str = 'test_type_missing'
+MISMATCH_CODE: str = 'test_type_family_mismatch'
+SUBJECT_LABEL: str = 'Testnet'
+
+SELECTOR_RANGE_V4: str = '10.0.0.0/24'
+SELECTOR_RANGE_V6: str = '2001:db8::/64'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -484,3 +494,76 @@ def test_address_family_returns_ipv4_for_ipv4_address() -> None:
 def test_address_family_returns_ipv6_for_ipv6_address() -> None:
     """A parsed IPv6 address maps to the IpAddressFamily.IPV6 token"""
     assert address_family(parse_ip('2001:db8::5')) == IpAddressFamily.IPV6
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            validate_family_selector                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _run_family_selector(cidr: str, selector_value: str | None) -> list[dict[str, Any]]:
+    """Invokes validate_family_selector with the test bindings against the given CIDR / selector"""
+    return validate_family_selector(
+        parse_cidr(cidr),
+        selector_value,
+        selector_field_name=SELECTOR_FIELD_NAME,
+        selector_detail_key=SELECTOR_DETAIL_KEY,
+        missing_code=MISSING_CODE,
+        mismatch_code=MISMATCH_CODE,
+        subject_label=SUBJECT_LABEL,
+    )
+
+
+def test_validate_family_selector_reports_missing_code_for_none_selector() -> None:
+    """A None selector emits the caller's missing-code with the candidate in the details"""
+    errors = _run_family_selector(SELECTOR_RANGE_V4, None)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == MISSING_CODE
+    assert SELECTOR_FIELD_NAME in errors[0][ValidationErrorKey.MESSAGE]
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.CANDIDATE] == SELECTOR_RANGE_V4
+
+
+@pytest.mark.parametrize('cidr, selector_value', [
+    (SELECTOR_RANGE_V4, IpAddressFamily.IPV4),
+    (SELECTOR_RANGE_V6, IpAddressFamily.IPV6),
+])
+def test_validate_family_selector_returns_empty_when_selector_matches_family(
+    cidr: str, selector_value: str,
+) -> None:
+    """A selector equal to the candidate's actual family is consistent in both families"""
+    assert not _run_family_selector(cidr, selector_value)
+
+
+@pytest.mark.parametrize('cidr, selector_value, actual_family', [
+    (SELECTOR_RANGE_V4, IpAddressFamily.IPV6, IpAddressFamily.IPV4),
+    (SELECTOR_RANGE_V6, IpAddressFamily.IPV4, IpAddressFamily.IPV6),
+])
+def test_validate_family_selector_reports_mismatch_code_for_wrong_family(
+    cidr: str, selector_value: str, actual_family: str,
+) -> None:
+    """A selector contradicting the candidate's family emits the caller's mismatch-code with
+    the rejected selector under the caller's detail key and the actual family alongside"""
+    errors = _run_family_selector(cidr, selector_value)
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == MISMATCH_CODE
+    details = errors[0][ValidationErrorKey.DETAILS]
+    assert details[SELECTOR_DETAIL_KEY] == selector_value
+    assert details[IpamValidationDetailKey.CIDR_FAMILY] == actual_family
+    assert details[IpamValidationDetailKey.CANDIDATE] == cidr
+
+
+def test_validate_family_selector_treats_unrecognised_selector_as_mismatch() -> None:
+    """A token outside the IpAddressFamily values can never equal the family -> mismatch"""
+    errors = _run_family_selector(SELECTOR_RANGE_V4, 'something-else')
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == MISMATCH_CODE
+
+
+def test_validate_family_selector_opens_messages_with_the_subject_label() -> None:
+    """Both error messages start with the caller's subject wording"""
+    missing = _run_family_selector(SELECTOR_RANGE_V4, None)
+    mismatch = _run_family_selector(SELECTOR_RANGE_V4, IpAddressFamily.IPV6)
+
+    assert missing[0][ValidationErrorKey.MESSAGE].startswith(SUBJECT_LABEL)
+    assert mismatch[0][ValidationErrorKey.MESSAGE].startswith(SUBJECT_LABEL)
