@@ -42,6 +42,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
     SubnetField,
+    VlanField,
     InterfaceField,
     IpamSection,
     IpAddressFamily,
@@ -65,6 +66,7 @@ SUPERNET_TYPE_ID: int = 9810
 SUBNET_TYPE_ID: int = 9811
 CARRIER_A_TYPE_ID: int = 9812
 CARRIER_B_TYPE_ID: int = 9813
+VLAN_TYPE_ID: int = 9814
 
 SUPERNET_ID: int = 9820
 SUBNET_PARENT_ID: int = 9821    # 10.4.0.0/16
@@ -73,6 +75,7 @@ SUBNET_INVALID_ID: int = 9823   # 192.168.50.0/24 - outside the supernet
 SUBNET_IPS_ID: int = 9824       # 10.5.0.0/24 - carries the assigned IPs
 CARRIER_A_ID: int = 9825
 CARRIER_B_ID: int = 9826
+VLAN_ID: int = 9827
 FOREIGN_SUBNET_ID: int = 9899   # never seeded
 
 SUPERNET_RANGE: str = '10.0.0.0/8'
@@ -83,11 +86,12 @@ SUBNET_IPS_RANGE: str = '10.5.0.0/24'
 
 IP_OF_CARRIER_A: str = '10.5.0.10'
 IP_OF_CARRIER_B: str = '10.5.0.20'
+VLAN_NAME: str = 'res-vlan'
 
-TYPE_IDS: list[int] = [SUPERNET_TYPE_ID, SUBNET_TYPE_ID, CARRIER_A_TYPE_ID, CARRIER_B_TYPE_ID]
+TYPE_IDS: list[int] = [SUPERNET_TYPE_ID, SUBNET_TYPE_ID, CARRIER_A_TYPE_ID, CARRIER_B_TYPE_ID, VLAN_TYPE_ID]
 OBJECT_IDS: list[int] = [
     SUPERNET_ID, SUBNET_PARENT_ID, SUBNET_CHILD_ID, SUBNET_INVALID_ID,
-    SUBNET_IPS_ID, CARRIER_A_ID, CARRIER_B_ID,
+    SUBNET_IPS_ID, CARRIER_A_ID, CARRIER_B_ID, VLAN_ID,
 ]
 
 
@@ -127,6 +131,7 @@ def _seed_views_topology(database_manager: MongoDatabaseManager, database_name: 
         make_type_doc(SUBNET_TYPE_ID, 'it-res-subnet', SpecialType.SUBNET),
         make_type_doc(CARRIER_A_TYPE_ID, 'it-res-carrier-a', None),
         make_type_doc(CARRIER_B_TYPE_ID, 'it-res-carrier-b', None),
+        make_type_doc(VLAN_TYPE_ID, 'it-res-vlan', SpecialType.VLAN),
     ])
 
     objects.insert_many([
@@ -141,6 +146,10 @@ def _seed_views_topology(database_manager: MongoDatabaseManager, database_name: 
         _subnet_doc(SUBNET_IPS_ID, 'res-ips', SUBNET_IPS_RANGE),
         _carrier_doc(CARRIER_A_ID, CARRIER_A_TYPE_ID, IP_OF_CARRIER_A),
         _carrier_doc(CARRIER_B_ID, CARRIER_B_TYPE_ID, IP_OF_CARRIER_B),
+        make_object_doc(VLAN_ID, VLAN_TYPE_ID, [
+            make_field(VlanField.NAME, VLAN_NAME),
+            make_field(VlanField.SUBNET_REF, SUBNET_PARENT_ID),
+        ]),
     ])
 
     yield
@@ -193,6 +202,20 @@ def test_supernet_overview_search_drops_the_tree_shape(
 
     rows = payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]
     assert [row[CmdbObjectKey.PUBLIC_ID] for row in rows] == [SUBNET_CHILD_ID]
+
+
+def test_supernet_overview_attaches_vlans_via_the_real_aggregation(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """The VLAN grouping aggregation surfaces the seeded VLAN chip on its subnet row"""
+    payload = build_supernet_overview(objects_manager, types_manager, SUPERNET_ID)
+
+    rows = payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]
+    parent_row = next(r for r in rows if r[CmdbObjectKey.PUBLIC_ID] == SUBNET_PARENT_ID)
+
+    assert parent_row[IpamOverviewKey.VLANS] == [
+        {CmdbObjectKey.PUBLIC_ID: VLAN_ID, IpamOverviewKey.NAME: VLAN_NAME},
+    ]
 
 
 def test_resolve_supernet_family_loads_the_real_document(

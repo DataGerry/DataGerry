@@ -30,7 +30,6 @@ from cmdb.models.object_model import (
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
-    extract_field_value,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -119,6 +118,38 @@ def _find_objects_with_field_value(
     return _project_to_reference_dicts(matches)
 
 
+def _field_value_expr(field_name: str) -> dict[str, Any]:
+    """
+    Builds the aggregation expression extracting the first value of a named object field
+
+    Filters the document's 'fields' array down to entries with the given name, maps them to
+    their 'value' and takes the first element; $ifNull turns a missing field into an explicit
+    None so projected documents always carry the key. Every operator used ($filter, $map,
+    $arrayElemAt, $ifNull) exists since well before MongoDB 4.4
+
+    Args:
+        field_name (str): The object field name to extract
+
+    Returns:
+        dict[str, Any]: The aggregation expression for use inside a $project stage
+    """
+    return {'$ifNull': [
+        {'$arrayElemAt': [
+            {'$map': {
+                'input': {'$filter': {
+                    'input': f'${CmdbObjectKey.FIELDS.value}',
+                    'as': 'field',
+                    'cond': {'$eq': [f'$$field.{CmdbObjectFieldKey.NAME.value}', field_name]},
+                }},
+                'as': 'field',
+                'in': f'$$field.{CmdbObjectFieldKey.VALUE.value}',
+            }},
+            0,
+        ]},
+        None,
+    ]}
+
+
 def load_vlans_by_subnets(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -127,12 +158,11 @@ def load_vlans_by_subnets(
     """
     Groups VLAN CmdbObjects by the subnet their 'dg-subnet-ref' field points at
 
-    A single Mongo query selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
-    ``subnet_ids``; bucketing happens in Python to keep the pipeline portable (Cosmos Mongo API
-    friendly: no aggregation stages required). Each VLAN that references one of the supplied
-    subnets contributes a {'public_id': <vlan id>, 'name': <vlan dg-name or None>} entry to the
-    bucket for that subnet. Per-bucket entries are sorted by ascending public_id so the order
-    is deterministic across re-queries
+    A single aggregation selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
+    ``subnet_ids``, extracts each VLAN's subnet reference and 'dg-name' (None when unset),
+    sorts by ascending public_id and groups the {'public_id', 'name'} entries server-side
+    under their subnet. Only $match / $project / $sort / $group with $filter / $map /
+    $arrayElemAt / $ifNull expressions are used - all available since MongoDB 4.4
 
     Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
     subnets without referencing VLANs do not appear in the returned dict (callers should treat
@@ -155,36 +185,38 @@ def load_vlans_by_subnets(
     if vlan_type_id is None:
         return {}
 
-    subnet_id_set: set[int] = set(subnet_ids)
-
-    criteria: dict[str, Any] = {
-        CmdbObjectKey.TYPE_ID: vlan_type_id,
-        CmdbObjectKey.FIELDS: {
-            '$elemMatch': {
-                CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
-                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+    subnet_ref_key: str = VlanField.SUBNET_REF.value
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {
+            CmdbObjectKey.TYPE_ID: vlan_type_id,
+            CmdbObjectKey.FIELDS: {
+                '$elemMatch': {
+                    CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
+                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+                },
             },
-        },
+        }},
+        {'$project': {
+            '_id': 0,
+            CmdbObjectKey.PUBLIC_ID: 1,
+            subnet_ref_key: _field_value_expr(VlanField.SUBNET_REF),
+            IpamOverviewKey.NAME: _field_value_expr(VlanField.NAME),
+        }},
+        {'$match': {subnet_ref_key: {'$in': subnet_ids}}},
+        {'$sort': {CmdbObjectKey.PUBLIC_ID: 1}},
+        {'$group': {
+            '_id': f'${subnet_ref_key}',
+            IpamOverviewKey.VLANS: {'$push': {
+                CmdbObjectKey.PUBLIC_ID: f'${CmdbObjectKey.PUBLIC_ID.value}',
+                IpamOverviewKey.NAME: f'${IpamOverviewKey.NAME.value}',
+            }},
+        }},
+    ]
+
+    return {
+        row['_id']: row[IpamOverviewKey.VLANS]
+        for row in objects_manager.aggregate_objects(pipeline)
     }
-
-    vlan_objs: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
-    buckets: dict[int, list[dict[str, Any]]] = {}
-
-    for vlan_obj in vlan_objs:
-        subnet_ref: Any = extract_field_value(vlan_obj, VlanField.SUBNET_REF)
-
-        if subnet_ref not in subnet_id_set:
-            continue
-
-        buckets.setdefault(subnet_ref, []).append({
-            CmdbObjectKey.PUBLIC_ID: vlan_obj[CmdbObjectKey.PUBLIC_ID],
-            IpamOverviewKey.NAME: extract_field_value(vlan_obj, VlanField.NAME),
-        })
-
-    for bucket in buckets.values():
-        bucket.sort(key=lambda entry: entry[CmdbObjectKey.PUBLIC_ID])
-
-    return buckets
 
 
 def find_subnets_referencing_supernet(

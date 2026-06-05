@@ -22,14 +22,16 @@ dg-ipam-interface MDS row. The live baseline predates those fields, so this upda
 existing installation to the new state:
 
 1. Adds the required SELECT field definition to the existing SUPERNET / SUBNET CmdbTypes
-   (schema 'fields' entry plus the Network-Details section layout) when it is missing, and
-   sets 'required: true' on an already-present definition
+   (schema 'fields' entry plus the Network-Details section layout) when it is missing, sets
+   'required: true' on an already-present definition, and syncs the 'dg-network-range' regex
+   to the blueprint's dual-family CIDR_REGEX (the baseline regex only admitted IPv4)
 2. Backfills the selector value on every SUPERNET / SUBNET CmdbObject from the object's
    'dg-network-range' CIDR family ('ipv4' when the range is missing or unparsable - the
    baseline is IPv4-only)
 3. Ensures the stored dg-ipam-interface section template carries the required
-   'dg-interface-type' SELECT and propagates the template change to every CmdbType using it
-   via handle_section_template_changes
+   'dg-interface-type' SELECT, syncs the 'dg-interface-ip-address' regex to the blueprint's
+   dual-family IP_ADDRESS_REGEX (the baseline field had no regex), and propagates the
+   template change to every CmdbType using it via handle_section_template_changes
 4. Backfills 'dg-interface-type' on every data-carrying interface MDS row: the parsed IP's
    family first, the referenced subnet's family second, 'ipv4' as last resort; empty
    placeholder rows are left untouched
@@ -217,6 +219,36 @@ def ensure_field_definition(fields: list[dict[str, Any]], field_def: dict[str, A
     return False
 
 
+def ensure_field_regex(fields: list[dict[str, Any]], field_name: str, regex: str) -> bool:
+    """
+    Ensures a field-definition list carries the given regex on the named field
+
+    The live baseline shipped the IPAM address fields with an IPv4-only regex (network range)
+    or no regex at all (interface IP), so a stored definition whose regex differs from the
+    blueprint value is synced - covering both the replace and the add case. A definition list
+    without the field is left untouched (there is nothing to attach the regex to). The list
+    is mutated in place
+
+    Args:
+        fields (list[dict[str, Any]]): A CmdbType or section-template 'fields' definition list
+        field_name (str): The field name whose regex is synced
+        regex (str): The blueprint regex to set
+
+    Returns:
+        bool: True when the list was changed
+    """
+    existing: dict[str, Any] | None = next(
+        (f for f in fields if f.get(FieldKey.NAME) == field_name),
+        None,
+    )
+
+    if existing is None or existing.get(FieldKey.REGEX) == regex:
+        return False
+
+    existing[FieldKey.REGEX] = regex
+    return True
+
+
 def ensure_section_layout(
     type_doc: dict[str, Any],
     field_name: str,
@@ -329,15 +361,18 @@ def backfill_interface_rows(
     return changed
 
 
-def get_interface_type_field_def() -> dict[str, Any]:
+def get_interface_field_def(field_name: str) -> dict[str, Any]:
     """
-    Returns the 'dg-interface-type' field definition from the predefined template blueprint
+    Returns one field definition from the predefined dg-ipam-interface template blueprint
 
     Pulled from SectionTemplateCreator so the updater and fresh installations share one
-    source of truth for the definition (SELECT, required, IPv4/IPv6 options)
+    source of truth for the definitions (the required type SELECT, the dual-family IP regex)
+
+    Args:
+        field_name (str): The field name to extract (InterfaceField.TYPE / InterfaceField.IP)
 
     Returns:
-        dict[str, Any]: The blueprint field definition of 'dg-interface-type'
+        dict[str, Any]: The blueprint field definition
     """
     templates: list[dict[str, Any]] = SectionTemplateCreator().get_predefined_templates()
     interface: dict[str, Any] = next(
@@ -345,7 +380,7 @@ def get_interface_type_field_def() -> dict[str, Any]:
     )
 
     return next(
-        f for f in interface[TypeSchemaKey.FIELDS] if f.get(FieldKey.NAME) == InterfaceField.TYPE
+        f for f in interface[TypeSchemaKey.FIELDS] if f.get(FieldKey.NAME) == field_name
     )
 
 
@@ -355,7 +390,8 @@ def get_selector_field_def(blueprint: dict[str, Any], field_name: str) -> dict[s
 
     Args:
         blueprint (dict[str, Any]): Output of get_supernet_schema / get_subnet_schema
-        field_name (str): The field name to extract (SupernetField.TYPE / SubnetField.TYPE)
+        field_name (str): The field name to extract (the 'dg-*-type' selector or the
+            'dg-network-range' field)
 
     Returns:
         dict[str, Any]: The blueprint field definition
@@ -369,7 +405,8 @@ def get_selector_field_def(blueprint: dict[str, Any], field_name: str) -> dict[s
 class Update20260604(BaseDatabaseUpdate):
     """
     Backfills the now-required IPAM address-family selectors on types, the stored
-    dg-ipam-interface section template, and all existing objects / interface rows
+    dg-ipam-interface section template, and all existing objects / interface rows, and syncs
+    the baseline IPv4-only field regexes to the dual-family blueprint values
     """
     def creation_date(self) -> int:
         return 20260604
@@ -378,7 +415,8 @@ class Update20260604(BaseDatabaseUpdate):
     def description(self) -> str:
         return ("Adds the required IPAM address-family selectors ('dg-supernet-type', 'dg-subnet-type', "
                 "'dg-interface-type') to the existing SUPERNET/SUBNET types and the dg-ipam-interface "
-                "section template, and backfills the values on all existing objects and interface rows")
+                "section template, syncs the network-range and interface-IP regexes to the dual-family "
+                "(IPv4/IPv6) blueprints, and backfills the values on all existing objects and interface rows")
 
 
     def start_update(self) -> None:
@@ -416,7 +454,8 @@ class Update20260604(BaseDatabaseUpdate):
         range_field: str,
     ) -> dict[int, str]:
         """
-        Adds the selector field to the SpecialType's CmdbType and backfills every object
+        Adds the selector field to the SpecialType's CmdbType, syncs the network-range regex
+        to the blueprint's dual-family value, and backfills every object
 
         Returns the {public_id: family} map of the type's objects so the SUBNET pass can feed
         the interface-row backfill without a second load. A missing SpecialType (the
@@ -441,12 +480,16 @@ class Update20260604(BaseDatabaseUpdate):
         field_def: dict[str, Any] = get_selector_field_def(blueprint, type_field)
         type_fields: list[dict[str, Any]] = type_doc.setdefault(TypeSchemaKey.FIELDS, [])
 
-        def_changed: bool = ensure_field_definition(type_fields, field_def)
-        layout_changed: bool = ensure_section_layout(
+        type_changed: bool = ensure_field_definition(type_fields, field_def)
+        type_changed = ensure_field_regex(
+            type_fields, range_field,
+            get_selector_field_def(blueprint, range_field)[FieldKey.REGEX],
+        ) or type_changed
+        type_changed = ensure_section_layout(
             type_doc, type_field, IpamSection.NETWORK_DETAILS, range_field,
-        )
+        ) or type_changed
 
-        if def_changed or layout_changed:
+        if type_changed:
             self.types_manager.update_type(type_doc[CmdbObjectKey.PUBLIC_ID], type_doc)
 
         family_by_id: dict[int, str] = {}
@@ -474,7 +517,8 @@ class Update20260604(BaseDatabaseUpdate):
     def update_interface_template(self) -> None:
         """
         Ensures the stored dg-ipam-interface template carries the required type selector and
-        propagates the change to every CmdbType using the template
+        the dual-family IP regex, and propagates the changes to every CmdbType using the
+        template
 
         Mirrors the section-template update route: persist the changed template via
         update_section_template, then run handle_section_template_changes with the original
@@ -495,7 +539,15 @@ class Update20260604(BaseDatabaseUpdate):
         new_params: dict[str, Any] = deepcopy(template_doc)
         new_fields: list[dict[str, Any]] = new_params.setdefault(TypeSchemaKey.FIELDS, [])
 
-        if not ensure_field_definition(new_fields, get_interface_type_field_def()):
+        def_changed: bool = ensure_field_definition(
+            new_fields, get_interface_field_def(InterfaceField.TYPE),
+        )
+        regex_changed: bool = ensure_field_regex(
+            new_fields, InterfaceField.IP,
+            get_interface_field_def(InterfaceField.IP)[FieldKey.REGEX],
+        )
+
+        if not (def_changed or regex_changed):
             return
 
         section_templates_manager.update_section_template(
