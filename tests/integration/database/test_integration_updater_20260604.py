@@ -24,12 +24,13 @@ template (materialized copy), and a carrier object with un-typed interface MDS r
 
 Covered end to end: the selector field definitions land in the type schemas (definition +
 section layout), the IPv4-only 'dg-network-range' regexes are synced to the dual-family
-CIDR_REGEX, object values are derived from the real CIDRs, the stored template gains
-'required: true' plus the dual-family IP_ADDRESS_REGEX on its regex-less IP field and the
-changes propagate into the using type via the real handle_section_template_changes,
-interface rows are backfilled with the IP-first / subnet-fallback precedence, the persisted
-updater version is bumped, a second run is a no-op (idempotency), and a migrated subnet
-passes the save-time enforcement
+CIDR_REGEX, object values are derived from the real CIDRs and written as complete
+{name, value, type} entries, the stored template gains 'required: true' plus the dual-family
+IP_ADDRESS_REGEX on its regex-less IP field and the changes propagate into the using type via
+the real handle_section_template_changes, interface rows are backfilled with the IP-first /
+subnet-fallback precedence (legacy name+value-only entries are repaired to the full triple),
+the persisted updater version is bumped, a second run is a no-op (idempotency), and a
+migrated subnet passes the save-time enforcement
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -153,7 +154,7 @@ def _type_doc(
 
 
 def _field(name: str, value: Any) -> dict[str, Any]:
-    """Builds one stored CmdbObject field / MDS data entry."""
+    """Builds one pre-migration CmdbObject field / MDS data entry (the legacy {name, value} shape)."""
     return {CmdbObjectFieldKey.NAME: name, CmdbObjectFieldKey.VALUE: value}
 
 
@@ -313,7 +314,9 @@ def fixture_seeded_baseline(database_manager: MongoDatabaseManager, database_nam
 
 
 @pytest.fixture(scope='module', autouse=True, name='run_updater')
-def fixture_run_updater(seeded_baseline, database_manager: MongoDatabaseManager, database_name: str):  # pylint: disable=unused-argument
+def fixture_run_updater(  # pylint: disable=unused-argument
+    seeded_baseline, database_manager: MongoDatabaseManager, database_name: str,
+):
     """Runs the migration once against the seeded baseline; depends on it purely for ordering."""
     Update20260604(database_manager, database_name).start_update()
     yield
@@ -340,6 +343,14 @@ def _type_field_def(type_doc: dict[str, Any], field_name: str) -> dict[str, Any]
     """Returns a CmdbType document's field definition by name."""
     return next(
         (f for f in type_doc.get(TypeSchemaKey.FIELDS, []) if f.get(FieldKey.NAME) == field_name),
+        None,
+    )
+
+
+def _stored_field_entry(doc: dict[str, Any], field_name: str) -> dict[str, Any] | None:
+    """Returns a stored CmdbObject's full field entry by name."""
+    return next(
+        (f for f in doc.get(CmdbObjectKey.FIELDS, []) if f.get(CmdbObjectFieldKey.NAME) == field_name),
         None,
     )
 
@@ -402,6 +413,24 @@ def test_object_selector_values_derive_from_the_real_cidrs(
     assert _field_value(doc, selector) == expected_family
 
 
+@pytest.mark.parametrize('object_id, selector', [
+    (SUPERNET_V4_ID, SupernetField.TYPE),
+    (SUPERNET_V6_ID, SupernetField.TYPE),
+    (SUBNET_V6_ID, SubnetField.TYPE),
+    (SUBNET_BROKEN_ID, SubnetField.TYPE),
+], ids=['supernet-v4', 'supernet-v6', 'subnet-v6', 'subnet-unparsable-default'])
+def test_object_selector_entries_are_complete_triples(
+    objects_collection, object_id: int, selector: str,
+) -> None:
+    """Every backfilled selector entry carries all three keys: name, value and the SELECT type"""
+    doc = objects_collection.find_one({CmdbObjectKey.PUBLIC_ID: object_id})
+
+    entry = _stored_field_entry(doc, selector)
+    assert entry is not None
+    assert entry[CmdbObjectFieldKey.TYPE] == FieldType.SELECT
+    assert set(entry) == {CmdbObjectFieldKey.NAME, CmdbObjectFieldKey.VALUE, CmdbObjectFieldKey.TYPE}
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         TEMPLATE + PROPAGATION                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -457,17 +486,22 @@ def test_interface_rows_backfilled_with_ip_first_subnet_fallback(objects_collect
     carrier = objects_collection.find_one({CmdbObjectKey.PUBLIC_ID: CARRIER_ID})
     rows = carrier[CmdbObjectKey.MULTI_DATA_SECTIONS][0][CmdbObjectMdsKey.VALUES]
 
-    def row_type(index: int) -> Any:
+    def row_entry(index: int) -> dict[str, Any] | None:
         return next(
-            (e[CmdbObjectFieldKey.VALUE] for e in rows[index][CmdbObjectMdsRowKey.DATA]
+            (e for e in rows[index][CmdbObjectMdsRowKey.DATA]
              if e[CmdbObjectFieldKey.NAME] == InterfaceField.TYPE),
             None,
         )
 
-    assert row_type(0) == IpAddressFamily.IPV6      # from the IPv6 IP
-    assert row_type(1) == IpAddressFamily.IPV6      # from the referenced subnet's family
-    assert rows[2][CmdbObjectMdsRowKey.DATA] == []  # empty placeholder untouched
-    assert row_type(3) == IpAddressFamily.IPV6      # preset value never overwritten
+    assert row_entry(0)[CmdbObjectFieldKey.VALUE] == IpAddressFamily.IPV6  # from the IPv6 IP
+    assert row_entry(1)[CmdbObjectFieldKey.VALUE] == IpAddressFamily.IPV6  # referenced subnet's family
+    assert rows[2][CmdbObjectMdsRowKey.DATA] == []                         # empty placeholder untouched
+    assert row_entry(3)[CmdbObjectFieldKey.VALUE] == IpAddressFamily.IPV6  # preset value never overwritten
+
+    # every data-carrying row entry is the complete {name, value, type} triple - including
+    # the preset row whose legacy entry only carried name + value before the migration
+    for index in (0, 1, 3):
+        assert row_entry(index)[CmdbObjectFieldKey.TYPE] == FieldType.SELECT
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

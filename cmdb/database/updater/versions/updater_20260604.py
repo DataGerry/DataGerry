@@ -22,22 +22,25 @@ dg-ipam-interface MDS row. The live baseline predates those fields, so this upda
 existing installation to the new state:
 
 1. Adds the required SELECT field definition to the existing SUPERNET / SUBNET CmdbTypes
-   (schema 'fields' entry plus the Network-Details section layout) when it is missing, sets
-   'required: true' on an already-present definition, and syncs the 'dg-network-range' regex
-   to the blueprint's dual-family CIDR_REGEX (the baseline regex only admitted IPv4)
-2. Backfills the selector value on every SUPERNET / SUBNET CmdbObject from the object's
-   'dg-network-range' CIDR family ('ipv4' when the range is missing or unparsable - the
-   baseline is IPv4-only)
+   (schema 'fields' entry plus the Network-Details section layout) when it is missing, syncs
+   the key attributes ('type', 'options', 'required') of an already-present definition to the
+   blueprint, and syncs the 'dg-network-range' regex to the blueprint's dual-family
+   CIDR_REGEX (the baseline regex only admitted IPv4)
+2. Backfills the selector on every SUPERNET / SUBNET CmdbObject as a complete
+   {name, value, type} field entry, deriving the value from the object's 'dg-network-range'
+   CIDR family ('ipv4' when the range is missing or unparsable - the baseline is IPv4-only)
 3. Ensures the stored dg-ipam-interface section template carries the required
    'dg-interface-type' SELECT, syncs the 'dg-interface-ip-address' regex to the blueprint's
    dual-family IP_ADDRESS_REGEX (the baseline field had no regex), and propagates the
    template change to every CmdbType using it via handle_section_template_changes
-4. Backfills 'dg-interface-type' on every data-carrying interface MDS row: the parsed IP's
-   family first, the referenced subnet's family second, 'ipv4' as last resort; empty
-   placeholder rows are left untouched
+4. Backfills 'dg-interface-type' on every data-carrying interface MDS row as a complete
+   {name, value, type} entry: the parsed IP's family first, the referenced subnet's family
+   second, 'ipv4' as last resort; empty placeholder rows are left untouched
 
-Every step only touches documents that lack the value, so re-running on partially migrated
-data is safe
+Every step only touches documents that lack the value (or, for already-present entries and
+definitions, only fills the missing attributes), so re-running on partially migrated data is
+safe - including data written by a pre-fix run of this updater whose object entries lack the
+'type' key
 """
 from logging import Logger, getLogger
 from copy import deepcopy
@@ -53,7 +56,7 @@ from cmdb.models.object_model import (
     CmdbObjectMdsRowKey,
     extract_field_value,
 )
-from cmdb.models.type_model import FieldKey, SectionKey
+from cmdb.models.type_model import FieldKey, FieldType, SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -77,6 +80,10 @@ LOGGER: Logger = getLogger(__name__)
 # blueprint keys; the persisted document nests the section layout under 'render_meta')
 RENDER_META_KEY: str = 'render_meta'
 SECTIONS_KEY: str = 'sections'
+
+# Blueprint attributes synced onto an already-present field definition; the user-visible
+# 'label' and any local extras are deliberately left untouched
+SYNCED_FIELD_DEF_KEYS: tuple[str, ...] = (FieldKey.TYPE, FieldKey.OPTIONS, FieldKey.REQUIRED)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -157,17 +164,20 @@ def derive_row_family(
     return IpAddressFamily.IPV4
 
 
-def ensure_field_value(fields: list[dict[str, Any]], field_name: str, value: str) -> bool:
+def ensure_field_value(fields: list[dict[str, Any]], field_name: str, value: str, field_type: str) -> bool:
     """
-    Ensures a fields/data list carries a non-empty value for the given field name
+    Ensures a fields/data list carries a complete {name, value, type} entry for the field name
 
-    An existing entry with a non-empty string value is left untouched; an entry with a
-    missing or empty value is set; a missing entry is appended. The list is mutated in place
+    A stored object field entry must always carry all three keys: 'name', 'value' and 'type'
+    (the FieldType of the field's definition). An existing entry keeps a non-empty value and a
+    non-empty type; whichever of the two is missing or empty is set; a missing entry is
+    appended as a full triple. The list is mutated in place
 
     Args:
         fields (list[dict[str, Any]]): A CmdbObject 'fields' list or an MDS row 'data' list
         field_name (str): The field name to ensure
         value (str): The value to set when missing
+        field_type (str): The FieldType of the field's definition (e.g. FieldType.SELECT)
 
     Returns:
         bool: True when the list was changed
@@ -176,29 +186,40 @@ def ensure_field_value(fields: list[dict[str, Any]], field_name: str, value: str
         if entry.get(CmdbObjectFieldKey.NAME) != field_name:
             continue
 
-        current: Any = entry.get(CmdbObjectFieldKey.VALUE)
+        changed: bool = False
+        current_value: Any = entry.get(CmdbObjectFieldKey.VALUE)
+        current_type: Any = entry.get(CmdbObjectFieldKey.TYPE)
 
-        if isinstance(current, str) and current:
-            return False
+        if not (isinstance(current_value, str) and current_value):
+            entry[CmdbObjectFieldKey.VALUE] = value
+            changed = True
 
-        entry[CmdbObjectFieldKey.VALUE] = value
-        return True
+        if not (isinstance(current_type, str) and current_type):
+            entry[CmdbObjectFieldKey.TYPE] = field_type
+            changed = True
 
-    fields.append({CmdbObjectFieldKey.NAME: field_name, CmdbObjectFieldKey.VALUE: value})
+        return changed
+
+    fields.append({
+        CmdbObjectFieldKey.NAME: field_name,
+        CmdbObjectFieldKey.VALUE: value,
+        CmdbObjectFieldKey.TYPE: field_type,
+    })
     return True
 
 
 def ensure_field_definition(fields: list[dict[str, Any]], field_def: dict[str, Any]) -> bool:
     """
-    Ensures a field-definition list contains the given definition, marked required
+    Ensures a field-definition list contains the given definition with its key attributes
 
-    A missing definition is appended verbatim; a present definition only gets its
-    'required' flag set when it is not already True (the rest of an existing definition is
-    left untouched). The list is mutated in place
+    A missing definition is appended verbatim; a present definition gets every
+    SYNCED_FIELD_DEF_KEYS attribute ('type', 'options', 'required') synced from the blueprint
+    when it is missing or differs, while the rest of the existing definition (e.g. a locally
+    customized 'label') is left untouched. The list is mutated in place
 
     Args:
         fields (list[dict[str, Any]]): A CmdbType or section-template 'fields' definition list
-        field_def (dict[str, Any]): The blueprint definition (must carry 'name' and 'required')
+        field_def (dict[str, Any]): The blueprint definition (must carry 'name')
 
     Returns:
         bool: True when the list was changed
@@ -212,11 +233,14 @@ def ensure_field_definition(fields: list[dict[str, Any]], field_def: dict[str, A
         fields.append(field_def)
         return True
 
-    if existing.get(FieldKey.REQUIRED) is not True:
-        existing[FieldKey.REQUIRED] = True
-        return True
+    changed: bool = False
 
-    return False
+    for key in SYNCED_FIELD_DEF_KEYS:
+        if key in field_def and existing.get(key) != field_def[key]:
+            existing[key] = field_def[key]
+            changed = True
+
+    return changed
 
 
 def ensure_field_regex(fields: list[dict[str, Any]], field_name: str, regex: str) -> bool:
@@ -314,9 +338,10 @@ def backfill_interface_rows(
     """
     Backfills 'dg-interface-type' on every data-carrying dg-ipam-interface row
 
-    Rows that already carry a non-empty type value and rows without any data are left
-    untouched; for the rest the family is derived via ``derive_row_family``. The sections are
-    mutated in place
+    Rows without any data are left untouched. Rows that already carry a non-empty type value
+    keep it, but an entry still lacking the 'type' key (written by a pre-fix run) is repaired
+    to the full {name, value, type} shape; for the rest the family is derived via
+    ``derive_row_family``. The sections are mutated in place
 
     Args:
         mds_sections (list[dict[str, Any]]): A CmdbObject's 'multi_data_sections' list
@@ -345,6 +370,10 @@ def backfill_interface_rows(
             current_type: Any = entries.get(InterfaceField.TYPE)
 
             if isinstance(current_type, str) and current_type:
+                # Value already present - still repair an entry that lacks the 'type' key
+                changed = ensure_field_value(
+                    data, InterfaceField.TYPE, current_type, FieldType.SELECT,
+                ) or changed
                 continue
 
             family: str | None = derive_row_family(
@@ -356,7 +385,7 @@ def backfill_interface_rows(
             if family is None:
                 continue
 
-            changed = ensure_field_value(data, InterfaceField.TYPE, family) or changed
+            changed = ensure_field_value(data, InterfaceField.TYPE, family, FieldType.SELECT) or changed
 
     return changed
 
@@ -505,7 +534,7 @@ class Update20260604(BaseDatabaseUpdate):
 
             obj_fields: list[dict[str, Any]] = obj.setdefault(CmdbObjectKey.FIELDS, [])
 
-            if ensure_field_value(obj_fields, type_field, family):
+            if ensure_field_value(obj_fields, type_field, family, field_def[FieldKey.TYPE]):
                 self.objects_manager.update_many_raw(
                     filter_query={CmdbObjectKey.PUBLIC_ID: obj[CmdbObjectKey.PUBLIC_ID]},
                     update={'$set': {CmdbObjectKey.FIELDS: obj_fields}},
