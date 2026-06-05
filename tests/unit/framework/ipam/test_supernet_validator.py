@@ -69,8 +69,12 @@ def test_check_canonical_cidr_reports_cidr_invalid_for_garbage_input() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           _check_type_matches_family                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_check_type_matches_family_reports_type_missing_when_supernet_type_is_none() -> None:
-    """A None selector emits TYPE_MISSING - the selector is required on every supernet"""
+def test_check_type_matches_family_binds_type_missing_to_the_supernet_code() -> None:
+    """The SUPERNET binding emits SupernetErrorCode.TYPE_MISSING for a None selector
+
+    The full required-selector / mismatch matrix is covered once on the shared
+    ``validate_family_selector`` core in test_cidr; here only the SUPERNET binding is pinned
+    """
     errors = _check_type_matches_family(parse_cidr(VALID_RANGE_V4), None)
 
     assert len(errors) == 1
@@ -78,18 +82,8 @@ def test_check_type_matches_family_reports_type_missing_when_supernet_type_is_no
     assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.CANDIDATE] == VALID_RANGE_V4
 
 
-def test_check_type_matches_family_returns_empty_when_ipv4_selector_matches_ipv4_cidr() -> None:
-    """An 'ipv4' selector on an IPv4 CIDR is consistent -> no errors"""
-    assert not _check_type_matches_family(parse_cidr(VALID_RANGE_V4), IpAddressFamily.IPV4)
-
-
-def test_check_type_matches_family_returns_empty_when_ipv6_selector_matches_ipv6_cidr() -> None:
-    """An 'ipv6' selector on an IPv6 CIDR is consistent -> no errors"""
-    assert not _check_type_matches_family(parse_cidr(VALID_RANGE_V6), IpAddressFamily.IPV6)
-
-
-def test_check_type_matches_family_reports_mismatch_for_ipv6_selector_on_ipv4_cidr() -> None:
-    """An 'ipv6' selector on an IPv4 CIDR -> TYPE_FAMILY_MISMATCH carrying both families"""
+def test_check_type_matches_family_binds_mismatch_to_the_supernet_code_and_detail_key() -> None:
+    """The SUPERNET binding emits SupernetErrorCode.TYPE_FAMILY_MISMATCH carrying the SUPERNET_TYPE detail"""
     errors = _check_type_matches_family(parse_cidr(VALID_RANGE_V4), IpAddressFamily.IPV6)
 
     assert len(errors) == 1
@@ -99,12 +93,9 @@ def test_check_type_matches_family_reports_mismatch_for_ipv6_selector_on_ipv4_ci
     assert details[IpamValidationDetailKey.CIDR_FAMILY] == IpAddressFamily.IPV4
 
 
-def test_check_type_matches_family_treats_unrecognised_selector_as_mismatch() -> None:
-    """An unrecognised selector value never matches the candidate's family -> mismatch error"""
-    errors = _check_type_matches_family(parse_cidr(VALID_RANGE_V4), 'something-else')
-
-    assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_FAMILY_MISMATCH
+def test_check_type_matches_family_returns_empty_when_selector_matches() -> None:
+    """A consistent selector passes the SUPERNET binding without errors"""
+    assert not _check_type_matches_family(parse_cidr(VALID_RANGE_V6), IpAddressFamily.IPV6)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

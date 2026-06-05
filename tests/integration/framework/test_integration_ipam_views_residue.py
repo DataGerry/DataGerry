@@ -50,7 +50,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamRowStatus,
 )
 from cmdb.framework.ipam.supernet_overview import (
-    build_invalid_subnet_overview,
+    build_invalid_subnets_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
     resolve_supernet_family,
@@ -187,7 +187,7 @@ def test_invalid_subnet_overview_lists_the_out_of_range_subnet(
     objects_manager: ObjectsManager, types_manager: TypesManager,
 ) -> None:
     """The invalid-only view surfaces exactly the subnet whose CIDR falls outside the supernet"""
-    payload = build_invalid_subnet_overview(objects_manager, types_manager, SUPERNET_ID)
+    payload = build_invalid_subnets_overview(objects_manager, types_manager, SUPERNET_ID)
 
     invalid_ids = [row[CmdbObjectKey.PUBLIC_ID] for row in payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]]
     assert invalid_ids == [SUBNET_INVALID_ID]

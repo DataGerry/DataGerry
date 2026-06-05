@@ -168,6 +168,20 @@ class IpamDistributionLimits:
     MAX_SECTORS_PER_RANGE: int = 16
 
 
+class IpamSubnetTableLimits:
+    """
+    Size bound for candidate-IP materialization in the subnet IP table
+
+    Search, sort and the status / type filters require materializing every assignable IP of
+    an IPv4 subnet as a Python string; for very large prefixes that is hundreds of megabytes
+    of memory and seconds of CPU per request. MAX_MATERIALIZED_CANDIDATES caps the assignable
+    count those operations accept (2**20 admits /12 and narrower) - beyond it the route
+    rejects search / sort / filter with HTTP 400 while the lazy ascending-IP browsing path
+    keeps working at any subnet size
+    """
+    MAX_MATERIALIZED_CANDIDATES: int = 2 ** 20
+
+
 class IpamValidationDetailKey(BaseStrEnum):
     """
     Keys of the 'details' payload carried by IPAM validation errors

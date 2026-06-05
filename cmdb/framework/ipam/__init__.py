@@ -26,7 +26,9 @@ Modules:
   - subnet_validator / interface_validator / vlan_validator: structured per-row
       validation invoked at save time and from the inline pre-validation REST routes
   - enforcement: cross-row enforcement helpers used by the validator orchestrators
-  - subnet_overview / supernet_overview: payload builders for the IPAM overview views
+  - subnet_overview (package) / supernet_overview: payload builders for the IPAM overview
+      views; subnet_overview splits into assigned_rows / candidates / rows / distribution /
+      sectors / export_rows / orchestrators modules behind a stable package API
   - tree_overview: payload builders for the IPAM sidebar tree (flat supernet / unassigned
       blocks plus the per-supernet CIDR-nested subnet subtree)
   - subnet_options: paginated, family-filterable subnet list backing the dg-ipam-interface

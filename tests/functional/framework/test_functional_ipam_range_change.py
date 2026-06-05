@@ -14,12 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional tests for the relaxed IPAM range-change behaviour
+Functional tests for the IPAM range-change contract
 
-Pins the contract that a SUPERNET or SUBNET CIDR edit now goes through even when the new
-range would push existing child rows (child subnets / interface IPs) outside it. The
-orphaned children stay on disk untouched - the FE surfaces them as is_valid=False in the
-respective overview routes, but the save-side never aborts on this scenario any more.
+Pins the contract that a SUPERNET or SUBNET CIDR edit is accepted even when the new range
+pushes existing child rows (child subnets / interface IPs) outside it. The orphaned
+children stay on disk untouched - the FE surfaces them as is_valid=False in the respective
+overview routes; orphaning is never a save-side blocker.
 
 Exercised via PATCH /rest/objects/<id> against a real Flask + Mongo stack so the full
 enforcement pipeline (enforce_object_invariants → format_errors_for_abort → 400) is
@@ -276,10 +276,10 @@ def _field_value(doc: dict[str, Any], field_name: str) -> Any:
 class TestSupernetCidrChangeAllowedWhenChildSubnetsOrphan:
     """PATCH to a disjoint supernet CIDR is accepted; the now-orphaned child subnet survives."""
 
-    def test_patch_succeeds_instead_of_returning_400(
+    def test_supernet_range_change_is_accepted_despite_orphaning_children(
         self, rest_api, connector: MongoConnector, database_name: str,
     ):
-        """The PATCH is accepted (formerly 400 with 'IPAM validation failed: Child subnet ...')"""
+        """A disjoint supernet CIDR passes the save pipeline - orphaning children never blocks the save"""
         current = _read_object(connector, database_name, OBJ_SUPERNET_A)
         payload = _patch_payload_with_new_range(current, SUPERNET_A_NEW_CIDR, 'dg-network-range')
 
@@ -313,10 +313,10 @@ class TestSupernetCidrChangeAllowedWhenChildSubnetsOrphan:
 class TestSubnetCidrChangeAllowedWhenInterfaceIpsOrphan:
     """PATCH to a disjoint subnet CIDR is accepted; the now-orphaned interface IP row survives."""
 
-    def test_patch_succeeds_instead_of_returning_400(
+    def test_subnet_range_change_is_accepted_despite_orphaning_interface_ips(
         self, rest_api, connector: MongoConnector, database_name: str,
     ):
-        """The PATCH is accepted (formerly 400 with 'IPAM validation failed: Interface IP ...')"""
+        """A disjoint subnet CIDR passes the save pipeline - orphaning interface IPs never blocks the save"""
         current = _read_object(connector, database_name, OBJ_ORPHAN_SUBNET_B)
         payload = _patch_payload_with_new_range(current, SUBNET_B_NEW_CIDR, 'dg-network-range')
 

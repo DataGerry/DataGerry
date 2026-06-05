@@ -27,7 +27,12 @@ class TypeSchemaKey(BaseStrEnum):
     the field list and the optional SpecialType marker. Use these members instead of bare string
     literals when constructing or reading a type schema so a typo becomes an ImportError or
     AttributeError instead of a silently ignored key
+
+    RENDER_META is the persisted CmdbType document key the section list nests under
+    ('render_meta.sections'); queries against stored type documents compose their dotted
+    paths from RENDER_META + SECTIONS
     """
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
     FIELDS = 'fields'
+    RENDER_META = 'render_meta'

@@ -28,6 +28,8 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model import CmdbObjectKey
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
     IpamSection,
@@ -57,9 +59,10 @@ def find_ipam_capable_type_ids(types_manager: TypesManager) -> list[int]:
         list[int]: Distinct public_ids of IPAM-capable CmdbTypes, in the order returned by the
             database; empty when no type carries the interface section
     """
+    sections_path: str = f'{TypeSchemaKey.RENDER_META.value}.{TypeSchemaKey.SECTIONS.value}'
     criteria: dict[str, Any] = {
-        'render_meta.sections': {
-            '$elemMatch': {'name': IpamSection.INTERFACE},
+        sections_path: {
+            '$elemMatch': {SectionKey.NAME: IpamSection.INTERFACE},
         },
     }
 
@@ -161,53 +164,47 @@ def _apply_search(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  DATASET LOADER                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _load_assignable_rows(
+def _shape_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
-    capable_type_ids: list[int],
+    object_docs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Loads every assignable CmdbObject and shapes the per-row picker payload
+    Shapes the picker rows for already-loaded CmdbObject documents
 
-    One ``find_objects`` round-trip over ``type_id ∈ capable_type_ids``, followed by two bulk
-    lookups (summary lines keyed by object public_id, type labels keyed by type id). The type-
-    label lookup is scoped to the type ids actually present on the loaded objects rather than
-    every capable type so a tenant with many IPAM-capable types but few objects of them does
-    not pay for unused lookups
+    Two bulk lookups against the given docs: summary lines (composed from the docs themselves
+    via ``get_summary_lines_lookup(object_docs=...)``, so no per-id re-fetch happens) and type
+    labels. The type-label lookup is scoped to the type ids actually present on the given
+    docs rather than every capable type, so a tenant with many IPAM-capable types but few
+    objects of them does not pay for unused lookups
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        capable_type_ids (list[int]): public_ids of every IPAM-capable CmdbType; assumed
-            non-empty (callers short-circuit on the empty case before reaching this helper)
+        object_docs (list[dict[str, Any]]): Full CmdbObject documents to shape
 
     Returns:
-        list[dict[str, Any]]: One row per object, in ``find_objects`` order; each row is
+        list[dict[str, Any]]: One row per doc, in input order; each row is
             {'public_id', 'type_info': {'public_id', 'label'}, 'summary_line'}
     """
-    objects: list[dict[str, Any]] = objects_manager.find_objects(
-        {CmdbObjectKey.TYPE_ID: {'$in': capable_type_ids}},
-        as_dict=True,
-    )
-
     object_ids: list[int] = [
         obj[CmdbObjectKey.PUBLIC_ID]
-        for obj in objects
+        for obj in object_docs
         if isinstance(obj.get(CmdbObjectKey.PUBLIC_ID), int)
     ]
     present_type_ids: list[int] = [
         obj[CmdbObjectKey.TYPE_ID]
-        for obj in objects
+        for obj in object_docs
         if isinstance(obj.get(CmdbObjectKey.TYPE_ID), int)
     ]
 
     summary_lines: dict[int, str] = (
-        objects_manager.get_summary_lines_lookup(object_ids, with_type=True)
+        objects_manager.get_summary_lines_lookup(object_ids, with_type=True, object_docs=object_docs)
         if object_ids else {}
     )
     type_labels: dict[int, str] = _build_type_label_lookup(types_manager, present_type_ids)
 
-    return [_build_row(obj, summary_lines, type_labels) for obj in objects]
+    return [_build_row(obj, summary_lines, type_labels) for obj in object_docs]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -228,12 +225,15 @@ def build_assignable_objects_page(
       1. Resolve every IPAM-capable CmdbType via ``find_ipam_capable_type_ids``. With no
          capable type the response collapses to an empty page envelope before any object
          lookup is issued
-      2. Load every CmdbObject of a capable type and shape it into a picker row via
-         ``_load_assignable_rows`` (one ``find_objects`` + two bulk lookups inside)
-      3. Apply the case-insensitive substring filter against the summary line (skipped when
-         the normalized query is shorter than IpamSearch.MIN_QUERY_LENGTH)
-      4. Compute the post-filter total, clamp the requested page/page_size into the valid
-         range via ``clamp_page``, and slice the page out of the filtered row list
+      2. Load every CmdbObject of a capable type (one ``find_objects`` round-trip)
+      3. Without an active search, slice the requested page out of the loaded docs FIRST and
+         shape only that page via ``_shape_rows`` - the summary-line / type-label lookups
+         then cover one page instead of the whole tenant. With an active search, every doc
+         is shaped so the case-insensitive substring filter can match against the summary
+         line, then the filtered rows are paginated (the filter is skipped when the
+         normalized query is shorter than IpamSearch.MIN_QUERY_LENGTH)
+      4. ``total`` reflects the post-filter count (or the unfiltered count without a search);
+         page / page_size are clamped via ``clamp_page``
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -263,19 +263,32 @@ def build_assignable_objects_page(
             IpamOverviewKey.ROWS: [],
         }
 
-    rows: list[dict[str, Any]] = _load_assignable_rows(
-        objects_manager, types_manager, capable_type_ids,
+    object_docs: list[dict[str, Any]] = objects_manager.find_objects(
+        {CmdbObjectKey.TYPE_ID: {'$in': capable_type_ids}},
+        as_dict=True,
     )
-    filtered: list[dict[str, Any]] = _apply_search(rows, active_search(search))
+    needle: str | None = active_search(search)
 
-    total: int = len(filtered)
-    clamped_page, clamped_size = clamp_page(page, page_size, total)
-    start_offset: int = (clamped_page - 1) * clamped_size
+    if needle is None:
+        total: int = len(object_docs)
+        clamped_page, clamped_size = clamp_page(page, page_size, total)
+        start_offset: int = (clamped_page - 1) * clamped_size
+        page_rows: list[dict[str, Any]] = _shape_rows(
+            objects_manager, types_manager, object_docs[start_offset:start_offset + clamped_size],
+        )
+    else:
+        rows: list[dict[str, Any]] = _shape_rows(objects_manager, types_manager, object_docs)
+        filtered: list[dict[str, Any]] = _apply_search(rows, needle)
+
+        total = len(filtered)
+        clamped_page, clamped_size = clamp_page(page, page_size, total)
+        start_offset = (clamped_page - 1) * clamped_size
+        page_rows = filtered[start_offset:start_offset + clamped_size]
 
     return {
         IpamOverviewKey.PAGE: clamped_page,
         IpamOverviewKey.PAGE_SIZE: clamped_size,
         IpamOverviewKey.TOTAL: total,
         IpamOverviewKey.SEARCH: search,
-        IpamOverviewKey.ROWS: filtered[start_offset:start_offset + clamped_size],
+        IpamOverviewKey.ROWS: page_rows,
     }

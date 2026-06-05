@@ -394,7 +394,8 @@ class ObjectsManager(BaseManager):
     def find_objects(
             self,
             criteria: dict[str, Any],
-            as_dict: bool = False
+            as_dict: bool = False,
+            projection: dict[str, Any] | None = None,
         ) -> list[CmdbObject] | list[dict[str, Any]]:
         """
         Get a list of CmdbObjects by a filter
@@ -402,15 +403,28 @@ class ObjectsManager(BaseManager):
         Args:
             criteria: Filter which should be applied during the search
             as_dict (bool = False): If True the list will contain dictionaries instead of CmdbObjects
+            projection (dict[str, Any] | None): Optional Mongo projection limiting the returned
+                fields. Only valid together with as_dict=True - a partial document cannot be
+                deserialized into a CmdbObject
 
         Raises:
-            ObjectsManagerGetError: When the retrieval of CmdbObjects failed
+            ObjectsManagerGetError: When the retrieval of CmdbObjects failed, or when a
+                projection is combined with as_dict=False
 
         Returns:
-            list[CmdbType] | list[dict[str, Any]]: list of CmdbObjects matching the criteria
+            list[CmdbObject] | list[dict[str, Any]]: list of CmdbObjects matching the criteria
         """
+        if projection is not None and not as_dict:
+            raise ObjectsManagerGetError("'projection' requires as_dict=True!")
+
         try:
-            found_objects: dict[str, Any] = list(self.find(criteria=criteria))
+            if projection is not None:
+                # Preserve the default '_id' exclusion the projection-less path applies in
+                # MongoDatabaseManager.find, unless the caller addressed '_id' explicitly
+                safe_projection: dict[str, Any] = {'_id': 0, **projection}
+                found_objects: list[dict[str, Any]] = list(self.find(criteria=criteria, projection=safe_projection))
+            else:
+                found_objects = list(self.find(criteria=criteria))
 
             if as_dict:
                 return found_objects
@@ -1232,13 +1246,15 @@ class ObjectsManager(BaseManager):
         self,
         public_ids: list[int],
         with_type: bool = True,
+        object_docs: list[dict[str, Any]] | None = None,
     ) -> dict[int, str]:
         """
         Batch-resolves summary lines for many CmdbObjects in a single round-trip pair
 
         Used by callers that need summary lines for a known list of public_ids and would
-        otherwise issue O(N) per-object lookups via ``get_summary_line``. Issues exactly two
-        bulk queries: one ``find_objects`` over the requested ids, then one
+        otherwise issue O(N) per-object lookups via ``get_summary_line``. Issues at most two
+        bulk queries: one ``find_objects`` over the requested ids (skipped entirely when the
+        caller already holds the documents and passes them via ``object_docs``), then one
         ``get_types_lookup`` over the distinct type ids referenced by those objects. Summary
         lines are composed locally via ``_compose_summary_line`` so the wire-format matches
         ``get_summary_line`` byte-for-byte. Duplicates in ``public_ids`` are collapsed before
@@ -1251,6 +1267,9 @@ class ObjectsManager(BaseManager):
         Args:
             public_ids (list[int]): public_ids to resolve; duplicates are allowed
             with_type (bool): If True the type label is included in each prefix
+            object_docs (list[dict[str, Any]] | None): Already-loaded full CmdbObject
+                documents covering the requested ids; when given, the per-id fetch is
+                skipped and docs outside ``public_ids`` are ignored
 
         Returns:
             dict[int, str]: {public_id: summary_line} for every public_id whose object and
@@ -1260,10 +1279,15 @@ class ObjectsManager(BaseManager):
             return {}
 
         unique_ids: list[int] = list(set(public_ids))
-        object_docs: list[dict[str, Any]] = self.find_objects(
-            criteria={'public_id': {'$in': unique_ids}},
-            as_dict=True,
-        )
+
+        if object_docs is not None:
+            id_set: set[int] = set(unique_ids)
+            object_docs = [doc for doc in object_docs if doc.get('public_id') in id_set]
+        else:
+            object_docs = self.find_objects(
+                criteria={'public_id': {'$in': unique_ids}},
+                as_dict=True,
+            )
 
         types_lookup: dict[int, CmdbType] = self._load_types_lookup(list({
             doc.get('type_id') for doc in object_docs if isinstance(doc.get('type_id'), int)

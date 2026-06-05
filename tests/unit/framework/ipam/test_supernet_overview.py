@@ -53,11 +53,15 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.cidr import parse_cidr
 from cmdb.framework.ipam.search import active_search
+from cmdb.framework.ipam.references import field_value_expr
 from cmdb.framework.ipam.supernet_overview import (
     _annotate_has_children,
     _annotate_is_valid,
+    _annotate_usage,
     _attach_vlans_to_rows,
+    _build_linked_rows_skeleton,
     _build_linked_subnet_rows,
+    _collect_row_ids,
     _count_invalid_rows,
     _count_used_ips_per_subnet,
     _filter_rows_by_network_substring,
@@ -76,7 +80,7 @@ from cmdb.framework.ipam.supernet_overview import (
     _subnet_family_rank,
     supernet_family,
     _summarize_supernet,
-    build_invalid_subnet_overview,
+    build_invalid_subnets_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
     compute_subnet_row,
@@ -1329,8 +1333,11 @@ def test_count_used_ips_per_subnet_overlays_the_aggregated_totals() -> None:
     assert counts == {SUBNET_OBJECT_ID_A: 2, SUBNET_OBJECT_ID_B: 0}
 
 
+DATA_PATH: str = 'multi_data_sections.values.data'
+
+
 def test_count_used_ips_per_subnet_pins_the_aggregation_pipeline() -> None:
-    """The pipeline unwinds the interface rows and groups matching subnet refs server-side"""
+    """The pipeline matches interface rows per-row (subnet ref + non-empty IP) and groups by ref"""
     objects_manager = MagicMock()
     objects_manager.aggregate_objects.return_value = iter([])
     subnet_ids = [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
@@ -1358,16 +1365,83 @@ def test_count_used_ips_per_subnet_pins_the_aggregation_pipeline() -> None:
         {'$unwind': '$multi_data_sections'},
         {'$match': {'multi_data_sections.section_id': IpamSection.INTERFACE}},
         {'$unwind': '$multi_data_sections.values'},
-        {'$unwind': '$multi_data_sections.values.data'},
         {'$match': {
-            'multi_data_sections.values.data.name': InterfaceField.SUBNET,
-            'multi_data_sections.values.data.value': {'$in': subnet_ids},
+            DATA_PATH: {'$all': [
+                {'$elemMatch': {
+                    CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+                }},
+                {'$elemMatch': {
+                    CmdbObjectFieldKey.NAME: InterfaceField.IP,
+                    CmdbObjectFieldKey.VALUE: {'$type': 'string', '$ne': ''},
+                }},
+            ]},
+        }},
+        {'$project': {
+            InterfaceField.SUBNET.value: field_value_expr(InterfaceField.SUBNET, DATA_PATH),
         }},
         {'$group': {
-            '_id': '$multi_data_sections.values.data.value',
+            '_id': f'${InterfaceField.SUBNET.value}',
             IpamOverviewKey.COUNT: {'$sum': 1},
         }},
     ])
+
+
+def test_count_used_ips_per_subnet_match_carries_the_ip_presence_condition() -> None:
+    """The per-row $match requires a non-empty string IP entry alongside the subnet reference"""
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects.return_value = iter([])
+
+    _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A])
+
+    pipeline = objects_manager.aggregate_objects.call_args.args[0]
+    row_match = next(
+        stage['$match'][DATA_PATH] for stage in pipeline
+        if '$match' in stage and DATA_PATH in stage['$match']
+    )
+    assert {'$elemMatch': {
+        CmdbObjectFieldKey.NAME: InterfaceField.IP,
+        CmdbObjectFieldKey.VALUE: {'$type': 'string', '$ne': ''},
+    }} in row_match['$all']
+
+
+def test_count_used_ips_per_subnet_groups_on_the_projected_subnet_ref_key() -> None:
+    """The $group keys on the projected subnet-ref field rather than the raw data array"""
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects.return_value = iter([])
+
+    _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A])
+
+    pipeline = objects_manager.aggregate_objects.call_args.args[0]
+    group_stage = next(stage['$group'] for stage in pipeline if '$group' in stage)
+    assert group_stage['_id'] == f'${InterfaceField.SUBNET.value}'
+
+
+def test_count_used_ips_per_subnet_ignores_results_outside_requested_ids() -> None:
+    """An aggregation _id that is not among the requested subnet_ids is dropped, not added"""
+    foreign_id: int = 9999
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects.return_value = iter([
+        {'_id': SUBNET_OBJECT_ID_A, IpamOverviewKey.COUNT: 3},
+        {'_id': foreign_id, IpamOverviewKey.COUNT: 7},
+    ])
+
+    counts = _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B])
+
+    assert counts == {SUBNET_OBJECT_ID_A: 3, SUBNET_OBJECT_ID_B: 0}
+    assert foreign_id not in counts
+
+
+def test_count_used_ips_per_subnet_keeps_requested_ids_absent_from_results_at_zero() -> None:
+    """A requested id with no aggregation row stays at its zero initialisation"""
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects.return_value = iter([
+        {'_id': SUBNET_OBJECT_ID_A, IpamOverviewKey.COUNT: 5},
+    ])
+
+    counts = _count_used_ips_per_subnet(objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B])
+
+    assert counts[SUBNET_OBJECT_ID_B] == 0
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1456,6 +1530,125 @@ def test_build_linked_subnet_rows_shapes_rows_and_links_parents() -> None:
         {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X},
     ]
     assert by_id[SUBNET_OBJECT_ID_NESTED_IN_A][IpamOverviewKey.VLANS] == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         _build_linked_rows_skeleton                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_linked_rows_skeleton_returns_empty_when_no_subnets() -> None:
+    """No SUBNET docs → empty skeleton, no usage / VLAN loaders touched"""
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=[]), \
+         patch(f'{PATH}._count_used_ips_per_subnet') as count_mock, \
+         patch(f'{PATH}.load_vlans_by_subnets') as vlans_mock:
+        result = _build_linked_rows_skeleton(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    assert result == []
+    count_mock.assert_not_called()
+    vlans_mock.assert_not_called()
+
+
+def test_build_linked_rows_skeleton_links_parents_without_usage_or_vlans() -> None:
+    """Rows are sorted and parent-linked, but carry zeroed usage and no 'vlans' key"""
+    subnet_objs = [
+        _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+        _make_subnet_doc(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
+    ]
+
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=subnet_objs), \
+         patch(f'{PATH}._count_used_ips_per_subnet') as count_mock, \
+         patch(f'{PATH}.load_vlans_by_subnets') as vlans_mock:
+        result = _build_linked_rows_skeleton(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    by_id = {r[CmdbObjectKey.PUBLIC_ID]: r for r in result}
+    assert by_id[SUBNET_OBJECT_ID_A][IpamOverviewKey.PARENT_ID] is None
+    assert by_id[SUBNET_OBJECT_ID_NESTED_IN_A][IpamOverviewKey.PARENT_ID] == SUBNET_OBJECT_ID_A
+    assert all(r[IpamOverviewKey.USED_IPS] == 0 for r in result)
+    assert all(IpamOverviewKey.VLANS not in r for r in result)
+    count_mock.assert_not_called()
+    vlans_mock.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _collect_row_ids                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_collect_row_ids_returns_int_ids_in_row_order() -> None:
+    """The integer public_ids come back in the input row order"""
+    rows = [_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B), _make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A)]
+
+    assert _collect_row_ids(rows) == [SUBNET_OBJECT_ID_B, SUBNET_OBJECT_ID_A]
+
+
+def test_collect_row_ids_skips_rows_with_missing_or_non_int_public_id() -> None:
+    """Rows without an int public_id (None / absent) are excluded"""
+    rows = [
+        _make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+        {IpamOverviewKey.CIDR: SUBNET_RANGE_B},
+        {CmdbObjectKey.PUBLIC_ID: None, IpamOverviewKey.CIDR: SUBNET_RANGE_B},
+    ]
+
+    assert _collect_row_ids(rows) == [SUBNET_OBJECT_ID_A]
+
+
+def test_collect_row_ids_returns_empty_for_empty_input() -> None:
+    """No rows → empty id list"""
+    assert _collect_row_ids([]) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _annotate_usage                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_annotate_usage_patches_used_free_and_percent_for_ipv4_row() -> None:
+    """An IPv4 row in the dict gets used_ips, free_ips and usage_percent recomputed in place"""
+    row = _make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4)
+
+    _annotate_usage([row], {SUBNET_OBJECT_ID_A: 10})
+
+    assert row[IpamOverviewKey.USED_IPS] == 10
+    assert row[IpamOverviewKey.FREE_IPS] == 256 - 10
+    assert row[IpamOverviewKey.USAGE_PERCENT] == round(10 / 256 * 100, 2)
+
+
+def test_annotate_usage_keeps_usage_percent_none_for_ipv6_row() -> None:
+    """An IPv6 row gets used/free patched but usage_percent stays None (family policy)"""
+    row = _make_row(SUBNET_OBJECT_ID_A, '2001:db8::/64', subnet_type=IpAddressFamily.IPV6)
+    row[IpamOverviewKey.USAGE_PERCENT] = None
+
+    _annotate_usage([row], {SUBNET_OBJECT_ID_A: 5})
+
+    assert row[IpamOverviewKey.USED_IPS] == 5
+    assert row[IpamOverviewKey.FREE_IPS] == 2 ** 64 - 5
+    assert row[IpamOverviewKey.USAGE_PERCENT] is None
+
+
+def test_annotate_usage_leaves_rows_absent_from_the_dict_untouched() -> None:
+    """A row whose public_id is not in the dict keeps its zeroed skeleton figures"""
+    row = _make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B, subnet_type=IpAddressFamily.IPV4)
+
+    _annotate_usage([row], {SUBNET_OBJECT_ID_A: 10})
+
+    assert row[IpamOverviewKey.USED_IPS] == 0
+    assert row[IpamOverviewKey.FREE_IPS] == 0
+    assert row[IpamOverviewKey.USAGE_PERCENT] == 0.0
+
+
+def test_annotate_usage_leaves_rows_with_unparsable_cidr_untouched() -> None:
+    """A counted row whose cidr is missing / unparsable keeps its zeroed skeleton figures"""
+    row = _make_row(SUBNET_OBJECT_ID_A, 'not-a-cidr', subnet_type=IpAddressFamily.IPV4)
+
+    _annotate_usage([row], {SUBNET_OBJECT_ID_A: 10})
+
+    assert row[IpamOverviewKey.USED_IPS] == 0
+    assert row[IpamOverviewKey.FREE_IPS] == 0
+    assert row[IpamOverviewKey.USAGE_PERCENT] == 0.0
+
+
+def test_annotate_usage_clamps_free_to_zero_when_used_exceeds_total() -> None:
+    """A used count larger than the row's total saturates free at 0"""
+    row = _make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, subnet_type=IpAddressFamily.IPV4)
+
+    _annotate_usage([row], {SUBNET_OBJECT_ID_A: 10000})
+
+    assert row[IpamOverviewKey.FREE_IPS] == 0
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1891,7 +2084,7 @@ def test_build_supernet_subnet_children_aborts_400_when_parent_subnet_not_under_
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
-         patch(f'{PATH}._build_linked_subnet_rows', return_value=[]), \
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=[]), \
          pytest.raises(HTTPException) as exc_info:
         build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
@@ -1909,7 +2102,9 @@ def test_build_supernet_subnet_children_returns_direct_children_of_parent_subnet
                   IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
-         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_nested]):
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=[row_a, row_nested]), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
         payload = build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
         )
@@ -1928,7 +2123,9 @@ def test_build_supernet_subnet_children_returns_empty_rows_when_subnet_has_no_ch
              IpamOverviewKey.USED_IPS: 0}
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
-         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a]):
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=[row_a]), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
         payload = build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
         )
@@ -1945,7 +2142,9 @@ def test_build_supernet_subnet_children_annotates_is_valid_on_child_rows() -> No
                     IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
-         patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, child_inside]):
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=[row_a, child_inside]), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}), \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}):
         payload = build_supernet_subnet_children(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
         )
@@ -1953,6 +2152,52 @@ def test_build_supernet_subnet_children_annotates_is_valid_on_child_rows() -> No
     child_rows = payload[IpamOverviewKey.ROWS]
     assert all(IpamOverviewKey.IS_VALID in r for r in child_rows)
     assert child_rows[0][IpamOverviewKey.IS_VALID] is True
+
+
+def test_build_supernet_subnet_children_scopes_count_and_vlan_loaders_to_child_ids() -> None:
+    """The usage / VLAN loaders run with the child ids only, not the full sibling set"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
+             IpamOverviewKey.USED_IPS: 0}
+    row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
+                  IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
+    row_b = {**_make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B), IpamOverviewKey.PARENT_ID: None,
+             IpamOverviewKey.USED_IPS: 0}
+
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=[row_a, row_nested, row_b]), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}) as count_mock, \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}) as vlans_mock:
+        build_supernet_subnet_children(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
+        )
+
+    assert count_mock.call_args.args[1] == [SUBNET_OBJECT_ID_NESTED_IN_A]
+    assert vlans_mock.call_args.args[2] == [SUBNET_OBJECT_ID_NESTED_IN_A]
+
+
+def test_build_supernet_subnet_children_attaches_usage_and_vlans_to_children() -> None:
+    """The returned child rows carry the patched usage counts and the attached VLAN buckets"""
+    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
+    row_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
+             IpamOverviewKey.USED_IPS: 0}
+    row_nested = {**_make_row(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
+                  IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
+    vlan_entry = {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X}
+
+    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=[row_a, row_nested]), \
+         patch(f'{PATH}._count_used_ips_per_subnet',
+               return_value={SUBNET_OBJECT_ID_NESTED_IN_A: 7}), \
+         patch(f'{PATH}.load_vlans_by_subnets',
+               return_value={SUBNET_OBJECT_ID_NESTED_IN_A: [vlan_entry]}):
+        payload = build_supernet_subnet_children(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A,
+        )
+
+    child_row = payload[IpamOverviewKey.ROWS][0]
+    assert child_row[IpamOverviewKey.USED_IPS] == 7
+    assert child_row[IpamOverviewKey.VLANS] == [vlan_entry]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1979,18 +2224,18 @@ def test_load_assigned_subnet_rows_propagates_load_supernet_abort() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       build_invalid_subnet_overview                                                  #
+#                                       build_invalid_subnets_overview                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_build_invalid_subnet_overview_propagates_load_supernet_aborts() -> None:
+def test_build_invalid_subnets_overview_propagates_load_supernet_aborts() -> None:
     """An abort raised by load_supernet_object propagates out of the orchestrator"""
     with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
          pytest.raises(HTTPException) as exc_info:
-        build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        build_invalid_subnets_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert exc_info.value.code == 404
 
 
-def test_build_invalid_subnet_overview_returns_envelope_keys_matching_main_overview() -> None:
+def test_build_invalid_subnets_overview_returns_envelope_keys_matching_main_overview() -> None:
     """Same top-level keys as build_supernet_overview: supernet, subnets, invalid_count"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     row_invalid = {**_make_row(SUBNET_OBJECT_ID_A, '192.168.0.0/24'),
@@ -1998,7 +2243,7 @@ def test_build_invalid_subnet_overview_returns_envelope_keys_matching_main_overv
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_invalid]):
-        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        payload = build_invalid_subnets_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert set(payload.keys()) == {
         IpamOverviewKey.SUPERNET,
@@ -2008,7 +2253,7 @@ def test_build_invalid_subnet_overview_returns_envelope_keys_matching_main_overv
     assert payload[IpamOverviewKey.SUPERNET][CmdbObjectKey.PUBLIC_ID] == SUPERNET_OBJECT_ID
 
 
-def test_build_invalid_subnet_overview_returns_only_invalid_subnets_in_rows() -> None:
+def test_build_invalid_subnets_overview_returns_only_invalid_subnets_in_rows() -> None:
     """Rows are the flat list of subnets whose CIDR does not sit inside the supernet"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
@@ -2024,14 +2269,14 @@ def test_build_invalid_subnet_overview_returns_only_invalid_subnets_in_rows() ->
              f'{PATH}._build_linked_subnet_rows',
              return_value=[row_valid, row_invalid_top, row_invalid_nested],
          ):
-        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        payload = build_invalid_subnets_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     rows = payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS]
     assert [r[CmdbObjectKey.PUBLIC_ID] for r in rows] == [SUBNET_OBJECT_ID_B, SUBNET_OBJECT_ID_NESTED_IN_A]
     assert all(r[IpamOverviewKey.IS_VALID] is False for r in rows)
 
 
-def test_build_invalid_subnet_overview_returns_empty_rows_when_every_subnet_is_valid() -> None:
+def test_build_invalid_subnets_overview_returns_empty_rows_when_every_subnet_is_valid() -> None:
     """An entirely-valid input yields total=0 and an empty rows list; envelope still emits"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
@@ -2039,14 +2284,14 @@ def test_build_invalid_subnet_overview_returns_empty_rows_when_every_subnet_is_v
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid]):
-        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        payload = build_invalid_subnets_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.TOTAL] == 0
     assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS] == []
     assert payload[IpamOverviewKey.INVALID_COUNT] == 0
 
 
-def test_build_invalid_subnet_overview_kpi_summary_matches_main_overview() -> None:
+def test_build_invalid_subnets_overview_kpi_summary_matches_main_overview() -> None:
     """The 'supernet' KPI block is computed over ALL subnets, identical to build_supernet_overview"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     row_valid = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
@@ -2057,12 +2302,12 @@ def test_build_invalid_subnet_overview_kpi_summary_matches_main_overview() -> No
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_valid, row_invalid]):
         main_payload = build_supernet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
-        invalid_payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        invalid_payload = build_invalid_subnets_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert main_payload[IpamOverviewKey.SUPERNET] == invalid_payload[IpamOverviewKey.SUPERNET]
 
 
-def test_build_invalid_subnet_overview_paginates_the_invalid_list() -> None:
+def test_build_invalid_subnets_overview_paginates_the_invalid_list() -> None:
     """page / page_size clamp the rows slice; subnets.total reflects the full invalid count"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     invalid_rows = [
@@ -2073,7 +2318,7 @@ def test_build_invalid_subnet_overview_paginates_the_invalid_list() -> None:
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=invalid_rows):
-        payload = build_invalid_subnet_overview(
+        payload = build_invalid_subnets_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, page=1, page_size=2,
         )
 
@@ -2084,7 +2329,7 @@ def test_build_invalid_subnet_overview_paginates_the_invalid_list() -> None:
     assert payload[IpamOverviewKey.INVALID_COUNT] == 3
 
 
-def test_build_invalid_subnet_overview_search_filters_subnets_total_but_not_invalid_count() -> None:
+def test_build_invalid_subnets_overview_search_filters_subnets_total_but_not_invalid_count() -> None:
     """Active search shrinks subnets.total to substring-matching invalid rows; invalid_count stays global"""
     supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
     invalid_192 = {**_make_row(201, '192.168.0.0/24'),
@@ -2094,7 +2339,7 @@ def test_build_invalid_subnet_overview_search_filters_subnets_total_but_not_inva
 
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[invalid_192, invalid_172]):
-        payload = build_invalid_subnet_overview(
+        payload = build_invalid_subnets_overview(
             MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, search='192.168',
         )
 
@@ -2104,7 +2349,7 @@ def test_build_invalid_subnet_overview_search_filters_subnets_total_but_not_inva
     assert payload[IpamOverviewKey.INVALID_COUNT] == 2
 
 
-def test_build_invalid_subnet_overview_marks_every_row_invalid_when_supernet_cidr_missing() -> None:
+def test_build_invalid_subnets_overview_marks_every_row_invalid_when_supernet_cidr_missing() -> None:
     """A supernet with an unparsable CIDR makes every subnet invalid (rows == every subnet)"""
     broken_supernet = _make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')
     row_a = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
@@ -2114,7 +2359,7 @@ def test_build_invalid_subnet_overview_marks_every_row_invalid_when_supernet_cid
 
     with patch(f'{PATH}.load_supernet_object', return_value=broken_supernet), \
          patch(f'{PATH}._build_linked_subnet_rows', return_value=[row_a, row_b]):
-        payload = build_invalid_subnet_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+        payload = build_invalid_subnets_overview(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert payload[IpamOverviewKey.INVALID_COUNT] == 2
     assert payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.TOTAL] == 2

@@ -49,7 +49,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.framework.ipam.subnet_overview import (
     build_subnet_overview,
-    build_invalid_subnet_overview,
+    build_invalid_ips_overview,
     build_subnet_sector_ips,
 )
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
@@ -407,7 +407,7 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        overview: dict[str, Any] = build_invalid_subnet_overview(
+        overview: dict[str, Any] = build_invalid_ips_overview(
             objects_manager,
             types_manager,
             public_id,

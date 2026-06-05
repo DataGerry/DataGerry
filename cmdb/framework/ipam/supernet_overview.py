@@ -56,7 +56,11 @@ from cmdb.models.object_model import (
     extract_field_value,
 )
 from cmdb.framework.ipam.pagination import clamp_page
-from cmdb.framework.ipam.references import resolve_special_type_id, load_vlans_by_subnets
+from cmdb.framework.ipam.references import (
+    field_value_expr,
+    load_vlans_by_subnets,
+    resolve_special_type_id,
+)
 from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -177,7 +181,8 @@ def compute_subnet_row(subnet_obj: dict[str, Any], used_count: int) -> dict[str,
 
     Args:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
-        used_count (int): Number of dg-ipam-interface rows that reference this subnet
+        used_count (int): Number of dg-ipam-interface rows that reference this subnet and
+            carry a non-empty IP (see _count_used_ips_per_subnet)
 
     Returns:
         dict[str, Any]: One row with public_id, subnet_type, cidr, ip_range, used_ips, free_ips,
@@ -729,10 +734,15 @@ def _count_used_ips_per_subnet(
     Counts dg-ipam-interface rows by referenced subnet across every CmdbObject in the system
 
     A single aggregation selects candidate CmdbObjects whose interface section references any
-    of the given subnet ids, unwinds the interface rows and counts the matching
-    dg-interface-subnet entries server-side, so only the tiny per-subnet totals leave the
-    database instead of every carrier document. Only $match / $unwind / $group are used - all
-    available since MongoDB 4.4
+    of the given subnet ids, unwinds the interface rows and counts the matching rows
+    server-side, so only the tiny per-subnet totals leave the database instead of every
+    carrier document. Compatible with the project-wide MongoDB 6.0 floor
+
+    Only rows that also carry a non-empty IP value are counted: the subnet IP-Übersicht keys
+    its assigned map by parsed IP, so an interface row with a subnet reference but no IP must
+    not inflate the supernet KPI relative to the per-subnet view. Counting is per ROW (the
+    data array is matched, not unwound) so a degenerate row with several subnet entries still
+    counts once
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -750,6 +760,7 @@ def _count_used_ips_per_subnet(
     mds_key: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
     rows_path: str = f'{mds_key}.{CmdbObjectMdsKey.VALUES.value}'
     data_path: str = f'{rows_path}.{CmdbObjectMdsRowKey.DATA.value}'
+    subnet_ref_key: str = InterfaceField.SUBNET.value
 
     pipeline: list[dict[str, Any]] = [
         {'$match': {
@@ -772,19 +783,32 @@ def _count_used_ips_per_subnet(
         {'$unwind': f'${mds_key}'},
         {'$match': {f'{mds_key}.{CmdbObjectMdsKey.SECTION_ID.value}': IpamSection.INTERFACE}},
         {'$unwind': f'${rows_path}'},
-        {'$unwind': f'${data_path}'},
+        # Per-row match: the row must reference one of the subnets AND carry a non-empty IP
         {'$match': {
-            f'{data_path}.{CmdbObjectFieldKey.NAME.value}': InterfaceField.SUBNET,
-            f'{data_path}.{CmdbObjectFieldKey.VALUE.value}': {'$in': subnet_ids},
+            data_path: {'$all': [
+                {'$elemMatch': {
+                    CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+                }},
+                {'$elemMatch': {
+                    CmdbObjectFieldKey.NAME: InterfaceField.IP,
+                    CmdbObjectFieldKey.VALUE: {'$type': 'string', '$ne': ''},
+                }},
+            ]},
+        }},
+        {'$project': {
+            subnet_ref_key: field_value_expr(InterfaceField.SUBNET, data_path),
         }},
         {'$group': {
-            '_id': f'${data_path}.{CmdbObjectFieldKey.VALUE.value}',
+            '_id': f'${subnet_ref_key}',
             IpamOverviewKey.COUNT: {'$sum': 1},
         }},
     ]
 
     for row in objects_manager.aggregate_objects(pipeline):
-        counts[row['_id']] = row[IpamOverviewKey.COUNT]
+        # Guard against a degenerate row whose first subnet entry points elsewhere
+        if row['_id'] in counts:
+            counts[row['_id']] = row[IpamOverviewKey.COUNT]
 
     return counts
 
@@ -836,25 +860,98 @@ def _build_linked_subnet_rows(
         list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set and
             ``vlans`` populated; rows with unparsable CIDRs trail the sorted block
     """
+    ordered: list[dict[str, Any]] = _build_linked_rows_skeleton(
+        objects_manager, types_manager, supernet_public_id,
+    )
+    subnet_ids: list[int] = _collect_row_ids(ordered)
+
+    _annotate_usage(ordered, _count_used_ips_per_subnet(objects_manager, subnet_ids))
+    _attach_vlans_to_rows(ordered, load_vlans_by_subnets(objects_manager, types_manager, subnet_ids))
+
+    return ordered
+
+
+def _build_linked_rows_skeleton(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    supernet_public_id: int,
+) -> list[dict[str, Any]]:
+    """
+    Loads every SUBNET under the supernet and links parents by CIDR, WITHOUT usage / VLAN data
+
+    The cheap half of the row build: one subnet load plus the pure sort-and-link pass. Rows
+    come back with zeroed usage figures (used_ips=0, free_ips=total) and no 'vlans' key -
+    callers scope the expensive enrichment (``_annotate_usage`` / ``_attach_vlans_to_rows``)
+    to exactly the rows they will return. The full-overview path enriches every row; the
+    direct-children path enriches only the requested subnet's children
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        supernet_public_id (int): public_id of the supernet to load subnets for
+
+    Returns:
+        list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set;
+            usage figures zeroed, no VLANs attached
+    """
     subnet_objs: list[dict[str, Any]] = load_subnets_for_supernet(
         objects_manager, types_manager, supernet_public_id,
     )
-    subnet_ids: list[int] = [s[CmdbObjectKey.PUBLIC_ID] for s in subnet_objs if CmdbObjectKey.PUBLIC_ID in s]
 
-    used_per_subnet: dict[int, int] = _count_used_ips_per_subnet(objects_manager, subnet_ids)
-    vlans_by_subnet: dict[int, list[dict[str, Any]]] = load_vlans_by_subnets(
-        objects_manager, types_manager, subnet_ids,
-    )
+    return sort_and_link_subnets([compute_subnet_row(s, 0) for s in subnet_objs])
 
-    subnet_rows: list[dict[str, Any]] = [
-        compute_subnet_row(s, used_per_subnet.get(s.get(CmdbObjectKey.PUBLIC_ID), 0))
-        for s in subnet_objs
+
+def _collect_row_ids(rows: list[dict[str, Any]]) -> list[int]:
+    """
+    Returns the integer public_ids of the given overview rows, preserving row order
+
+    Args:
+        rows (list[dict[str, Any]]): Overview rows carrying a 'public_id' key
+
+    Returns:
+        list[int]: public_ids of every row whose id is an int
+    """
+    return [
+        row[CmdbObjectKey.PUBLIC_ID]
+        for row in rows
+        if isinstance(row.get(CmdbObjectKey.PUBLIC_ID), int)
     ]
 
-    ordered: list[dict[str, Any]] = sort_and_link_subnets(subnet_rows)
-    _attach_vlans_to_rows(ordered, vlans_by_subnet)
 
-    return ordered
+def _annotate_usage(rows: list[dict[str, Any]], used_per_subnet: dict[int, int]) -> None:
+    """
+    Patches the usage figures (used_ips, free_ips, usage_percent) onto skeleton rows in place
+
+    Re-applies the arithmetic of ``compute_subnet_row`` for every row whose public_id has a
+    counted value: 'free_ips' is recomputed against the row's total address count and
+    'usage_percent' against the same denominator (left None for IPv6 rows, matching the
+    family policy). Rows absent from ``used_per_subnet`` and rows whose 'cidr' is missing or
+    unparsable keep their zeroed skeleton figures
+
+    Args:
+        rows (list[dict[str, Any]]): Skeleton rows produced via ``compute_subnet_row(s, 0)``
+        used_per_subnet (dict[int, int]): {subnet_id: row_count} as produced by
+            ``_count_used_ips_per_subnet`` for the rows to enrich
+    """
+    for row in rows:
+        public_id: Any = row.get(CmdbObjectKey.PUBLIC_ID)
+
+        if public_id not in used_per_subnet:
+            continue
+
+        used: int = used_per_subnet[public_id]
+        cidr: Any = row.get(IpamOverviewKey.CIDR)
+        network: Network | None = parse_cidr(cidr) if isinstance(cidr, str) else None
+
+        if network is None:
+            continue
+
+        total: int = total_address_count(network)
+        row[IpamOverviewKey.USED_IPS] = used
+        row[IpamOverviewKey.FREE_IPS] = max(0, total - used)
+
+        if row.get(IpamOverviewKey.SUBNET_TYPE) != IpAddressFamily.IPV6:
+            row[IpamOverviewKey.USAGE_PERCENT] = _percent(used, total)
 
 
 def load_assigned_subnet_rows(
@@ -948,7 +1045,7 @@ def _prepare_supernet_view(
     paginated-view orchestrators
 
     Encapsulates the pipeline that ``build_supernet_overview`` and
-    ``build_invalid_subnet_overview`` both need before they diverge into their own row-
+    ``build_invalid_subnets_overview`` both need before they diverge into their own row-
     selection logic: load the supernet (aborts 400/404 on failure), parse its CIDR, build
     the linked subnet rows, annotate 'has_children' and 'is_valid', compute the KPI summary,
     and count the invalid rows. Returning the supernet doc, the annotated row list, the
@@ -1004,7 +1101,7 @@ def build_supernet_overview(
 
     The top-level 'invalid_count' is the total number of invalid subnets under the supernet
     regardless of pagination, search or nesting depth; the FE uses it to render a banner that
-    deep-links to the dedicated invalid-only view (``build_invalid_subnet_overview``)
+    deep-links to the dedicated invalid-only view (``build_invalid_subnets_overview``)
 
     When ``search`` is empty / whitespace, the 'subnets' block lists only top-level subnets -
     those whose CIDR is not strictly contained by any sibling. When ``search`` is non-empty,
@@ -1089,7 +1186,9 @@ def build_supernet_subnet_children(
         objects_manager, types_manager, supernet_public_id,
     )
 
-    ordered_subnets: list[dict[str, Any]] = _build_linked_subnet_rows(
+    # The CIDR-containment linking needs the full sibling set, but the expensive enrichment
+    # (interface-IP counting, VLAN loading) is scoped to the returned children only
+    ordered_subnets: list[dict[str, Any]] = _build_linked_rows_skeleton(
         objects_manager, types_manager, supernet_public_id,
     )
 
@@ -1109,6 +1208,10 @@ def build_supernet_subnet_children(
     _annotate_is_valid(ordered_subnets, _parse_supernet_cidr(supernet_obj))
 
     children: list[dict[str, Any]] = children_index.get(subnet_public_id, [])
+    child_ids: list[int] = _collect_row_ids(children)
+
+    _annotate_usage(children, _count_used_ips_per_subnet(objects_manager, child_ids))
+    _attach_vlans_to_rows(children, load_vlans_by_subnets(objects_manager, types_manager, child_ids))
 
     return {
         IpamOverviewKey.PARENT: {CmdbObjectKey.PUBLIC_ID: subnet_public_id},
@@ -1116,7 +1219,7 @@ def build_supernet_subnet_children(
     }
 
 
-def build_invalid_subnet_overview(
+def build_invalid_subnets_overview(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     public_id: int,

@@ -56,9 +56,11 @@ from cmdb.framework.ipam.interface_validator import (
     _check_row_type_against_subnet,
     _collect_collision_errors,
     _extract_subnet_network,
+    _find_uniqueness_candidates,
     _load_subnet_object,
     _load_subnets_by_ids,
     _row_matches,
+    _validate_complete_row,
     find_intra_submission_duplicates,
     find_missing_types,
     find_subnet_without_ip,
@@ -771,7 +773,7 @@ def test_validate_interface_rows_returns_empty_for_an_empty_batch() -> None:
     with patch(f'{PATH}.find_subnet_without_ip') as mock_completeness, \
          patch(f'{PATH}.find_intra_submission_duplicates') as mock_duplicates, \
          patch(f'{PATH}.find_type_family_mismatches') as mock_type_check, \
-         patch(f'{PATH}.validate_interface') as mock_validate:
+         patch(f'{PATH}._validate_complete_row') as mock_validate:
         errors = validate_interface_rows(MagicMock(), MagicMock(), [])
 
     assert not errors
@@ -794,7 +796,10 @@ def test_validate_interface_rows_concatenates_batch_and_per_row_errors_in_order(
          patch(f'{PATH}.find_intra_submission_duplicates', return_value=[duplicate_error]), \
          patch(f'{PATH}.find_missing_types', return_value=[missing_type_error]) as mock_missing_types, \
          patch(f'{PATH}.find_type_family_mismatches', return_value=[type_error]) as mock_type_check, \
-         patch(f'{PATH}.validate_interface', return_value=[row_error]):
+         patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID), \
+         patch(f'{PATH}._load_subnets_by_ids', return_value={}), \
+         patch(f'{PATH}._find_uniqueness_candidates', return_value=[]), \
+         patch(f'{PATH}._validate_complete_row', return_value=[row_error]):
         errors = validate_interface_rows(MagicMock(), MagicMock(), rows)
 
     assert errors == [completeness_error, duplicate_error, missing_type_error, type_error, row_error]
@@ -803,7 +808,7 @@ def test_validate_interface_rows_concatenates_batch_and_per_row_errors_in_order(
 
 
 def test_validate_interface_rows_skips_incomplete_rows_in_the_per_row_pass() -> None:
-    """Rows missing the subnet ref or the IP never reach validate_interface"""
+    """Rows missing the subnet ref or the IP never reach _validate_complete_row"""
     rows: list[tuple[int, int | None, str | None, str | None]] = [
         (0, None, '10.0.0.5', None),
         (1, SUBNET_OBJECT_ID, None, None),
@@ -813,12 +818,19 @@ def test_validate_interface_rows_skips_incomplete_rows_in_the_per_row_pass() -> 
 
     with patch(f'{PATH}.find_subnet_without_ip', return_value=[]), \
          patch(f'{PATH}.find_intra_submission_duplicates', return_value=[]), \
-         patch(f'{PATH}.validate_interface', return_value=[]) as mock_validate:
+         patch(f'{PATH}.find_missing_types', return_value=[]), \
+         patch(f'{PATH}.find_type_family_mismatches', return_value=[]), \
+         patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID), \
+         patch(f'{PATH}._load_subnets_by_ids', return_value={}), \
+         patch(f'{PATH}._find_uniqueness_candidates', return_value=[]), \
+         patch(f'{PATH}._validate_complete_row', return_value=[]) as mock_validate:
         validate_interface_rows(MagicMock(), MagicMock(), rows)
 
     assert mock_validate.call_count == 1
-    assert mock_validate.call_args.kwargs['subnet_object_id'] == SUBNET_OBJECT_ID
-    assert mock_validate.call_args.kwargs['ip_address'] == '10.0.0.7'
+    # _validate_complete_row(subnet_type_id, subnets_by_id, candidates, subnet_ref, ip, exclude, row_index)
+    assert mock_validate.call_args.args[3] == SUBNET_OBJECT_ID
+    assert mock_validate.call_args.args[4] == '10.0.0.7'
+    assert mock_validate.call_args.args[6] == 3
 
 
 def test_validate_interface_rows_forwards_exclusion_and_injects_row_index() -> None:
@@ -829,24 +841,206 @@ def test_validate_interface_rows_forwards_exclusion_and_injects_row_index() -> N
         ValidationErrorKey.CODE: InterfaceErrorCode.IP_DUPLICATE,
         ValidationErrorKey.MESSAGE: 'collision',
     }
+    candidates: list[dict[str, Any]] = []
+    subnets_by_id: dict[int, dict[str, Any]] = {}
     rows: list[tuple[int, int | None, str | None, str | None]] = [(5, SUBNET_OBJECT_ID, '10.0.0.5', None)]
 
     with patch(f'{PATH}.find_subnet_without_ip', return_value=[]), \
          patch(f'{PATH}.find_intra_submission_duplicates', return_value=[]), \
-         patch(f'{PATH}.validate_interface', return_value=[error_without_details]) as mock_validate:
+         patch(f'{PATH}.find_missing_types', return_value=[]), \
+         patch(f'{PATH}.find_type_family_mismatches', return_value=[]), \
+         patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID), \
+         patch(f'{PATH}._load_subnets_by_ids', return_value=subnets_by_id), \
+         patch(f'{PATH}._find_uniqueness_candidates', return_value=candidates), \
+         patch(f'{PATH}._validate_complete_row', return_value=[error_without_details]) as mock_validate:
         errors = validate_interface_rows(
             objects_manager, types_manager, rows, exclude_object_id=OWNER_OBJECT_ID,
         )
 
     mock_validate.assert_called_once_with(
-        objects_manager,
-        types_manager,
-        subnet_object_id=SUBNET_OBJECT_ID,
-        ip_address='10.0.0.5',
-        exclude_object_id=OWNER_OBJECT_ID,
-        exclude_row_index=5,
+        SUBNET_TYPE_ID,
+        subnets_by_id,
+        candidates,
+        SUBNET_OBJECT_ID,
+        '10.0.0.5',
+        OWNER_OBJECT_ID,
+        5,
     )
     assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 5
+
+
+def test_validate_interface_rows_issues_one_subnet_load_and_one_uniqueness_query() -> None:
+    """For N complete rows the batch issues exactly one subnet load and one uniqueness query"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')
+    rows: list[tuple[int, int | None, str | None, str | None]] = [
+        (0, SUBNET_OBJECT_ID, '10.0.0.5', IpAddressFamily.IPV4),
+        (1, SUBNET_OBJECT_ID, '10.0.0.6', IpAddressFamily.IPV4),
+        (2, SUBNET_OBJECT_ID, '10.0.0.7', IpAddressFamily.IPV4),
+    ]
+
+    with patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID), \
+         patch(f'{PATH}._load_subnets_by_ids', return_value={SUBNET_OBJECT_ID: subnet_doc}) as mock_load, \
+         patch(f'{PATH}._find_uniqueness_candidates', return_value=[]) as mock_candidates:
+        errors = validate_interface_rows(objects_manager, types_manager, rows)
+
+    assert not errors
+    assert mock_load.call_count == 1
+    assert mock_candidates.call_count == 1
+
+
+def test_validate_interface_rows_passes_loaded_subnets_into_the_type_family_check() -> None:
+    """The single subnet load is forwarded to find_type_family_mismatches as its subnets_by_id arg"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    subnets_by_id: dict[int, dict[str, Any]] = {SUBNET_OBJECT_ID: _make_subnet_doc(SUBNET_OBJECT_ID, '10.0.0.0/24')}
+    rows: list[tuple[int, int | None, str | None, str | None]] = [(0, SUBNET_OBJECT_ID, None, IpAddressFamily.IPV4)]
+
+    with patch(f'{PATH}.find_subnet_without_ip', return_value=[]), \
+         patch(f'{PATH}.find_intra_submission_duplicates', return_value=[]), \
+         patch(f'{PATH}.find_missing_types', return_value=[]), \
+         patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID), \
+         patch(f'{PATH}._load_subnets_by_ids', return_value=subnets_by_id), \
+         patch(f'{PATH}.find_type_family_mismatches', return_value=[]) as mock_type_check:
+        validate_interface_rows(objects_manager, types_manager, rows)
+
+    assert mock_type_check.call_args.args[3] is subnets_by_id
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           _find_uniqueness_candidates                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_find_uniqueness_candidates_returns_empty_without_querying_for_no_pairs() -> None:
+    """An empty pair list short-circuits to [] without issuing any DB query"""
+    objects_manager = MagicMock()
+
+    assert _find_uniqueness_candidates(objects_manager, []) == []
+    objects_manager.find_objects.assert_not_called()
+
+
+def test_find_uniqueness_candidates_builds_the_all_criteria_for_given_pairs() -> None:
+    """One query carries $all of two $elemMatch with deduped+sorted subnet ids and IPs"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+    pairs = [
+        (SUBNET_OBJECT_ID + 1, '10.0.0.6'),
+        (SUBNET_OBJECT_ID, '10.0.0.5'),
+        (SUBNET_OBJECT_ID, '10.0.0.6'),
+    ]
+
+    candidates = _find_uniqueness_candidates(objects_manager, pairs)
+
+    assert candidates == []
+    objects_manager.find_objects.assert_called_once_with(
+        {
+            CmdbObjectKey.MULTI_DATA_SECTIONS: {
+                '$elemMatch': {
+                    CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+                    CmdbObjectMdsKey.VALUES: {
+                        '$elemMatch': {
+                            CmdbObjectMdsRowKey.DATA: {
+                                '$all': [
+                                    {'$elemMatch': {
+                                        CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
+                                        CmdbObjectFieldKey.VALUE: {'$in': [SUBNET_OBJECT_ID, SUBNET_OBJECT_ID + 1]},
+                                    }},
+                                    {'$elemMatch': {
+                                        CmdbObjectFieldKey.NAME: InterfaceField.IP,
+                                        CmdbObjectFieldKey.VALUE: {'$in': ['10.0.0.5', '10.0.0.6']},
+                                    }},
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        as_dict=True,
+    )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _validate_complete_row                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_validate_complete_row_short_circuits_when_subnet_type_missing() -> None:
+    """A None subnet_type_id yields only SUBNET_TYPE_MISSING and runs no further check"""
+    errors = _validate_complete_row(
+        subnet_type_id=None,
+        subnets_by_id={},
+        candidates=[],
+        subnet_ref=SUBNET_OBJECT_ID,
+        ip='10.0.0.5',
+        exclude_object_id=None,
+        row_index=0,
+    )
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_TYPE_MISSING
+
+
+def test_validate_complete_row_short_circuits_when_subnet_ref_unknown() -> None:
+    """A subnet ref absent from the batch map yields only SUBNET_NOT_FOUND"""
+    errors = _validate_complete_row(
+        subnet_type_id=SUBNET_TYPE_ID,
+        subnets_by_id={},
+        candidates=[],
+        subnet_ref=SUBNET_OBJECT_ID,
+        ip='10.0.0.5',
+        exclude_object_id=None,
+        row_index=0,
+    )
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_NOT_FOUND
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.SUBNET_OBJECT_ID] == SUBNET_OBJECT_ID
+
+
+def test_validate_complete_row_returns_empty_for_a_valid_row() -> None:
+    """A resolvable subnet with an in-range, unique IP produces no errors"""
+    subnets_by_id = {SUBNET_OBJECT_ID: _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')}
+
+    errors = _validate_complete_row(
+        subnet_type_id=SUBNET_TYPE_ID,
+        subnets_by_id=subnets_by_id,
+        candidates=[],
+        subnet_ref=SUBNET_OBJECT_ID,
+        ip='10.0.0.5',
+        exclude_object_id=None,
+        row_index=0,
+    )
+
+    assert not errors
+
+
+def test_validate_complete_row_accumulates_range_format_membership_and_uniqueness() -> None:
+    """A broken range, an out-of-range/format check and a uniqueness collision all accumulate"""
+    subnets_by_id = {SUBNET_OBJECT_ID: _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')}
+    range_error = build_error(InterfaceErrorCode.SUBNET_BROKEN_STATE, 'broken')
+    membership_error = build_error(InterfaceErrorCode.IP_NOT_IN_SUBNET, 'outside')
+    collision_error = build_error(InterfaceErrorCode.IP_DUPLICATE, 'dup')
+    ip = parse_ip('10.0.0.5')
+
+    with patch(f'{PATH}._extract_subnet_network', return_value=(None, [range_error])), \
+         patch(f'{PATH}._check_ip_format', return_value=(ip, [])), \
+         patch(f'{PATH}._check_ip_membership', return_value=[membership_error]) as mock_membership, \
+         patch(f'{PATH}._collect_collision_errors', return_value=[collision_error]) as mock_collision:
+        errors = _validate_complete_row(
+            subnet_type_id=SUBNET_TYPE_ID,
+            subnets_by_id=subnets_by_id,
+            candidates=[],
+            subnet_ref=SUBNET_OBJECT_ID,
+            ip='10.0.0.5',
+            exclude_object_id=OWNER_OBJECT_ID,
+            row_index=4,
+        )
+
+    # broken range skips membership but uniqueness still runs (IP parsed)
+    assert range_error in errors
+    assert collision_error in errors
+    assert membership_error not in errors
+    mock_membership.assert_not_called()
+    mock_collision.assert_called_once_with([], SUBNET_OBJECT_ID, '10.0.0.5', OWNER_OBJECT_ID, 4)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1048,6 +1242,25 @@ def test_find_type_family_mismatches_loads_referenced_subnets_in_one_sorted_batc
 
     criteria = objects_manager.find_objects.call_args.args[0]
     assert criteria[CmdbObjectKey.PUBLIC_ID] == {'$in': [SUBNET_OBJECT_ID, SUBNET_OBJECT_ID + 1]}
+
+
+def test_find_type_family_mismatches_uses_supplied_subnets_without_loading() -> None:
+    """A pre-loaded subnets_by_id map is used as-is - no subnet query and no type resolution"""
+    objects_manager = MagicMock()
+    v6_subnet = _make_subnet_doc(SUBNET_OBJECT_ID, network_range='2001:db8::/64')
+    rows: list[tuple[int, int | None, str | None, str | None]] = [
+        (0, SUBNET_OBJECT_ID, None, IpAddressFamily.IPV4),
+    ]
+
+    with patch(f'{PATH}.resolve_special_type_id') as mock_resolve:
+        errors = find_type_family_mismatches(
+            objects_manager, MagicMock(), rows, subnets_by_id={SUBNET_OBJECT_ID: v6_subnet},
+        )
+
+    assert len(errors) == 1
+    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH
+    objects_manager.find_objects.assert_not_called()
+    mock_resolve.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

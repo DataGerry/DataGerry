@@ -229,10 +229,13 @@ def clear_supernet_ref(
             },
         },
     }
-    update: dict[str, Any] = {'$set': {'fields.$[f].value': None}}
+    # 'f' is the array-filter identifier the positional path below refers back to
+    update: dict[str, Any] = {'$set': {
+        f'{CmdbObjectKey.FIELDS.value}.$[f].{CmdbObjectFieldKey.VALUE.value}': None,
+    }}
     array_filters: list[dict[str, Any]] = [{
-        'f.name': SubnetField.PARENT_SUPERNET,
-        'f.value': supernet_public_id,
+        f'f.{CmdbObjectFieldKey.NAME.value}': SubnetField.PARENT_SUPERNET,
+        f'f.{CmdbObjectFieldKey.VALUE.value}': supernet_public_id,
     }]
 
     objects_manager.update_many_raw(

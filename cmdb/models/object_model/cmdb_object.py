@@ -58,6 +58,26 @@ class CmdbObject(CmdbDAO):
             "keys": [("multi_data_sections.values.data.value", CmdbDAO.DAO_ASCENDING)],
             "name": "multi_data_sections_values_data_value",
             "unique": False
+        },
+        # Compound (name, value) variants: both keys live in the same array element, so these
+        # are legal compound multikey indexes. They serve the $elemMatch{name: X, value: Y}
+        # shape used throughout (IPAM reference lookups, field-value queries) far more
+        # selectively than the value-only indexes above, which stay for value-only queries
+        {
+            "keys": [
+                ("fields.name", CmdbDAO.DAO_ASCENDING),
+                ("fields.value", CmdbDAO.DAO_ASCENDING),
+            ],
+            "name": "fields_name_value",
+            "unique": False
+        },
+        {
+            "keys": [
+                ("multi_data_sections.values.data.name", CmdbDAO.DAO_ASCENDING),
+                ("multi_data_sections.values.data.value", CmdbDAO.DAO_ASCENDING),
+            ],
+            "name": "multi_data_sections_values_data_name_value",
+            "unique": False
         }
     ]
 

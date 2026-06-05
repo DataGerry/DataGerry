@@ -16,16 +16,20 @@
 """
 Unit tests for cmdb.manager.objects_manager summary-line helpers
 
-Covers the private composition helper ``_compose_summary_line``, the batch type loader
-``_load_types_lookup``, the orchestration in ``get_summary_line`` (refactored to delegate
-composition) and the batch ``get_summary_lines_lookup``. Mongo touch-points are stubbed
-via MagicMock on a ``MagicMock``-typed self so the method body runs without an actual
-database connection
+Covers the projection-aware ``find_objects``, the private composition helper
+``_compose_summary_line``, the batch type loader ``_load_types_lookup``, the orchestration
+in ``get_summary_line`` (refactored to delegate composition) and the batch
+``get_summary_lines_lookup`` (including its pre-loaded ``object_docs`` fast path). Mongo
+touch-points are stubbed via MagicMock on a ``MagicMock``-typed self so the method body
+runs without an actual database connection
 """
 # pylint: disable=protected-access
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.manager.objects_manager import ObjectsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -314,3 +318,86 @@ def test_get_summary_lines_lookup_skips_object_with_non_int_type_id() -> None:
     result = ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID])
 
     assert result == {}
+
+
+def test_get_summary_lines_lookup_with_object_docs_skips_the_find() -> None:
+    """Pre-loaded object_docs answer the batch without any find_objects round-trip"""
+    obj_a = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
+    type_a = _make_type_mock(OWNER_TYPE_ID, 'Server')
+
+    mock_self = MagicMock()
+    mock_self._load_types_lookup.return_value = {OWNER_TYPE_ID: type_a}
+    mock_self._compose_summary_line.side_effect = lambda obj, t, with_type=True: f"{t.label} #{obj['public_id']}"
+
+    result = ObjectsManager.get_summary_lines_lookup(
+        mock_self, [OWNER_OBJECT_ID], object_docs=[obj_a],
+    )
+
+    assert result == {OWNER_OBJECT_ID: f"Server #{OWNER_OBJECT_ID}"}
+    mock_self.find_objects.assert_not_called()
+
+
+def test_get_summary_lines_lookup_with_object_docs_filters_to_requested_ids() -> None:
+    """Docs outside the requested public_ids are ignored when object_docs is supplied"""
+    obj_a = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
+    obj_b = _make_object_doc(OTHER_OWNER_OBJECT_ID, OTHER_OWNER_TYPE_ID)
+    type_a = _make_type_mock(OWNER_TYPE_ID, 'Server')
+
+    mock_self = MagicMock()
+    mock_self._load_types_lookup.return_value = {OWNER_TYPE_ID: type_a}
+    mock_self._compose_summary_line.side_effect = lambda obj, t, with_type=True: f"{t.label} #{obj['public_id']}"
+
+    result = ObjectsManager.get_summary_lines_lookup(
+        mock_self, [OWNER_OBJECT_ID], object_docs=[obj_a, obj_b],
+    )
+
+    assert OWNER_OBJECT_ID in result
+    assert OTHER_OWNER_OBJECT_ID not in result
+    mock_self.find_objects.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  find_objects                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_find_objects_rejects_projection_without_as_dict() -> None:
+    """A projection on the CmdbObject-deserialising path is a caller error"""
+    mock_self = MagicMock()
+
+    with pytest.raises(ObjectsManagerGetError):
+        ObjectsManager.find_objects(mock_self, {}, as_dict=False, projection={'public_id': 1})
+
+    mock_self.find.assert_not_called()
+
+
+def test_find_objects_merges_id_exclusion_into_projection() -> None:
+    """A caller projection is forwarded with the default '_id' exclusion preserved"""
+    mock_self = MagicMock()
+    mock_self.find.return_value = []
+
+    ObjectsManager.find_objects(mock_self, {}, as_dict=True, projection={'public_id': 1})
+
+    forwarded = mock_self.find.call_args.kwargs['projection']
+    assert forwarded == {'_id': 0, 'public_id': 1}
+
+
+def test_find_objects_lets_caller_override_id_exclusion() -> None:
+    """A projection that addresses '_id' explicitly wins over the default exclusion"""
+    mock_self = MagicMock()
+    mock_self.find.return_value = []
+
+    ObjectsManager.find_objects(mock_self, {}, as_dict=True, projection={'_id': 1, 'public_id': 1})
+
+    forwarded = mock_self.find.call_args.kwargs['projection']
+    assert forwarded == {'_id': 1, 'public_id': 1}
+
+
+def test_find_objects_without_projection_issues_plain_find() -> None:
+    """No projection keeps the pre-existing call shape (criteria only)"""
+    doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
+    mock_self = MagicMock()
+    mock_self.find.return_value = [doc]
+
+    result = ObjectsManager.find_objects(mock_self, {}, as_dict=True)
+
+    assert result == [doc]
+    assert 'projection' not in mock_self.find.call_args.kwargs

@@ -36,6 +36,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     VlanField,
     InterfaceField,
+    IpamSection,
     IpamOverviewKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -45,7 +46,7 @@ from cmdb.framework.ipam.references import (
     find_interfaces_referencing_subnet,
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
-    _field_value_expr,
+    field_value_expr,
     load_vlans_by_subnets,
     resolve_special_type_id,
 )
@@ -64,6 +65,7 @@ VLAN_OBJECT_ID_Z: int = 503
 VLAN_NAME_X: str = 'VLAN-X'
 VLAN_NAME_Y: str = 'VLAN-Y'
 VLAN_NAME_Z: str = 'VLAN-Z'
+MDS_ROW_DATA_PATH: str = 'multi_data_sections.values.data'
 
 
 def _make_full_object_doc(public_id: int, type_id: int) -> dict[str, Any]:
@@ -354,7 +356,8 @@ def test_find_interfaces_referencing_subnet_projects_matching_objects() -> None:
 
 
 def test_find_interfaces_referencing_subnet_queries_with_nested_mds_elem_match_filter() -> None:
-    """The objects query nests $elemMatch through multi_data_sections → values → data"""
+    """The objects query nests $elemMatch through multi_data_sections → values → data and
+    scopes the outer $elemMatch to the dg-ipam-interface section via SECTION_ID"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
 
@@ -364,6 +367,7 @@ def test_find_interfaces_referencing_subnet_queries_with_nested_mds_elem_match_f
         {
             CmdbObjectKey.MULTI_DATA_SECTIONS: {
                 '$elemMatch': {
+                    CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
                     CmdbObjectMdsKey.VALUES: {
                         '$elemMatch': {
                             CmdbObjectMdsRowKey.DATA: {
@@ -430,8 +434,30 @@ def test_load_vlans_by_subnets_maps_grouped_rows_onto_their_subnet() -> None:
     }
 
 
+def test_load_vlans_by_subnets_returns_per_subnet_lists_sorted_ascending_by_public_id() -> None:
+    """Per-subnet buckets are surfaced in the ascending-by-public_id order the $sortArray stage
+    produces server-side (the mock stands in for the already-sorted aggregation output)"""
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects.return_value = iter([
+        {'_id': SUBNET_OBJECT_ID_A, IpamOverviewKey.VLANS: [
+            {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_X, IpamOverviewKey.NAME: VLAN_NAME_X},
+            {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_Y, IpamOverviewKey.NAME: VLAN_NAME_Y},
+            {CmdbObjectKey.PUBLIC_ID: VLAN_OBJECT_ID_Z, IpamOverviewKey.NAME: VLAN_NAME_Z},
+        ]},
+    ])
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
+
+    result = load_vlans_by_subnets(objects_manager, types_manager, [SUBNET_OBJECT_ID_A])
+
+    public_ids = [vlan[CmdbObjectKey.PUBLIC_ID] for vlan in result[SUBNET_OBJECT_ID_A]]
+    assert public_ids == sorted(public_ids)
+    assert public_ids == [VLAN_OBJECT_ID_X, VLAN_OBJECT_ID_Y, VLAN_OBJECT_ID_Z]
+
+
 def test_load_vlans_by_subnets_pins_the_aggregation_pipeline() -> None:
-    """The pipeline matches, projects ref + name, re-filters, sorts by public_id and groups"""
+    """The pipeline matches, projects ref + name, re-filters, groups, then $sortArray-sorts
+    each per-subnet bucket by public_id (no blocking pre-group $sort)"""
     objects_manager = MagicMock()
     objects_manager.aggregate_objects.return_value = iter([])
     types_manager = MagicMock()
@@ -454,11 +480,10 @@ def test_load_vlans_by_subnets_pins_the_aggregation_pipeline() -> None:
         {'$project': {
             '_id': 0,
             CmdbObjectKey.PUBLIC_ID: 1,
-            VlanField.SUBNET_REF.value: _field_value_expr(VlanField.SUBNET_REF),
-            IpamOverviewKey.NAME: _field_value_expr(VlanField.NAME),
+            VlanField.SUBNET_REF.value: field_value_expr(VlanField.SUBNET_REF),
+            IpamOverviewKey.NAME: field_value_expr(VlanField.NAME),
         }},
         {'$match': {VlanField.SUBNET_REF.value: {'$in': subnet_ids}}},
-        {'$sort': {CmdbObjectKey.PUBLIC_ID: 1}},
         {'$group': {
             '_id': f'${VlanField.SUBNET_REF.value}',
             IpamOverviewKey.VLANS: {'$push': {
@@ -466,17 +491,23 @@ def test_load_vlans_by_subnets_pins_the_aggregation_pipeline() -> None:
                 IpamOverviewKey.NAME: '$name',
             }},
         }},
+        {'$project': {
+            IpamOverviewKey.VLANS: {'$sortArray': {
+                'input': f'${IpamOverviewKey.VLANS.value}',
+                'sortBy': {CmdbObjectKey.PUBLIC_ID.value: 1},
+            }},
+        }},
     ])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                              _field_value_expr                                                       #
+#                                               field_value_expr                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_field_value_expr_builds_the_first_value_extraction() -> None:
-    """The expression filters by field name, maps to values, takes element 0, nulls when absent"""
-    assert _field_value_expr(VlanField.NAME) == {'$ifNull': [
-        {'$arrayElemAt': [
-            {'$map': {
+    """The expression filters by field name, maps to values, takes the first via $first, nulls when absent"""
+    assert field_value_expr(VlanField.NAME) == {'$ifNull': [
+        {'$first': {
+            '$map': {
                 'input': {'$filter': {
                     'input': '$fields',
                     'as': 'field',
@@ -484,8 +515,25 @@ def test_field_value_expr_builds_the_first_value_extraction() -> None:
                 }},
                 'as': 'field',
                 'in': '$$field.value',
-            }},
-            0,
-        ]},
+            },
+        }},
+        None,
+    ]}
+
+
+def test_field_value_expr_targets_a_custom_array_path() -> None:
+    """A non-empty array_path replaces the top-level 'fields' source with the given dotted path"""
+    assert field_value_expr(InterfaceField.SUBNET, array_path=MDS_ROW_DATA_PATH) == {'$ifNull': [
+        {'$first': {
+            '$map': {
+                'input': {'$filter': {
+                    'input': f'${MDS_ROW_DATA_PATH}',
+                    'as': 'field',
+                    'cond': {'$eq': ['$$field.name', InterfaceField.SUBNET]},
+                }},
+                'as': 'field',
+                'in': '$$field.value',
+            },
+        }},
         None,
     ]}
