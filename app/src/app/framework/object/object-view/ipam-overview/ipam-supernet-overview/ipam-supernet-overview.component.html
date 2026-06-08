@@ -51,22 +51,32 @@
 
       <article class="ipam-card">
         <span class="ipam-card__label">Total IPs</span>
-        <span class="ipam-card__value">{{ data.total_ips | number }}</span>
+        <span class="ipam-card__value">
+          {{ isIpv6 ? (data.total_ips | compactNumber) : (data.total_ips | number) }}
+        </span>
       </article>
 
       <article class="ipam-card ipam-card--used">
         <span class="ipam-card__label">Used IPs</span>
         <span class="ipam-card__value">
-          {{ data.used_ips | number }}
-          <span class="ipam-card__suffix">({{ data.used_percent | number:'1.0-1' }}%)</span>
+          @if (isIpv6) {
+            {{ data.used_ips | compactNumber }}
+          } @else {
+            {{ data.used_ips | number }}
+            <span class="ipam-card__suffix">({{ data.used_percent | number:'1.0-1' }}%)</span>
+          }
         </span>
       </article>
 
       <article class="ipam-card ipam-card--free">
         <span class="ipam-card__label">Free IPs</span>
         <span class="ipam-card__value">
-          {{ data.free_ips | number }}
-          <span class="ipam-card__suffix">({{ data.free_percent | number:'1.0-1' }}%)</span>
+          @if (isIpv6) {
+            {{ data.free_ips | compactNumber }}
+          } @else {
+            {{ data.free_ips | number }}
+            <span class="ipam-card__suffix">({{ data.free_percent | number:'1.0-1' }}%)</span>
+          }
         </span>
       </article>
 
@@ -80,22 +90,25 @@
         <span class="ipam-card__value">{{ invalidCount | number }}</span>
       </button>
 
-      <article class="ipam-card ipam-card--utilization">
-        <span class="ipam-card__label">Overall Utilization</span>
-        <div class="ipam-card__utilization">
-          <span class="ipam-card__value">{{ data.utilization_percent | number:'1.0-1' }}%</span>
-          <app-progress-bar
-            class="ipam-card__progress"
-            [value]="data.utilization_percent"
-            [height]="8"
-            ariaLabel="Overall supernet utilization">
-          </app-progress-bar>
-        </div>
-      </article>
+      @if (!isIpv6) {
+        <article class="ipam-card ipam-card--utilization">
+          <span class="ipam-card__label">Overall Utilization</span>
+          <div class="ipam-card__utilization">
+            <span class="ipam-card__value">{{ data.utilization_percent | number:'1.0-1' }}%</span>
+            <app-progress-bar
+              class="ipam-card__progress"
+              [value]="data.utilization_percent ?? 0"
+              [height]="8"
+              ariaLabel="Overall supernet utilization">
+            </app-progress-bar>
+          </div>
+        </article>
+      }
     </div>
 
     <cmdb-ipam-supernet-subnet-table
       [supernetId]="publicId"
+      [ipv6]="isIpv6"
       [rows]="subnetRows"
       [totalItems]="total"
       [page]="page"

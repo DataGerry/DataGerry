@@ -22,6 +22,7 @@ import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.compo
 import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
 import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
 import { FullscreenDirective } from './directives/fullscreen.directive';
+import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
 @NgModule({
   declarations: [
@@ -42,7 +43,8 @@ import { FullscreenDirective } from './directives/fullscreen.directive';
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
-    CoreConfirmationModalComponent
+    CoreConfirmationModalComponent,
+    CompactNumberPipe
   ],
   imports: [
     CommonModule,
@@ -72,7 +74,8 @@ import { FullscreenDirective } from './directives/fullscreen.directive';
     AppUsageBarComponent,
     CoreConfirmationModalComponent,
     HorizontalResizeDirective,
-    FullscreenDirective
+    FullscreenDirective,
+    CompactNumberPipe
   ]
 })
 export class CoreModule { }

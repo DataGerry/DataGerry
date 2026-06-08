@@ -45,11 +45,11 @@
 </ng-template>
 
 <ng-template #usedTemplate let-item="item">
-  <span>{{ item.subnet?.used_ips | number }}</span>
+  <span>{{ ipv6 ? (item.subnet?.used_ips | compactNumber) : (item.subnet?.used_ips | number) }}</span>
 </ng-template>
 
 <ng-template #freeTemplate let-item="item">
-  <span>{{ item.subnet?.free_ips | number }}</span>
+  <span>{{ ipv6 ? (item.subnet?.free_ips | compactNumber) : (item.subnet?.free_ips | number) }}</span>
 </ng-template>
 
 <ng-template #utilizationTemplate let-item="item">

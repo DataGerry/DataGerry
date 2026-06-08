@@ -183,6 +183,10 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         return this.searchTerm.length >= MIN_SEARCH_LENGTH;
     }
 
+    public get isIpv6(): boolean {
+        return this.supernet?.subnet_type === 'ipv6';
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private unassignSubnets(subnetIds: number[]): void {
