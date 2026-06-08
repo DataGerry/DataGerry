@@ -21,10 +21,9 @@ directly. Covers the individual checks (_check_canonical_cidr, _check_type_match
 the validate_supernet orchestrator across IPv4 / IPv6 and the family-vs-type consistency rule
 """
 from cmdb.utils import ValidationErrorKey
-from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamValidationDetailKey
+from cmdb.models.special_type_model.ipam_constants import IpAddressFamily
 from cmdb.framework.ipam.cidr import parse_cidr
 from cmdb.framework.ipam.supernet_validator import (
-    SupernetErrorCode,
     _check_canonical_cidr,
     _check_type_matches_family,
     validate_supernet,
@@ -33,6 +32,11 @@ from cmdb.framework.ipam.supernet_validator import (
 
 VALID_RANGE_V4: str = '10.0.0.0/16'
 VALID_RANGE_V6: str = '2001:db8::/32'
+
+# Stable message fragments (errors carry only a 'message')
+MSG_CIDR_INVALID: str = 'is not a canonical IPv4/IPv6 CIDR'
+MSG_TYPE_REQUIRED: str = "Supernet type ('dg-supernet-type') is required"
+MSG_FAMILY_MISMATCH: str = 'does not match the address family'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -57,20 +61,20 @@ def test_check_canonical_cidr_returns_network_and_no_errors_for_canonical_ipv6()
 
 
 def test_check_canonical_cidr_reports_cidr_invalid_for_garbage_input() -> None:
-    """A non-CIDR string yields None and a CIDR_INVALID error carrying the raw value"""
+    """A non-CIDR string yields None and a CIDR-invalid error naming the raw value"""
     network, errors = _check_canonical_cidr('not-a-cidr')
 
     assert network is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.CIDR_INVALID
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.NETWORK_RANGE] == 'not-a-cidr'
+    assert MSG_CIDR_INVALID in errors[0][ValidationErrorKey.MESSAGE]
+    assert 'not-a-cidr' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           _check_type_matches_family                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_check_type_matches_family_binds_type_missing_to_the_supernet_code() -> None:
-    """The SUPERNET binding emits SupernetErrorCode.TYPE_MISSING for a None selector
+def test_check_type_matches_family_reports_missing_selector_for_the_supernet_field() -> None:
+    """The SUPERNET binding rejects a None selector, naming the dg-supernet-type field
 
     The full required-selector / mismatch matrix is covered once on the shared
     ``validate_family_selector`` core in test_cidr; here only the SUPERNET binding is pinned
@@ -78,19 +82,15 @@ def test_check_type_matches_family_binds_type_missing_to_the_supernet_code() -> 
     errors = _check_type_matches_family(parse_cidr(VALID_RANGE_V4), None)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_MISSING
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.CANDIDATE] == VALID_RANGE_V4
+    assert MSG_TYPE_REQUIRED in errors[0][ValidationErrorKey.MESSAGE]
 
 
-def test_check_type_matches_family_binds_mismatch_to_the_supernet_code_and_detail_key() -> None:
-    """The SUPERNET binding emits SupernetErrorCode.TYPE_FAMILY_MISMATCH carrying the SUPERNET_TYPE detail"""
+def test_check_type_matches_family_reports_mismatch() -> None:
+    """The SUPERNET binding rejects a selector that disagrees with the CIDR family"""
     errors = _check_type_matches_family(parse_cidr(VALID_RANGE_V4), IpAddressFamily.IPV6)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_FAMILY_MISMATCH
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.SUPERNET_TYPE] == IpAddressFamily.IPV6
-    assert details[IpamValidationDetailKey.CIDR_FAMILY] == IpAddressFamily.IPV4
+    assert MSG_FAMILY_MISMATCH in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_check_type_matches_family_returns_empty_when_selector_matches() -> None:
@@ -106,7 +106,7 @@ def test_validate_supernet_returns_only_cidr_error_for_invalid_cidr() -> None:
     errors = validate_supernet('not-a-cidr', supernet_type=IpAddressFamily.IPV4)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.CIDR_INVALID
+    assert MSG_CIDR_INVALID in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_validate_supernet_reports_type_missing_for_canonical_cidr_without_type() -> None:
@@ -115,7 +115,7 @@ def test_validate_supernet_reports_type_missing_for_canonical_cidr_without_type(
         errors = validate_supernet(valid_range)
 
         assert len(errors) == 1
-        assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_MISSING
+        assert MSG_TYPE_REQUIRED in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_validate_supernet_returns_empty_when_type_matches_family() -> None:
@@ -125,8 +125,8 @@ def test_validate_supernet_returns_empty_when_type_matches_family() -> None:
 
 
 def test_validate_supernet_reports_type_family_mismatch() -> None:
-    """A selector that disagrees with the CIDR family yields TYPE_FAMILY_MISMATCH"""
+    """A selector that disagrees with the CIDR family is rejected with the mismatch message"""
     errors = validate_supernet(VALID_RANGE_V6, supernet_type=IpAddressFamily.IPV4)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_FAMILY_MISMATCH
+    assert MSG_FAMILY_MISMATCH in errors[0][ValidationErrorKey.MESSAGE]

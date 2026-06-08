@@ -28,9 +28,16 @@ class CategoryMeta:
     """
     Implementation of a CategoryMeta for a CmdbCategory
     """
-    def __init__(self, icon: str = '', order: int = None):
-        self.icon = icon
-        self.order = order
+    def __init__(self, icon: str = '', order: int | None = None) -> None:
+        """
+        Initialises a CategoryMeta
+
+        Args:
+            icon (str, optional): The icon assigned to the CmdbCategory. Defaults to ''
+            order (int | None, optional): The display order of the CmdbCategory. Defaults to None
+        """
+        self.icon: str = icon
+        self.order: int | None = order
 
 
     def has_icon(self) -> bool:
@@ -53,11 +60,12 @@ class CategoryMeta:
         return self.icon
 
 
-    def get_order(self) -> int:
+    def get_order(self) -> int | None:
         """
         Retrieves the order of the CmdbCategory
 
         Returns:
-            int: The order value, which determines the CmdbCategory's position
+            int | None: The order value, which determines the CmdbCategory's position;
+                None when no order is set
         """
         return self.order

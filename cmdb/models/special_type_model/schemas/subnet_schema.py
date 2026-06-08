@@ -77,6 +77,7 @@ def get_subnet_schema() -> dict[str, Any]:
                 FieldKey.NAME: SubnetField.TYPE,
                 FieldKey.LABEL: 'Type',
                 FieldKey.REQUIRED: True,
+                FieldKey.VALUE: IpAddressFamily.IPV4,
                 FieldKey.OPTIONS: [
                     {
                         FieldKey.NAME: IpAddressFamily.IPV4,

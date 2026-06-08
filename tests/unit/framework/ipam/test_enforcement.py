@@ -44,12 +44,9 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpAddressFamily,
     IpamSection,
-    IpamValidationDetailKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.framework.ipam.supernet_validator import SupernetErrorCode
 from cmdb.framework.ipam.enforcement import (
-    DeleteGuardErrorCode,
     _canonical_cidr,
     _canonical_ip,
     _canonicalize_interface_ips,
@@ -82,6 +79,14 @@ SIBLING_SUBNET_ID: int = 700
 PREV_RANGE: str = '10.0.0.0/24'
 NEW_RANGE: str = '10.0.0.0/16'
 INVALID_CIDR: str = 'not-a-cidr'
+
+# Stable message fragments (IPAM errors carry only a 'message')
+MSG_CIDR_INVALID: str = 'is not a canonical IPv4/IPv6 CIDR'
+MSG_SUPERNET_TYPE_REQUIRED: str = "Supernet type ('dg-supernet-type') is required"
+MSG_FAMILY_MISMATCH: str = 'does not match the address family'
+MSG_SUPERNET_REFERENCED: str = 'Supernet is referenced by subnets'
+MSG_SUBNET_REF_VLANS: str = 'Subnet is referenced by vlans'
+MSG_SUBNET_REF_INTERFACES: str = 'Subnet is referenced by interface rows'
 
 ENF_PATH: str = 'cmdb.framework.ipam.enforcement'
 
@@ -156,21 +161,17 @@ def test_format_errors_for_abort_returns_prefix_only_for_empty_list() -> None:
 
 def test_format_errors_for_abort_uses_message_when_present() -> None:
     """A single error with a message yields the message after the prefix"""
-    errors = [{ValidationErrorKey.MESSAGE: 'IP not in subnet', ValidationErrorKey.CODE: 'ip_not_in_subnet'}]
+    errors = [{ValidationErrorKey.MESSAGE: 'IP not in subnet'}]
 
     assert format_errors_for_abort(errors) == 'IPAM validation failed: IP not in subnet'
 
 
-def test_format_errors_for_abort_falls_back_to_code_when_message_missing() -> None:
-    """Without a message the error's code is used as the human-readable text"""
-    errors = [{ValidationErrorKey.CODE: 'ip_reserved'}]
-
-    assert format_errors_for_abort(errors) == 'IPAM validation failed: ip_reserved'
-
-
-def test_format_errors_for_abort_falls_back_to_unknown_when_both_missing() -> None:
-    """An error dict with neither message nor code shows up as 'unknown error'"""
+def test_format_errors_for_abort_falls_back_to_unknown_when_message_missing() -> None:
+    """An error dict without a message shows up as 'unknown error'"""
     assert format_errors_for_abort([{}]) == 'IPAM validation failed: unknown error'
+    assert format_errors_for_abort(
+        [{ValidationErrorKey.DETAILS: {'row_index': 1}}],
+    ) == 'IPAM validation failed: unknown error'
 
 
 def test_format_errors_for_abort_joins_multiple_errors_with_pipe_separator() -> None:
@@ -441,13 +442,13 @@ def _make_supernet_candidate(
 
 
 def test_enforce_supernet_object_emits_cidr_invalid_for_unparseable_range() -> None:
-    """An invalid CIDR string on the candidate yields a CIDR_INVALID error"""
+    """An invalid CIDR string on the candidate yields a canonical-CIDR error"""
     candidate = _make_supernet_candidate(CANDIDATE_OBJECT_ID, INVALID_CIDR)
 
     errors = _enforce_supernet_object(candidate)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.CIDR_INVALID
+    assert MSG_CIDR_INVALID in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_enforce_supernet_object_reports_type_missing_for_canonical_cidr_without_type() -> None:
@@ -457,7 +458,7 @@ def test_enforce_supernet_object_reports_type_missing_for_canonical_cidr_without
     errors = _enforce_supernet_object(candidate)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_MISSING
+    assert MSG_SUPERNET_TYPE_REQUIRED in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_enforce_supernet_object_returns_empty_when_type_matches_cidr_family() -> None:
@@ -476,7 +477,7 @@ def test_enforce_supernet_object_emits_type_family_mismatch_when_selector_disagr
     errors = _enforce_supernet_object(candidate)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SupernetErrorCode.TYPE_FAMILY_MISMATCH
+    assert MSG_FAMILY_MISMATCH in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_enforce_supernet_object_allows_range_change_even_when_child_subnets_would_orphan() -> None:
@@ -510,7 +511,7 @@ def test_enforce_vlan_object_delegates_to_validate_vlan_with_subnet_id() -> None
         CANDIDATE_OBJECT_ID, VLAN_TYPE_ID,
         fields=[_make_field(VlanField.SUBNET_REF, '700')],
     )
-    expected_error = {ValidationErrorKey.CODE: 'subnet_not_found'}
+    expected_error = {ValidationErrorKey.MESSAGE: 'subnet not found'}
 
     with patch(f'{ENF_PATH}.validate_vlan', return_value=[expected_error]) as validate_mock:
         errors = _enforce_vlan_object(MagicMock(), MagicMock(), candidate)
@@ -631,15 +632,16 @@ def test_guard_supernet_delete_returns_empty_when_no_subnets_reference_it() -> N
 
 
 def test_guard_supernet_delete_returns_guard_error_when_subnets_reference_it() -> None:
-    """Referencing subnets → single SUPERNET_HAS_REFERENCING_SUBNETS error with the refs in details"""
+    """Referencing subnets → single guard error naming the referencing subnet ids in the message"""
     refs = [{CmdbObjectKey.PUBLIC_ID: 7, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID}]
 
     with patch(f'{ENF_PATH}.find_subnets_referencing_supernet', return_value=refs):
         errors = _guard_supernet_delete(MagicMock(), MagicMock(), PARENT_SUPERNET_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == DeleteGuardErrorCode.SUPERNET_HAS_REFERENCING_SUBNETS
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.REFERENCES] == refs
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert MSG_SUPERNET_REFERENCED in message
+    assert '7' in message
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -663,7 +665,7 @@ def test_guard_subnet_delete_returns_only_vlan_error_when_only_vlans_reference_i
         errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_VLANS
+    assert MSG_SUBNET_REF_VLANS in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_guard_subnet_delete_returns_only_interface_error_when_only_interfaces_reference_it() -> None:
@@ -675,7 +677,7 @@ def test_guard_subnet_delete_returns_only_interface_error_when_only_interfaces_r
         errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_INTERFACES
+    assert MSG_SUBNET_REF_INTERFACES in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_guard_subnet_delete_returns_both_errors_when_both_kinds_of_reference_exist() -> None:
@@ -687,11 +689,10 @@ def test_guard_subnet_delete_returns_both_errors_when_both_kinds_of_reference_ex
          patch(f'{ENF_PATH}.find_interfaces_referencing_subnet', return_value=interface_refs):
         errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
 
-    codes = {e[ValidationErrorKey.CODE] for e in errors}
-    assert codes == {
-        DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_VLANS,
-        DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_INTERFACES,
-    }
+    messages = ' '.join(e[ValidationErrorKey.MESSAGE] for e in errors)
+    assert len(errors) == 2
+    assert MSG_SUBNET_REF_VLANS in messages
+    assert MSG_SUBNET_REF_INTERFACES in messages
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -775,16 +776,16 @@ def test_enforce_object_invariants_runs_interface_rows_for_non_special_type() ->
 def test_enforce_object_invariants_accumulates_errors_from_both_layers() -> None:
     """Errors from the per-SpecialType enforcer and the interface-row enforcer are combined"""
     candidate = _make_object_doc(CANDIDATE_OBJECT_ID, SUBNET_TYPE_ID)
-    subnet_err = {ValidationErrorKey.CODE: 'subnet_err'}
-    interface_err = {ValidationErrorKey.CODE: 'interface_err'}
+    subnet_err = {ValidationErrorKey.MESSAGE: 'subnet_err'}
+    interface_err = {ValidationErrorKey.MESSAGE: 'interface_err'}
 
     with patch(f'{ENF_PATH}._resolve_object_special_type', return_value=SpecialType.SUBNET), \
          patch(f'{ENF_PATH}._enforce_subnet_object', return_value=[subnet_err]), \
          patch(f'{ENF_PATH}._enforce_interface_rows', return_value=[interface_err]):
         errors = enforce_object_invariants(MagicMock(), MagicMock(), candidate)
 
-    codes = {e[ValidationErrorKey.CODE] for e in errors}
-    assert codes == {'subnet_err', 'interface_err'}
+    messages = {e[ValidationErrorKey.MESSAGE] for e in errors}
+    assert messages == {'subnet_err', 'interface_err'}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -49,6 +49,9 @@ MODULE_PATH: str = 'cmdb.manager.categories_manager'
 
 CATEGORY_PUBLIC_ID: int = 7
 PARENT_CATEGORY_PUBLIC_ID: int = 3
+GRANDPARENT_PUBLIC_ID: int = 2
+MISSING_CATEGORY_PUBLIC_ID: int = 99
+DELETED_TYPE_PUBLIC_ID: int = 42
 TOTAL_CATEGORIES: int = 2
 
 SAMPLE_CATEGORY_DICT: dict[str, Any] = {'public_id': CATEGORY_PUBLIC_ID, 'name': 'c', 'label': 'C'}
@@ -196,14 +199,6 @@ class TestRemoveCategoryAsParent:
             update={'parent': None},
         )
 
-    def test_get_error_wraps_as_categories_get_error(self) -> None:
-        """A ``BaseManagerGetError`` from ``update_many`` is wrapped as ``CategoriesManagerGetError``."""
-        mgr = _mock_manager()
-        mgr.update_many.side_effect = BaseManagerGetError('read failed')
-
-        with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.remove_category_as_parent(mgr, PARENT_CATEGORY_PUBLIC_ID)
-
     def test_update_error_wraps_as_categories_update_error(self) -> None:
         """A ``BaseManagerUpdateError`` from ``update_many`` is wrapped as ``CategoriesManagerUpdateError``."""
         mgr = _mock_manager()
@@ -213,9 +208,133 @@ class TestRemoveCategoryAsParent:
             CategoriesManager.remove_category_as_parent(mgr, PARENT_CATEGORY_PUBLIC_ID)
 
     def test_unexpected_error_wraps_as_categories_update_error(self) -> None:
-        """A generic exception is wrapped as ``CategoriesManagerUpdateError``."""
+        """A generic exception (including get errors - update_many cannot raise them) is wrapped
+        as ``CategoriesManagerUpdateError``."""
         mgr = _mock_manager()
         mgr.update_many.side_effect = RuntimeError('boom')
 
         with pytest.raises(CategoriesManagerUpdateError):
             CategoriesManager.remove_category_as_parent(mgr, PARENT_CATEGORY_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             remove_type_from_categories                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestRemoveTypeFromCategories:
+    """``remove_type_from_categories`` pulls a deleted CmdbType id from every 'types' array."""
+
+    def test_issues_a_single_pull_update(self) -> None:
+        """The happy path issues one ``update_many_pull`` with the type id in criteria and $pull."""
+        mgr = _mock_manager()
+
+        CategoriesManager.remove_type_from_categories(mgr, DELETED_TYPE_PUBLIC_ID)
+
+        mgr.update_many_pull.assert_called_once_with(
+            criteria={'types': DELETED_TYPE_PUBLIC_ID},
+            update={'$pull': {'types': DELETED_TYPE_PUBLIC_ID}},
+        )
+
+    def test_update_error_wraps_as_categories_update_error(self) -> None:
+        """A ``BaseManagerUpdateError`` from ``update_many_pull`` is wrapped as ``CategoriesManagerUpdateError``."""
+        mgr = _mock_manager()
+        mgr.update_many_pull.side_effect = BaseManagerUpdateError('write failed')
+
+        with pytest.raises(CategoriesManagerUpdateError):
+            CategoriesManager.remove_type_from_categories(mgr, DELETED_TYPE_PUBLIC_ID)
+
+    def test_unexpected_error_wraps_as_categories_update_error(self) -> None:
+        """A generic exception is wrapped as ``CategoriesManagerUpdateError``."""
+        mgr = _mock_manager()
+        mgr.update_many_pull.side_effect = RuntimeError('boom')
+
+        with pytest.raises(CategoriesManagerUpdateError):
+            CategoriesManager.remove_type_from_categories(mgr, DELETED_TYPE_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             validate_parent_assignment                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValidateParentAssignment:
+    """``validate_parent_assignment`` guards the parent reference on insert and update."""
+
+    @staticmethod
+    def _category_doc(public_id: int, parent: int | None) -> dict:
+        """Builds a minimal stored category document with the given identity and parent."""
+        return {'public_id': public_id, 'parent': parent}
+
+    def test_none_parent_is_always_valid(self) -> None:
+        """Detaching / root assignment (parent None) passes without any lookup."""
+        mgr = _mock_manager()
+
+        assert CategoriesManager.validate_parent_assignment(mgr, CATEGORY_PUBLIC_ID, None) is None
+        mgr.get_category.assert_not_called()
+
+    def test_self_parent_is_rejected_before_any_lookup(self) -> None:
+        """parent == public_id returns a rejection reason without touching the database."""
+        mgr = _mock_manager()
+
+        reason = CategoriesManager.validate_parent_assignment(mgr, CATEGORY_PUBLIC_ID, CATEGORY_PUBLIC_ID)
+
+        assert reason is not None
+        mgr.get_category.assert_not_called()
+
+    def test_missing_parent_is_rejected(self) -> None:
+        """A parent id that resolves to no document returns a rejection reason."""
+        mgr = _mock_manager()
+        mgr.get_category.return_value = None
+
+        reason = CategoriesManager.validate_parent_assignment(
+            mgr, CATEGORY_PUBLIC_ID, MISSING_CATEGORY_PUBLIC_ID,
+        )
+
+        assert reason is not None
+
+    def test_insert_mode_only_checks_parent_existence(self) -> None:
+        """public_id None (insert) accepts any existing parent without walking the chain."""
+        mgr = _mock_manager()
+        mgr.get_category.return_value = self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID)
+
+        assert CategoriesManager.validate_parent_assignment(mgr, None, PARENT_CATEGORY_PUBLIC_ID) is None
+        mgr.get_category.assert_called_once_with(PARENT_CATEGORY_PUBLIC_ID)
+
+    def test_valid_chain_passes(self) -> None:
+        """A parent whose ancestor chain ends at a root (parent None) is accepted."""
+        mgr = _mock_manager()
+        mgr.get_category.side_effect = [
+            self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID),
+            self._category_doc(GRANDPARENT_PUBLIC_ID, None),
+        ]
+
+        reason = CategoriesManager.validate_parent_assignment(
+            mgr, CATEGORY_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID,
+        )
+
+        assert reason is None
+
+    def test_ancestor_cycle_is_rejected(self) -> None:
+        """Assigning a parent whose chain leads back to the candidate (A -> B -> A) is rejected."""
+        mgr = _mock_manager()
+        # Candidate CATEGORY wants PARENT as parent; PARENT's ancestor is the candidate itself
+        mgr.get_category.return_value = self._category_doc(PARENT_CATEGORY_PUBLIC_ID, CATEGORY_PUBLIC_ID)
+
+        reason = CategoriesManager.validate_parent_assignment(
+            mgr, CATEGORY_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID,
+        )
+
+        assert reason is not None
+
+    def test_preexisting_cycle_in_stored_data_terminates(self) -> None:
+        """A cycle already stored among the ancestors (not involving the candidate) ends the walk
+        via the visited set instead of looping forever; the assignment itself is accepted."""
+        mgr = _mock_manager()
+        mgr.get_category.side_effect = [
+            self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID),
+            self._category_doc(GRANDPARENT_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID),
+            self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID),
+        ]
+
+        reason = CategoriesManager.validate_parent_assignment(
+            mgr, CATEGORY_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID,
+        )
+
+        assert reason is None

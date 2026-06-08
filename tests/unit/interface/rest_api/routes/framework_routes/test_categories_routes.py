@@ -54,6 +54,7 @@ ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.categories_ro
 
 CATEGORY_PUBLIC_ID: int = 7
 MISSING_CATEGORY_PUBLIC_ID: int = 9999
+FOREIGN_PUBLIC_ID: int = 555
 TOTAL_CATEGORIES: int = 2
 
 SAMPLE_CATEGORY_DICT: dict[str, Any] = {'public_id': CATEGORY_PUBLIC_ID, 'name': 'c', 'label': 'C'}
@@ -83,8 +84,15 @@ def fixture_flask_app() -> Flask:
 
 @pytest.fixture(name='mgr')
 def fixture_mgr() -> MagicMock:
-    """A MagicMock standing in for a CategoriesManager, returned by the patched ManagerProvider."""
-    return MagicMock(spec=CategoriesManager)
+    """A MagicMock standing in for a CategoriesManager, returned by the patched ManagerProvider.
+
+    ``validate_parent_assignment`` defaults to None (= assignment valid) so the write-path
+    tests run through; guard tests override it with a rejection reason
+    """
+    manager = MagicMock(spec=CategoriesManager)
+    manager.validate_parent_assignment.return_value = None
+
+    return manager
 
 
 @pytest.fixture(name='patched_manager_provider')
@@ -150,6 +158,19 @@ class TestInsertCmdbCategory:
             self._call(flask_app, dict(SAMPLE_CATEGORY_DICT))
 
         assert excinfo.value.code == HTTP_NOT_FOUND
+
+    def test_invalid_parent_reference_maps_to_400(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A rejection from ``validate_parent_assignment`` aborts 400 before any insert happens."""
+        del patched_manager_provider
+        mgr.validate_parent_assignment.return_value = 'parent does not exist'
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, dict(SAMPLE_CATEGORY_DICT))
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+        mgr.insert_category.assert_not_called()
 
     def test_insert_error_maps_to_400(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
@@ -411,6 +432,34 @@ class TestUpdateCmdbCategory:
             self._call(flask_app, MISSING_CATEGORY_PUBLIC_ID, dict(SAMPLE_CATEGORY_DICT))
 
         assert excinfo.value.code == HTTP_NOT_FOUND
+        mgr.update_category.assert_not_called()
+
+    def test_payload_public_id_is_pinned_to_the_url(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A body carrying a different public_id cannot rewrite the document's identity."""
+        del patched_manager_provider
+        mgr.get_category.side_effect = [SAMPLE_CATEGORY_DICT, UPDATED_CATEGORY_DICT]
+        payload = {**UPDATED_CATEGORY_DICT, 'public_id': FOREIGN_PUBLIC_ID}
+
+        with patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
+            self._call(flask_app, CATEGORY_PUBLIC_ID, payload)
+
+        written = mgr.update_category.call_args.args[1]
+        assert written['public_id'] == CATEGORY_PUBLIC_ID
+
+    def test_invalid_parent_assignment_maps_to_400(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A rejection from ``validate_parent_assignment`` aborts 400 before any write happens."""
+        del patched_manager_provider
+        mgr.get_category.return_value = SAMPLE_CATEGORY_DICT
+        mgr.validate_parent_assignment.return_value = 'would create a cycle'
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, CATEGORY_PUBLIC_ID, dict(SAMPLE_CATEGORY_DICT))
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
         mgr.update_category.assert_not_called()
 
     def test_get_error_on_preread_maps_to_400(

@@ -48,7 +48,6 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.interface_validator import (
-    InterfaceErrorCode,
     _check_ip_format,
     _check_ip_membership,
     _check_ip_uniqueness,
@@ -121,10 +120,7 @@ def test_check_ip_membership_short_circuits_when_ip_outside_subnet() -> None:
     errors = _check_ip_membership(IPv4Address('192.168.1.1'), IPv4Network('10.0.0.0/24'))
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_NOT_IN_SUBNET
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.IP_ADDRESS] == '192.168.1.1'
-    assert details[IpamValidationDetailKey.SUBNET_RANGE] == '10.0.0.0/24'
+    assert 'is not part of subnet' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 @pytest.mark.parametrize('reserved_ip', ['10.0.0.0', '10.0.0.255'])
@@ -133,8 +129,7 @@ def test_check_ip_membership_flags_network_and_broadcast_for_slash24(reserved_ip
     errors = _check_ip_membership(IPv4Address(reserved_ip), IPv4Network('10.0.0.0/24'))
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_RESERVED
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.IP_ADDRESS] == reserved_ip
+    assert 'is the network or broadcast address' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 @pytest.mark.parametrize('point_to_point_ip', ['10.0.0.0', '10.0.0.1'])
@@ -171,7 +166,7 @@ def test_check_ip_membership_rejects_ipv4_ip_in_ipv6_subnet() -> None:
     errors = _check_ip_membership(parse_ip('10.0.0.5'), parse_cidr('2001:db8::/64'))
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_NOT_IN_SUBNET
+    assert 'is not part of subnet' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -242,10 +237,9 @@ def test_collect_collision_errors_reports_single_collision() -> None:
     )
 
     assert len(errors) == 1
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_DUPLICATE
-    assert details[IpamValidationDetailKey.OBJECT_ID] == 7
-    assert details[IpamValidationDetailKey.ROW_INDEX] == 0
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert 'is already used in subnet' in message
+    assert 'interface row 0' in message
 
 
 def test_collect_collision_errors_skips_excluded_self_row() -> None:
@@ -285,7 +279,7 @@ def test_collect_collision_errors_reports_other_row_on_same_object() -> None:
     )
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 1
+    assert 'interface row 1' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_collect_collision_errors_ignores_non_interface_sections() -> None:
@@ -340,8 +334,9 @@ def test_collect_collision_errors_reports_one_error_per_matching_row_across_obje
     )
 
     assert len(errors) == 2
-    reported_ids = {e[ValidationErrorKey.DETAILS][IpamValidationDetailKey.OBJECT_ID] for e in errors}
-    assert reported_ids == {7, 9}
+    messages = ' '.join(e[ValidationErrorKey.MESSAGE] for e in errors)
+    assert 'object 7' in messages
+    assert 'object 9' in messages
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -369,7 +364,7 @@ def test_find_intra_submission_duplicates_flags_second_occurrence() -> None:
 
     assert len(errors) == 1
     details = errors[0][ValidationErrorKey.DETAILS]
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_DUPLICATE
+    assert 'is duplicated within submitted interface rows' in errors[0][ValidationErrorKey.MESSAGE]
     assert details[IpamValidationDetailKey.FIRST_ROW_INDEX] == 0
     assert details[IpamValidationDetailKey.DUPLICATE_ROW_INDEX] == 1
 
@@ -458,10 +453,8 @@ def test_find_subnet_without_ip_flags_row_with_subnet_but_no_ip() -> None:
     errors = find_subnet_without_ip(rows)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_WITHOUT_IP
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.ROW_INDEX] == 3
-    assert details[IpamValidationDetailKey.SUBNET_OBJECT_ID] == 42
+    assert 'has a subnet selected but no IP address' in errors[0][ValidationErrorKey.MESSAGE]
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 3
 
 
 def test_find_subnet_without_ip_flags_multiple_offending_rows_in_order() -> None:
@@ -494,19 +487,15 @@ def test_find_subnet_without_ip_flags_only_offending_rows_in_mixed_batch() -> No
     assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 2
 
 
-def test_find_subnet_without_ip_error_envelope_carries_code_message_and_details() -> None:
-    """The structured error envelope exposes code + a non-empty message + the documented detail keys"""
+def test_find_subnet_without_ip_error_envelope_carries_message_and_row_index() -> None:
+    """The error envelope is a non-empty message plus a details payload carrying only the row index"""
     rows = [(7, 99, None, None)]
 
     error = find_subnet_without_ip(rows)[0]
 
-    assert error[ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_WITHOUT_IP
     assert isinstance(error[ValidationErrorKey.MESSAGE], str)
     assert error[ValidationErrorKey.MESSAGE]  # non-empty
-    assert set(error[ValidationErrorKey.DETAILS].keys()) == {
-        IpamValidationDetailKey.ROW_INDEX,
-        IpamValidationDetailKey.SUBNET_OBJECT_ID,
-    }
+    assert set(error[ValidationErrorKey.DETAILS].keys()) == {IpamValidationDetailKey.ROW_INDEX}
 
 
 def _make_subnet_doc(public_id: int, network_range: Any = None) -> dict[str, Any]:
@@ -537,7 +526,7 @@ def test_load_subnet_object_errors_when_subnet_type_undefined() -> None:
 
     assert subnet_obj is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_TYPE_MISSING
+    assert 'No SUBNET CmdbType is defined' in errors[0][ValidationErrorKey.MESSAGE]
     objects_manager.find_objects.assert_not_called()
 
 
@@ -570,8 +559,9 @@ def test_load_subnet_object_errors_when_no_match() -> None:
 
     assert subnet_obj is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_NOT_FOUND
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.SUBNET_OBJECT_ID] == SUBNET_OBJECT_ID
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert 'does not exist' in message
+    assert str(SUBNET_OBJECT_ID) in message
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -594,10 +584,9 @@ def test_extract_subnet_network_errors_on_missing_or_unparsable_range(bad_range:
 
     assert network is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_BROKEN_STATE
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.SUBNET_OBJECT_ID] == SUBNET_OBJECT_ID
-    assert details[IpamValidationDetailKey.STORED_VALUE] == bad_range
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert 'has no valid' in message
+    assert str(SUBNET_OBJECT_ID) in message
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -618,8 +607,9 @@ def test_check_ip_format_errors_on_invalid_address() -> None:
 
     assert parsed is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_INVALID
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.IP_ADDRESS] == 'not-an-ip'
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert 'is not a valid IPv4/IPv6 address' in message
+    assert 'not-an-ip' in message
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -670,8 +660,9 @@ def test_check_ip_uniqueness_reports_collisions_from_the_candidates() -> None:
     errors = _check_ip_uniqueness(objects_manager, SUBNET_OBJECT_ID, '10.0.0.5', None, None)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.IP_DUPLICATE
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.OBJECT_ID] == OWNER_OBJECT_ID
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert 'is already used in subnet' in message
+    assert str(OWNER_OBJECT_ID) in message
 
 
 def test_check_ip_uniqueness_honours_the_self_exclusion_pair() -> None:
@@ -693,7 +684,7 @@ def test_check_ip_uniqueness_honours_the_self_exclusion_pair() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_validate_interface_short_circuits_when_subnet_load_fails() -> None:
     """A failed subnet load returns the load errors without running any further check"""
-    load_error = build_error(InterfaceErrorCode.SUBNET_NOT_FOUND, 'gone')
+    load_error = build_error('gone')
 
     with patch(f'{PATH}._load_subnet_object', return_value=(None, [load_error])), \
          patch(f'{PATH}._extract_subnet_network') as mock_extract, \
@@ -733,7 +724,7 @@ def test_validate_interface_returns_empty_for_a_valid_row() -> None:
 
 def test_validate_interface_skips_membership_when_range_broken_but_still_checks_uniqueness() -> None:
     """A broken subnet range plus a valid IP: membership is skipped, uniqueness still runs"""
-    range_error = build_error(InterfaceErrorCode.SUBNET_BROKEN_STATE, 'broken')
+    range_error = build_error('broken')
     ip = parse_ip('10.0.0.5')
 
     with patch(f'{PATH}._load_subnet_object', return_value=(_make_subnet_doc(SUBNET_OBJECT_ID), [])), \
@@ -750,7 +741,7 @@ def test_validate_interface_skips_membership_when_range_broken_but_still_checks_
 
 def test_validate_interface_skips_membership_and_uniqueness_when_ip_invalid() -> None:
     """An unparsable IP collects the format error and skips both IP-dependent checks"""
-    ip_error = build_error(InterfaceErrorCode.IP_INVALID, 'bad ip')
+    ip_error = build_error('bad ip')
     network = parse_cidr('10.0.0.0/24')
 
     with patch(f'{PATH}._load_subnet_object', return_value=(_make_subnet_doc(SUBNET_OBJECT_ID), [])), \
@@ -785,11 +776,11 @@ def test_validate_interface_rows_returns_empty_for_an_empty_batch() -> None:
 
 def test_validate_interface_rows_concatenates_batch_and_per_row_errors_in_order() -> None:
     """Order: completeness, duplicates, missing types, type mismatches, then per-row results"""
-    completeness_error = build_error(InterfaceErrorCode.SUBNET_WITHOUT_IP, 'no ip')
-    duplicate_error = build_error(InterfaceErrorCode.IP_DUPLICATE, 'twice')
-    missing_type_error = build_error(InterfaceErrorCode.TYPE_MISSING, 'no type')
-    type_error = build_error(InterfaceErrorCode.TYPE_FAMILY_MISMATCH, 'wrong family')
-    row_error = build_error(InterfaceErrorCode.IP_NOT_IN_SUBNET, 'outside')
+    completeness_error = build_error('no ip')
+    duplicate_error = build_error('twice')
+    missing_type_error = build_error('no type')
+    type_error = build_error('wrong family')
+    row_error = build_error('outside')
     rows: list[tuple[int, int | None, str | None, str | None]] = [(0, SUBNET_OBJECT_ID, '10.0.0.5', None)]
 
     with patch(f'{PATH}.find_subnet_without_ip', return_value=[completeness_error]), \
@@ -838,7 +829,6 @@ def test_validate_interface_rows_forwards_exclusion_and_injects_row_index() -> N
     objects_manager = MagicMock()
     types_manager = MagicMock()
     error_without_details = {
-        ValidationErrorKey.CODE: InterfaceErrorCode.IP_DUPLICATE,
         ValidationErrorKey.MESSAGE: 'collision',
     }
     candidates: list[dict[str, Any]] = []
@@ -976,7 +966,7 @@ def test_validate_complete_row_short_circuits_when_subnet_type_missing() -> None
     )
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_TYPE_MISSING
+    assert 'No SUBNET CmdbType is defined' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_validate_complete_row_short_circuits_when_subnet_ref_unknown() -> None:
@@ -992,8 +982,9 @@ def test_validate_complete_row_short_circuits_when_subnet_ref_unknown() -> None:
     )
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.SUBNET_NOT_FOUND
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.SUBNET_OBJECT_ID] == SUBNET_OBJECT_ID
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert 'does not exist' in message
+    assert str(SUBNET_OBJECT_ID) in message
 
 
 def test_validate_complete_row_returns_empty_for_a_valid_row() -> None:
@@ -1016,9 +1007,9 @@ def test_validate_complete_row_returns_empty_for_a_valid_row() -> None:
 def test_validate_complete_row_accumulates_range_format_membership_and_uniqueness() -> None:
     """A broken range, an out-of-range/format check and a uniqueness collision all accumulate"""
     subnets_by_id = {SUBNET_OBJECT_ID: _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')}
-    range_error = build_error(InterfaceErrorCode.SUBNET_BROKEN_STATE, 'broken')
-    membership_error = build_error(InterfaceErrorCode.IP_NOT_IN_SUBNET, 'outside')
-    collision_error = build_error(InterfaceErrorCode.IP_DUPLICATE, 'dup')
+    range_error = build_error('broken')
+    membership_error = build_error('outside')
+    collision_error = build_error('dup')
     ip = parse_ip('10.0.0.5')
 
     with patch(f'{PATH}._extract_subnet_network', return_value=(None, [range_error])), \
@@ -1090,12 +1081,8 @@ def test_check_row_type_against_ip_flags_contradicting_family() -> None:
     errors = _check_row_type_against_ip(3, IpAddressFamily.IPV4, '2001:db8::5')
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.ROW_INDEX] == 3
-    assert details[IpamValidationDetailKey.INTERFACE_TYPE] == IpAddressFamily.IPV4
-    assert details[IpamValidationDetailKey.IP_ADDRESS] == '2001:db8::5'
-    assert details[IpamValidationDetailKey.IP_FAMILY] == IpAddressFamily.IPV6
+    assert 'does not match the address family' in errors[0][ValidationErrorKey.MESSAGE]
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 3
 
 
 def test_check_row_type_against_ip_treats_unrecognised_token_as_mismatch() -> None:
@@ -1103,7 +1090,7 @@ def test_check_row_type_against_ip_treats_unrecognised_token_as_mismatch() -> No
     errors = _check_row_type_against_ip(0, 'ipv5', '10.0.0.5')
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH
+    assert 'does not match the address family' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_check_row_type_against_ip_skips_unparsable_ip() -> None:
@@ -1128,13 +1115,8 @@ def test_check_row_type_against_subnet_flags_contradicting_family() -> None:
     errors = _check_row_type_against_subnet(2, IpAddressFamily.IPV4, subnet)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.ROW_INDEX] == 2
-    assert details[IpamValidationDetailKey.INTERFACE_TYPE] == IpAddressFamily.IPV4
-    assert details[IpamValidationDetailKey.SUBNET_OBJECT_ID] == SUBNET_OBJECT_ID
-    assert details[IpamValidationDetailKey.SUBNET_RANGE] == '2001:db8::/64'
-    assert details[IpamValidationDetailKey.SUBNET_FAMILY] == IpAddressFamily.IPV6
+    assert 'does not match the address family' in errors[0][ValidationErrorKey.MESSAGE]
+    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 2
 
 
 def test_check_row_type_against_subnet_skips_unparsable_range() -> None:
@@ -1173,9 +1155,9 @@ def test_find_type_family_mismatches_reports_ip_and_subnet_contradictions_per_ro
         errors = find_type_family_mismatches(objects_manager, MagicMock(), rows)
 
     assert len(errors) == 2
-    assert all(e[ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH for e in errors)
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.IP_FAMILY] == IpAddressFamily.IPV6
-    assert errors[1][ValidationErrorKey.DETAILS][IpamValidationDetailKey.SUBNET_FAMILY] == IpAddressFamily.IPV6
+    assert all('does not match the address family' in e[ValidationErrorKey.MESSAGE] for e in errors)
+    assert 'of IP' in errors[0][ValidationErrorKey.MESSAGE]
+    assert 'of subnet' in errors[1][ValidationErrorKey.MESSAGE]
 
 
 def test_find_type_family_mismatches_passes_consistent_typed_rows() -> None:
@@ -1208,9 +1190,9 @@ def test_find_type_family_mismatches_checks_partial_rows_against_present_data_on
 
     assert len(errors) == 2
     assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 0
-    assert IpamValidationDetailKey.IP_ADDRESS in errors[0][ValidationErrorKey.DETAILS]
+    assert 'of IP' in errors[0][ValidationErrorKey.MESSAGE]
     assert errors[1][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 1
-    assert IpamValidationDetailKey.SUBNET_OBJECT_ID in errors[1][ValidationErrorKey.DETAILS]
+    assert 'of subnet' in errors[1][ValidationErrorKey.MESSAGE]
 
 
 def test_find_type_family_mismatches_skips_unknown_subnet_refs() -> None:
@@ -1258,7 +1240,7 @@ def test_find_type_family_mismatches_uses_supplied_subnets_without_loading() -> 
         )
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH
+    assert 'does not match the address family' in errors[0][ValidationErrorKey.MESSAGE]
     objects_manager.find_objects.assert_not_called()
     mock_resolve.assert_not_called()
 
@@ -1277,7 +1259,7 @@ def test_find_missing_types_flags_data_carrying_rows_without_a_token() -> None:
     errors = find_missing_types(rows)
 
     assert len(errors) == 3
-    assert all(e[ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_MISSING for e in errors)
+    assert all('is required' in e[ValidationErrorKey.MESSAGE] for e in errors)
     assert [e[ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] for e in errors] == [0, 1, 2]
 
 

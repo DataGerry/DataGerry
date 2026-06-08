@@ -311,7 +311,7 @@ class TestIpamValidationRoutes:
         assert response.status_code == HTTPStatus.OK
         body = response.get_json()
         assert body['valid'] is False
-        assert body['errors'][0]['code'] == 'type_family_mismatch'
+        assert 'does not match the address family' in body['errors'][0]['message']
 
     def test_validate_vlan_route(self, rest_api):
         """POST /ipam/validate/vlan accepts a reference to the seeded subnet"""
@@ -329,4 +329,4 @@ class TestIpamValidationRoutes:
         assert response.status_code == HTTPStatus.OK
         body = response.get_json()
         assert body['valid'] is False
-        assert 'type_missing' in {e['code'] for e in body['errors']}
+        assert any('is required' in e['message'] for e in body['errors'])

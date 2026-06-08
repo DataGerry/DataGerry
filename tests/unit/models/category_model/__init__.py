@@ -14,16 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provide all classes for the CmdbCategory logics
-"""
-from .category_constants import CategoryKey, CategoryMetaKey
-from .cmdb_category import CmdbCategory
-from .category_tree import CategoryTree
-# -------------------------------------------------------------------------------------------------------------------- #
+Unit tests for the cmdb.models.category_model package
 
-__all__: list[str] = [
-    'CategoryKey',
-    'CategoryMetaKey',
-    'CmdbCategory',
-    'CategoryTree',
-]
+Covers the CategoryTree composition (ordering, nesting, cycle safety against corrupted
+stored data) and the CmdbCategory key constants. Tests are pure: no Mongo, no Flask
+"""

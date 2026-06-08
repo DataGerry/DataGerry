@@ -29,6 +29,7 @@ from cmdb.manager import (
     ObjectsManager,
     ReportsManager,
     RelationsManager,
+    CategoriesManager,
     CiExplorerProfileManager,
     ObjectGroupsManager,
     SectionTemplatesManager,
@@ -303,12 +304,13 @@ def type_deletion_followup(
     """
     Performs cleanup actions that must run after a CmdbType has been deleted
 
-    Removes the deleted type's id from relations, CiExplorerProfiles and dynamic object
-    groups, and strips it from every other CmdbType's field-level 'ref_types' arrays so
-    no surviving type still offers the deleted type as a reference target. When the
-    deleted type carried a SpecialType marker, additionally drops the id from any
-    'ref_types' arrays that handle_special_types had cross-wired on the IPAM section
-    template, so newly added 'dg-ipam-interface' sections no longer offer it either
+    Removes the deleted type's id from relations, CiExplorerProfiles, dynamic object
+    groups and the 'types' arrays of all CmdbCategories, and strips it from every other
+    CmdbType's field-level 'ref_types' arrays so no surviving type still offers the
+    deleted type as a reference target. When the deleted type carried a SpecialType
+    marker, additionally drops the id from any 'ref_types' arrays that
+    handle_special_types had cross-wired on the IPAM section template, so newly added
+    'dg-ipam-interface' sections no longer offer it either
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -322,6 +324,7 @@ def type_deletion_followup(
         request_user
     )
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES, request_user)
 
     # Delete this type_id from all relations parent and child ids
     relations_manager.remove_type_from_relations(public_id)
@@ -331,6 +334,9 @@ def type_deletion_followup(
 
     # Delete the type from all dynamic groups
     object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)
+
+    # Delete this type_id from the 'types' array of every CmdbCategory
+    categories_manager.remove_type_from_categories(public_id)
 
     # Strip the deleted type id from every other CmdbType's field-level 'ref_types'
     updated_count: int = cleanup_type_references_from_all_types(types_manager, public_id)

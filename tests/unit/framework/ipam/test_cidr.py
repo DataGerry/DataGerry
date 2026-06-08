@@ -28,7 +28,7 @@ from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 import pytest
 
 from cmdb.utils import ValidationErrorKey
-from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamValidationDetailKey
+from cmdb.models.special_type_model.ipam_constants import IpAddressFamily
 from cmdb.framework.ipam.cidr import (
     address_family,
     parse_cidr,
@@ -47,10 +47,10 @@ from cmdb.framework.ipam.cidr import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SELECTOR_FIELD_NAME: str = 'dg-test-type'
-SELECTOR_DETAIL_KEY: str = 'test_type'
-MISSING_CODE: str = 'test_type_missing'
-MISMATCH_CODE: str = 'test_type_family_mismatch'
 SUBJECT_LABEL: str = 'Testnet'
+
+MSG_CIDR_INVALID: str = 'is not a canonical IPv4/IPv6 CIDR'
+MSG_FAMILY_MISMATCH: str = 'does not match the address family'
 
 SELECTOR_RANGE_V4: str = '10.0.0.0/24'
 SELECTOR_RANGE_V6: str = '2001:db8::/64'
@@ -429,12 +429,9 @@ def test_first_assignable_int(cidr: str, expected_first_address: str) -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          validate_canonical_cidr_value                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-SAMPLE_ERROR_CODE: str = 'sample_cidr_invalid'
-
-
 def test_validate_canonical_cidr_value_returns_network_and_no_errors_for_canonical_input() -> None:
     """A canonical CIDR string yields the parsed network and an empty error list"""
-    network, errors = validate_canonical_cidr_value('10.0.0.0/24', SAMPLE_ERROR_CODE)
+    network, errors = validate_canonical_cidr_value('10.0.0.0/24')
 
     assert network == IPv4Network('10.0.0.0/24')
     assert not errors
@@ -447,40 +444,30 @@ def test_validate_canonical_cidr_value_returns_network_and_no_errors_for_canonic
     '10.0.0.0/255.255.255.0',  # netmask form rejected by strict parser
 ])
 def test_validate_canonical_cidr_value_emits_error_for_invalid_string(invalid_value: str) -> None:
-    """Any non-canonical or non-CIDR string yields (None, [error]) with the caller's error code"""
-    network, errors = validate_canonical_cidr_value(invalid_value, SAMPLE_ERROR_CODE)
+    """Any non-canonical or non-CIDR string yields (None, [error]) with the canonical-CIDR message"""
+    network, errors = validate_canonical_cidr_value(invalid_value)
 
     assert network is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SAMPLE_ERROR_CODE
+    assert MSG_CIDR_INVALID in errors[0][ValidationErrorKey.MESSAGE]
 
 
 @pytest.mark.parametrize('non_string_value', [None, 42, 10.5, [], {}])
 def test_validate_canonical_cidr_value_emits_error_for_non_string_input(non_string_value: Any) -> None:
-    """Non-string inputs are rejected with the same error code (no TypeError raised)"""
-    network, errors = validate_canonical_cidr_value(non_string_value, SAMPLE_ERROR_CODE)
+    """Non-string inputs are rejected with the same message (no TypeError raised)"""
+    network, errors = validate_canonical_cidr_value(non_string_value)
 
     assert network is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SAMPLE_ERROR_CODE
+    assert MSG_CIDR_INVALID in errors[0][ValidationErrorKey.MESSAGE]
 
 
-def test_validate_canonical_cidr_value_captures_input_in_error_details() -> None:
-    """The raw input value is preserved under IpamValidationDetailKey.NETWORK_RANGE in details"""
-    network, errors = validate_canonical_cidr_value('garbage-value', SAMPLE_ERROR_CODE)
+def test_validate_canonical_cidr_value_names_the_input_in_the_message() -> None:
+    """The raw input value is echoed back in the error message"""
+    network, errors = validate_canonical_cidr_value('garbage-value')
 
     assert network is None
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.NETWORK_RANGE] == 'garbage-value'
-
-
-def test_validate_canonical_cidr_value_uses_caller_supplied_error_code() -> None:
-    """The error code is parameterized; different callers see different codes for the same input"""
-    _, first_errors = validate_canonical_cidr_value('bad', 'code_a')
-    _, second_errors = validate_canonical_cidr_value('bad', 'code_b')
-
-    assert first_errors[0][ValidationErrorKey.CODE] == 'code_a'
-    assert second_errors[0][ValidationErrorKey.CODE] == 'code_b'
+    assert 'garbage-value' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -505,21 +492,18 @@ def _run_family_selector(cidr: str, selector_value: str | None) -> list[dict[str
         parse_cidr(cidr),
         selector_value,
         selector_field_name=SELECTOR_FIELD_NAME,
-        selector_detail_key=SELECTOR_DETAIL_KEY,
-        missing_code=MISSING_CODE,
-        mismatch_code=MISMATCH_CODE,
         subject_label=SUBJECT_LABEL,
     )
 
 
-def test_validate_family_selector_reports_missing_code_for_none_selector() -> None:
-    """A None selector emits the caller's missing-code with the candidate in the details"""
+def test_validate_family_selector_reports_missing_for_none_selector() -> None:
+    """A None selector is rejected with a message naming the selector field and required-ness"""
     errors = _run_family_selector(SELECTOR_RANGE_V4, None)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == MISSING_CODE
-    assert SELECTOR_FIELD_NAME in errors[0][ValidationErrorKey.MESSAGE]
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.CANDIDATE] == SELECTOR_RANGE_V4
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert SELECTOR_FIELD_NAME in message
+    assert 'is required' in message
 
 
 @pytest.mark.parametrize('cidr, selector_value', [
@@ -533,23 +517,18 @@ def test_validate_family_selector_returns_empty_when_selector_matches_family(
     assert not _run_family_selector(cidr, selector_value)
 
 
-@pytest.mark.parametrize('cidr, selector_value, actual_family', [
-    (SELECTOR_RANGE_V4, IpAddressFamily.IPV6, IpAddressFamily.IPV4),
-    (SELECTOR_RANGE_V6, IpAddressFamily.IPV4, IpAddressFamily.IPV6),
+@pytest.mark.parametrize('cidr, selector_value', [
+    (SELECTOR_RANGE_V4, IpAddressFamily.IPV6),
+    (SELECTOR_RANGE_V6, IpAddressFamily.IPV4),
 ])
-def test_validate_family_selector_reports_mismatch_code_for_wrong_family(
-    cidr: str, selector_value: str, actual_family: str,
+def test_validate_family_selector_reports_mismatch_for_wrong_family(
+    cidr: str, selector_value: str,
 ) -> None:
-    """A selector contradicting the candidate's family emits the caller's mismatch-code with
-    the rejected selector under the caller's detail key and the actual family alongside"""
+    """A selector contradicting the candidate's family is rejected with the mismatch message"""
     errors = _run_family_selector(cidr, selector_value)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == MISMATCH_CODE
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[SELECTOR_DETAIL_KEY] == selector_value
-    assert details[IpamValidationDetailKey.CIDR_FAMILY] == actual_family
-    assert details[IpamValidationDetailKey.CANDIDATE] == cidr
+    assert MSG_FAMILY_MISMATCH in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_validate_family_selector_treats_unrecognised_selector_as_mismatch() -> None:
@@ -557,7 +536,7 @@ def test_validate_family_selector_treats_unrecognised_selector_as_mismatch() -> 
     errors = _run_family_selector(SELECTOR_RANGE_V4, 'something-else')
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == MISMATCH_CODE
+    assert MSG_FAMILY_MISMATCH in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_validate_family_selector_opens_messages_with_the_subject_label() -> None:

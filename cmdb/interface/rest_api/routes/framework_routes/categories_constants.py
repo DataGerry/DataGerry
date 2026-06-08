@@ -31,3 +31,7 @@ class CategoryListView(BaseStrEnum):
     """
     LIST = 'list'
     TREE = 'tree'
+
+
+# Name of the optional ?view= query parameter as parsed into CollectionParameters.optional
+CATEGORY_VIEW_PARAM: str = 'view'

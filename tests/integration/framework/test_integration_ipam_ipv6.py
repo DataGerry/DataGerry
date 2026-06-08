@@ -57,7 +57,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamUnassignMode,
     IpamSubnetIpsExport,
 )
-from cmdb.framework.ipam.subnet_validator import SubnetErrorCode, validate_subnet
+from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_overview import build_supernet_overview
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview, build_subnet_sector_ips
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
@@ -288,8 +288,9 @@ def test_validate_subnet_ipv4_candidate_under_ipv6_supernet_is_family_mismatch(
         parent_supernet_id=SUPERNET_ID, subnet_type=IpAddressFamily.IPV4,
     )
 
-    codes = {e[ValidationErrorKey.CODE] for e in errors}
-    assert SubnetErrorCode.PARENT_SUPERNET_FAMILY_MISMATCH in codes
+    messages = ' '.join(e[ValidationErrorKey.MESSAGE] for e in errors)
+    assert 'does not match the address family' in messages
+    assert 'of supernet' in messages
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

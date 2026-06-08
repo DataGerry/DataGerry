@@ -36,3 +36,4 @@ class FieldKey(BaseStrEnum):
     REGEX = 'regex'
     REF_TYPES = 'ref_types'
     OPTIONS = 'options'
+    VALUE = 'value'

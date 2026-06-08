@@ -60,8 +60,8 @@ ipam_supernet_blueprint = APIBlueprint('ipam_supernet', __name__)
 
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated supernet overview payload
@@ -132,8 +132,8 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
     '/overview/<int:public_id>/subnets/children/<int:subnet_id>',
     methods=['GET'],
 )
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the direct CIDR-children of a subnet under the given supernet
@@ -178,8 +178,8 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
 
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/export', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route exporting all assigned subnets of a supernet as an Excel (.xlsx) file
@@ -223,8 +223,8 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/invalid', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated invalid-subnets-only overview payload
@@ -288,8 +288,8 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
 
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/unassign', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that detaches one or more SUBNETs from the supernet

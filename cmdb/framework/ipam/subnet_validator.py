@@ -27,9 +27,8 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     SupernetField,
-    IpamValidationDetailKey,
 )
-from cmdb.utils import BaseStrEnum, build_error
+from cmdb.utils import build_error
 from cmdb.framework.ipam.cidr import (
     Network,
     parse_cidr,
@@ -41,22 +40,6 @@ from cmdb.framework.ipam.cidr import (
 )
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  ERROR CODES                                                         #
-# -------------------------------------------------------------------------------------------------------------------- #
-class SubnetErrorCode(BaseStrEnum):
-    """Stable codes for structured subnet validation errors"""
-    CIDR_INVALID = 'cidr_invalid'
-    TYPE_MISSING = 'type_missing'
-    TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
-    PARENT_SUPERNET_TYPE_MISSING = 'parent_supernet_type_missing'
-    PARENT_SUPERNET_NOT_FOUND = 'parent_supernet_not_found'
-    PARENT_SUPERNET_BROKEN_STATE = 'parent_supernet_broken_state'
-    PARENT_SUPERNET_FAMILY_MISMATCH = 'parent_supernet_family_mismatch'
-    NOT_IN_PARENT_SUPERNET = 'not_in_parent_supernet'
-    SIBLING_OVERLAP = 'sibling_overlap'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -117,11 +100,9 @@ def _find_subnets_by_field(
 # -------------------------------------------------------------------------------------------------------------------- #
 def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict[str, Any]]]:
     """
-    Validates the candidate CIDR is a strict (canonical) IPv4 or IPv6 CIDR, emitting CIDR_INVALID
-    on failure
+    Validates the candidate CIDR is a strict (canonical) IPv4 or IPv6 CIDR
 
-    Thin domain-specific alias over validate_canonical_cidr_value that binds the error code to
-    SubnetErrorCode.CIDR_INVALID
+    Thin domain-specific alias over the shared validate_canonical_cidr_value
 
     Args:
         network_range (str): The candidate CIDR
@@ -129,7 +110,7 @@ def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict
     Returns:
         tuple[Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors)
     """
-    return validate_canonical_cidr_value(network_range, SubnetErrorCode.CIDR_INVALID)
+    return validate_canonical_cidr_value(network_range)
 
 
 def _check_type_matches_family(candidate: Network, subnet_type: str | None) -> list[dict[str, Any]]:
@@ -138,8 +119,7 @@ def _check_type_matches_family(candidate: Network, subnet_type: str | None) -> l
     address family
 
     Thin domain-specific binding of the shared ``validate_family_selector`` core (see that
-    helper for the required-selector / mismatch semantics) to the SUBNET selector field,
-    detail key and error codes
+    helper for the required-selector / mismatch semantics) to the SUBNET selector field
 
     Args:
         candidate (Network): The parsed candidate CIDR
@@ -154,9 +134,6 @@ def _check_type_matches_family(candidate: Network, subnet_type: str | None) -> l
         candidate,
         subnet_type,
         selector_field_name=SubnetField.TYPE.value,
-        selector_detail_key=IpamValidationDetailKey.SUBNET_TYPE,
-        missing_code=SubnetErrorCode.TYPE_MISSING,
-        mismatch_code=SubnetErrorCode.TYPE_FAMILY_MISMATCH,
         subject_label='Subnet',
     )
 
@@ -183,7 +160,6 @@ def _check_in_supernet(
 
     if supernet_type_id is None:
         return [build_error(
-            SubnetErrorCode.PARENT_SUPERNET_TYPE_MISSING,
             "No SUPERNET CmdbType is defined; cannot validate parent supernet",
         )]
 
@@ -191,9 +167,7 @@ def _check_in_supernet(
 
     if not supernet_obj or supernet_obj.get(CmdbObjectKey.TYPE_ID) != supernet_type_id:
         return [build_error(
-            SubnetErrorCode.PARENT_SUPERNET_NOT_FOUND,
             f"Supernet object with id {supernet_object_id} does not exist",
-            {IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id},
         )]
 
     supernet_range_raw: Any = extract_field_value(supernet_obj, SupernetField.NETWORK_RANGE)
@@ -201,37 +175,18 @@ def _check_in_supernet(
 
     if supernet_net is None:
         return [build_error(
-            SubnetErrorCode.PARENT_SUPERNET_BROKEN_STATE,
             f"Supernet object {supernet_object_id} has no valid '{SupernetField.NETWORK_RANGE.value}' value",
-            {
-                IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
-                IpamValidationDetailKey.STORED_VALUE: supernet_range_raw,
-            },
         )]
 
     if supernet_net.version != candidate.version:
         return [build_error(
-            SubnetErrorCode.PARENT_SUPERNET_FAMILY_MISMATCH,
             f"Candidate {candidate} ({network_family(candidate)}) does not match the address family "
             f"'{network_family(supernet_net)}' of supernet {supernet_net}",
-            {
-                IpamValidationDetailKey.CANDIDATE: str(candidate),
-                IpamValidationDetailKey.CIDR_FAMILY: network_family(candidate),
-                IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
-                IpamValidationDetailKey.SUPERNET_RANGE: str(supernet_net),
-                IpamValidationDetailKey.SUPERNET_FAMILY: network_family(supernet_net),
-            },
         )]
 
     if not contains(supernet_net, candidate):
         return [build_error(
-            SubnetErrorCode.NOT_IN_PARENT_SUPERNET,
             f"Candidate {candidate} is not contained in supernet {supernet_net}",
-            {
-                IpamValidationDetailKey.CANDIDATE: str(candidate),
-                IpamValidationDetailKey.SUPERNET_OBJECT_ID: supernet_object_id,
-                IpamValidationDetailKey.SUPERNET_RANGE: str(supernet_net),
-            },
         )]
 
     return []
@@ -286,13 +241,7 @@ def _check_sibling_overlap(
 
         if overlaps(candidate, sibling_net):
             errors.append(build_error(
-                SubnetErrorCode.SIBLING_OVERLAP,
                 f"Candidate {candidate} overlaps with sibling subnet {sibling_net}",
-                {
-                    IpamValidationDetailKey.CANDIDATE: str(candidate),
-                    IpamValidationDetailKey.SIBLING_SUBNET_ID: sibling_id,
-                    IpamValidationDetailKey.SIBLING_RANGE: str(sibling_net),
-                },
             ))
 
     return errors
@@ -315,7 +264,7 @@ def validate_subnet(
 
     Returns the accumulated list of errors so the caller can render or abort. An empty list
     means valid. The ``subnet_type`` selector is required once the CIDR parses: a missing value
-    is reported as TYPE_MISSING and a supplied value must agree with the CIDR's actual family.
+    is rejected and a supplied value must agree with the CIDR's actual family.
     When a ``parent_supernet_id`` is supplied the candidate's family must match the parent
     supernet's family
 
@@ -327,7 +276,7 @@ def validate_subnet(
         exclude_subnet_id (int | None): Self-id during edits, so the candidate doesn't trip
             sibling-overlap checks against its own pre-edit state
         subnet_type (str | None): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); required -
-            None is reported as TYPE_MISSING, a given value is cross-checked against the CIDR
+            None is rejected, a given value is cross-checked against the CIDR
             family
 
     Returns:

@@ -38,7 +38,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
     IpamValidationDetailKey,
 )
-from cmdb.utils import BaseStrEnum, ValidationErrorKey, build_error
+from cmdb.utils import ValidationErrorKey, build_error
 from cmdb.framework.ipam.cidr import (
     Network,
     Address,
@@ -51,23 +51,6 @@ from cmdb.framework.ipam.cidr import (
 )
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  ERROR CODES                                                         #
-# -------------------------------------------------------------------------------------------------------------------- #
-class InterfaceErrorCode(BaseStrEnum):
-    """Stable codes for structured interface row validation errors"""
-    SUBNET_TYPE_MISSING = 'subnet_type_missing'
-    SUBNET_NOT_FOUND = 'subnet_not_found'
-    SUBNET_BROKEN_STATE = 'subnet_broken_state'
-    SUBNET_WITHOUT_IP = 'subnet_without_ip'
-    IP_INVALID = 'ip_invalid'
-    IP_NOT_IN_SUBNET = 'ip_not_in_subnet'
-    IP_RESERVED = 'ip_reserved'
-    IP_DUPLICATE = 'ip_duplicate'
-    TYPE_MISSING = 'type_missing'
-    TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -93,7 +76,6 @@ def _load_subnet_object(
 
     if subnet_type_id is None:
         return None, [build_error(
-            InterfaceErrorCode.SUBNET_TYPE_MISSING,
             "No SUBNET CmdbType is defined; cannot validate interface subnet reference",
         )]
 
@@ -104,9 +86,7 @@ def _load_subnet_object(
 
     if not matches:
         return None, [build_error(
-            InterfaceErrorCode.SUBNET_NOT_FOUND,
             f"Subnet object with id {subnet_object_id} does not exist",
-            {IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id},
         )]
 
     return matches[0], []
@@ -127,15 +107,10 @@ def _extract_subnet_network(subnet_obj: dict[str, Any]) -> tuple[Network | None,
 
     if parsed is None:
         return None, [build_error(
-            InterfaceErrorCode.SUBNET_BROKEN_STATE,
             (
                 f"Subnet object {subnet_obj.get(CmdbObjectKey.PUBLIC_ID)} has no valid "
                 f"'{SubnetField.NETWORK_RANGE.value}' value"
             ),
-            {
-                IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
-                IpamValidationDetailKey.STORED_VALUE: raw,
-            },
         )]
 
     return parsed, []
@@ -158,9 +133,7 @@ def _check_ip_format(ip_address: str) -> tuple[Address | None, list[dict[str, An
 
     if parsed is None:
         return None, [build_error(
-            InterfaceErrorCode.IP_INVALID,
             f"'{ip_address}' is not a valid IPv4/IPv6 address",
-            {IpamValidationDetailKey.IP_ADDRESS: ip_address},
         )]
 
     return parsed, []
@@ -181,23 +154,13 @@ def _check_ip_membership(ip: Address, subnet_net: Network) -> list[dict[str, Any
 
     if not ip_in_network(ip, subnet_net):
         errors.append(build_error(
-            InterfaceErrorCode.IP_NOT_IN_SUBNET,
             f"IP {ip} is not part of subnet {subnet_net}",
-            {
-                IpamValidationDetailKey.IP_ADDRESS: str(ip),
-                IpamValidationDetailKey.SUBNET_RANGE: str(subnet_net),
-            },
         ))
         return errors
 
     if is_network_or_broadcast(ip, subnet_net):
         errors.append(build_error(
-            InterfaceErrorCode.IP_RESERVED,
             f"IP {ip} is the network or broadcast address of {subnet_net}",
-            {
-                IpamValidationDetailKey.IP_ADDRESS: str(ip),
-                IpamValidationDetailKey.SUBNET_RANGE: str(subnet_net),
-            },
         ))
 
     return errors
@@ -361,15 +324,8 @@ def _collect_collision_errors(
                     continue
 
                 errors.append(build_error(
-                    InterfaceErrorCode.IP_DUPLICATE,
                     f"IP {ip_address} is already used in subnet {subnet_object_id} "
                     f"by object {candidate_id} (interface row {row_index})",
-                    {
-                        IpamValidationDetailKey.IP_ADDRESS: ip_address,
-                        IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id,
-                        IpamValidationDetailKey.OBJECT_ID: candidate_id,
-                        IpamValidationDetailKey.ROW_INDEX: row_index,
-                    },
                 ))
 
     return errors
@@ -481,12 +437,9 @@ def find_intra_submission_duplicates(
 
         if key in seen:
             errors.append(build_error(
-                InterfaceErrorCode.IP_DUPLICATE,
                 f"IP {ip} is duplicated within submitted interface rows "
                 f"(rows {seen[key]} and {row_index})",
                 {
-                    IpamValidationDetailKey.IP_ADDRESS: ip,
-                    IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_ref,
                     IpamValidationDetailKey.FIRST_ROW_INDEX: seen[key],
                     IpamValidationDetailKey.DUPLICATE_ROW_INDEX: row_index,
                 },
@@ -517,8 +470,7 @@ def find_subnet_without_ip(
             cmdb.framework.ipam.enforcement
 
     Returns:
-        list[dict[str, Any]]: One SUBNET_WITHOUT_IP error per offending row, with details
-            carrying the row index and the orphaned subnet_object_id
+        list[dict[str, Any]]: One error per offending row, with details carrying the row index
     """
     errors: list[dict[str, Any]] = []
 
@@ -527,12 +479,8 @@ def find_subnet_without_ip(
             continue
 
         errors.append(build_error(
-            InterfaceErrorCode.SUBNET_WITHOUT_IP,
             f"Interface row {row_index} has a subnet selected but no IP address",
-            {
-                IpamValidationDetailKey.ROW_INDEX: row_index,
-                IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_ref,
-            },
+            {IpamValidationDetailKey.ROW_INDEX: row_index},
         ))
 
     return errors
@@ -604,15 +552,9 @@ def _check_row_type_against_ip(row_index: int, interface_type: str, ip_address: 
         return []
 
     return [build_error(
-        InterfaceErrorCode.TYPE_FAMILY_MISMATCH,
         f"Interface row {row_index}: type '{interface_type}' does not match the address family "
         f"'{ip_family}' of IP {ip_address}",
-        {
-            IpamValidationDetailKey.ROW_INDEX: row_index,
-            IpamValidationDetailKey.INTERFACE_TYPE: interface_type,
-            IpamValidationDetailKey.IP_ADDRESS: ip_address,
-            IpamValidationDetailKey.IP_FAMILY: ip_family,
-        },
+        {IpamValidationDetailKey.ROW_INDEX: row_index},
     )]
 
 
@@ -650,16 +592,9 @@ def _check_row_type_against_subnet(
         return []
 
     return [build_error(
-        InterfaceErrorCode.TYPE_FAMILY_MISMATCH,
         f"Interface row {row_index}: type '{interface_type}' does not match the address family "
         f"'{subnet_fam}' of subnet {network} (object {subnet_obj.get(CmdbObjectKey.PUBLIC_ID)})",
-        {
-            IpamValidationDetailKey.ROW_INDEX: row_index,
-            IpamValidationDetailKey.INTERFACE_TYPE: interface_type,
-            IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_obj.get(CmdbObjectKey.PUBLIC_ID),
-            IpamValidationDetailKey.SUBNET_RANGE: str(network),
-            IpamValidationDetailKey.SUBNET_FAMILY: subnet_fam,
-        },
+        {IpamValidationDetailKey.ROW_INDEX: row_index},
     )]
 
 
@@ -675,7 +610,7 @@ def find_type_family_mismatches(
     For every row carrying a type token, the token is checked against the address family of
     the row's IP (when an IP is present) and against the CIDR family of the referenced subnet
     (when a subnet ref is present), so a token can produce up to two mismatch errors per row.
-    Rows without a token are skipped here - their absence is reported as TYPE_MISSING by
+    Rows without a token are skipped here - their absence is reported by
     ``find_missing_types`` when the row carries data. Unknown subnet refs, unparsable IPs and
     unparsable subnet CIDRs are skipped here because the per-row check reports those states
     under their own codes
@@ -742,7 +677,7 @@ def find_missing_types(
             ip, interface_type) tuples
 
     Returns:
-        list[dict[str, Any]]: One TYPE_MISSING error per data-carrying row without a token,
+        list[dict[str, Any]]: One error per data-carrying row without a token,
             with details carrying the row index
     """
     errors: list[dict[str, Any]] = []
@@ -755,7 +690,6 @@ def find_missing_types(
             continue
 
         errors.append(build_error(
-            InterfaceErrorCode.TYPE_MISSING,
             f"Interface row {row_index}: type ('{InterfaceField.TYPE.value}') is required",
             {IpamValidationDetailKey.ROW_INDEX: row_index},
         ))
@@ -890,7 +824,6 @@ def _validate_complete_row(
     """
     if subnet_type_id is None:
         return [build_error(
-            InterfaceErrorCode.SUBNET_TYPE_MISSING,
             "No SUBNET CmdbType is defined; cannot validate interface subnet reference",
         )]
 
@@ -898,9 +831,7 @@ def _validate_complete_row(
 
     if subnet_obj is None:
         return [build_error(
-            InterfaceErrorCode.SUBNET_NOT_FOUND,
             f"Subnet object with id {subnet_ref} does not exist",
-            {IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_ref},
         )]
 
     subnet_net, errors = _extract_subnet_network(subnet_obj)

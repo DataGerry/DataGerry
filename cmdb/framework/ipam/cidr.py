@@ -38,7 +38,6 @@ from typing import Any
 from cmdb.models.special_type_model.ipam_constants import (
     IpamAddressFormat,
     IpamPrefixPolicy,
-    IpamValidationDetailKey,
     IpVersion,
     IpAddressFamily,
 )
@@ -87,21 +86,17 @@ def parse_cidr(value: str) -> Network | None:
 
 def validate_canonical_cidr_value(
     value: Any,
-    error_code: str,
 ) -> tuple[Network | None, list[dict[str, Any]]]:
     """
-    Validates an arbitrary value is a canonical IPv4 or IPv6 CIDR string, surfacing a structured
-    error when it is not
+    Validates an arbitrary value is a canonical IPv4 or IPv6 CIDR string, surfacing an error
+    when it is not
 
     Accepts Any so callers passing a raw field value (which may be None / int / something else
     from a partially populated CmdbObject) don't have to guard the call themselves. Non-string
-    inputs and non-canonical strings both fail with the same caller-supplied error code so the
-    emitted error stays meaningful to the surrounding validator
+    inputs and non-canonical strings both fail with the same message
 
     Args:
         value (Any): The candidate value (typically a 'dg-network-range' field value)
-        error_code (str): Error code to embed in the emitted error dict when validation fails
-            (callers pass their domain-specific code, e.g. SubnetErrorCode.CIDR_INVALID)
 
     Returns:
         tuple[Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors;
@@ -111,9 +106,7 @@ def validate_canonical_cidr_value(
 
     if parsed is None:
         return None, [build_error(
-            error_code,
             f"'{value}' is not a canonical IPv4/IPv6 CIDR (host bits must be zero)",
-            {IpamValidationDetailKey.NETWORK_RANGE: value},
         )]
 
     return parsed, []
@@ -123,31 +116,23 @@ def validate_family_selector(
     candidate: Network,
     selector_value: str | None,
     selector_field_name: str,
-    selector_detail_key: str,
-    missing_code: str,
-    mismatch_code: str,
     subject_label: str,
 ) -> list[dict[str, Any]]:
     """
     Validates an address-family selector ('ipv4' / 'ipv6') against a parsed network's family
 
     Shared core of the SUBNET / SUPERNET 'dg-*-type' checks - the per-validator wrappers bind
-    their field name, detail key, error codes and subject wording. The selector is required:
-    a missing (None) value emits ``missing_code`` - the field is a required SELECT in the
-    SpecialType schemas and the address family is part of the object's identity, so a legacy
-    object without the value must be repaired on its next save. When supplied, a selector
-    that does not equal the candidate's actual family (including any unrecognised token,
-    which can never equal it) emits ``mismatch_code``
+    their field name and subject wording. The selector is required: a missing (None) value is
+    rejected - the field is a required SELECT in the SpecialType schemas and the address family
+    is part of the object's identity, so a legacy object without the value must be repaired on
+    its next save. When supplied, a selector that does not equal the candidate's actual family
+    (including any unrecognised token, which can never equal it) is rejected
 
     Args:
         candidate (Network): The parsed candidate CIDR
         selector_value (str | None): The stored selector value, or None when absent
         selector_field_name (str): The selector field's name, echoed in the missing-value
             message (e.g. SubnetField.TYPE.value)
-        selector_detail_key (str): Detail key carrying the rejected selector value
-            (e.g. IpamValidationDetailKey.SUBNET_TYPE)
-        missing_code (str): Error code emitted when the selector is None
-        mismatch_code (str): Error code emitted when the selector contradicts the family
         subject_label (str): Subject word opening the messages ('Subnet' / 'Supernet')
 
     Returns:
@@ -156,9 +141,7 @@ def validate_family_selector(
     """
     if selector_value is None:
         return [build_error(
-            missing_code,
             f"{subject_label} type ('{selector_field_name}') is required",
-            {IpamValidationDetailKey.CANDIDATE: str(candidate)},
         )]
 
     actual_family: str = network_family(candidate)
@@ -167,14 +150,8 @@ def validate_family_selector(
         return []
 
     return [build_error(
-        mismatch_code,
         f"{subject_label} type '{selector_value}' does not match the address family "
         f"'{actual_family}' of {candidate}",
-        {
-            IpamValidationDetailKey.CANDIDATE: str(candidate),
-            selector_detail_key: selector_value,
-            IpamValidationDetailKey.CIDR_FAMILY: actual_family,
-        },
     )]
 
 
@@ -225,9 +202,10 @@ def network_family(network: Network) -> str:
         network (Network): The parsed network
 
     Returns:
-        str: IpAddressFamily.IPV6 for an IPv6 network, IpAddressFamily.IPV4 otherwise
+        str: The 'ipv6' token for an IPv6 network, the 'ipv4' token otherwise (the plain
+            IpAddressFamily value, so it renders as the bare token in messages and JSON)
     """
-    return IpAddressFamily.IPV6 if network.version == IpVersion.V6 else IpAddressFamily.IPV4
+    return IpAddressFamily.IPV6.value if network.version == IpVersion.V6 else IpAddressFamily.IPV4.value
 
 
 def address_family(address: Address) -> str:
@@ -242,9 +220,10 @@ def address_family(address: Address) -> str:
         address (Address): The parsed host address
 
     Returns:
-        str: IpAddressFamily.IPV6 for an IPv6 address, IpAddressFamily.IPV4 otherwise
+        str: The 'ipv6' token for an IPv6 address, the 'ipv4' token otherwise (the plain
+            IpAddressFamily value, so it renders as the bare token in messages and JSON)
     """
-    return IpAddressFamily.IPV6 if address.version == IpVersion.V6 else IpAddressFamily.IPV4
+    return IpAddressFamily.IPV6.value if address.version == IpVersion.V6 else IpAddressFamily.IPV4.value
 
 
 def contains(parent: Network, child: Network) -> bool:

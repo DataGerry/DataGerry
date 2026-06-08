@@ -239,6 +239,7 @@ class SectionTemplateCreator:
                     "name": "dg-interface-type",
                     "label": "Type",
                     "required": True,
+                    "value": "ipv4",
                     "options": [
                         {
                             "name": "ipv4",

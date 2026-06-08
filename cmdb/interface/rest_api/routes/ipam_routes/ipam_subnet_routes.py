@@ -67,8 +67,8 @@ ipam_subnet_blueprint = APIBlueprint('ipam_subnet', __name__)
 
 
 @ipam_subnet_blueprint.route('/', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_subnet_options(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated subnet-options list for the interface picker
@@ -140,8 +140,8 @@ def get_subnet_options(request_user: CmdbUser) -> Response:
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the subnet IP-Übersicht payload
@@ -231,8 +231,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/unassign', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that unassigns one or more dg-ipam-interface rows from the subnet
@@ -302,8 +302,8 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/sector', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated IP list of a single IP-Verteilung sector
@@ -366,8 +366,8 @@ def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/invalid', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the invalid-IPs-only subnet overview payload
@@ -432,8 +432,8 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/export', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route exporting a subnet's IP rows as an Excel (.xlsx) file

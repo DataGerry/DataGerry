@@ -44,7 +44,8 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import CategoriesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.category_model import CmdbCategory, CategoryTree
+from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -57,7 +58,10 @@ from cmdb.interface.rest_api.responses import (
     GetMultiResponse,
     GetSingleResponse,
 )
-from cmdb.interface.rest_api.routes.framework_routes.categories_constants import CategoryListView
+from cmdb.interface.rest_api.routes.framework_routes.categories_constants import (
+    CATEGORY_VIEW_PARAM,
+    CategoryListView,
+)
 
 from cmdb.errors.manager.categories_manager import (
     CategoriesManagerInsertError,
@@ -86,8 +90,10 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
 
     Payload is validated against ``CmdbCategory.SCHEMA`` before this function runs. A
     ``creation_time`` (UTC now) is stamped on the dict if the caller did not supply one.
-    The persisted document is re-read from the database and returned so that any
-    server-side defaults are reflected in the response.
+    A supplied ``parent`` must reference an existing CmdbCategory (400 otherwise) so a
+    typo cannot create a category that silently never appears in the tree. The persisted
+    document is re-read from the database and returned so that any server-side defaults
+    are reflected in the response.
 
     Required right: ``base.framework.category.add``. Required API level: ``ApiLevel.ADMIN``.
 
@@ -96,8 +102,8 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): Authenticated requester, injected by ``@insert_request_user``
 
     Raises:
-        HTTPException: 400 when the manager rejects the insert
-            (``CategoriesManagerInsertError``) or the post-insert read
+        HTTPException: 400 when the parent reference is invalid, when the manager rejects
+            the insert (``CategoriesManagerInsertError``) or the post-insert read
             (``CategoriesManagerGetError``)
         HTTPException: 404 when the inserted CmdbCategory cannot be retrieved afterwards
         HTTPException: 500 on any unexpected error
@@ -112,7 +118,14 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
             request_user
         )
 
-        data.setdefault('creation_time', datetime.now(timezone.utc))
+        data.setdefault(CategoryKey.CREATION_TIME, datetime.now(timezone.utc))
+
+        rejection: str | None = categories_manager.validate_parent_assignment(
+            None, data.get(CategoryKey.PARENT),
+        )
+
+        if rejection:
+            abort(400, rejection)
 
         result_id: int = categories_manager.insert_category(data)
 
@@ -175,7 +188,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
 
         body: bool = request.method == 'HEAD'
 
-        if params.optional['view'] == CategoryListView.TREE:
+        if params.optional[CATEGORY_VIEW_PARAM] == CategoryListView.TREE:
             tree: CategoryTree = categories_manager.tree
             api_response = GetMultiResponse(
                 CategoryTree.to_json(tree),
@@ -272,10 +285,17 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
     """
     PUT/PATCH ``/rest/categories/<public_id>`` - update a CmdbCategory
 
-    The target is first read to confirm existence (404 otherwise), then the supplied dict
-    is hydrated to a ``CmdbCategory`` instance and handed to ``update_category``. Payload
-    is validated against ``CmdbCategory.SCHEMA`` by the blueprint decorator before this
-    function runs.
+    The target is first read to confirm existence (404 otherwise), then the payload is
+    handed to ``update_category``. Payload is validated against ``CmdbCategory.SCHEMA``
+    by the blueprint decorator before this function runs. Two server-side guards run
+    before the write:
+
+    - The payload's ``public_id`` is pinned to the URL's public_id - a body carrying a
+      different id can therefore never rewrite the document's identity.
+    - A supplied ``parent`` must reference an existing CmdbCategory, must not be the
+      category itself, and must not close an ancestor cycle (A -> B -> A); any violation
+      aborts 400 before the database is touched. A stored self-parent / cycle would
+      otherwise corrupt the tree view.
 
     Required right: ``base.framework.category.edit``. Required API level: ``ApiLevel.ADMIN``.
 
@@ -286,8 +306,10 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
 
     Raises:
         HTTPException: 404 when no CmdbCategory with that public_id exists
-        HTTPException: 400 when the pre-read fails (``CategoriesManagerGetError``) or the
-            write fails (``CategoriesManagerUpdateError``)
+        HTTPException: 400 when the parent assignment is invalid (missing parent,
+            self-parent, ancestor cycle), when the pre-read fails
+            (``CategoriesManagerGetError``) or the write fails
+            (``CategoriesManagerUpdateError``)
         HTTPException: 500 on any unexpected error
 
     Returns:
@@ -304,6 +326,16 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
 
         if not to_update_category:
             abort(404, f"The Category with ID:{public_id} was not found!")
+
+        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
+        data[CmdbObjectKey.PUBLIC_ID] = public_id
+
+        rejection: str | None = categories_manager.validate_parent_assignment(
+            public_id, data.get(CategoryKey.PARENT),
+        )
+
+        if rejection:
+            abort(400, rejection)
 
         categories_manager.update_category(public_id, data)
 

@@ -141,8 +141,8 @@ def _parse_interface_rows_payload(
 #                                                       ROUTES                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 @ipam_validation_blueprint.route('/subnet', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def validate_subnet_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a subnet candidate without writing anything
@@ -153,14 +153,14 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
         exclude_subnet_id (int, optional): Self-id when editing, so the sibling check
             doesn't compare the candidate against its own pre-edit state
         subnet_type (str): The 'dg-subnet-type' selector ('ipv4' / 'ipv6'); required - when
-            omitted the validator reports TYPE_MISSING, when supplied it is cross-checked
+            omitted the validator reports an error, when supplied it is cross-checked
             against the candidate CIDR's actual address family
 
     Args:
         request_user (CmdbUser): CmdbUser making the request
 
     Returns:
-        Response: {'valid': bool, 'errors': list[{code, message, details}]}
+        Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
@@ -193,8 +193,8 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
 
 
 @ipam_validation_blueprint.route('/supernet', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     HTTP `POST` route that pre-validates a supernet candidate without writing anything
@@ -205,14 +205,14 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
     Body:
         network_range (str): The candidate IPv4 or IPv6 CIDR
         supernet_type (str): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); required - when
-            omitted the validator reports TYPE_MISSING, when supplied it is cross-checked
+            omitted the validator reports an error, when supplied it is cross-checked
             against the candidate CIDR's actual address family
 
     Args:
         request_user (CmdbUser): CmdbUser making the request (unused; see above)
 
     Returns:
-        Response: {'valid': bool, 'errors': list[{code, message, details}]}
+        Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
@@ -238,8 +238,8 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
 
 
 @ipam_validation_blueprint.route('/vlan', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def validate_vlan_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a vlan candidate without writing anything
@@ -251,7 +251,7 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser making the request
 
     Returns:
-        Response: {'valid': bool, 'errors': list[{code, message, details}]}
+        Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}
@@ -275,16 +275,16 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
 
 
 @ipam_validation_blueprint.route('/interface', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def validate_interface_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a batch of dg-ipam-interface rows without writing
 
     The batch shape mirrors save-time enforcement so an in-flight collision between two rows
     on the same in-progress object is reported the same way the persistence path would report
-    it. Each row's index is echoed back in error 'details' so the caller can map errors to
-    the originating row in the form
+    it. Each row's index is echoed back in error 'details' (the only structured payload that
+    survives) so the caller can map errors to the originating row in the form
 
     Body:
         rows (list[dict]): One entry per interface row currently entered on the form. Each
@@ -294,8 +294,8 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
               ip_address (str): The interface IP
               interface_type (str): The row's 'dg-interface-type' selector
                 ('ipv4' / 'ipv6'); required on every row carrying a subnet_id and/or an
-                ip_address - missing is reported as TYPE_MISSING - and cross-checked against
-                the IP's address family and the referenced subnet's CIDR family
+                ip_address - missing is rejected - and cross-checked against the IP's address
+                family and the referenced subnet's CIDR family
             Rows missing either subnet_id or ip_address are still accepted but skipped by the
             per-row check (so a half-typed row does not produce noise); completely empty
             placeholder rows are accepted silently
@@ -306,7 +306,7 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser making the request
 
     Returns:
-        Response: {'valid': bool, 'errors': list[{code, message, details}]}
+        Response: {'valid': bool, 'errors': list[{message, details: {row_index}}]}
     """
     try:
         payload: dict[str, Any] = request.get_json(silent=True) or {}

@@ -263,6 +263,7 @@ def test_ensure_field_definition_is_a_noop_when_key_attributes_match() -> None:
         FieldKey.TYPE: blueprint_def[FieldKey.TYPE],
         FieldKey.OPTIONS: blueprint_def[FieldKey.OPTIONS],
         FieldKey.REQUIRED: True,
+        FieldKey.VALUE: blueprint_def[FieldKey.VALUE],
     }
     fields = [existing]
 
