@@ -52,8 +52,8 @@ ipam_assignable_blueprint = APIBlueprint('ipam_assignable', __name__)
 
 
 @ipam_assignable_blueprint.route('/', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_assignable_objects(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated assignable-objects picker payload

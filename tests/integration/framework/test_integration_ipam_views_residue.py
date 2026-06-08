@@ -57,7 +57,7 @@ from cmdb.framework.ipam.supernet_overview import (
 )
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview
 from cmdb.framework.ipam.subnet_export import build_supernet_subnets_xlsx
-from cmdb.framework.ipam.vlan_validator import VlanErrorCode, validate_vlan
+from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.utils import ValidationErrorKey
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -301,4 +301,4 @@ def test_validate_vlan_rejects_a_missing_subnet(
     errors = validate_vlan(objects_manager, types_manager, FOREIGN_SUBNET_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == VlanErrorCode.SUBNET_NOT_FOUND
+    assert 'does not exist' in errors[0][ValidationErrorKey.MESSAGE]

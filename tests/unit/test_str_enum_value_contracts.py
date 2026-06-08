@@ -123,6 +123,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REGEX': 'regex',
         'REF_TYPES': 'ref_types',
         'OPTIONS': 'options',
+        'VALUE': 'value',
     }),
     (FieldType, {
         'TEXT': 'text',

@@ -184,50 +184,20 @@ class IpamSubnetTableLimits:
 
 class IpamValidationDetailKey(BaseStrEnum):
     """
-    Keys of the 'details' payload carried by IPAM validation errors
+    Keys of the optional 'details' payload carried by IPAM validation errors
 
-    A structured validation error has the shape {code, message, details}: the envelope keys
-    are named in ValidationErrorKey, while the per-domain keys inside 'details' are named
-    here. Use these members instead of bare string literals when populating the details dict
-    so frontend and backend stay aligned on field names. Members are grouped by topic in the
-    declaration order below
+    IPAM validation errors are {message} dicts; the only structured context still carried is
+    the interface validator's row-index mapping, which lets the frontend attach each error to
+    the originating dg-ipam-interface form row. These members name the keys inside that
+    'details' payload (the envelope keys themselves are named in ValidationErrorKey). Use them
+    instead of bare string literals so frontend and backend stay aligned on field names
     """
-    # Identity of the candidate object / row being validated
-    CANDIDATE = 'candidate'
-    OBJECT_ID = 'object_id'
+    # Row position of a single offending interface row
     ROW_INDEX = 'row_index'
 
-    # Subnet / supernet references
-    SUBNET_OBJECT_ID = 'subnet_object_id'
-    SUPERNET_OBJECT_ID = 'supernet_object_id'
-    PARENT_SUPERNET_ID = 'parent_supernet_id'
-
-    # Range strings (the parsed or stored CIDR / network range)
-    NETWORK_RANGE = 'network_range'
-    SUBNET_RANGE = 'subnet_range'
-    SUPERNET_RANGE = 'supernet_range'
-    SIBLING_RANGE = 'sibling_range'
-
-    # Sibling references
-    SIBLING_SUBNET_ID = 'sibling_subnet_id'
-
-    # Interface row payload
-    IP_ADDRESS = 'ip_address'
+    # The two row positions of a within-submission duplicate interface IP
     FIRST_ROW_INDEX = 'first_row_index'
     DUPLICATE_ROW_INDEX = 'duplicate_row_index'
-
-    # Address family (family-consistency errors)
-    SUBNET_TYPE = 'subnet_type'
-    SUPERNET_TYPE = 'supernet_type'
-    CIDR_FAMILY = 'cidr_family'
-    SUPERNET_FAMILY = 'supernet_family'
-    INTERFACE_TYPE = 'interface_type'
-    IP_FAMILY = 'ip_family'
-    SUBNET_FAMILY = 'subnet_family'
-
-    # Generic fall-throughs
-    STORED_VALUE = 'stored_value'
-    REFERENCES = 'references'
 
 
 class IpamValidationRequestKey(BaseStrEnum):

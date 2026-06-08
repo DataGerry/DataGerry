@@ -31,7 +31,6 @@ from cmdb.models.special_type_model.ipam_constants import (
     VlanField,
     InterfaceField,
     IpamSection,
-    IpamValidationDetailKey,
 )
 from cmdb.models.object_model import (
     CmdbObjectKey,
@@ -41,7 +40,7 @@ from cmdb.models.object_model import (
     extract_field_value,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.utils import BaseStrEnum, ValidationErrorKey, build_error
+from cmdb.utils import ValidationErrorKey, build_error
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
@@ -70,7 +69,7 @@ def format_errors_for_abort(errors: list[dict[str, Any]]) -> str:
         str: 'IPAM validation failed: <msg1> | <msg2> | ...'
     """
     joined: str = " | ".join(
-        e.get(ValidationErrorKey.MESSAGE, e.get(ValidationErrorKey.CODE, 'unknown error'))
+        e.get(ValidationErrorKey.MESSAGE, 'unknown error')
         for e in errors
     )
 
@@ -430,13 +429,6 @@ def enforce_object_invariants(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  DELETE GUARDS                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-class DeleteGuardErrorCode(BaseStrEnum):
-    """Stable codes for IPAM deletion-guard errors"""
-    SUPERNET_HAS_REFERENCING_SUBNETS = 'supernet_has_referencing_subnets'
-    SUBNET_HAS_REFERENCING_VLANS = 'subnet_has_referencing_vlans'
-    SUBNET_HAS_REFERENCING_INTERFACES = 'subnet_has_referencing_interfaces'
-
-
 def _format_id_list(refs: list[dict[str, Any]]) -> str:
     """
     Joins reference dicts into a short comma-separated id list for error messages
@@ -448,21 +440,6 @@ def _format_id_list(refs: list[dict[str, Any]]) -> str:
         str: 'id, id, id'
     """
     return ", ".join(str(r.get(CmdbObjectKey.PUBLIC_ID)) for r in refs)
-
-
-def _build_delete_guard_error(code: str, message: str, refs: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Constructs a structured deletion-guard error including the offending reference list
-
-    Args:
-        code (str): Stable machine-readable error code
-        message (str): Human-readable explanation
-        refs (list[dict[str, Any]]): The lightweight reference dicts that block the delete
-
-    Returns:
-        dict[str, Any]: The error dict with 'code', 'message', and 'details.references'
-    """
-    return build_error(code, message, {IpamValidationDetailKey.REFERENCES: refs})
 
 
 def enforce_delete_guards(
@@ -525,10 +502,8 @@ def _guard_supernet_delete(
     if not refs:
         return []
 
-    return [_build_delete_guard_error(
-        DeleteGuardErrorCode.SUPERNET_HAS_REFERENCING_SUBNETS,
+    return [build_error(
         f"Supernet is referenced by subnets: {_format_id_list(refs)}",
-        refs,
     )]
 
 
@@ -555,19 +530,15 @@ def _guard_subnet_delete(
     )
 
     if vlans:
-        errors.append(_build_delete_guard_error(
-            DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_VLANS,
+        errors.append(build_error(
             f"Subnet is referenced by vlans: {_format_id_list(vlans)}",
-            vlans,
         ))
 
     interfaces: list[dict[str, Any]] = find_interfaces_referencing_subnet(objects_manager, subnet_object_id)
 
     if interfaces:
-        errors.append(_build_delete_guard_error(
-            DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_INTERFACES,
+        errors.append(build_error(
             f"Subnet is referenced by interface rows on objects: {_format_id_list(interfaces)}",
-            interfaces,
         ))
 
     return errors

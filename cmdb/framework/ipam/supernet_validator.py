@@ -23,20 +23,9 @@ check is a small helper to remain unit-testable, mirroring subnet_validator
 """
 from typing import Any
 
-from cmdb.models.special_type_model.ipam_constants import SupernetField, IpamValidationDetailKey
-from cmdb.utils import BaseStrEnum
+from cmdb.models.special_type_model.ipam_constants import SupernetField
 from cmdb.framework.ipam.cidr import Network, validate_canonical_cidr_value, validate_family_selector
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  ERROR CODES                                                         #
-# -------------------------------------------------------------------------------------------------------------------- #
-class SupernetErrorCode(BaseStrEnum):
-    """Stable codes for structured supernet validation errors"""
-    CIDR_INVALID = 'cidr_invalid'
-    TYPE_MISSING = 'type_missing'
-    TYPE_FAMILY_MISMATCH = 'type_family_mismatch'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -44,11 +33,9 @@ class SupernetErrorCode(BaseStrEnum):
 # -------------------------------------------------------------------------------------------------------------------- #
 def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict[str, Any]]]:
     """
-    Validates the candidate CIDR is a strict (canonical) IPv4 or IPv6 CIDR, emitting CIDR_INVALID
-    on failure
+    Validates the candidate CIDR is a strict (canonical) IPv4 or IPv6 CIDR
 
-    Thin domain-specific alias over validate_canonical_cidr_value that binds the error code to
-    SupernetErrorCode.CIDR_INVALID
+    Thin domain-specific alias over the shared validate_canonical_cidr_value
 
     Args:
         network_range (str): The candidate CIDR
@@ -56,7 +43,7 @@ def _check_canonical_cidr(network_range: str) -> tuple[Network | None, list[dict
     Returns:
         tuple[Network | None, list[dict[str, Any]]]: (parsed network or None, list of errors)
     """
-    return validate_canonical_cidr_value(network_range, SupernetErrorCode.CIDR_INVALID)
+    return validate_canonical_cidr_value(network_range)
 
 
 def _check_type_matches_family(candidate: Network, supernet_type: str | None) -> list[dict[str, Any]]:
@@ -65,8 +52,7 @@ def _check_type_matches_family(candidate: Network, supernet_type: str | None) ->
     actual family
 
     Thin domain-specific binding of the shared ``validate_family_selector`` core (see that
-    helper for the required-selector / mismatch semantics) to the SUPERNET selector field,
-    detail key and error codes
+    helper for the required-selector / mismatch semantics) to the SUPERNET selector field
 
     Args:
         candidate (Network): The parsed candidate CIDR
@@ -81,9 +67,6 @@ def _check_type_matches_family(candidate: Network, supernet_type: str | None) ->
         candidate,
         supernet_type,
         selector_field_name=SupernetField.TYPE.value,
-        selector_detail_key=IpamValidationDetailKey.SUPERNET_TYPE,
-        missing_code=SupernetErrorCode.TYPE_MISSING,
-        mismatch_code=SupernetErrorCode.TYPE_FAMILY_MISMATCH,
         subject_label='Supernet',
     )
 
@@ -97,13 +80,13 @@ def validate_supernet(network_range: str, supernet_type: str | None = None) -> l
 
     Returns the accumulated list of errors so the caller can render or abort. An empty list means
     valid. The ``supernet_type`` selector is required once the CIDR parses: a missing value is
-    reported as TYPE_MISSING and a supplied value must agree with the CIDR's actual family. There
+    rejected and a supplied value must agree with the CIDR's actual family. There
     is no parent / sibling / containment check - a supernet stands on its own
 
     Args:
         network_range (str): The candidate IPv4 or IPv6 CIDR (must be canonical, host bits zeroed)
         supernet_type (str | None): The 'dg-supernet-type' selector ('ipv4' / 'ipv6'); required -
-            None is reported as TYPE_MISSING, a given value is cross-checked against the CIDR
+            None is rejected, a given value is cross-checked against the CIDR
             family
 
     Returns:

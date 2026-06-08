@@ -25,9 +25,8 @@ from unittest.mock import MagicMock, patch
 
 from cmdb.utils import ValidationErrorKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
 from cmdb.models.object_model import CmdbObjectKey
-from cmdb.framework.ipam.vlan_validator import VlanErrorCode, validate_vlan
+from cmdb.framework.ipam.vlan_validator import validate_vlan
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -36,12 +35,16 @@ SUBNET_OBJECT_ID: int = 42
 
 RESOLVE_PATH: str = 'cmdb.framework.ipam.vlan_validator.resolve_special_type_id'
 
+# Stable message fragments (errors carry only a 'message')
+MSG_NO_SUBNET_TYPE: str = 'No SUBNET CmdbType is defined'
+MSG_SUBNET_NOT_FOUND: str = 'does not exist'
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          subnet_type_missing branch                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_validate_vlan_reports_subnet_type_missing_when_no_subnet_type_defined() -> None:
-    """When no CmdbType is marked SUBNET, validate_vlan emits a single SUBNET_TYPE_MISSING error"""
+    """When no CmdbType is marked SUBNET, validate_vlan emits a single 'no SUBNET CmdbType' error"""
     objects_manager = MagicMock()
     types_manager = MagicMock()
 
@@ -49,8 +52,7 @@ def test_validate_vlan_reports_subnet_type_missing_when_no_subnet_type_defined()
         errors = validate_vlan(objects_manager, types_manager, SUBNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == VlanErrorCode.SUBNET_TYPE_MISSING
-    assert errors[0][ValidationErrorKey.DETAILS] == {}
+    assert MSG_NO_SUBNET_TYPE in errors[0][ValidationErrorKey.MESSAGE]
     resolve_mock.assert_called_once_with(types_manager, SpecialType.SUBNET)
     objects_manager.find_objects.assert_not_called()
 
@@ -68,9 +70,9 @@ def test_validate_vlan_reports_subnet_not_found_when_no_object_matches() -> None
         errors = validate_vlan(objects_manager, types_manager, SUBNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == VlanErrorCode.SUBNET_NOT_FOUND
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.SUBNET_OBJECT_ID] == SUBNET_OBJECT_ID
+    message = errors[0][ValidationErrorKey.MESSAGE]
+    assert MSG_SUBNET_NOT_FOUND in message
+    assert str(SUBNET_OBJECT_ID) in message
 
 
 def test_validate_vlan_queries_objects_manager_with_public_id_and_type_id_filter() -> None:

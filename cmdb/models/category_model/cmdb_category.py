@@ -22,7 +22,9 @@ from typing import Any
 from cmdb.class_schema.category_model.cmdb_category_schema import get_cmdb_category_schema
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.category_model.category_constants import CategoryKey, CategoryMetaKey
 from cmdb.models.category_model.category_meta import CategoryMeta
+from cmdb.models.object_model import CmdbObjectKey
 
 from cmdb.errors.models.cmdb_category import (
     CmdbCategoryInitError,
@@ -44,7 +46,7 @@ class CmdbCategory(CmdbDAO):
     """
     COLLECTION = 'framework.categories'
     MODEL = 'Category'
-    SCHEMA: dict = get_cmdb_category_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_category_schema()
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
@@ -57,10 +59,10 @@ class CmdbCategory(CmdbDAO):
         self,
         public_id: int,
         name: str,
-        label: str = None,
-        meta: CategoryMeta = None,
-        parent: int = None,
-        types: list[int] = None
+        label: str | None = None,
+        meta: CategoryMeta | None = None,
+        parent: int | None = None,
+        types: list[int] | None = None
     ) -> None:
         """
         Initialises a CmdbCategory
@@ -68,24 +70,24 @@ class CmdbCategory(CmdbDAO):
         Args:
             public_id (int): public_id of the CmdbCategory
             name (str): The name of the CmdbCategory
-            label (str, optional): The Label of the CmdbCategory. Defaults to None
-            meta (CategoryMeta, optional): The CategoryMeta of the CmdbCategory. Defaults to None
-            parent (int, optional): The public_id of the parent CmdbCategory. Defaults to None
-            types list[int], optional): public_ids of CmdbTypes assigned to this CmdbCategory.
-                                        Defaults to None
+            label (str | None, optional): The Label of the CmdbCategory. Defaults to None
+            meta (CategoryMeta | None, optional): The CategoryMeta of the CmdbCategory. Defaults to None
+            parent (int | None, optional): The public_id of the parent CmdbCategory. Defaults to None
+            types (list[int] | None, optional): public_ids of CmdbTypes assigned to this CmdbCategory.
+                                                Defaults to None
 
         Raises:
             CmdbCategoryInitError: if the CmdbCategory could not be initialised
         """
         try:
             self.name: str = name
-            self.label: str = label
-            self.meta: CategoryMeta = meta
+            self.label: str | None = label
+            self.meta: CategoryMeta | None = meta
 
             if parent == public_id and (parent is not None):
                 raise ValueError(f'Category {name} has his own ID as Parent')
 
-            self.parent: int = parent
+            self.parent: int | None = parent
             self.types: list[int] = types or []
 
             super().__init__(public_id=public_id)
@@ -109,20 +111,20 @@ class CmdbCategory(CmdbDAO):
             CmdbCategory: CmdbRelation with the given data
         """
         try:
-            raw_meta: dict = data.get('meta', None)
+            raw_meta: dict[str, Any] | None = data.get(CategoryKey.META, None)
 
             if raw_meta:
-                meta = CategoryMeta(raw_meta.get('icon', ''), raw_meta.get('order', None))
+                meta = CategoryMeta(raw_meta.get(CategoryMetaKey.ICON, ''), raw_meta.get(CategoryMetaKey.ORDER, None))
             else:
                 meta = raw_meta
 
             return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                label = data.get('label', None),
+                public_id = data.get(CmdbObjectKey.PUBLIC_ID),
+                name = data.get(CategoryKey.NAME),
+                label = data.get(CategoryKey.LABEL, None),
                 meta = meta,
-                parent = data.get('parent'),
-                types = data.get('types', [])
+                parent = data.get(CategoryKey.PARENT),
+                types = data.get(CategoryKey.TYPES, [])
             )
         except Exception as err:
             raise CmdbCategoryInitFromDataError(err) from err
@@ -146,15 +148,15 @@ class CmdbCategory(CmdbDAO):
             meta: CategoryMeta = instance.get_meta()
 
             return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'label': instance.get_label(),
-                'meta': {
-                    'icon': meta.get_icon(),
-                    'order': meta.get_order()
+                CmdbObjectKey.PUBLIC_ID: instance.get_public_id(),
+                CategoryKey.NAME: instance.name,
+                CategoryKey.LABEL: instance.get_label(),
+                CategoryKey.META: {
+                    CategoryMetaKey.ICON: meta.get_icon(),
+                    CategoryMetaKey.ORDER: meta.get_order()
                 },
-                'parent': instance.parent,
-                'types': instance.types
+                CategoryKey.PARENT: instance.parent,
+                CategoryKey.TYPES: instance.types
             }
         except Exception as err:
             raise CmdbCategoryToJsonError(err) from err

@@ -50,8 +50,8 @@ ipam_tree_blueprint = APIBlueprint('ipam_tree', __name__)
 
 
 @ipam_tree_blueprint.route('/', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_ipam_tree(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the initial sidebar-tree payload in one call
@@ -87,8 +87,8 @@ def get_ipam_tree(request_user: CmdbUser) -> Response:
 
 
 @ipam_tree_blueprint.route('/supernets/<int:public_id>', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the full CIDR-nested subnet subtree of one supernet
@@ -127,8 +127,8 @@ def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response
 
 
 @ipam_tree_blueprint.route('/unassigned', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_unassigned_subnets(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the unassigned-subnets block of the sidebar tree alone

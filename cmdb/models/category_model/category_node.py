@@ -17,7 +17,7 @@
 Represents a CategoryNode of a CategoryTree in DataGerry
 """
 from logging import Logger, getLogger
-from itertools import chain
+from typing import Any
 
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model.cmdb_category import CmdbCategory
@@ -35,36 +35,36 @@ class CategoryNode:
     def __init__(
             self,
             category: CmdbCategory,
-            children: list["CategoryNode"] = None,
-            types: list[CmdbType] = None):
+            children: list["CategoryNode"] | None = None,
+            types_by_id: dict[int, CmdbType] | None = None) -> None:
         """
         Initializes a CategoryNode
 
         Args:
             category (CmdbCategory): The CmdbCategory associated with this node
-            children (list[CategoryNode], optional): A list of child CategoryNodes, sorted by their order.
-                                                     Defaults to None
-            types (list[CmdbType], optional): A list of CmdbType instances to filter based on the CmdbCategory's types.
-                                              Defaults to None
+            children (list[CategoryNode] | None, optional): A list of child CategoryNodes, sorted by their
+                                                            order. Defaults to None
+            types_by_id (dict[int, CmdbType] | None, optional): A {public_id: CmdbType} lookup of all
+                                                                available CmdbTypes; the node selects the
+                                                                ones referenced by the CmdbCategory.
+                                                                Defaults to None
         """
-        try:
-            self.category = category
-            self.node_order = self.category.get_meta().get_order()
+        self.category = category
+        self.node_order: int | None = self.category.get_meta().get_order()
 
-            self.children: list["CategoryNode"] = sorted(
-                children or [], key=lambda node: (node.get_order() is None, node.get_order())
-            )
+        self.children: list["CategoryNode"] = sorted(
+            children or [], key=lambda node: (node.get_order() is None, node.get_order())
+        )
 
-            # Filter and maintain correct type order
-            self.types = [
-                a_type for type_id in self.category.types for a_type in (types or []) if type_id == a_type.public_id
-            ]
-        except Exception as err:
-            LOGGER.debug("CategoryNode Exception: %s", err)
-            raise err
+        # Resolve the referenced CmdbTypes via the lookup, preserving the CmdbCategory's declared
+        # type order and skipping ids without a loaded CmdbType (O(referenced ids) per node)
+        lookup: dict[int, CmdbType] = types_by_id or {}
+        self.types: list[CmdbType] = [
+            lookup[type_id] for type_id in self.category.types if type_id in lookup
+        ]
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
         String representation of the CategoryNode for debugging and logging
 
@@ -78,7 +78,7 @@ class CategoryNode:
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def to_json(cls, instance: "CategoryNode"):
+    def to_json(cls, instance: "CategoryNode") -> dict[str, Any]:
         """
         Converts a CategoryNode into a json compatible dict
 
@@ -86,32 +86,22 @@ class CategoryNode:
             instance (CategoryNode): The CategoryNode which should be converted
 
         Returns:
-            dict: Json compatible dict of the CategoryNode values
+            dict[str, Any]: Json compatible dict of the CategoryNode values
         """
         return {
             'category': CmdbCategory.to_json(instance.category),
             'node_order': instance.node_order,
             'children': [CategoryNode.to_json(child_node) for child_node in instance.children],
-            'types': [CmdbType.to_json(type) for type in instance.types]
+            'types': [CmdbType.to_json(a_type) for a_type in instance.types]
         }
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-    def get_order(self) -> int:
+    def get_order(self) -> int | None:
         """
         Returns the order value from the CmdbCategory associated with this CategoryNode
-        
+
         Returns:
-            int: The order value of the CategoryNode
+            int | None: The order value of the CategoryNode, or None when no order is set
         """
         return self.node_order
-
-
-    def flatten(self) -> list[CmdbCategory]:
-        """
-        Flattens this CategoryNode and its children into a single list
-
-        Returns:
-            list[CmdbCategory]: A flat list of CmdbCategories
-        """
-        return [self.category] + list(chain.from_iterable(c.flatten() for c in self.children))

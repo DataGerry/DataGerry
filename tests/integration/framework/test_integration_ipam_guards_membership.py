@@ -49,9 +49,8 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpAddressFamily,
     IpamUnassignKey,
 )
-from cmdb.framework.ipam.interface_validator import InterfaceErrorCode, validate_interface_rows
+from cmdb.framework.ipam.interface_validator import validate_interface_rows
 from cmdb.framework.ipam.enforcement import (
-    DeleteGuardErrorCode,
     enforce_delete_guards,
     enforce_object_invariants,
 )
@@ -165,9 +164,9 @@ def fixture_types_manager(database_manager: MongoDatabaseManager) -> TypesManage
     return TypesManager(database_manager)
 
 
-def _codes(errors: list[dict[str, Any]]) -> set[str]:
-    """Returns the set of error codes in a structured error list."""
-    return {e[ValidationErrorKey.CODE] for e in errors}
+def _messages(errors: list[dict[str, Any]]) -> str:
+    """Joins the human-readable messages of a structured error list (errors carry only a message)."""
+    return ' | '.join(e[ValidationErrorKey.MESSAGE] for e in errors)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -183,7 +182,7 @@ def test_interface_rows_uniqueness_collision_is_found_by_the_real_query(
 
     errors = validate_interface_rows(objects_manager, types_manager, rows)
 
-    assert InterfaceErrorCode.IP_DUPLICATE in _codes(errors)
+    assert 'is already used in subnet' in _messages(errors)
 
 
 def test_interface_rows_exclusion_pair_spares_the_own_pre_edit_row(
@@ -211,7 +210,7 @@ def test_interface_rows_type_family_mismatch_against_real_subnet(
 
     errors = validate_interface_rows(objects_manager, types_manager, rows)
 
-    mismatches = [e for e in errors if e[ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_FAMILY_MISMATCH]
+    mismatches = [e for e in errors if 'does not match the address family' in e[ValidationErrorKey.MESSAGE]]
     assert len(mismatches) == 2
 
 
@@ -226,7 +225,7 @@ def test_interface_rows_missing_type_is_required_for_data_rows(
 
     errors = validate_interface_rows(objects_manager, types_manager, rows)
 
-    missing = [e for e in errors if e[ValidationErrorKey.CODE] == InterfaceErrorCode.TYPE_MISSING]
+    missing = [e for e in errors if 'is required' in e[ValidationErrorKey.MESSAGE]]
     assert len(missing) == 1
 
 
@@ -261,7 +260,7 @@ def test_enforce_object_invariants_rejects_a_colliding_interface_carrier(
 
     errors = enforce_object_invariants(objects_manager, types_manager, candidate)
 
-    assert InterfaceErrorCode.IP_DUPLICATE in _codes(errors)
+    assert 'is already used in subnet' in _messages(errors)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -277,7 +276,7 @@ def test_delete_guard_blocks_a_supernet_with_assigned_subnets(
 
     errors = enforce_delete_guards(objects_manager, types_manager, supernet_doc)
 
-    assert DeleteGuardErrorCode.SUPERNET_HAS_REFERENCING_SUBNETS in _codes(errors)
+    assert 'Supernet is referenced by subnets' in _messages(errors)
 
 
 def test_delete_guard_allows_an_unreferenced_supernet(
@@ -300,10 +299,10 @@ def test_delete_guard_blocks_a_subnet_referenced_by_vlan_and_interface(
     )[0]
 
     errors = enforce_delete_guards(objects_manager, types_manager, subnet_doc)
-    codes = _codes(errors)
+    messages = _messages(errors)
 
-    assert DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_VLANS in codes
-    assert DeleteGuardErrorCode.SUBNET_HAS_REFERENCING_INTERFACES in codes
+    assert 'Subnet is referenced by vlans' in messages
+    assert 'Subnet is referenced by interface rows' in messages
 
 
 def test_delete_guard_allows_an_unreferenced_subnet(

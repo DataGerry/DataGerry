@@ -23,14 +23,16 @@ existing installation to the new state:
 
 1. Adds the required SELECT field definition to the existing SUPERNET / SUBNET CmdbTypes
    (schema 'fields' entry plus the Network-Details section layout) when it is missing, syncs
-   the key attributes ('type', 'options', 'required') of an already-present definition to the
-   blueprint, and syncs the 'dg-network-range' regex to the blueprint's dual-family
-   CIDR_REGEX (the baseline regex only admitted IPv4)
+   the key attributes ('type', 'options', 'required', 'value') of an already-present
+   definition to the blueprint - the 'value' carries the IPv4 default pre-selection so new
+   objects start on the baseline family - and syncs the 'dg-network-range' regex to the
+   blueprint's dual-family CIDR_REGEX (the baseline regex only admitted IPv4)
 2. Backfills the selector on every SUPERNET / SUBNET CmdbObject as a complete
    {name, value, type} field entry, deriving the value from the object's 'dg-network-range'
    CIDR family ('ipv4' when the range is missing or unparsable - the baseline is IPv4-only)
 3. Ensures the stored dg-ipam-interface section template carries the required
-   'dg-interface-type' SELECT, syncs the 'dg-interface-ip-address' regex to the blueprint's
+   'dg-interface-type' SELECT (including its IPv4 default 'value'), syncs the
+   'dg-interface-ip-address' regex to the blueprint's
    dual-family IP_ADDRESS_REGEX (the baseline field had no regex), and propagates the
    template change to every CmdbType using it via handle_section_template_changes
 4. Backfills 'dg-interface-type' on every data-carrying interface MDS row as a complete
@@ -82,8 +84,15 @@ RENDER_META_KEY: str = 'render_meta'
 SECTIONS_KEY: str = 'sections'
 
 # Blueprint attributes synced onto an already-present field definition; the user-visible
-# 'label' and any local extras are deliberately left untouched
-SYNCED_FIELD_DEF_KEYS: tuple[str, ...] = (FieldKey.TYPE, FieldKey.OPTIONS, FieldKey.REQUIRED)
+# 'label' and any local extras are deliberately left untouched. 'value' carries the IPv4
+# default pre-selection of the address-family selector so new objects/rows start on the
+# baseline family (a field definition's default value is stored under the 'value' key)
+SYNCED_FIELD_DEF_KEYS: tuple[str, ...] = (
+    FieldKey.TYPE,
+    FieldKey.OPTIONS,
+    FieldKey.REQUIRED,
+    FieldKey.VALUE,
+)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
