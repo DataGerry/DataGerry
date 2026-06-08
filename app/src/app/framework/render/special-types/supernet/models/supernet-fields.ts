@@ -16,8 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export const SUBNET_FIELD_NAMES = {
-    SUPERNET: 'dg-supernet-ref',
-    SUBNET_TYPE: 'dg-subnet-type',
+export const SUPERNET_FIELD_NAMES = {
+    SUPERNET_TYPE: 'dg-supernet-type',
     NETWORK_RANGE: 'dg-network-range',
 } as const;

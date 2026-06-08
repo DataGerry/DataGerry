@@ -177,6 +177,12 @@
     margin: 0;
 }
 
+.ipam-subnet:fullscreen {
+    background-color: #ffffff;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
 .ipam-subnet__state {
     padding: 1rem;
     border-radius: 0.5rem;

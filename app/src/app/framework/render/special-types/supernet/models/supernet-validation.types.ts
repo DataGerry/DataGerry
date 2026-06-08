@@ -16,8 +16,20 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export const SUBNET_FIELD_NAMES = {
-    SUPERNET: 'dg-supernet-ref',
-    SUBNET_TYPE: 'dg-subnet-type',
-    NETWORK_RANGE: 'dg-network-range',
-} as const;
+export interface SupernetValidationRequest {
+    network_range: string;
+    supernet_type: string;
+}
+
+
+export interface SupernetValidationError {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+
+export interface SupernetValidationResponse {
+    valid: boolean;
+    errors: SupernetValidationError[];
+}

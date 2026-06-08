@@ -80,6 +80,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
     public hasError = false;
     public hasLoadedOnce = false;
+    public isFullscreen = false;
     public readonly searchControl = new FormControl<string>('', { nonNullable: true });
     public readonly isLoading$ = this.loaderService.isLoading$;
 
@@ -143,6 +144,11 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         this.setViewMode('invalid');
     }
 
+    public onFullscreenChange(isFullscreen: boolean): void {
+        this.isFullscreen = isFullscreen;
+        this.changesRef.markForCheck();
+    }
+
     public onUnassign(subnetIds: number[]): void {
         if (this.publicId == null || !subnetIds?.length) {
             return;
@@ -175,6 +181,10 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
 
     public get isSearching(): boolean {
         return this.searchTerm.length >= MIN_SEARCH_LENGTH;
+    }
+
+    public get isIpv6(): boolean {
+        return this.supernet?.subnet_type === 'ipv6';
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

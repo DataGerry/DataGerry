@@ -21,6 +21,8 @@ import { CoreWarningModalComponent } from './components/dialog/core-warning-moda
 import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
 import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
 import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
+import { FullscreenDirective } from './directives/fullscreen.directive';
+import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
 @NgModule({
   declarations: [
@@ -41,14 +43,16 @@ import { HorizontalResizeDirective } from './directives/horizontal-resize.direct
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
-    CoreConfirmationModalComponent
+    CoreConfirmationModalComponent,
+    CompactNumberPipe
   ],
   imports: [
     CommonModule,
     NgSelectModule,
     FormsModule,
     ReactiveFormsModule,
-    HorizontalResizeDirective
+    HorizontalResizeDirective,
+    FullscreenDirective
   ],
   exports: [
     LoadingPopupComponent,
@@ -69,7 +73,9 @@ import { HorizontalResizeDirective } from './directives/horizontal-resize.direct
     CoreWarningModalComponent,
     AppUsageBarComponent,
     CoreConfirmationModalComponent,
-    HorizontalResizeDirective
+    HorizontalResizeDirective,
+    FullscreenDirective,
+    CompactNumberPipe
   ]
 })
 export class CoreModule { }

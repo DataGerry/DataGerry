@@ -27,9 +27,9 @@ import { catchError, distinctUntilChanged, map, switchMap } from 'rxjs/operators
 
 import { CmdbType } from '../../../../models/cmdb-type';
 import { SpecialType } from '../../../../models/special-type';
-import { SUBNET_FIELD_NAMES } from '../models/subnet-fields';
-import { SubnetValidationRequest, SubnetValidationResponse } from '../models/subnet-validation.types';
-import { SubnetIpamApiService } from './subnet-ipam-api.service';
+import { SUPERNET_FIELD_NAMES } from '../models/supernet-fields';
+import { SupernetValidationRequest, SupernetValidationResponse } from '../models/supernet-validation.types';
+import { SupernetIpamApiService } from './supernet-ipam-api.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -38,66 +38,50 @@ export const BACKEND_VALIDATION_ERROR_KEY = 'backendValidation';
 const DEBOUNCE_MS = 400;
 
 
-export interface SubnetNetworkRangeValidatorHandle {
+export interface SupernetNetworkRangeValidatorHandle {
     destroy(): void;
 }
 
-
-export interface SubnetNetworkRangeValidatorOptions {
-    /** Public id of the object being edited; null in create mode. */
-    excludeSubnetId: number | null;
-}
-
-const NOOP_HANDLE: SubnetNetworkRangeValidatorHandle = { destroy: () => { /* no-op */ } };
+const NOOP_HANDLE: SupernetNetworkRangeValidatorHandle = { destroy: () => { /* no-op */ } };
 
 
 @Injectable({ providedIn: 'root' })
-export class SubnetNetworkRangeValidatorService {
+export class SupernetNetworkRangeValidatorService {
 
-    private readonly api = inject(SubnetIpamApiService);
+    private readonly api = inject(SupernetIpamApiService);
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /**
-     * Wires the network-range backend validation into the form.
+     * Wires the network-range backend validation into a supernet render form.
+     * The range is validated against the selected supernet type so the backend
+     * can confirm the CIDR belongs to the chosen address family.
      */
     public attach(
         form: UntypedFormGroup,
-        typeInstance: CmdbType | undefined,
-        options: SubnetNetworkRangeValidatorOptions
-    ): SubnetNetworkRangeValidatorHandle {
-        if (!form || typeInstance?.special_type !== SpecialType.SUBNET) {
+        typeInstance: CmdbType | undefined
+    ): SupernetNetworkRangeValidatorHandle {
+        if (!form || typeInstance?.special_type !== SpecialType.SUPERNET) {
             return NOOP_HANDLE;
         }
 
-        const networkRange = form.get(SUBNET_FIELD_NAMES.NETWORK_RANGE);
-        const supernet = form.get(SUBNET_FIELD_NAMES.SUPERNET);
-        const subnetType = form.get(SUBNET_FIELD_NAMES.SUBNET_TYPE);
+        const networkRange = form.get(SUPERNET_FIELD_NAMES.NETWORK_RANGE);
+        const supernetType = form.get(SUPERNET_FIELD_NAMES.SUPERNET_TYPE);
 
-        if (!networkRange || !supernet) {
+        if (!networkRange || !supernetType) {
             return NOOP_HANDLE;
         }
 
-        const validator = this.buildValidator(supernet, subnetType, options.excludeSubnetId);
+        const validator = this.buildValidator(supernetType);
         const previousValidator = networkRange.asyncValidator;
         networkRange.addAsyncValidators(validator);
         networkRange.updateValueAndValidity({ emitEvent: false });
 
         const subscriptions: Subscription[] = [
-            supernet.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
+            supernetType.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
                 networkRange.updateValueAndValidity();
             })
         ];
-
-        // dg-subnet-type is optional; when present, re-validate on change so the
-        // backend can re-check the candidate against the supernet's address family.
-        if (subnetType) {
-            subscriptions.push(
-                subnetType.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
-                    networkRange.updateValueAndValidity();
-                })
-            );
-        }
 
         return {
             destroy: () => {
@@ -113,39 +97,26 @@ export class SubnetNetworkRangeValidatorService {
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private buildValidator(
-        supernet: AbstractControl,
-        subnetType: AbstractControl | null,
-        excludeSubnetId: number | null
-    ): AsyncValidatorFn {
+    private buildValidator(supernetType: AbstractControl): AsyncValidatorFn {
         return (control: AbstractControl): Observable<ValidationErrors | null> => {
-            const networkRange = this.normalizeRange(control.value);
-            if (!networkRange) {
+            const networkRange = this.normalizeValue(control.value);
+            const type = this.normalizeValue(supernetType.value);
+
+            // Only reach out to the backend once both a range and a type are
+            // present; the regex pattern validator already gates malformed CIDRs.
+            if (!networkRange || !type) {
                 return of(null);
             }
 
-            // When the type field is present on the form it must be selected
-            // before validating; the backend requires subnet_type and would
-            // otherwise reject the range with a redundant "type is required".
-            const subnetTypeValue = this.normalizeType(subnetType?.value);
-            if (subnetType && !subnetTypeValue) {
-                return of(null);
-            }
-
-            const payload: SubnetValidationRequest = {
+            const payload: SupernetValidationRequest = {
                 network_range: networkRange,
-                parent_supernet_id: this.toObjectId(supernet.value),
-                exclude_subnet_id: excludeSubnetId
+                supernet_type: type
             };
-
-            if (subnetTypeValue) {
-                payload.subnet_type = subnetTypeValue;
-            }
 
             // timer + switchMap debounces user input and ensures only the
             // latest request resolves into the validator's outcome.
             return timer(DEBOUNCE_MS).pipe(
-                switchMap(() => this.api.validateSubnet(payload)),
+                switchMap(() => this.api.validateSupernet(payload)),
                 map(response => this.toValidationErrors(response)),
                 catchError(() => of(null))
             );
@@ -153,13 +124,13 @@ export class SubnetNetworkRangeValidatorService {
     }
 
 
-    private toValidationErrors(response: SubnetValidationResponse): ValidationErrors | null {
+    private toValidationErrors(response: SupernetValidationResponse): ValidationErrors | null {
         if (!response || response.valid) {
             return null;
         }
 
         const firstError = response.errors?.[0];
-        const message = firstError?.message ?? 'Invalid subnet network range.';
+        const message = firstError?.message ?? 'Invalid supernet network range.';
 
         return {
             [BACKEND_VALIDATION_ERROR_KEY]: {
@@ -171,23 +142,7 @@ export class SubnetNetworkRangeValidatorService {
     }
 
 
-    private toObjectId(value: unknown): number | null {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
-    }
-
-
-    private normalizeRange(value: unknown): string | null {
-        if (typeof value !== 'string') {
-            return null;
-        }
-
-        const trimmed = value.trim();
-        return trimmed.length > 0 ? trimmed : null;
-    }
-
-
-    private normalizeType(value: unknown): string | null {
+    private normalizeValue(value: unknown): string | null {
         if (typeof value !== 'string') {
             return null;
         }

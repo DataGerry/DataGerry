@@ -1,7 +1,21 @@
-<section class="ipam-subnet" aria-label="IPAM subnet overview">
+<section
+  class="ipam-subnet"
+  aria-label="IPAM subnet overview"
+  dgFullscreen
+  #fullscreen="dgFullscreen"
+  (fullscreenChange)="onFullscreenChange($event)">
   @if (isReady) {
     <div class="ipam-subnet__table-header">
       <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
+      <app-button
+        label=""
+        bootstrapClass="btn-outline-secondary btn-sm"
+        [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
+        [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+        [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+        [ariaPressed]="isFullscreen"
+        (clicked)="fullscreen.toggle()">
+      </app-button>
     </div>
     <div class="ipam-subnet__cards">
       <article class="ipam-subnet-card">
@@ -121,9 +135,9 @@
       Unable to load the IPAM subnet overview. Please try again later.
     </div>
   }
-</section>
 
-<app-loading-popup
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data...">
-</app-loading-popup>
+  <app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data...">
+  </app-loading-popup>
+</section>

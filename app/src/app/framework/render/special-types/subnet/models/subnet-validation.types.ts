@@ -20,6 +20,7 @@ export interface SubnetValidationRequest {
     network_range: string;
     parent_supernet_id: number | null;
     exclude_subnet_id: number | null;
+    subnet_type?: string;
 }
 
 
