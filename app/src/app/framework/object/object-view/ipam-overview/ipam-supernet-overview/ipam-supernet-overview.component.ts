@@ -80,6 +80,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
     public hasError = false;
     public hasLoadedOnce = false;
+    public isFullscreen = false;
     public readonly searchControl = new FormControl<string>('', { nonNullable: true });
     public readonly isLoading$ = this.loaderService.isLoading$;
 
@@ -141,6 +142,11 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
 
     public onShowInvalidSubnets(): void {
         this.setViewMode('invalid');
+    }
+
+    public onFullscreenChange(isFullscreen: boolean): void {
+        this.isFullscreen = isFullscreen;
+        this.changesRef.markForCheck();
     }
 
     public onUnassign(subnetIds: number[]): void {

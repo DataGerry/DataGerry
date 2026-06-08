@@ -1,4 +1,9 @@
-<section class="ipam-overview" aria-label="IPAM supernet overview">
+<section
+  class="ipam-overview"
+  aria-label="IPAM supernet overview"
+  dgFullscreen
+  #fullscreen="dgFullscreen"
+  (fullscreenChange)="onFullscreenChange($event)">
   @if (hasOverviewData() && supernet; as data) {
     <header class="ipam-overview__header">
       <div class="ipam-overview__heading">
@@ -8,17 +13,29 @@
         }
       </div>
 
-      <label class="ipam-overview__search" for="ipamSupernetSearch">
-        <span class="ipam-overview__search-visually-hidden">Search subnets</span>
-        <i class="fa fa-search ipam-overview__search-icon" aria-hidden="true"></i>
-        <input
-          id="ipamSupernetSearch"
-          type="search"
-          class="ipam-overview__search-input"
-          placeholder="Search subnets..."
-          autocomplete="off"
-          [formControl]="searchControl">
-      </label>
+      <div class="ipam-overview__controls">
+        <label class="ipam-overview__search" for="ipamSupernetSearch">
+          <span class="ipam-overview__search-visually-hidden">Search subnets</span>
+          <i class="fa fa-search ipam-overview__search-icon" aria-hidden="true"></i>
+          <input
+            id="ipamSupernetSearch"
+            type="search"
+            class="ipam-overview__search-input"
+            placeholder="Search subnets..."
+            autocomplete="off"
+            [formControl]="searchControl">
+        </label>
+
+        <app-button
+          label=""
+          bootstrapClass="btn-outline-secondary btn-sm"
+          [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
+          [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [ariaPressed]="isFullscreen"
+          (clicked)="fullscreen.toggle()">
+        </app-button>
+      </div>
     </header>
 
     <div class="ipam-overview__cards">
@@ -101,9 +118,9 @@
       No IPAM data available for this object.
     </div>
   }
-</section>
 
-<app-loading-popup
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data...">
-</app-loading-popup>
+  <app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data...">
+  </app-loading-popup>
+</section>
