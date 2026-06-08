@@ -72,6 +72,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public sort: Sort = { name: 'ip', order: SortDirection.ASCENDING };
     public hasError = false;
     public hasLoadedOnce = false;
+    public isFullscreen = false;
     public readonly isLoading$ = this.loaderService.isLoading$;
 
     private readonly destroy$ = new Subject<void>();
@@ -110,6 +111,11 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.sort = sort;
         this.page = 1;
         this.loadOverview();
+    }
+
+    public onFullscreenChange(isFullscreen: boolean): void {
+        this.isFullscreen = isFullscreen;
+        this.changesRef.markForCheck();
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
