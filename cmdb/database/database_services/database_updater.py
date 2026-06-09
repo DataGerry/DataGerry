@@ -21,6 +21,7 @@ from typing import Any
 import time
 
 from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
+from cmdb.database.database_services.database_services_constants import UpdaterSetting, Updater
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 
 from cmdb.manager import SettingsManager
@@ -36,8 +37,18 @@ LOGGER: Logger = getLogger(__name__)
 
 class DatabaseUpdater:
     """
-    The DatabaseUpdater applies required changes to the database
+    Applies the versioned schema/data migrations a database is missing
+
+    Each migration is a dated module under cmdb.database.updater.versions (updater_<YYYYMMDD>) whose
+    version int is registered in __UPDATE_VERSIONS__. The updater reads the version last applied to
+    the database (stored in the 'updater' settings section), then runs every registered migration
+    newer than it, in ascending order, recording progress as it goes. The run is idempotent: on a
+    database already at the highest version nothing is executed.
+
+    Note: __UPDATE_VERSIONS__ is maintained by hand and must list every updater module; a new
+    migration also needs a PyInstaller --hidden-import entry (see the Makefile) to ship in the binary.
     """
+    # Registry of every available migration version; keep in sync with cmdb.database.updater.versions
     __UPDATE_VERSIONS__: list[int] = [
         20200512,
         20200513,
@@ -47,16 +58,21 @@ class DatabaseUpdater:
         20260225,
         20260226,
         20260417,
+        20260604,
     ]
 
 
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str = None) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str | None = None) -> None:
         """
         Initialises the DatabaseUpdater
+
+        Args:
+            dbm (MongoDatabaseManager): The database operations manager for MongoDB
+            db_name (str | None): Name of the database to update; None targets the manager default
         """
-        self.dbm = dbm
-        self.db_name = db_name
-        self.settings_manager = SettingsManager(dbm, db_name)
+        self.dbm: MongoDatabaseManager = dbm
+        self.db_name: str | None = db_name
+        self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -72,22 +88,25 @@ class DatabaseUpdater:
 
     def run_updates(self) -> None:
         """
-        Executes updates if there are any
+        Runs every registered migration newer than the database's current version
+
+        Walks the registered versions in ascending order; for each version above the current one it
+        dynamically loads the matching cmdb.database.updater.versions.updater_<version>.Update<version>
+        class, runs its start_update, and reports progress. A short delay between migrations avoids
+        throttling. Does nothing when the database is already at the highest version.
         """
-        all_versions = self.get_updater_versions()
-        current_version = self.get_current_update_version()
+        all_versions: list[int] = self.get_updater_versions()
+        current_version: int = self.get_current_update_version()
 
         for index, update_version in enumerate(sorted(all_versions)):
             if current_version < update_version:
-                process_bar('Process', len(all_versions), index + 1)
-                updater_class = load_class(
-                    f'cmdb.database.updater.versions.updater_{update_version}.Update{update_version}'
-                )
+                process_bar(Updater.PROCESS_BAR_LABEL, len(all_versions), index + 1)
+                updater_class: type = load_class(Updater.CLASS_PATH_TEMPLATE.format(version=update_version))
                 updater_instance = updater_class(self.dbm, self.db_name)
                 updater_instance.start_update()
 
                 # Small delay to avoid throttling
-                time.sleep(0.25)
+                time.sleep(Updater.THROTTLE_SECONDS)
 
 
     def set_update_version(self, version: int) -> None:
@@ -98,34 +117,39 @@ class DatabaseUpdater:
             version (int): The new value for the update version of the database
         """
         new_version: dict[str, Any] = {
-            '_id': 'updater',
-            'version': version
+            UpdaterSetting.ID: UpdaterSetting.SECTION,
+            UpdaterSetting.VERSION: version
         }
 
-        self.settings_manager.write(_id='updater', data=new_version)
+        self.settings_manager.write(_id=UpdaterSetting.SECTION, data=new_version)
 
 
     def get_current_update_version(self) -> int:
         """
         Retrieves the current update version stored in the database
 
+        Falls back to MIN_CLOUD_UPDATER_VERSION when no 'updater' section exists yet (seeding it)
+        or when the stored section carries no 'version', so the return value is always an int.
+
         Returns:
             int: The current update version stored in the database
         """
-            # First check if there is any Updater-Version
+        # First check if there is any Updater-Version
         default_version: dict[str, Any] = {
-                            '_id': 'updater',
-                            'version': MIN_CLOUD_UPDATER_VERSION
-                        }
+            UpdaterSetting.ID: UpdaterSetting.SECTION,
+            UpdaterSetting.VERSION: MIN_CLOUD_UPDATER_VERSION
+        }
 
         try:
-            current_version = self.settings_manager.get_all_values_from_section('updater')
-            return current_version.get('version')
+            current_version: dict[str, Any] = self.settings_manager.get_all_values_from_section(
+                UpdaterSetting.SECTION
+            )
+            return current_version.get(UpdaterSetting.VERSION, MIN_CLOUD_UPDATER_VERSION)
         except SectionError:
             # No Updater Version => Set it
-            self.settings_manager.write(_id='updater', data=default_version)
+            self.settings_manager.write(_id=UpdaterSetting.SECTION, data=default_version)
 
-            return default_version.get('version', 0)
+            return default_version[UpdaterSetting.VERSION]
 
 
     def get_updater_versions(self) -> list[int]:

@@ -29,6 +29,7 @@ from cmdb.manager import (
     ObjectsManager,
     ReportsManager,
     RelationsManager,
+    CategoriesManager,
     CiExplorerProfileManager,
     ObjectGroupsManager,
     SectionTemplatesManager,
@@ -37,21 +38,72 @@ from cmdb.manager import (
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
-from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import (
-    SubnetField,
-    VlanField,
-    InterfaceField,
-    IpamSection,
+from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.framework.ipam.special_type_wiring import (
+    handle_special_types,
+    cleanup_type_references_from_all_types,
+    cleanup_special_type_references,
 )
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TypeUserDataKey,
+    TypeCleanStatusKey,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def get_type_or_404(
+    types_manager: TypesManager,
+    public_id: int,
+    as_dict: bool = True,
+) -> dict[str, Any] | CmdbType:
+    """
+    Fetches a CmdbType by public_id, aborting the request with HTTP 404 when it does not exist
+
+    Centralizes the "look it up or 404" pattern shared by the CmdbType read / update routes so
+    the lookup and its not-found message stay identical across them
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the CmdbType to fetch
+        as_dict (bool): When True returns the raw document, otherwise a CmdbType instance
+
+    Returns:
+        dict[str, Any] | CmdbType: The requested CmdbType (never None - aborts 404 instead)
+    """
+    target_type: dict[str, Any] | CmdbType | None = types_manager.get_type(public_id, as_dict=as_dict)
+
+    if not target_type:
+        abort(404, f"The Type with ID:{public_id} was not found!")
+
+    return target_type
+
+
+def get_location_field(target_type: CmdbType) -> dict[str, Any] | None:
+    """
+    Returns the location-typed field dict of a CmdbType, or None when it has no location field
+
+    A CmdbType has at most one location-typed field (see CLAUDE.md type invariants)
+
+    Args:
+        target_type (CmdbType): The CmdbType to inspect
+
+    Returns:
+        dict[str, Any] | None: The location field dict, or None when absent
+    """
+    return next(
+        (f for f in target_type.get_fields() if f.get(FieldKey.TYPE) == FieldType.LOCATION),
+        None,
+    )
+
 
 def verify_type_is_unique(
     types_manager: TypesManager,
@@ -81,7 +133,7 @@ def verify_type_is_unique(
 
     if name:
         # Check name is unique
-        type_with_name: dict[str, Any] | None = types_manager.get_one_by({'name': name})
+        type_with_name: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.NAME: name})
 
         if type_with_name:
             abort(400, f"Type with name:{name} already exists!")
@@ -122,11 +174,14 @@ def prepare_builder_parameters(type_params: TypeIterationParameters) -> BuilderP
     if type_params.active:
         if isinstance(type_params.filter, dict):
             if type_params.filter.keys():
-                type_params.filter.update({'active': type_params.active})
+                type_params.filter.update({TypeSchemaKey.ACTIVE: type_params.active})
             else:
-                type_params.filter = [{'$match': {'active': type_params.active}}, {'$match': type_params.filter}]
+                type_params.filter = [
+                    {'$match': {TypeSchemaKey.ACTIVE: type_params.active}},
+                    {'$match': type_params.filter},
+                ]
         elif isinstance(type_params.filter, list):
-            type_params.filter.append({'$match': {'active': type_params.active}})
+            type_params.filter.append({'$match': {TypeSchemaKey.ACTIVE: type_params.active}})
 
     return BuilderParameters(**CollectionParameters.get_builder_params(type_params))
 
@@ -148,22 +203,22 @@ def get_types_user_data(
         dict[str, Any]: The formatted data of the author and editor
     """
     user_data: dict[str, Any] = {
-        "author": None,
-        "author_image": None,
-        "last_editor": None,
-        "last_editor_image": None,
+        TypeUserDataKey.AUTHOR: None,
+        TypeUserDataKey.AUTHOR_IMAGE: None,
+        TypeUserDataKey.LAST_EDITOR: None,
+        TypeUserDataKey.LAST_EDITOR_IMAGE: None,
     }
 
     author: CmdbUser = user_lookup.get(author_id)
-    last_editor: CmdbUser| None = user_lookup.get(editor_id)
+    last_editor: CmdbUser | None = user_lookup.get(editor_id)
 
     if author:
-        user_data["author"] = author.get_display_name()
-        user_data["author_image"] = author.image
+        user_data[TypeUserDataKey.AUTHOR] = author.get_display_name()
+        user_data[TypeUserDataKey.AUTHOR_IMAGE] = author.image
 
     if last_editor:
-        user_data["last_editor"] = last_editor.get_display_name()
-        user_data["last_editor_image"] = last_editor.image
+        user_data[TypeUserDataKey.LAST_EDITOR] = last_editor.get_display_name()
+        user_data[TypeUserDataKey.LAST_EDITOR_IMAGE] = last_editor.image
 
     return user_data
 
@@ -180,9 +235,9 @@ def apply_type_changes_to_locations(request_user: CmdbUser, old_type: CmdbType, 
     """
     # Only add changed fields to changed_data
     field_mapping: dict[str, Any] = {
-        "type_label": (old_type.label, updated_type.label),
-        "type_icon": (old_type.render_meta.icon, updated_type.render_meta.icon),
-        "type_selectable": (old_type.selectable_as_parent, updated_type.selectable_as_parent),
+        LocationKey.TYPE_LABEL: (old_type.label, updated_type.label),
+        LocationKey.TYPE_ICON: (old_type.render_meta.icon, updated_type.render_meta.icon),
+        LocationKey.TYPE_SELECTABLE: (old_type.selectable_as_parent, updated_type.selectable_as_parent),
     }
 
     changed_data: dict[str, Any] = {k: new for k, (old, new) in field_mapping.items() if old != new}
@@ -210,7 +265,7 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
     # Check and update all MDS for the CmdbType if required
-    objects_to_update: list[CmdbObject] = types_manager.handle_mutli_data_sections(old_type, updated_type)
+    objects_to_update: list[CmdbObject] = types_manager.handle_multi_data_sections(old_type, updated_type)
 
     if objects_to_update:
         objects_manager.bulk_update_multi_data_sections(objects_to_update)
@@ -233,10 +288,7 @@ def get_objects_using_location_field(
     Returns:
         list[int]: public_ids of CmdbObjects that have a value in the location field
     """
-    location_field: dict[str, Any] | None = next(
-        (f for f in target_type.get_fields() if f.get('type') == FieldType.LOCATION),
-        None,
-    )
+    location_field: dict[str, Any] | None = get_location_field(target_type)
 
     if not location_field:
         return []
@@ -244,18 +296,18 @@ def get_objects_using_location_field(
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
     criteria: dict[str, Any] = {
-        'type_id': target_type.get_public_id(),
-        'fields': {
+        CmdbObjectKey.TYPE_ID: target_type.get_public_id(),
+        CmdbObjectKey.FIELDS: {
             '$elemMatch': {
-                'name': location_field['name'],
-                'value': {'$gt': 0},
+                CmdbObjectFieldKey.NAME: location_field[FieldKey.NAME],
+                CmdbObjectFieldKey.VALUE: {'$gt': 0},
             },
         },
     }
 
     matching_objects: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return [obj['public_id'] for obj in matching_objects]
+    return [obj[CmdbObjectKey.PUBLIC_ID] for obj in matching_objects]
 
 
 def verify_type_deletable(
@@ -266,9 +318,10 @@ def verify_type_deletable(
     """
     Confirms a CmdbType can be safely deleted, aborting the request when it cannot
 
-    Aborts with HTTP 404 when the CmdbType does not exist, HTTP 403 when at least one
-    CmdbObject of this CmdbType still exists, or HTTP 403 when at least one CmdbReport
-    still references the CmdbType
+    Aborts with HTTP 404 when the CmdbType does not exist, HTTP 400 when at least one
+    CmdbObject of this CmdbType still exists, or HTTP 400 when at least one CmdbReport
+    still references the CmdbType. 400 follows the codebase convention for business-rule
+    rejections (CLAUDE.md) - the same convention the location-field removal guard uses
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -282,17 +335,17 @@ def verify_type_deletable(
     if not to_delete_type:
         abort(404, f"The Type with ID:{public_id} was not found!")
 
-    objects_count = objects_manager.count_documents({'type_id':public_id})
+    objects_count = objects_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
 
     # Only possible to delete types when there are no objects
     if objects_count > 0:
-        abort(403, "Delete not possible if Objects of this Type exist!")
+        abort(400, "Delete not possible if Objects of this Type exist!")
 
     # Only possible to delete types when there are no reports using it
-    reports_count = reports_manager.count_documents({'type_id':public_id})
+    reports_count = reports_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
 
     if reports_count > 0:
-        abort(403, "Delete not possible if Reports exist which are using this Type!")
+        abort(400, "Delete not possible if Reports exist which are using this Type!")
 
 
 def type_deletion_followup(
@@ -303,12 +356,13 @@ def type_deletion_followup(
     """
     Performs cleanup actions that must run after a CmdbType has been deleted
 
-    Removes the deleted type's id from relations, CiExplorerProfiles and dynamic object
-    groups, and strips it from every other CmdbType's field-level 'ref_types' arrays so
-    no surviving type still offers the deleted type as a reference target. When the
-    deleted type carried a SpecialType marker, additionally drops the id from any
-    'ref_types' arrays that handle_special_types had cross-wired on the IPAM section
-    template, so newly added 'dg-ipam-interface' sections no longer offer it either
+    Removes the deleted type's id from relations, CiExplorerProfiles, dynamic object
+    groups and the 'types' arrays of all CmdbCategories, and strips it from every other
+    CmdbType's field-level 'ref_types' arrays so no surviving type still offers the
+    deleted type as a reference target. When the deleted type carried a SpecialType
+    marker, additionally drops the id from any 'ref_types' arrays that
+    handle_special_types had cross-wired on the IPAM section template, so newly added
+    'dg-ipam-interface' sections no longer offer it either
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -322,6 +376,7 @@ def type_deletion_followup(
         request_user
     )
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES, request_user)
 
     # Delete this type_id from all relations parent and child ids
     relations_manager.remove_type_from_relations(public_id)
@@ -331,6 +386,9 @@ def type_deletion_followup(
 
     # Delete the type from all dynamic groups
     object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)
+
+    # Delete this type_id from the 'types' array of every CmdbCategory
+    categories_manager.remove_type_from_categories(public_id)
 
     # Strip the deleted type id from every other CmdbType's field-level 'ref_types'
     updated_count: int = cleanup_type_references_from_all_types(types_manager, public_id)
@@ -355,133 +413,176 @@ def type_deletion_followup(
         )
 
 
-def remove_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) -> bool:
+def guard_location_field_removal(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
     """
-    Removes ref_id from field.ref_types if present
+    Aborts 400 when an update removes the location field while CmdbObjects still hold a location value
 
-    Mirror of ensure_ref_type for cleanup paths. Idempotent: returns False when the field
-    does not exist on the given list, when the field has no 'ref_types' list, or when
-    'ref_id' is not in 'ref_types'
+    A CmdbType's location field may only be dropped once no CmdbObject of that type still stores a
+    location value, otherwise those stored values would be silently orphaned
 
     Args:
-        fields (list[dict[str, Any]]): The CmdbType / section-template field list to mutate
-        field_name (str): The target field's 'name'
-        ref_id (int): The CmdbType public_id to drop from 'ref_types'
-
-    Returns:
-        bool: True when 'ref_types' was modified, False otherwise
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
     """
-    for field in fields:
-        if field.get('name') == field_name:
-            ref_types: Any = field.get('ref_types')
+    removing_location_field: bool = get_location_field(old_type) is not None and get_location_field(new_type) is None
 
-            if isinstance(ref_types, list) and ref_id in ref_types:
-                ref_types.remove(ref_id)
-                return True
+    if not removing_location_field:
+        return
 
-            return False
+    object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
 
-    return False
+    if object_public_ids:
+        abort(
+            400,
+            "Cannot remove the location field: "
+            f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
+        )
 
 
-def cleanup_type_references_from_all_types(
-    types_manager: TypesManager,
-    deleted_type_id: int,
-) -> int:
+def compute_removed_global_templates(
+    old_type: CmdbType,
+    incoming_template_ids: set[str],
+) -> tuple[set[str], dict[str, tuple[list[str], str]]]:
     """
-    Strips 'deleted_type_id' from every CmdbType field whose 'ref_types' contains it
+    Determines which global section templates an update drops, snapshotting each one's section info
 
-    Runs after a CmdbType has been deleted: walks every other CmdbType that still
-    has the deleted id in any of its fields' 'ref_types' arrays, removes the id
-    in place, and persists the change. Uses a targeted Mongo query so only types
-    that actually reference the deleted id are pulled from the database
-
-    Covers both 'ref' and 'ref-section-field' fields as well as any fields
-    materialized from section templates (e.g. the IPAM 'dg-ipam-interface'
-    section's 'dg-interface-subnet'), because section templates are copied into
-    the host CmdbType's 'fields' list at the moment the section is added
-
-    Idempotent: when no candidate CmdbTypes still hold the id, returns 0 and
-    writes nothing
+    Compares the pre-update template set to the incoming payload's set and, for each removed
+    template still present on old_type, records its section field names and section type while
+    they are still available - the blind update wipes those sections afterwards
 
     Args:
-        types_manager (TypesManager): db interface for CmdbTypes
-        deleted_type_id (int): public_id of the CmdbType that was just deleted
+        old_type (CmdbType): State of the CmdbType before the update
+        incoming_template_ids (set[str]): global_template_ids carried by the update payload
 
     Returns:
-        int: Number of CmdbTypes whose 'fields' were modified and persisted
+        tuple[set[str], dict[str, tuple[list[str], str]]]: the removed template names, and a map of
+            template name -> (section field names, section type) for each removed template
     """
-    candidates: list[dict[str, Any]] = types_manager.find(
-        criteria={'fields.ref_types': deleted_type_id},
-    )
+    removed_template_ids: set[str] = set(old_type.global_template_ids or []) - incoming_template_ids
 
-    updated_count: int = 0
+    removed_template_hints: dict[str, tuple[list[str], str]] = {}
 
-    for candidate in candidates:
-        changed: bool = False
+    for template_name in removed_template_ids:
+        section = old_type.get_section(template_name)
 
-        for field in candidate.get('fields', []) or []:
-            ref_types: Any = field.get('ref_types')
+        if section is not None:
+            removed_template_hints[template_name] = (section.get_fields(), section.type)
 
-            if isinstance(ref_types, list) and deleted_type_id in ref_types:
-                ref_types.remove(deleted_type_id)
-                changed = True
-
-        if changed:
-            types_manager.update_type(candidate['public_id'], candidate)
-            updated_count += 1
-
-    return updated_count
+    return removed_template_ids, removed_template_hints
 
 
-def cleanup_special_type_references(
-    types_manager: TypesManager,
+def apply_removed_global_template_cleanup(
     section_templates_manager: SectionTemplatesManager,
-    special_type: str,
-    deleted_type_id: int,
+    type_public_id: int,
+    removed_template_ids: set[str],
+    removed_template_hints: dict[str, tuple[list[str], str]],
 ) -> None:
     """
-    Inverse of handle_special_types: removes 'deleted_type_id' from any 'ref_types' arrays
-    that handle_special_types would have populated for the given SpecialType
-
-    SUPERNET: drops the id from SUBNET's 'dg-supernet-ref'.
-    SUBNET:   drops the id from VLAN's 'dg-subnet-ref' and the 'dg-ipam-interface' section
-              template's 'dg-interface-subnet'.
-    VLAN:     no schema points at VLAN, no cleanup required.
-
-    Idempotent: silently no-ops when the cross-wired CmdbTypes / section template do not
-    exist, or when 'deleted_type_id' is not present in their 'ref_types'
+    Removes each dropped global section template from the updated CmdbType
 
     Args:
-        types_manager (TypesManager): db interface for CmdbTypes
         section_templates_manager (SectionTemplatesManager): db interface for section templates
-        special_type (str): SpecialType marker of the CmdbType that was just deleted
-        deleted_type_id (int): public_id of the CmdbType that was just deleted
+        type_public_id (int): public_id of the updated CmdbType to clean
+        removed_template_ids (set[str]): names of the global templates being removed
+        removed_template_hints (dict[str, tuple[list[str], str]]): map of template name ->
+            (expected section field names, expected section type) snapshotted before the update
     """
-    if special_type == SpecialType.SUPERNET:
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
-            {'special_type': SpecialType.SUBNET},
+    for template_name in removed_template_ids:
+        expected_fields, expected_section_type = removed_template_hints.get(template_name, (None, None))
+        section_templates_manager.cleanup_global_section_from_type(
+            type_public_id,
+            template_name,
+            expected_field_names=expected_fields,
+            expected_section_type=expected_section_type,
         )
 
-        if subnet_type and remove_ref_type(subnet_type['fields'], SubnetField.PARENT_SUPERNET, deleted_type_id):
-            types_manager.update_type(subnet_type['public_id'], subnet_type)
 
-    elif special_type == SpecialType.SUBNET:
-        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
-            {'special_type': SpecialType.VLAN},
+def build_types_clean_status_items(
+    types: list[dict[str, Any]],
+    field_name_sets_by_type: dict[int, list[set[str]]],
+    user_lookup: dict[int, CmdbUser],
+) -> list[dict[str, Any]]:
+    """
+    Builds the per-type clean-status response items for the with_clean_status listing
+
+    A CmdbType is 'clean' when every CmdbObject of that type carries exactly the field set the
+    type defines; any divergence marks it unclean. The object field sets are pre-aggregated (and
+    deduplicated) per type by ``ObjectsManager.get_object_field_name_sets_by_type``, so a type with
+    no objects (absent from the mapping) is clean by definition
+
+    Args:
+        types (list[dict[str, Any]]): The CmdbType documents to evaluate
+        field_name_sets_by_type (dict[int, list[set[str]]]): Distinct object field-name sets per
+            type public_id, as returned by get_object_field_name_sets_by_type
+        user_lookup (dict[int, CmdbUser]): Lookup of the relevant author / editor CmdbUsers
+
+    Returns:
+        list[dict[str, Any]]: One {type_data, user_data, clean_status} item per type
+    """
+    response_items: list[dict[str, Any]] = []
+
+    for type_data in types:
+        expected_fields: set[str] = {f[FieldKey.NAME] for f in type_data[TypeSchemaKey.FIELDS]}
+        object_field_sets: list[set[str]] = field_name_sets_by_type.get(type_data[TypeSchemaKey.PUBLIC_ID], [])
+
+        clean: bool = all(field_set == expected_fields for field_set in object_field_sets)
+
+        types_user_data: dict[str, Any] = get_types_user_data(
+            user_lookup,
+            type_data.get(TypeSchemaKey.AUTHOR_ID),
+            type_data.get(TypeSchemaKey.EDITOR_ID),
         )
 
-        if vlan_type and remove_ref_type(vlan_type['fields'], VlanField.SUBNET_REF, deleted_type_id):
-            types_manager.update_type(vlan_type['public_id'], vlan_type)
+        response_items.append({
+            TypeCleanStatusKey.TYPE_DATA: type_data,
+            TypeCleanStatusKey.USER_DATA: types_user_data,
+            TypeCleanStatusKey.CLEAN_STATUS: clean,
+        })
 
-        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
-            {'name': IpamSection.INTERFACE},
+    return response_items
+
+
+def apply_type_update_side_effects(
+    request_user: CmdbUser,
+    types_manager: TypesManager,
+    old_type: CmdbType,
+    updated_type: CmdbType,
+    removed_templates: tuple[set[str], dict[str, tuple[list[str], str]]],
+) -> None:
+    """
+    Runs the persistence side effects that follow a CmdbType update
+
+    In order: removes the dropped global section templates from the type, re-applies SpecialType
+    ref_types cross-wiring, propagates label/icon/selectable changes to the type's CmdbLocations,
+    and applies MDS field add/remove changes to the type's CmdbObjects
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        types_manager (TypesManager): db interface for CmdbTypes
+        old_type (CmdbType): State of the CmdbType before the update
+        updated_type (CmdbType): The re-read CmdbType after the base update
+        removed_templates (tuple): (removed template names, per-template section hints) as returned
+            by compute_removed_global_templates
+    """
+    removed_template_ids, removed_template_hints = removed_templates
+
+    section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+        ManagerType.SECTION_TEMPLATES,
+        request_user,
+    )
+
+    apply_removed_global_template_cleanup(
+        section_templates_manager, updated_type.public_id, removed_template_ids, removed_template_hints,
+    )
+
+    if updated_type.special_type:
+        handle_special_types(
+            types_manager, updated_type.special_type, section_templates_manager, updated_type.public_id,
         )
 
-        if interface_template and remove_ref_type(
-            interface_template['fields'], InterfaceField.SUBNET, deleted_type_id,
-        ):
-            section_templates_manager.update_section_template(
-                interface_template['public_id'],
-                interface_template,
-            )
+    # Propagate label/icon/selectable changes to the type's CmdbLocations
+    apply_type_changes_to_locations(request_user, old_type, updated_type)
+
+    # Apply MDS field add/remove changes to the type's CmdbObjects
+    apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))

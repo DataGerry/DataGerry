@@ -27,9 +27,17 @@ from cmdb.database.database_utils import object_hook
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
-from cmdb.models.type_model import CmdbType, TypeFieldSection
+from cmdb.models.type_model import (
+    CmdbType,
+    TypeFieldSection,
+    SectionType,
+    FieldType,
+    FieldKey,
+    SectionKey,
+    TypeSchemaKey,
+)
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectMdsKey, CmdbObjectMdsRowKey, CmdbObjectFieldKey
 
 from cmdb.framework.results import IterationResult
 
@@ -174,22 +182,6 @@ class TypesManager(BaseManager):
             raise TypesManagerIterationError(str(err)) from err
 
 
-    def iterate_types(
-            self,
-            builder_params: BuilderParameters,
-            as_dict: bool = False
-        ) -> list[CmdbType] | list[dict[str, Any]]:
-        """TODO: document"""
-        query_result: IterationResult[CmdbType] = self.iterate(builder_params)
-
-        filtered_types: list[CmdbType] = query_result.results
-
-        if as_dict:
-            filtered_types = [CmdbType.to_json(type) for type in filtered_types]
-
-        return filtered_types
-
-
     def find_types(self, criteria: dict[str, Any]) -> list[CmdbType]:
         """
         Get a list of CmdbTypes by a filter
@@ -204,16 +196,28 @@ class TypesManager(BaseManager):
             found_types = self.find(criteria=criteria)
 
             return [CmdbType.from_data(found_type) for found_type in found_types]
-        except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise TypesManagerGetError(str(err)) from err
         except Exception as err:
             LOGGER.error("[find_types] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerGetError(str(err)) from err
 
 
     def get_types_lookup(self, public_ids: list[int]) -> dict[int, CmdbType]:
-        """TODO: document"""
-        all_types: list[CmdbType] = self.find_types(criteria={"public_id": {"$in": public_ids}})
+        """
+        Builds a public_id -> CmdbType lookup table for the given CmdbType public_ids
+
+        Performs a single bulk query (``public_id $in public_ids``) so callers can resolve
+        many type references without one round-trip per id
+
+        Args:
+            public_ids (list[int]): public_ids of the CmdbTypes to fetch
+
+        Raises:
+            TypesManagerGetError: If the underlying fetch fails
+
+        Returns:
+            dict[int, CmdbType]: Mapping of public_id to its CmdbType (missing ids are absent)
+        """
+        all_types: list[CmdbType] = self.find_types(criteria={TypeSchemaKey.PUBLIC_ID: {"$in": public_ids}})
 
         return {object_type.public_id: object_type for object_type in all_types}
 
@@ -287,12 +291,7 @@ class TypesManager(BaseManager):
                 type_id=target_type_id
             )
 
-            found_objects: list[CmdbObject] = []
-
-            for obj in all_type_objects:
-                found_objects.append(CmdbObject(**obj))
-
-            return found_objects
+            return [CmdbObject(**obj) for obj in all_type_objects]
         except BaseManagerGetError as err:
             raise TypesManagerGetError(str(err)) from err
         except Exception as err:
@@ -343,8 +342,16 @@ class TypesManager(BaseManager):
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
     def check_special_type_exists(self, special_type: SpecialType) -> bool:
-        """TODO: document"""
-        matching_type: dict[str, Any] | None = self.get_one_by({'special_type': special_type})
+        """
+        Reports whether any CmdbType already carries the given SpecialType marker
+
+        Args:
+            special_type (SpecialType): The SpecialType marker to look for
+
+        Returns:
+            bool: True if a CmdbType with this 'special_type' exists, False otherwise
+        """
+        matching_type: dict[str, Any] | None = self.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
 
         return bool(matching_type)
 
@@ -374,14 +381,14 @@ class TypesManager(BaseManager):
             updated_objects: list[CmdbObject] = []
 
             # Precompute mapping from field name to type for fast lookup
-            field_type_map = {f["name"]: f["type"] for f in target_type.fields}
+            field_type_map = {f[FieldKey.NAME]: f[FieldKey.TYPE] for f in target_type.fields}
 
             # update the multi-data-sections
             for cur_object in all_type_objects:
                 obj_changed: bool = False
 
                 for current_mds_section in cur_object.multi_data_sections:
-                    section_id = current_mds_section["section_id"]
+                    section_id = current_mds_section[CmdbObjectMdsKey.SECTION_ID]
 
                     # Get fields to add/delete for this section
                     fields_to_add = added_fields.get(section_id, [])
@@ -446,45 +453,63 @@ class TypesManager(BaseManager):
     def create_mds_field_entries(
         self,
         fields_to_add: list[str],
-        data_set: dict[str, Any],
+        mds_section: dict[str, Any],
         field_type_map: dict[str, str]
     ) -> None:
         """
-        Adds new fields to the provided data set in-place.
-        Each field now includes 'name', 'value', and 'type'.
+        Adds new field entries to every row of an MDS section, in-place
+
+        An MDS section stores its captured rows under ``values``; each row holds its field
+        entries under ``data`` as ``{name, value, type}`` triples (see CmdbObjectMdsKey /
+        CmdbObjectMdsRowKey). A newly added type field is appended to each existing row with a
+        ``None`` value so the row keeps one entry per defined field. Existing entries are left
+        untouched, so re-running is idempotent
 
         Args:
-            fields_to_add (list[str]): List of field names to add.
-            data_set (dict): The data set to update; must contain key 'data'.
-            field_type_map (dict): Mapping of field name to field type for quick lookup.
+            fields_to_add (list[str]): Names of the fields to add to each row
+            mds_section (dict): The MDS section dict (with a ``values`` list of rows) to update
+            field_type_map (dict): Mapping of field name to field type for quick lookup
         """
-        data_set.setdefault("data", [])
+        for row in mds_section.get(CmdbObjectMdsKey.VALUES, []):
+            row.setdefault(CmdbObjectMdsRowKey.DATA, [])
+            existing_names: set[str] = {entry[CmdbObjectFieldKey.NAME] for entry in row[CmdbObjectMdsRowKey.DATA]}
 
-        for field_name in fields_to_add:
-            field_type: str = field_type_map.get(field_name, "text")  # fallback 'text'
-            data_set["data"].append({
-                "name": field_name,
-                "value": None,
-                "type": field_type
-            })
+            for field_name in fields_to_add:
+                if field_name in existing_names:
+                    continue  # idempotent: never duplicate an entry already present in the row
+
+                field_type: str = field_type_map.get(field_name, FieldType.TEXT)  # fallback 'text'
+                row[CmdbObjectMdsRowKey.DATA].append({
+                    CmdbObjectFieldKey.NAME: field_name,
+                    CmdbObjectFieldKey.VALUE: None,
+                    CmdbObjectFieldKey.TYPE: field_type
+                })
 
 
     def delete_mds_field_entries(
         self,
         fields_to_delete: list[str],
-        data_set: dict[str, Any]
+        mds_section: dict[str, Any]
     ) -> None:
         """
-        Removes specified field entries from the provided data set in-place.
+        Removes the named field entries from every row of an MDS section, in-place
+
+        Args:
+            fields_to_delete (list[str]): Names of the fields to drop from each row
+            mds_section (dict): The MDS section dict (with a ``values`` list of rows) to update
         """
-        if "data" not in data_set:
-            return
+        for row in mds_section.get(CmdbObjectMdsKey.VALUES, []):
+            if CmdbObjectMdsRowKey.DATA not in row:
+                continue
 
-        # Filter out fields to delete
-        data_set["data"] = [f for f in data_set["data"] if f["name"] not in fields_to_delete]
+            # Filter out fields to delete
+            row[CmdbObjectMdsRowKey.DATA] = [
+                entry for entry in row[CmdbObjectMdsRowKey.DATA]
+                if entry[CmdbObjectFieldKey.NAME] not in fields_to_delete
+            ]
 
 
-    def handle_mutli_data_sections(self, old_type: CmdbType, updated_type: dict[str, Any]) -> list[CmdbObject]:
+    def handle_multi_data_sections(self, old_type: CmdbType, updated_type: dict[str, Any]) -> list[CmdbObject]:
         """
         Handles the updates to multi-data sections in the specified CmdbType by comparing
         the current fields with the updated fields and determining which fields were added or removed
@@ -509,13 +534,13 @@ class TypesManager(BaseManager):
 
             a_section: TypeFieldSection
             for a_section in old_type.render_meta.sections:
-                if a_section.type != "multi-data-section":
+                if a_section.type != SectionType.MDS_SECTION:
                     continue
 
                 # Find the matching section in updated_type
                 updated_sections: list[dict[str, Any]] = [
-                    s for s in updated_type["render_meta"]["sections"]
-                    if s["type"] == a_section.type and s["name"] == a_section.name
+                    s for s in updated_type[TypeSchemaKey.RENDER_META][TypeSchemaKey.SECTIONS]
+                    if s[SectionKey.TYPE] == a_section.type and s[SectionKey.NAME] == a_section.name
                 ]
 
                 if not updated_sections:
@@ -523,8 +548,12 @@ class TypesManager(BaseManager):
 
                 updated_section: dict[str, Any] = updated_sections[0]
 
-                added: list[str] = self.fields_diff(a_section.fields, updated_section["fields"], check_added=True)
-                deleted: list[str] = self.fields_diff(a_section.fields, updated_section["fields"], check_added=False)
+                added: list[str] = self.fields_diff(
+                    a_section.fields, updated_section[SectionKey.FIELDS], check_added=True
+                )
+                deleted: list[str] = self.fields_diff(
+                    a_section.fields, updated_section[SectionKey.FIELDS], check_added=False
+                )
 
                 if added:
                     added_fields[a_section.name] = added
@@ -538,5 +567,5 @@ class TypesManager(BaseManager):
         except TypesManagerUpdateError as err:
             raise TypesManagerUpdateMDSError(str(err)) from err
         except Exception as err:
-            LOGGER.error("[handle_mutli_data_sections] Exception: %s. Type: %s", err, type(err), exc_info=True)
+            LOGGER.error("[handle_multi_data_sections] Exception: %s. Type: %s", err, type(err), exc_info=True)
             raise TypesManagerUpdateMDSError(str(err)) from err

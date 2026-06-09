@@ -16,11 +16,14 @@
 """
 This module provide all classes for the CmdbCategory logics
 """
+from .category_constants import CategoryKey, CategoryMetaKey
 from .cmdb_category import CmdbCategory
 from .category_tree import CategoryTree
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'CategoryKey',
+    'CategoryMetaKey',
     'CmdbCategory',
     'CategoryTree',
 ]

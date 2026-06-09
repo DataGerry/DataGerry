@@ -125,12 +125,6 @@ FAKE_PREDEFINED_TEMPLATES: dict[str, dict[str, Any]] = {
         ('text', 'dg-modelspec-model', 'Model name'),
         ('text', 'dg-modelspec-serial', 'Serial number'),
     ]),
-    'dg-network': _fmt_template('dg-network', 'Network', [
-        ('text', 'dg-network-ipaddress', 'IP address'),
-        ('text', 'dg-network-hostname', 'Hostname'),
-        ('text', 'dg-network-dns', 'DNS'),
-        ('text', 'dg-network-layer3', 'Layer3-Net'),
-    ]),
     'dg-rackmounting': _fmt_template('dg-rackmounting', 'Rack mounting', [
         ('text', 'dg-rackmounting-ru', 'Rack units'),
         ('text', 'dg-rackmounting-position', 'Mounting position'),

@@ -23,9 +23,10 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.category_model import CmdbCategory, CategoryTree
+from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
+from cmdb.models.object_model import CmdbObjectKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
@@ -223,18 +224,132 @@ class CategoriesManager(GenericManager):
             public_id (int): public_id of the parent category
 
         Raises:
-            CategoriesManagerGetError: When the child CmdbCategories could not be retrieved
             CategoriesManagerUpdateError: When a child CmdbCategory could not be updated
         """
         try:
             self.update_many(
-                criteria={'parent': public_id},
-                update={'parent': None}
+                criteria={CategoryKey.PARENT: public_id},
+                update={CategoryKey.PARENT: None}
             )
-        except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(str(err)) from err
         except BaseManagerUpdateError as err:
             raise CategoriesManagerUpdateError(str(err)) from err
         except Exception as err:
             LOGGER.error("[remove_category_as_parent] Exception: %s. Type: %s", err, type(err))
             raise CategoriesManagerUpdateError(str(err)) from err
+
+
+    def remove_type_from_categories(self, type_id: int) -> None:
+        """
+        Removes a CmdbType's public_id from the 'types' array of every CmdbCategory
+
+        Part of the CmdbType deletion cleanup chain: without it, deleted type ids linger in
+        category documents forever (the tree view silently hides them, so the rot is
+        invisible while the stored data degrades)
+
+        Args:
+            type_id (int): public_id of the deleted CmdbType
+
+        Raises:
+            CategoriesManagerUpdateError: When the cleanup update fails
+        """
+        try:
+            self.update_many_pull(
+                criteria={CategoryKey.TYPES: type_id},
+                update={'$pull': {CategoryKey.TYPES: type_id}}
+            )
+        except BaseManagerUpdateError as err:
+            raise CategoriesManagerUpdateError(str(err)) from err
+        except Exception as err:
+            LOGGER.error("[remove_type_from_categories] Exception: %s. Type: %s", err, type(err))
+            raise CategoriesManagerUpdateError(str(err)) from err
+
+
+    def validate_parent_assignment(self, public_id: int | None, parent_id: int | None) -> str | None:
+        """
+        Validates that 'parent_id' may be assigned as the parent of the CmdbCategory 'public_id'
+
+        Three rules, checked in order:
+          1. The parent CmdbCategory must exist (rejects dangling references that would make
+             the child silently vanish from the tree)
+          2. A CmdbCategory cannot be its own parent (a stored self-parent breaks the tree)
+          3. The assignment must not close an ancestor cycle: walking the parent chain
+             upwards from 'parent_id' must not reach 'public_id' (A -> B -> A)
+
+        'parent_id' = None (detaching / root category) is always valid. 'public_id' = None
+        (insert: the id is not assigned yet) skips rules 2 and 3 - a fresh id can never be
+        part of an existing chain
+
+        Args:
+            public_id (int | None): public_id of the CmdbCategory being written, or None on insert
+            parent_id (int | None): The requested parent public_id, or None for a root category
+
+        Raises:
+            CategoriesManagerGetError: When a parent-chain lookup fails
+
+        Returns:
+            str | None: A human-readable rejection reason, or None when the assignment is valid
+        """
+        if parent_id is None:
+            return None
+
+        if public_id is not None and parent_id == public_id:
+            return f"A Category cannot be its own parent (ID:{public_id})!"
+
+        ancestor_ids: set[int] | None = self._get_ancestor_ids(parent_id)
+
+        if ancestor_ids is None:
+            return f"The parent Category with ID:{parent_id} does not exist!"
+
+        if public_id is None:
+            return None
+
+        # Reaching the candidate among the parent's ancestors would close a cycle (A -> B -> A)
+        if public_id in ancestor_ids:
+            return (
+                f"Assigning parent ID:{parent_id} would create a cycle: Category"
+                f" ID:{public_id} is an ancestor of it!"
+            )
+
+        return None
+
+
+    def _get_ancestor_ids(self, parent_id: int) -> set[int] | None:
+        """
+        Resolves the full ancestor chain of a CmdbCategory in a single ``$graphLookup`` query
+
+        Replaces an upward walk that issued one ``get_category`` query per ancestor: ``$graphLookup``
+        follows each category's ``parent`` link to another category's ``public_id``, collecting every
+        ancestor of ``parent_id`` in one round-trip. Its built-in cycle handling means a pre-existing
+        parent cycle in stored data cannot loop forever. ``$graphLookup`` is a MongoDB 3.4 feature
+
+        Args:
+            parent_id (int): public_id of the parent CmdbCategory whose ancestors are resolved
+
+        Raises:
+            CategoriesManagerGetError: When the lookup fails
+
+        Returns:
+            set[int] | None: public_ids of all ancestors of ``parent_id``, or None when no
+                CmdbCategory with that public_id exists
+        """
+        pipeline: list[dict[str, Any]] = [
+            {'$match': {CmdbObjectKey.PUBLIC_ID.value: parent_id}},
+            {'$graphLookup': {
+                'from': CmdbCategory.COLLECTION,
+                'startWith': f'${CategoryKey.PARENT.value}',
+                'connectFromField': CategoryKey.PARENT.value,
+                'connectToField': CmdbObjectKey.PUBLIC_ID.value,
+                'as': '_ancestors',
+            }},
+            {'$project': {'_ancestor_ids': f'$_ancestors.{CmdbObjectKey.PUBLIC_ID.value}'}},
+        ]
+
+        try:
+            result: list[dict[str, Any]] = list(self.aggregate(pipeline))
+        except BaseManagerIterationError as err:
+            raise CategoriesManagerGetError(str(err)) from err
+
+        if not result:
+            return None
+
+        return set(result[0].get('_ancestor_ids', []))

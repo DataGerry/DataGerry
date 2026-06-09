@@ -16,10 +16,10 @@
 """
 Project-wide structured-error envelope used by validators
 
-Every validator across the codebase emits errors as a small dict with three fixed top-level
-keys (code / message / details). This module owns both the envelope shape (named via
-ValidationErrorKey) and the build_error helper that constructs it, so the format stays in
-lockstep across IPAM and any future validator family that adopts the same convention
+Every validator across the codebase emits errors as a small dict carrying a human-readable
+'message', optionally accompanied by a 'details' payload. This module owns both the envelope
+shape (named via ValidationErrorKey) and the build_error helper that constructs it, so the
+format stays in lockstep across IPAM and any future validator family that adopts it
 """
 from typing import Any
 
@@ -31,37 +31,36 @@ class ValidationErrorKey(BaseStrEnum):
     """
     Top-level keys of a structured validation-error dict
 
-    CODE is the stable machine-readable identifier (typically a member of an XxxErrorCode
-    enum). MESSAGE is the human-readable explanation. DETAILS is an optional payload dict
-    whose keys are per-domain (e.g. IpamValidationDetailKey for IPAM)
+    MESSAGE is the human-readable explanation. DETAILS is an optional payload dict whose keys
+    are per-domain (e.g. IpamValidationDetailKey for IPAM); it is present only when a validator
+    supplies context (currently just the interface validator's row-index mapping) and is left
+    out entirely otherwise
     """
-    CODE = 'code'
     MESSAGE = 'message'
     DETAILS = 'details'
 
 
 def build_error(
-    code: str,
     message: str,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Constructs a structured validation-error dict in the project-wide envelope shape
 
-    Always emits the three keys CODE / MESSAGE / DETAILS so consumers (validation routes, the
-    frontend, tests) can rely on the shape without conditional defaults
+    Always emits MESSAGE; DETAILS is added only when a non-empty context dict is supplied, so an
+    error without context stays a bare {message}
 
     Args:
-        code (str): A stable machine-readable error code (typically a BaseStrEnum member)
         message (str): A human-readable explanation
         details (dict[str, Any] | None): Optional context fields the frontend can render; when
-            omitted, an empty dict is emitted so the 'details' key is always present
+            omitted or empty the 'details' key is left out entirely
 
     Returns:
-        dict[str, Any]: The error dict with keys ValidationErrorKey.CODE, .MESSAGE, .DETAILS
+        dict[str, Any]: {message}, or {message, details} when details is non-empty
     """
-    return {
-        ValidationErrorKey.CODE: code,
-        ValidationErrorKey.MESSAGE: message,
-        ValidationErrorKey.DETAILS: details or {},
-    }
+    error: dict[str, Any] = {ValidationErrorKey.MESSAGE: message}
+
+    if details:
+        error[ValidationErrorKey.DETAILS] = details
+
+    return error

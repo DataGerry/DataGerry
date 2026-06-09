@@ -22,8 +22,12 @@ since their value lives in real Mongo behavior) and the validate_subnet orchestr
 in-module helper resolve_special_type_id is exercised naturally through mocked
 types_manager.get_one_by; for the orchestrator both type lookups co-occur, so get_one_by uses a
 side_effect that switches on the SpecialType in the filter
+
+IPAM validation errors are bare {message} dicts (no machine-readable code, no details), so the
+checks are distinguished by a stable substring of their human-readable message
 """
 from typing import Any
+from ipaddress import IPv4Network
 
 from unittest.mock import MagicMock
 
@@ -32,15 +36,16 @@ from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
+    IpAddressFamily,
     SupernetField,
-    IpamValidationDetailKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.cidr import parse_cidr
 from cmdb.framework.ipam.subnet_validator import (
-    SubnetErrorCode,
     _check_canonical_cidr,
     _check_in_supernet,
     _check_sibling_overlap,
+    _check_type_matches_family,
     _find_subnets_by_field,
     _load_object_by_id,
     validate_subnet,
@@ -57,6 +62,24 @@ SIBLING_SUBNET_ID: int = 300
 VALID_PARENT_RANGE: str = '10.0.0.0/16'
 VALID_CANDIDATE_RANGE: str = '10.0.0.0/24'
 OUT_OF_RANGE_CANDIDATE: str = '192.168.1.0/24'
+
+VALID_PARENT_RANGE_V6: str = '2001:db8::/32'
+VALID_CANDIDATE_RANGE_V6: str = '2001:db8:1::/48'
+
+# Stable message fragments each check emits (errors carry only a 'message')
+MSG_CIDR_INVALID: str = 'is not a canonical IPv4/IPv6 CIDR'
+MSG_TYPE_REQUIRED: str = "Subnet type ('dg-subnet-type') is required"
+MSG_FAMILY_MISMATCH: str = 'does not match the address family'
+MSG_NO_SUPERNET_TYPE: str = 'No SUPERNET CmdbType is defined'
+MSG_SUPERNET_NOT_FOUND: str = 'does not exist'
+MSG_SUPERNET_BROKEN: str = 'has no valid'
+MSG_NOT_CONTAINED: str = 'is not contained in supernet'
+MSG_SIBLING_OVERLAP: str = 'overlaps with sibling subnet'
+
+
+def _msg(error: dict[str, Any]) -> str:
+    """Returns an error's human-readable message."""
+    return error[ValidationErrorKey.MESSAGE]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -117,26 +140,54 @@ def test_check_canonical_cidr_returns_network_and_no_errors_for_canonical_input(
 
     assert network is not None
     assert str(network) == VALID_CANDIDATE_RANGE
-    assert errors == []
+    assert not errors
 
 
 def test_check_canonical_cidr_reports_cidr_invalid_for_garbage_input() -> None:
-    """A non-CIDR string yields None and a CIDR_INVALID error carrying the raw value"""
+    """A non-CIDR string yields None and a CIDR-invalid error naming the raw value"""
     network, errors = _check_canonical_cidr('not-a-cidr')
 
     assert network is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.CIDR_INVALID
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.NETWORK_RANGE] == 'not-a-cidr'
+    assert MSG_CIDR_INVALID in _msg(errors[0])
+    assert 'not-a-cidr' in _msg(errors[0])
 
 
 def test_check_canonical_cidr_rejects_non_canonical_cidr_with_host_bits_set() -> None:
-    """'10.0.0.5/24' has host bits set and must be rejected with CIDR_INVALID"""
+    """'10.0.0.5/24' has host bits set and must be rejected as non-canonical"""
     network, errors = _check_canonical_cidr('10.0.0.5/24')
 
     assert network is None
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.CIDR_INVALID
+    assert MSG_CIDR_INVALID in _msg(errors[0])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           _check_type_matches_family                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_check_type_matches_family_reports_missing_selector_for_the_subnet_field() -> None:
+    """The SUBNET binding rejects a None selector, naming the dg-subnet-type field
+
+    The full required-selector / mismatch matrix is covered once on the shared
+    ``validate_family_selector`` core in test_cidr; here only the SUBNET binding is pinned
+    """
+    errors = _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), None)
+
+    assert len(errors) == 1
+    assert MSG_TYPE_REQUIRED in _msg(errors[0])
+
+
+def test_check_type_matches_family_reports_mismatch() -> None:
+    """The SUBNET binding rejects a selector that disagrees with the CIDR family"""
+    errors = _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE_V6), IpAddressFamily.IPV4)
+
+    assert len(errors) == 1
+    assert MSG_FAMILY_MISMATCH in _msg(errors[0])
+
+
+def test_check_type_matches_family_returns_empty_when_selector_matches() -> None:
+    """A consistent selector passes the SUBNET binding without errors"""
+    assert not _check_type_matches_family(parse_cidr(VALID_CANDIDATE_RANGE), IpAddressFamily.IPV4)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -218,12 +269,11 @@ def test_find_subnets_by_field_builds_type_scoped_elem_match_filter() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def _candidate_network() -> Any:
     """Returns the parsed IPv4Network used as 'candidate' in containment tests."""
-    from ipaddress import IPv4Network
     return IPv4Network(VALID_CANDIDATE_RANGE)
 
 
 def test_check_in_supernet_reports_type_missing_when_no_supernet_cmdbtype_defined() -> None:
-    """No SUPERNET CmdbType → PARENT_SUPERNET_TYPE_MISSING; no object lookup performed"""
+    """No SUPERNET CmdbType → 'no SUPERNET CmdbType' error; no object lookup performed"""
     objects_manager = MagicMock()
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = None
@@ -231,12 +281,12 @@ def test_check_in_supernet_reports_type_missing_when_no_supernet_cmdbtype_define
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.PARENT_SUPERNET_TYPE_MISSING
+    assert MSG_NO_SUPERNET_TYPE in _msg(errors[0])
     objects_manager.find_objects.assert_not_called()
 
 
 def test_check_in_supernet_reports_not_found_when_supernet_object_missing() -> None:
-    """find_objects returns empty → PARENT_SUPERNET_NOT_FOUND with the queried id in details"""
+    """find_objects returns empty → 'does not exist' naming the queried id"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
     types_manager = MagicMock()
@@ -245,12 +295,12 @@ def test_check_in_supernet_reports_not_found_when_supernet_object_missing() -> N
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.PARENT_SUPERNET_NOT_FOUND
-    assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.SUPERNET_OBJECT_ID] == SUPERNET_OBJECT_ID
+    assert MSG_SUPERNET_NOT_FOUND in _msg(errors[0])
+    assert str(SUPERNET_OBJECT_ID) in _msg(errors[0])
 
 
 def test_check_in_supernet_reports_not_found_when_object_has_wrong_type_id() -> None:
-    """An object exists at that id but is not a SUPERNET type → PARENT_SUPERNET_NOT_FOUND"""
+    """An object exists at that id but is not a SUPERNET type → 'does not exist'"""
     wrong_type_doc = _make_object_doc(SUPERNET_OBJECT_ID, type_id=SUPERNET_TYPE_ID + 1)
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [wrong_type_doc]
@@ -260,11 +310,11 @@ def test_check_in_supernet_reports_not_found_when_object_has_wrong_type_id() -> 
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.PARENT_SUPERNET_NOT_FOUND
+    assert MSG_SUPERNET_NOT_FOUND in _msg(errors[0])
 
 
 def test_check_in_supernet_reports_broken_state_when_supernet_range_unparseable() -> None:
-    """A supernet whose stored range is not canonical CIDR → PARENT_SUPERNET_BROKEN_STATE"""
+    """A supernet whose stored range is not canonical CIDR → broken-state error"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, 'not-a-cidr')]
     types_manager = MagicMock()
@@ -273,13 +323,11 @@ def test_check_in_supernet_reports_broken_state_when_supernet_range_unparseable(
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.PARENT_SUPERNET_BROKEN_STATE
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.STORED_VALUE] == 'not-a-cidr'
+    assert MSG_SUPERNET_BROKEN in _msg(errors[0])
 
 
 def test_check_in_supernet_reports_broken_state_when_supernet_range_is_non_string() -> None:
-    """A supernet whose stored range is not a string at all → PARENT_SUPERNET_BROKEN_STATE"""
+    """A supernet whose stored range is not a string at all → broken-state error"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, 42)]
     types_manager = MagicMock()
@@ -288,13 +336,11 @@ def test_check_in_supernet_reports_broken_state_when_supernet_range_is_non_strin
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.PARENT_SUPERNET_BROKEN_STATE
+    assert MSG_SUPERNET_BROKEN in _msg(errors[0])
 
 
 def test_check_in_supernet_reports_not_in_supernet_when_candidate_outside_range() -> None:
-    """A candidate that doesn't fit inside the parent supernet → NOT_IN_PARENT_SUPERNET"""
-    from ipaddress import IPv4Network
-
+    """A candidate that doesn't fit inside the parent supernet → 'not contained' naming both ranges"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE)]
     types_manager = MagicMock()
@@ -305,10 +351,10 @@ def test_check_in_supernet_reports_not_in_supernet_when_candidate_outside_range(
     )
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.NOT_IN_PARENT_SUPERNET
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.CANDIDATE] == OUT_OF_RANGE_CANDIDATE
-    assert details[IpamValidationDetailKey.SUPERNET_RANGE] == VALID_PARENT_RANGE
+    message = _msg(errors[0])
+    assert MSG_NOT_CONTAINED in message
+    assert OUT_OF_RANGE_CANDIDATE in message
+    assert VALID_PARENT_RANGE in message
 
 
 def test_check_in_supernet_returns_no_errors_when_candidate_fits_supernet() -> None:
@@ -320,7 +366,43 @@ def test_check_in_supernet_returns_no_errors_when_candidate_fits_supernet() -> N
 
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
-    assert errors == []
+    assert not errors
+
+
+def test_check_in_supernet_returns_no_errors_when_ipv6_candidate_fits_ipv6_supernet() -> None:
+    """An IPv6 candidate strictly inside an IPv6 supernet yields no errors"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE_V6)]
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
+
+    errors = _check_in_supernet(
+        objects_manager, types_manager, parse_cidr(VALID_CANDIDATE_RANGE_V6), SUPERNET_OBJECT_ID,
+    )
+
+    assert not errors
+
+
+def test_check_in_supernet_reports_family_mismatch_for_ipv6_candidate_under_ipv4_supernet() -> None:
+    """An IPv6 candidate under an IPv4 supernet → family mismatch (not 'not contained')"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE)]
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
+
+    errors = _check_in_supernet(
+        objects_manager, types_manager, parse_cidr(VALID_CANDIDATE_RANGE_V6), SUPERNET_OBJECT_ID,
+    )
+
+    assert len(errors) == 1
+    message = _msg(errors[0])
+    assert MSG_FAMILY_MISMATCH in message
+    assert VALID_CANDIDATE_RANGE_V6 in message
+    assert VALID_PARENT_RANGE in message
+    # The family tokens render as the bare 'ipv4' / 'ipv6' values, not the enum repr
+    assert IpAddressFamily.IPV6 in message
+    assert IpAddressFamily.IPV4 in message
+    assert 'IpAddressFamily' not in message
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -336,7 +418,7 @@ def test_check_sibling_overlap_returns_empty_when_subnet_cmdbtype_not_defined() 
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    assert errors == []
+    assert not errors
     objects_manager.find_objects.assert_not_called()
 
 
@@ -351,7 +433,7 @@ def test_check_sibling_overlap_returns_empty_when_no_siblings_under_parent() -> 
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_sibling_overlap_skips_excluded_subnet_id() -> None:
@@ -366,7 +448,7 @@ def test_check_sibling_overlap_skips_excluded_subnet_id() -> None:
         exclude_subnet_id=SIBLING_SUBNET_ID,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_sibling_overlap_skips_sibling_with_unparseable_range() -> None:
@@ -380,11 +462,11 @@ def test_check_sibling_overlap_skips_sibling_with_unparseable_range() -> None:
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_check_sibling_overlap_reports_overlap_with_one_sibling() -> None:
-    """A sibling whose range overlaps the candidate yields one SIBLING_OVERLAP error"""
+    """A sibling whose range overlaps the candidate yields one overlap error naming both ranges"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [_make_subnet_doc(SIBLING_SUBNET_ID, '10.0.0.128/25')]
     types_manager = MagicMock()
@@ -395,11 +477,10 @@ def test_check_sibling_overlap_reports_overlap_with_one_sibling() -> None:
     )
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.SIBLING_OVERLAP
-    details = errors[0][ValidationErrorKey.DETAILS]
-    assert details[IpamValidationDetailKey.SIBLING_SUBNET_ID] == SIBLING_SUBNET_ID
-    assert details[IpamValidationDetailKey.SIBLING_RANGE] == '10.0.0.128/25'
-    assert details[IpamValidationDetailKey.CANDIDATE] == VALID_CANDIDATE_RANGE
+    message = _msg(errors[0])
+    assert MSG_SIBLING_OVERLAP in message
+    assert VALID_CANDIDATE_RANGE in message
+    assert '10.0.0.128/25' in message
 
 
 def test_check_sibling_overlap_reports_only_overlapping_siblings_in_mixed_input() -> None:
@@ -417,8 +498,8 @@ def test_check_sibling_overlap_reports_only_overlapping_siblings_in_mixed_input(
         objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID, exclude_subnet_id=None,
     )
 
-    reported_ids = {e[ValidationErrorKey.DETAILS][IpamValidationDetailKey.SIBLING_SUBNET_ID] for e in errors}
-    assert reported_ids == {SIBLING_SUBNET_ID + 1}
+    assert len(errors) == 1
+    assert '10.0.0.128/25' in _msg(errors[0])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -432,7 +513,7 @@ def test_validate_subnet_returns_only_cidr_error_for_invalid_cidr() -> None:
     errors = validate_subnet(objects_manager, types_manager, 'not-a-cidr', parent_supernet_id=SUPERNET_OBJECT_ID)
 
     assert len(errors) == 1
-    assert errors[0][ValidationErrorKey.CODE] == SubnetErrorCode.CIDR_INVALID
+    assert MSG_CIDR_INVALID in _msg(errors[0])
     objects_manager.find_objects.assert_not_called()
     types_manager.get_one_by.assert_not_called()
 
@@ -442,9 +523,11 @@ def test_validate_subnet_skips_parent_checks_when_no_parent_supernet_id_provided
     objects_manager = MagicMock()
     types_manager = MagicMock()
 
-    errors = validate_subnet(objects_manager, types_manager, VALID_CANDIDATE_RANGE)
+    errors = validate_subnet(
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE, subnet_type=IpAddressFamily.IPV4,
+    )
 
-    assert errors == []
+    assert not errors
     objects_manager.find_objects.assert_not_called()
     types_manager.get_one_by.assert_not_called()
 
@@ -463,10 +546,11 @@ def test_validate_subnet_returns_empty_when_valid_cidr_and_supernet_and_no_sibli
     })
 
     errors = validate_subnet(
-        objects_manager, types_manager, VALID_CANDIDATE_RANGE, parent_supernet_id=SUPERNET_OBJECT_ID,
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE,
+        parent_supernet_id=SUPERNET_OBJECT_ID, subnet_type=IpAddressFamily.IPV4,
     )
 
-    assert errors == []
+    assert not errors
 
 
 def test_validate_subnet_accumulates_supernet_and_overlap_errors() -> None:
@@ -486,9 +570,9 @@ def test_validate_subnet_accumulates_supernet_and_overlap_errors() -> None:
         objects_manager, types_manager, OUT_OF_RANGE_CANDIDATE, parent_supernet_id=SUPERNET_OBJECT_ID,
     )
 
-    codes = {e[ValidationErrorKey.CODE] for e in errors}
-    assert SubnetErrorCode.NOT_IN_PARENT_SUPERNET in codes
-    assert SubnetErrorCode.SIBLING_OVERLAP in codes
+    messages = ' '.join(_msg(e) for e in errors)
+    assert MSG_NOT_CONTAINED in messages
+    assert MSG_SIBLING_OVERLAP in messages
 
 
 def test_validate_subnet_excludes_self_id_from_sibling_overlap_during_edit() -> None:
@@ -507,6 +591,42 @@ def test_validate_subnet_excludes_self_id_from_sibling_overlap_during_edit() -> 
     errors = validate_subnet(
         objects_manager, types_manager, VALID_CANDIDATE_RANGE,
         parent_supernet_id=SUPERNET_OBJECT_ID, exclude_subnet_id=SUBNET_OBJECT_ID,
+        subnet_type=IpAddressFamily.IPV4,
     )
 
-    assert errors == []
+    assert not errors
+
+
+def test_validate_subnet_reports_type_family_mismatch_without_touching_db() -> None:
+    """A subnet_type that disagrees with the CIDR family is flagged before any parent lookup"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+
+    errors = validate_subnet(
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE_V6, subnet_type=IpAddressFamily.IPV4,
+    )
+
+    assert len(errors) == 1
+    assert MSG_FAMILY_MISMATCH in _msg(errors[0])
+    objects_manager.find_objects.assert_not_called()
+
+
+def test_validate_subnet_passes_for_consistent_ipv6_candidate_in_ipv6_supernet() -> None:
+    """Happy path: IPv6 CIDR, matching 'ipv6' selector, inside an IPv6 supernet, no siblings"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.side_effect = [
+        [_make_supernet_doc(SUPERNET_OBJECT_ID, VALID_PARENT_RANGE_V6)],
+        [],
+    ]
+    types_manager = MagicMock()
+    types_manager.get_one_by.side_effect = _make_special_type_router({
+        SpecialType.SUPERNET: SUPERNET_TYPE_ID,
+        SpecialType.SUBNET: SUBNET_TYPE_ID,
+    })
+
+    errors = validate_subnet(
+        objects_manager, types_manager, VALID_CANDIDATE_RANGE_V6,
+        parent_supernet_id=SUPERNET_OBJECT_ID, subnet_type=IpAddressFamily.IPV6,
+    )
+
+    assert not errors

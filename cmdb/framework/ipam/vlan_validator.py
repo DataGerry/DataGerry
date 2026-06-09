@@ -23,19 +23,9 @@ from typing import Any
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import IpamValidationDetailKey
-from cmdb.utils import BaseStrEnum, build_error
+from cmdb.utils import build_error
 from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  ERROR CODES                                                         #
-# -------------------------------------------------------------------------------------------------------------------- #
-class VlanErrorCode(BaseStrEnum):
-    """Stable codes for structured vlan validation errors"""
-    SUBNET_TYPE_MISSING = 'subnet_type_missing'
-    SUBNET_NOT_FOUND = 'subnet_not_found'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -61,7 +51,6 @@ def validate_vlan(
 
     if subnet_type_id is None:
         return [build_error(
-            VlanErrorCode.SUBNET_TYPE_MISSING,
             "No SUBNET CmdbType is defined; cannot validate vlan subnet reference",
         )]
 
@@ -72,9 +61,7 @@ def validate_vlan(
 
     if not matches:
         return [build_error(
-            VlanErrorCode.SUBNET_NOT_FOUND,
             f"Subnet object with id {subnet_object_id} does not exist",
-            {IpamValidationDetailKey.SUBNET_OBJECT_ID: subnet_object_id},
         )]
 
     return []

@@ -53,8 +53,8 @@ from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
-    TypeConfigKey,
     RenderMetaKey,
     CategoryBodyKey,
     CategoryMetaKey,
@@ -123,6 +123,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REGEX': 'regex',
         'REF_TYPES': 'ref_types',
         'OPTIONS': 'options',
+        'VALUE': 'value',
     }),
     (FieldType, {
         'TEXT': 'text',
@@ -138,27 +139,29 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REF_SECTION': 'ref-section-field',
     }),
     (SectionType, {'SECTION': 'section', 'MDS_SECTION': 'multi-data-section', 'REF_SECTION': 'ref-section'}),
-    # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
-    # documents (the assistant uses them as dict keys when building those documents)
-    (TypeConfigKey, {
+    (TypeSchemaKey, {
+        'SPECIAL_TYPE': 'special_type',
+        'SECTIONS': 'sections',
+        'FIELDS': 'fields',
+        'RENDER_META': 'render_meta',
+        'PUBLIC_ID': 'public_id',
         'NAME': 'name',
-        'SELECTABLE_AS_PARENT': 'selectable_as_parent',
-        'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
+        'LABEL': 'label',
         'ACTIVE': 'active',
         'AUTHOR_ID': 'author_id',
-        'CREATION_TIME': 'creation_time',
         'EDITOR_ID': 'editor_id',
+        'CREATION_TIME': 'creation_time',
         'LAST_EDIT_TIME': 'last_edit_time',
-        'LABEL': 'label',
+        'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
+        'SELECTABLE_AS_PARENT': 'selectable_as_parent',
         'VERSION': 'version',
         'DESCRIPTION': 'description',
-        'RENDER_META': 'render_meta',
         'CI_EXPLORER_LABEL': 'ci_explorer_label',
         'CI_EXPLORER_COLOR': 'ci_explorer_color',
-        'PUBLIC_ID': 'public_id',
-        'FIELDS': 'fields',
         'ACL': 'acl',
     }),
+    # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
+    # documents (the assistant uses them as dict keys when building those documents)
     (RenderMetaKey, {
         'ICON': 'icon',
         'SECTIONS': 'sections',

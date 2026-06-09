@@ -34,6 +34,7 @@ class SupernetField(BaseStrEnum):
     """
     NAME = 'dg-name'
     NETWORK_RANGE = 'dg-network-range'
+    TYPE = 'dg-supernet-type'
 
 
 class SubnetField(BaseStrEnum):
@@ -43,6 +44,7 @@ class SubnetField(BaseStrEnum):
     NAME = 'dg-name'
     NETWORK_RANGE = 'dg-network-range'
     PARENT_SUPERNET = 'dg-supernet-ref'
+    TYPE = 'dg-subnet-type'
 
 
 class VlanField(BaseStrEnum):
@@ -61,6 +63,22 @@ class InterfaceField(BaseStrEnum):
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
     MAC = 'dg-interface-mac-address'
+    TYPE = 'dg-interface-type'
+
+
+class IpAddressFamily(BaseStrEnum):
+    """
+    Address-family tokens shared by the SUBNET 'dg-subnet-type' and SUPERNET 'dg-supernet-type'
+    selectors
+
+    IPV4 / IPV6 are the option 'name' tokens of those required SELECT fields stored on the
+    CmdbObject (the FE renders the 'IPv4' / 'IPv6' labels). They are the canonical family tokens
+    the IPAM validators compare a parsed network's family against (see cidr.network_family). A
+    missing value is treated as IPV4: legacy objects pre-date the field and the former range
+    regex only admitted IPv4
+    """
+    IPV4 = 'ipv4'
+    IPV6 = 'ipv6'
 
 
 class IpamPrefixPolicy:
@@ -94,6 +112,19 @@ class IpamAddressFormat:
     accept) cannot be stored as interface values
     """
     DOTTED_QUAD_DOT_COUNT: int = 3
+
+
+class IpVersion:
+    """
+    IP protocol version numbers as reported by ipaddress' network / address objects
+
+    V4 / V6 mirror the integers returned by the '.version' attribute of IPv4Network /
+    IPv6Network (and the address equivalents). The IPAM helpers branch on these instead of
+    bare 4 / 6 literals when address-family handling differs (e.g. IPv6 has no network /
+    broadcast reservation)
+    """
+    V4: int = 4
+    V6: int = 6
 
 
 class IpamPagination:
@@ -137,43 +168,75 @@ class IpamDistributionLimits:
     MAX_SECTORS_PER_RANGE: int = 16
 
 
+class IpamSubnetTableLimits:
+    """
+    Size bound for candidate-IP materialization in the subnet IP table
+
+    Search, sort and the status / type filters require materializing every assignable IP of
+    an IPv4 subnet as a Python string; for very large prefixes that is hundreds of megabytes
+    of memory and seconds of CPU per request. MAX_MATERIALIZED_CANDIDATES caps the assignable
+    count those operations accept (2**20 admits /12 and narrower) - beyond it the route
+    rejects search / sort / filter with HTTP 400 while the lazy ascending-IP browsing path
+    keeps working at any subnet size
+    """
+    MAX_MATERIALIZED_CANDIDATES: int = 2 ** 20
+
+
 class IpamValidationDetailKey(BaseStrEnum):
     """
-    Keys of the 'details' payload carried by IPAM validation errors
+    Keys of the optional 'details' payload carried by IPAM validation errors
 
-    A structured validation error has the shape {code, message, details}: the envelope keys
-    are named in ValidationErrorKey, while the per-domain keys inside 'details' are named
-    here. Use these members instead of bare string literals when populating the details dict
-    so frontend and backend stay aligned on field names. Members are grouped by topic in the
-    declaration order below
+    IPAM validation errors are {message} dicts; the only structured context still carried is
+    the interface validator's row-index mapping, which lets the frontend attach each error to
+    the originating dg-ipam-interface form row. These members name the keys inside that
+    'details' payload (the envelope keys themselves are named in ValidationErrorKey). Use them
+    instead of bare string literals so frontend and backend stay aligned on field names
     """
-    # Identity of the candidate object / row being validated
-    CANDIDATE = 'candidate'
-    OBJECT_ID = 'object_id'
+    # Row position of a single offending interface row
     ROW_INDEX = 'row_index'
 
-    # Subnet / supernet references
-    SUBNET_OBJECT_ID = 'subnet_object_id'
-    SUPERNET_OBJECT_ID = 'supernet_object_id'
-    PARENT_SUPERNET_ID = 'parent_supernet_id'
-
-    # Range strings (the parsed or stored CIDR / network range)
-    NETWORK_RANGE = 'network_range'
-    SUBNET_RANGE = 'subnet_range'
-    SUPERNET_RANGE = 'supernet_range'
-    SIBLING_RANGE = 'sibling_range'
-
-    # Sibling references
-    SIBLING_SUBNET_ID = 'sibling_subnet_id'
-
-    # Interface row payload
-    IP_ADDRESS = 'ip_address'
+    # The two row positions of a within-submission duplicate interface IP
     FIRST_ROW_INDEX = 'first_row_index'
     DUPLICATE_ROW_INDEX = 'duplicate_row_index'
 
-    # Generic fall-throughs
-    STORED_VALUE = 'stored_value'
-    REFERENCES = 'references'
+
+class IpamValidationRequestKey(BaseStrEnum):
+    """
+    Request-body keys accepted by the IPAM pre-validation routes (/ipam/validate/*)
+
+    Names every JSON body field the four inline pre-check routes read, so route parsing and
+    the frontend stay aligned on field names. ROWS / ROW_INDEX / SUBNET_ID / IP_ADDRESS /
+    INTERFACE_TYPE / EXCLUDE_OBJECT_ID belong to the interface batch route; NETWORK_RANGE,
+    the two selector keys and the parent / exclusion ids belong to the subnet / supernet /
+    vlan candidate routes. Keys of the response envelope live in IpamValidationResponseKey,
+    keys inside an error's 'details' dict in IpamValidationDetailKey
+    """
+    # Subnet / supernet / vlan candidate routes
+    NETWORK_RANGE = 'network_range'
+    SUBNET_TYPE = 'subnet_type'
+    SUPERNET_TYPE = 'supernet_type'
+    SUBNET_ID = 'subnet_id'
+    PARENT_SUPERNET_ID = 'parent_supernet_id'
+    EXCLUDE_SUBNET_ID = 'exclude_subnet_id'
+
+    # Interface batch route
+    ROWS = 'rows'
+    ROW_INDEX = 'row_index'
+    IP_ADDRESS = 'ip_address'
+    INTERFACE_TYPE = 'interface_type'
+    EXCLUDE_OBJECT_ID = 'exclude_object_id'
+
+
+class IpamValidationResponseKey(BaseStrEnum):
+    """
+    Response-envelope keys returned by every IPAM pre-validation route (/ipam/validate/*)
+
+    VALID is the boolean summary flag (True when the error list is empty); ERRORS carries the
+    structured error list whose per-error keys are named in ValidationErrorKey and whose
+    'details' keys are named in IpamValidationDetailKey
+    """
+    VALID = 'valid'
+    ERRORS = 'errors'
 
 
 class IpamOverviewKey(BaseStrEnum):
@@ -222,6 +285,7 @@ class IpamOverviewKey(BaseStrEnum):
     PARENT_ID = 'parent_id'
     HAS_CHILDREN = 'has_children'
     IS_VALID = 'is_valid'
+    SUBNET_TYPE = 'subnet_type'
     VLANS = 'vlans'
     NAME = 'name'
 
@@ -254,6 +318,39 @@ class IpamOverviewKey(BaseStrEnum):
     USED_COUNT = 'used_count'
     TYPE_STATS = 'type_stats'
 
+    # Single-sector drill-down (subnet sector route): request param + response echo
+    SECTOR_START = 'sector_start'
+    SECTOR = 'sector'
+
+
+class IpamTreeKey(BaseStrEnum):
+    """
+    Output payload keys returned by the IPAM sidebar-tree routes
+
+    Names every dict key emitted to the frontend by the tree builders
+    (cmdb.framework.ipam.tree_overview). SUPERNETS and UNASSIGNED are the two blocks of the
+    initial tree payload: a flat list of every SUPERNET (each entry carrying HAS_CHILDREN so
+    the FE can render an expand caret without a probe request) and a flat list of every
+    SUBNET without a parent supernet. CHILDREN is the recursive nesting key of the
+    per-supernet subtree payload. The node-level keys (NAME, CIDR, TYPE, HAS_CHILDREN) are
+    scoped here even where their string values coincide with IpamOverviewKey members because
+    the tree nodes form their own wire schema: TYPE carries the node's address family
+    (IpAddressFamily token), unlike the overview routes where 'type' is a type-filter query
+    parameter. The node's 'public_id' key is CmdbObjectKey.PUBLIC_ID, matching the overview
+    rows
+    """
+    # Envelope blocks of the tree payloads
+    SUPERNETS = 'supernets'
+    UNASSIGNED = 'unassigned'
+    CHILDREN = 'children'
+
+    # Per-node fields
+    NAME = 'name'
+    CIDR = 'cidr'
+    TYPE = 'type'
+    ICON = 'icon'
+    HAS_CHILDREN = 'has_children'
+
 
 class IpamRowStatus(BaseStrEnum):
     """
@@ -273,15 +370,32 @@ class IpamUnassignKey(BaseStrEnum):
 
     SUBNET_IDS is the request-body field of the supernet route carrying the list of subnet
     public_ids the caller asks to detach from the supernet. IPS is the request-body field of
-    the subnet route carrying the list of canonical IPv4 strings whose dg-ipam-interface rows
-    should be removed from their owner CmdbObjects. UNASSIGNED_COUNT is the response field
-    echoing how many entries the route actually cleared. All three are scoped to the unassign
+    the subnet route carrying the list of canonical IP strings whose dg-ipam-interface rows
+    should be unassigned from their owner CmdbObjects. MODE is the optional request-body field
+    of the subnet route selecting whether to clear the subnet reference or delete the whole row
+    (see IpamUnassignMode); it is also echoed in the response. UNASSIGNED_COUNT is the response
+    field echoing how many rows the route actually affected. All four are scoped to the unassign
     routes alone - keys shared with the read-side overview payload live in IpamOverviewKey
     instead
     """
     SUBNET_IDS = 'subnet_ids'
     IPS = 'ips'
+    MODE = 'mode'
     UNASSIGNED_COUNT = 'unassigned_count'
+
+
+class IpamUnassignMode(BaseStrEnum):
+    """
+    Allowed values of the subnet unassign route's 'mode' field
+
+    REFERENCE clears only the dg-interface-subnet reference on each matching dg-ipam-interface
+    row (the row, its IP and MAC are kept; the row is just detached from the subnet). ROW deletes
+    the whole matching row from its owner object. The mode applies to every IP in one request -
+    it is not chosen per row. REFERENCE is the default when the field is omitted, preserving the
+    original behaviour
+    """
+    REFERENCE = 'reference'
+    ROW = 'row'
 
 
 class IpamBucketLabel(BaseStrEnum):
@@ -340,3 +454,38 @@ class IpamSection(BaseStrEnum):
     INFORMATION = 'dg-information'
     NETWORK_DETAILS = 'dg-network-details'
     VLAN_DETAILS = 'dg-vlan-details'
+
+
+class IpamExport:
+    """
+    Constants for the supernet 'assigned subnets' CSV (.csv) export
+
+    HEADERS is the ordered base column header row shared by both address families (CIDR, IP range,
+    used / free counts). USAGE_HEADER is the IPv4-only trailing 'Usage (%)' column: it is appended
+    to HEADERS for an IPv4 supernet's export but omitted for an IPv6 one, where a used/total ratio
+    against a 2**n address space is meaningless. IP_RANGE_SEPARATOR joins the range's first and last
+    address into a single cell. MIMETYPE is the CSV content type and FILENAME_TEMPLATE builds the
+    download filename
+    """
+    HEADERS: list[str] = ['CIDR', 'IP Range', 'Used IPs', 'Free IPs']
+    USAGE_HEADER: str = 'Usage (%)'
+    IP_RANGE_SEPARATOR: str = ' - '
+    MIMETYPE: str = 'text/csv'
+    FILENAME_TEMPLATE: str = 'supernet_{public_id}_subnets_{timestamp}.csv'
+
+
+class IpamSubnetIpsExport:
+    """
+    Constants for the subnet 'IP overview' CSV (.csv) export
+
+    HEADERS is the ordered column row, identical for both address families (the family difference is
+    which rows are emitted, not which columns). The columns mirror the overview IP table: the
+    address, its type label, its status, the assigned owner's summary line and its MAC.
+    MAX_EXPORT_ROWS caps how many IP rows may be exported - an export that would exceed it is
+    rejected (HTTP 400) and no file is built; the counted volume is the IPv4 assignable count (free +
+    assigned) or the IPv6 assigned count. FILENAME_TEMPLATE builds the download filename. The CSV
+    content type is shared via IpamExport.MIMETYPE
+    """
+    HEADERS: list[str] = ['IP', 'Type', 'Status', 'Assigned To', 'MAC Address']
+    MAX_EXPORT_ROWS: int = 2500
+    FILENAME_TEMPLATE: str = 'subnet_{public_id}_ips_{timestamp}.csv'

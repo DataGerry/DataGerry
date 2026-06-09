@@ -25,7 +25,7 @@ are pinned via assert_called_once_with so a future refactor that loosens them fa
 Flask aborts are exercised via pytest.raises(HTTPException). For orchestrator tests the
 internal loaders are patched at the module path; each loader has its own dedicated tests
 """
-from ipaddress import IPv4Network
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -44,15 +44,20 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpamUnassignKey,
+    IpamUnassignMode,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.ipam.subnet_unassign import (
+    _resolve_unassign_mode,
+    apply_unassign_to_owners,
     assert_subnet_exists,
     clear_subnet_ref_in_owner,
     clear_subnet_ref_in_owners,
     clear_subnet_ref_in_rows,
     collect_present_ips,
+    delete_subnet_rows,
+    delete_subnet_rows_in_owner,
     load_interface_owners,
     normalize_ip_list,
     parse_subnet_network,
@@ -70,6 +75,9 @@ OWNER_TYPE_ID: int = 50
 
 SUBNET_RANGE: str = '10.0.0.0/24'
 SUBNET_NETWORK: IPv4Network = IPv4Network(SUBNET_RANGE)
+
+SUBNET_RANGE_V6: str = '2001:db8::/64'
+SUBNET_NETWORK_V6: IPv6Network = IPv6Network(SUBNET_RANGE_V6)
 
 PATH: str = 'cmdb.framework.ipam.subnet_unassign'
 
@@ -188,6 +196,36 @@ def test_normalize_ip_list_returns_canonical_ips_for_valid_input() -> None:
     result = normalize_ip_list(['10.0.0.1', '10.0.0.254'], SUBNET_NETWORK)
 
     assert result == ['10.0.0.1', '10.0.0.254']
+
+
+def test_normalize_ip_list_accepts_ipv6_within_network() -> None:
+    """IPv6 host strings inside an IPv6 subnet are accepted and returned canonical"""
+    result = normalize_ip_list(['2001:db8::5', '2001:db8::ffff'], SUBNET_NETWORK_V6)
+
+    assert result == ['2001:db8::5', '2001:db8::ffff']
+
+
+def test_normalize_ip_list_canonicalizes_and_dedups_ipv6_forms() -> None:
+    """Uppercase / leading-zero IPv6 forms canonicalize, so equivalent forms dedup to one entry"""
+    result = normalize_ip_list(['2001:DB8::0005', '2001:db8::5'], SUBNET_NETWORK_V6)
+
+    assert result == ['2001:db8::5']
+
+
+def test_normalize_ip_list_rejects_ipv4_ip_against_ipv6_network() -> None:
+    """A cross-family entry (IPv4 string, IPv6 subnet) is treated as outside the network -> 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_ip_list(['10.0.0.5'], SUBNET_NETWORK_V6)
+
+    assert exc_info.value.code == 400
+
+
+def test_normalize_ip_list_rejects_ipv6_outside_network() -> None:
+    """A valid IPv6 string outside the subnet network is rejected"""
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_ip_list(['2001:dead::1'], SUBNET_NETWORK_V6)
+
+    assert exc_info.value.code == 400
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -448,6 +486,13 @@ def test_parse_subnet_network_returns_parsed_network_on_success() -> None:
     assert result == SUBNET_NETWORK
 
 
+def test_parse_subnet_network_returns_ipv6_network_for_ipv6_subnet() -> None:
+    """An IPv6 subnet range parses to the corresponding IPv6Network"""
+    result = parse_subnet_network(_make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE_V6))
+
+    assert result == SUBNET_NETWORK_V6
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              load_interface_owners                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -586,7 +631,7 @@ def test_unassign_ips_from_subnet_aborts_400_when_any_requested_ip_is_not_assign
 
 
 def test_unassign_ips_from_subnet_returns_response_envelope_on_happy_path() -> None:
-    """Happy path returns the {ips, unassigned_count} envelope with deduped input order"""
+    """Happy path returns the {ips, mode, unassigned_count} envelope with deduped input order"""
     subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
     owner = _make_owner(
         OWNER_OBJECT_ID,
@@ -604,8 +649,10 @@ def test_unassign_ips_from_subnet_returns_response_envelope_on_happy_path() -> N
             ['10.0.0.2', '10.0.0.1', '10.0.0.2'], MagicMock(),
         )
 
+    # mode defaults to 'reference' when raw_mode is omitted
     assert result == {
         IpamUnassignKey.IPS: ['10.0.0.2', '10.0.0.1'],
+        IpamUnassignKey.MODE: IpamUnassignMode.REFERENCE,
         IpamUnassignKey.UNASSIGNED_COUNT: 2,
     }
 
@@ -641,6 +688,113 @@ def test_unassign_ips_from_subnet_does_not_write_when_no_owner_matches() -> None
          pytest.raises(HTTPException) as exc_info:
         unassign_ips_from_subnet(
             objects_manager, MagicMock(), SUBNET_OBJECT_ID, ['10.0.0.1'], MagicMock(),
+        )
+
+    assert exc_info.value.code == 400
+    objects_manager.update_object.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          UNASSIGN MODE (reference / row)                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_resolve_unassign_mode_defaults_to_reference() -> None:
+    """A missing / empty mode falls back to REFERENCE (the original behaviour)"""
+    assert _resolve_unassign_mode(None) == IpamUnassignMode.REFERENCE
+    assert _resolve_unassign_mode('') == IpamUnassignMode.REFERENCE
+
+
+def test_resolve_unassign_mode_accepts_known_values() -> None:
+    """The two recognised tokens resolve to their enum members"""
+    assert _resolve_unassign_mode('reference') == IpamUnassignMode.REFERENCE
+    assert _resolve_unassign_mode('row') == IpamUnassignMode.ROW
+
+
+def test_resolve_unassign_mode_aborts_for_unknown_value() -> None:
+    """An unrecognised mode aborts HTTP 400"""
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_unassign_mode('delete-everything')
+
+    assert exc_info.value.code == 400
+
+
+def test_delete_subnet_rows_drops_only_matching_rows() -> None:
+    """delete_subnet_rows removes target rows entirely and keeps the rest, reporting removed IPs"""
+    rows = [
+        _make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.1'),          # target
+        _make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.9'),          # same subnet, non-target IP
+        _make_interface_row(subnet_ref=OTHER_SUBNET_OBJECT_ID, ip='10.0.0.1'),    # other subnet
+    ]
+
+    new_rows, removed = delete_subnet_rows(rows, SUBNET_OBJECT_ID, {'10.0.0.1'})
+
+    assert removed == {'10.0.0.1'}
+    assert len(new_rows) == 2  # the two non-target rows survive
+    assert rows[0] not in new_rows
+
+
+def test_delete_subnet_rows_in_owner_removes_rows_from_interface_section() -> None:
+    """delete_subnet_rows_in_owner drops the matching rows from the dg-ipam-interface section"""
+    owner = _make_owner(
+        OWNER_OBJECT_ID,
+        [
+            _make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.1'),
+            _make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.2'),
+        ],
+    )
+
+    new_doc, removed = delete_subnet_rows_in_owner(owner, SUBNET_OBJECT_ID, {'10.0.0.1'})
+
+    assert removed == {'10.0.0.1'}
+    section = new_doc[CmdbObjectKey.MULTI_DATA_SECTIONS][0]
+    assert len(section[CmdbObjectMdsKey.VALUES]) == 1
+
+
+def test_apply_unassign_to_owners_row_mode_deletes_and_writes() -> None:
+    """ROW mode deletes the matching rows and writes the owner back once per touched owner"""
+    owner = _make_owner(OWNER_OBJECT_ID, [_make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.1')])
+    objects_manager = MagicMock()
+
+    count = apply_unassign_to_owners(
+        objects_manager, [owner], SUBNET_OBJECT_ID, {'10.0.0.1'}, MagicMock(), IpamUnassignMode.ROW,
+    )
+
+    assert count == 1
+    objects_manager.update_object.assert_called_once()
+    written_doc = objects_manager.update_object.call_args.args[1]
+    assert written_doc[CmdbObjectKey.MULTI_DATA_SECTIONS][0][CmdbObjectMdsKey.VALUES] == []
+
+
+def test_unassign_ips_from_subnet_row_mode_deletes_rows_and_echoes_mode() -> None:
+    """raw_mode='row' deletes the matched rows and the response echoes mode='row'"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    owner = _make_owner(OWNER_OBJECT_ID, [_make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.1')])
+    objects_manager = MagicMock()
+
+    with patch(f'{PATH}.assert_subnet_exists', return_value=subnet_doc), \
+         patch(f'{PATH}.load_interface_owners', return_value=[owner]):
+        result = unassign_ips_from_subnet(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, ['10.0.0.1'], MagicMock(), raw_mode='row',
+        )
+
+    assert result == {
+        IpamUnassignKey.IPS: ['10.0.0.1'],
+        IpamUnassignKey.MODE: IpamUnassignMode.ROW,
+        IpamUnassignKey.UNASSIGNED_COUNT: 1,
+    }
+    written_doc = objects_manager.update_object.call_args.args[1]
+    assert written_doc[CmdbObjectKey.MULTI_DATA_SECTIONS][0][CmdbObjectMdsKey.VALUES] == []
+
+
+def test_unassign_ips_from_subnet_aborts_for_unknown_mode_before_writing() -> None:
+    """An unknown mode aborts 400 and no owner write happens"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    objects_manager = MagicMock()
+
+    with patch(f'{PATH}.assert_subnet_exists', return_value=subnet_doc), \
+         patch(f'{PATH}.load_interface_owners', return_value=[]), \
+         pytest.raises(HTTPException) as exc_info:
+        unassign_ips_from_subnet(
+            objects_manager, MagicMock(), SUBNET_OBJECT_ID, ['10.0.0.1'], MagicMock(), raw_mode='bogus',
         )
 
     assert exc_info.value.code == 400

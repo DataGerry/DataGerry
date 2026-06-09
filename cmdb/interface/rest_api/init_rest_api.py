@@ -190,9 +190,11 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
     from cmdb.interface.rest_api.routes.connection import connection_routes
-    from cmdb.interface.rest_api.routes.framework_routes.categories_routes import categories_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_routes import categories_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.location_routes import location_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.section_template_routes import section_template_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_routes import (
+        section_template_blueprint,
+    )
     from cmdb.interface.rest_api.routes.user_management_routes.users_routes import users_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.user_settings_routes import user_settings_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.groups_routes import groups_blueprint
@@ -253,6 +255,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes import ipam_supernet_blueprint
     from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import ipam_subnet_blueprint
     from cmdb.interface.rest_api.routes.ipam_routes.ipam_assignable_routes import ipam_assignable_blueprint
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import ipam_tree_blueprint
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
@@ -315,6 +318,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(ipam_supernet_blueprint, url_prefix='/ipam/supernet')
     app.register_blueprint(ipam_subnet_blueprint, url_prefix='/ipam/subnet')
     app.register_blueprint(ipam_assignable_blueprint, url_prefix='/ipam/assignable-objects')
+    app.register_blueprint(ipam_tree_blueprint, url_prefix='/ipam/tree')
 
     # OpenCelium routes
     app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')

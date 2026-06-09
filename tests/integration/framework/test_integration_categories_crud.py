@@ -352,3 +352,54 @@ class TestRemoveCategoryAsParent:
 
         child_a = categories_manager.get_category(CATEGORY_ID_FOR_CASCADE_CHILD_A)
         assert child_a is not None and child_a['parent'] == CATEGORY_ID_FOR_CASCADE_PARENT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_parent_assignment ($graphLookup)                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+CHAIN_ROOT_ID: int = 9620
+CHAIN_MID_ID: int = 9621
+CHAIN_LEAF_ID: int = 9622
+CHAIN_STANDALONE_ID: int = 9623
+
+CHAIN_IDS: list[int] = [CHAIN_ROOT_ID, CHAIN_MID_ID, CHAIN_LEAF_ID, CHAIN_STANDALONE_ID]
+
+
+class TestValidateParentAssignment:
+    """``validate_parent_assignment`` resolves the ancestor chain via a single $graphLookup query."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_chain(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds a 3-deep parent chain (root <- mid <- leaf) plus a standalone root, per test."""
+        collection = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
+        collection.delete_many({'public_id': {'$in': CHAIN_IDS}})
+        collection.insert_many([
+            _category_data(CHAIN_ROOT_ID, parent=None),
+            _category_data(CHAIN_MID_ID, parent=CHAIN_ROOT_ID),
+            _category_data(CHAIN_LEAF_ID, parent=CHAIN_MID_ID),
+            _category_data(CHAIN_STANDALONE_ID, parent=None),
+        ])
+        yield
+        collection.delete_many({'public_id': {'$in': CHAIN_IDS}})
+
+    def test_missing_parent_is_rejected(self, categories_manager: CategoriesManager) -> None:
+        """A parent id that does not exist is rejected (the $match stage returns nothing)."""
+        rejection = categories_manager.validate_parent_assignment(CHAIN_STANDALONE_ID, MISSING_CATEGORY_ID)
+
+        assert rejection is not None
+        assert 'does not exist' in rejection
+
+    def test_valid_assignment_returns_none(self, categories_manager: CategoriesManager) -> None:
+        """Assigning an existing, non-ancestor parent is accepted."""
+        assert categories_manager.validate_parent_assignment(CHAIN_STANDALONE_ID, CHAIN_ROOT_ID) is None
+
+    def test_cycle_through_multi_level_ancestors_is_rejected(self, categories_manager: CategoriesManager) -> None:
+        """Assigning the leaf as parent of the root closes a cycle (root is a 2-level ancestor of leaf)."""
+        rejection = categories_manager.validate_parent_assignment(CHAIN_ROOT_ID, CHAIN_LEAF_ID)
+
+        assert rejection is not None
+        assert 'cycle' in rejection
+
+    def test_deep_chain_without_cycle_returns_none(self, categories_manager: CategoriesManager) -> None:
+        """A category outside the chain may be parented under the deep leaf without a false cycle."""
+        assert categories_manager.validate_parent_assignment(CHAIN_STANDALONE_ID, CHAIN_LEAF_ID) is None

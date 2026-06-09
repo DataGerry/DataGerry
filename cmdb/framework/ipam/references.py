@@ -30,16 +30,17 @@ from cmdb.models.object_model import (
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
-    extract_field_value,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     VlanField,
     InterfaceField,
+    IpamSection,
     IpamOverviewKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.cmdb_type import CmdbType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -83,6 +84,29 @@ def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialTy
     return type_doc.get(CmdbObjectKey.PUBLIC_ID)
 
 
+def resolve_special_type_icon(types_manager: TypesManager, special_type: SpecialType) -> str | None:
+    """
+    Returns the icon of the CmdbType marked with the given SpecialType, or None if none exists
+
+    Reads the type's render_meta icon (the same icon shown for the type elsewhere). Returns None
+    when no CmdbType carries the SpecialType yet or the type has no icon set, so callers pass the
+    value through to the frontend, which applies its own default
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_type (SpecialType): The SpecialType to resolve (SUPERNET / SUBNET)
+
+    Returns:
+        str | None: The CmdbType's icon, or None when unresolved / unset
+    """
+    type_doc: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
+
+    if not type_doc:
+        return None
+
+    return CmdbType.from_data(type_doc).get_icon()
+
+
 def _find_objects_with_field_value(
     objects_manager: ObjectsManager,
     type_id: int,
@@ -119,6 +143,43 @@ def _find_objects_with_field_value(
     return _project_to_reference_dicts(matches)
 
 
+def field_value_expr(field_name: str, array_path: str = '') -> dict[str, Any]:
+    """
+    Builds the aggregation expression extracting the first value of a named name/value entry
+
+    Filters a name/value entry array down to entries with the given name, maps them to
+    their 'value' and takes the first element via $first; $ifNull turns a missing entry into
+    an explicit None so projected documents always carry the key. Defaults to the document's
+    top-level 'fields' array; pass ``array_path`` to target another entry array of the same
+    shape (e.g. an unwound MDS row's 'data'). Compatible with the project-wide MongoDB 6.0
+    floor
+
+    Args:
+        field_name (str): The entry name whose value is extracted
+        array_path (str): Dotted document path of the name/value array (without the leading
+            '$'); empty selects the top-level 'fields' array
+
+    Returns:
+        dict[str, Any]: The aggregation expression for use inside a $project stage
+    """
+    source_path: str = array_path or CmdbObjectKey.FIELDS.value
+
+    return {'$ifNull': [
+        {'$first': {
+            '$map': {
+                'input': {'$filter': {
+                    'input': f'${source_path}',
+                    'as': 'field',
+                    'cond': {'$eq': [f'$$field.{CmdbObjectFieldKey.NAME.value}', field_name]},
+                }},
+                'as': 'field',
+                'in': f'$$field.{CmdbObjectFieldKey.VALUE.value}',
+            },
+        }},
+        None,
+    ]}
+
+
 def load_vlans_by_subnets(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -127,12 +188,11 @@ def load_vlans_by_subnets(
     """
     Groups VLAN CmdbObjects by the subnet their 'dg-subnet-ref' field points at
 
-    A single Mongo query selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
-    ``subnet_ids``; bucketing happens in Python to keep the pipeline portable (Cosmos Mongo API
-    friendly: no aggregation stages required). Each VLAN that references one of the supplied
-    subnets contributes a {'public_id': <vlan id>, 'name': <vlan dg-name or None>} entry to the
-    bucket for that subnet. Per-bucket entries are sorted by ascending public_id so the order
-    is deterministic across re-queries
+    A single aggregation selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
+    ``subnet_ids``, extracts each VLAN's subnet reference and 'dg-name' (None when unset),
+    groups the {'public_id', 'name'} entries server-side under their subnet and sorts each
+    (small) per-subnet bucket by ascending public_id via $sortArray (MongoDB 6.0) - cheaper
+    than the previous blocking $sort over the whole match set before grouping
 
     Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
     subnets without referencing VLANs do not appear in the returned dict (callers should treat
@@ -155,36 +215,44 @@ def load_vlans_by_subnets(
     if vlan_type_id is None:
         return {}
 
-    subnet_id_set: set[int] = set(subnet_ids)
-
-    criteria: dict[str, Any] = {
-        CmdbObjectKey.TYPE_ID: vlan_type_id,
-        CmdbObjectKey.FIELDS: {
-            '$elemMatch': {
-                CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
-                CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+    subnet_ref_key: str = VlanField.SUBNET_REF.value
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {
+            CmdbObjectKey.TYPE_ID: vlan_type_id,
+            CmdbObjectKey.FIELDS: {
+                '$elemMatch': {
+                    CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
+                    CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
+                },
             },
-        },
+        }},
+        {'$project': {
+            '_id': 0,
+            CmdbObjectKey.PUBLIC_ID: 1,
+            subnet_ref_key: field_value_expr(VlanField.SUBNET_REF),
+            IpamOverviewKey.NAME: field_value_expr(VlanField.NAME),
+        }},
+        {'$match': {subnet_ref_key: {'$in': subnet_ids}}},
+        {'$group': {
+            '_id': f'${subnet_ref_key}',
+            IpamOverviewKey.VLANS: {'$push': {
+                CmdbObjectKey.PUBLIC_ID: f'${CmdbObjectKey.PUBLIC_ID.value}',
+                IpamOverviewKey.NAME: f'${IpamOverviewKey.NAME.value}',
+            }},
+        }},
+        # Sort each per-subnet bucket instead of the whole match set ($sortArray: MongoDB 6.0)
+        {'$project': {
+            IpamOverviewKey.VLANS: {'$sortArray': {
+                'input': f'${IpamOverviewKey.VLANS.value}',
+                'sortBy': {CmdbObjectKey.PUBLIC_ID.value: 1},
+            }},
+        }},
+    ]
+
+    return {
+        row['_id']: row[IpamOverviewKey.VLANS]
+        for row in objects_manager.aggregate_objects(pipeline)
     }
-
-    vlan_objs: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
-    buckets: dict[int, list[dict[str, Any]]] = {}
-
-    for vlan_obj in vlan_objs:
-        subnet_ref: Any = extract_field_value(vlan_obj, VlanField.SUBNET_REF)
-
-        if subnet_ref not in subnet_id_set:
-            continue
-
-        buckets.setdefault(subnet_ref, []).append({
-            CmdbObjectKey.PUBLIC_ID: vlan_obj[CmdbObjectKey.PUBLIC_ID],
-            IpamOverviewKey.NAME: extract_field_value(vlan_obj, VlanField.NAME),
-        })
-
-    for bucket in buckets.values():
-        bucket.sort(key=lambda entry: entry[CmdbObjectKey.PUBLIC_ID])
-
-    return buckets
 
 
 def find_subnets_referencing_supernet(
@@ -250,7 +318,10 @@ def find_interfaces_referencing_subnet(
     Returns CmdbObjects that have at least one 'dg-ipam-interface' MDS row whose
     'dg-interface-subnet' field points at the given subnet object
 
-    Spans every CmdbType because the dg-ipam-interface section template is global
+    Spans every CmdbType because the dg-ipam-interface section template is global. The
+    $elemMatch is scoped to the dg-ipam-interface section (SECTION_ID), matching
+    ``load_interface_owners`` - a row in some other section whose data happened to carry the
+    same field name must not count as an interface reference
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -263,6 +334,7 @@ def find_interfaces_referencing_subnet(
     criteria: dict[str, Any] = {
         CmdbObjectKey.MULTI_DATA_SECTIONS: {
             '$elemMatch': {
+                CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
                 CmdbObjectMdsKey.VALUES: {
                     '$elemMatch': {
                         CmdbObjectMdsRowKey.DATA: {

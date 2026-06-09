@@ -14,7 +14,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all API routes for CmdbTypes
+REST API routes for CmdbType CRUD
+
+Blueprint ``types_blueprint`` is mounted at ``/rest/types`` (see ``init_rest_api.py``). Endpoints:
+
+    POST   /                                insert_cmdb_type
+    GET    /                                get_cmdb_types
+    GET    /with_clean_status               get_cmdb_types_with_status
+    GET    /<public_id>                     get_cmdb_type
+    GET    /count_objects/<public_id>       count_objects_of_cmdb_type
+    GET    /location_field_usage/<public_id> get_location_field_usage_of_cmdb_type
+    PUT    /<public_id>                     update_cmdb_type
+    PATCH  /<public_id>                     update_cmdb_type
+    DELETE /<public_id>                     delete_cmdb_type
+
+All routes require authentication (JWT or ``x-api-key`` in cloud mode), ApiLevel.ADMIN and the
+per-route ``base.framework.type.*`` right (see ``TypeRight``). Domain logic lives in
+``TypesManager`` and ``types_helper``; manager-layer errors map to HTTP 400 (business-rule /
+lookup failures) or HTTP 500 (unexpected), following the codebase convention - 409 is not used.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -29,9 +46,9 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import CmdbType
-from cmdb.models.type_model.field_type_enum import FieldType
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.type_model.type_constants import TypeRight
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -39,13 +56,15 @@ from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objec
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     verify_type_is_unique,
     prepare_builder_parameters,
-    get_types_user_data,
-    apply_type_changes_to_locations,
-    apply_type_changes_to_mds,
     verify_type_deletable,
     type_deletion_followup,
     special_type_is_unchanged,
     get_objects_using_location_field,
+    get_type_or_404,
+    guard_location_field_removal,
+    compute_removed_global_templates,
+    apply_type_update_side_effects,
+    build_types_clean_status_items,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.blueprints import APIBlueprint
@@ -79,9 +98,9 @@ types_blueprint = APIBlueprint('types', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @types_blueprint.route('/', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.add')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.ADD.value)
 @types_blueprint.validate(CmdbType.SCHEMA)
 def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -97,10 +116,15 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        data.setdefault('creation_time', datetime.now(timezone.utc))
-        data['author_id'] = request_user.public_id
+        data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
+        data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
 
-        verify_type_is_unique(types_manager, data.get('name'), data.get('public_id'), data.get('special_type'))
+        verify_type_is_unique(
+            types_manager,
+            data.get(TypeSchemaKey.NAME),
+            data.get(TypeSchemaKey.PUBLIC_ID),
+            data.get(TypeSchemaKey.SPECIAL_TYPE),
+        )
 
         result_id: int = types_manager.insert_type(data)
         created_type: dict[str, Any] | None = types_manager.get_type(result_id)
@@ -108,7 +132,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         if not created_type:
             abort(404, "Could not retrieve the created Type from the database!")
 
-        special_type: str | None = created_type.get('special_type')
+        special_type: str | None = created_type.get(TypeSchemaKey.SPECIAL_TYPE)
 
         if special_type:
             section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -136,9 +160,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @types_blueprint.route('/', methods=['GET', 'HEAD'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 @types_blueprint.parse_parameters(TypeIterationParameters)
 def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
     """
@@ -177,9 +201,9 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
 
 
 @types_blueprint.route('/with_clean_status', methods=['GET', 'HEAD'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 @types_blueprint.parse_parameters(TypeIterationParameters)
 def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
     """
@@ -202,50 +226,29 @@ def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: Cm
         iteration_result: IterationResult[CmdbType] = types_manager.iterate(builder_params)
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
 
-        type_ids: list[int] = [t["public_id"] for t in types if t.get("public_id") is not None]
+        type_ids: list[int] = [
+            t[TypeSchemaKey.PUBLIC_ID] for t in types if t.get(TypeSchemaKey.PUBLIC_ID) is not None
+        ]
 
-        # Grouped objects
-        objects_by_type: dict[int, list[CmdbObject]] = objects_manager.get_grouped_objects_for_types(type_ids)
+        # Distinct object field-name sets per type, deduplicated DB-side (no full objects loaded)
+        field_name_sets_by_type: dict[int, list[set[str]]] = objects_manager.get_object_field_name_sets_by_type(
+            type_ids,
+        )
 
         # Get all users which interacted with the filtered types
         user_ids = {
             uid
             for t in types
-            for uid in (t.get("author_id"), t.get("editor_id"))
+            for uid in (t.get(TypeSchemaKey.AUTHOR_ID), t.get(TypeSchemaKey.EDITOR_ID))
             if uid is not None
         }
 
         user_lookup: dict[int, CmdbUser] = users_manager.get_user_lookup(user_ids)
 
-        # Get clean status of types
-        response_items: list[dict[str, Any]] = []
-
-        for type_data in types:
-            expected_fields = {f["name"] for f in type_data["fields"]}
-
-            type_objects: list[CmdbObject] = objects_by_type.get(type_data["public_id"], [])
-
-            clean = True
-
-            for obj in type_objects:
-                obj_fields = {f["name"] for f in obj.fields}
-
-                if obj_fields != expected_fields:
-                    clean = False
-                    break
-
-            # Retrieve relevant user data of author and editor
-            types_user_data: dict[str, Any] = get_types_user_data(
-                user_lookup,
-                type_data.get("author_id"),
-                type_data.get("editor_id")
-            )
-
-            response_items.append({
-                "type_data": type_data,
-                "user_data": types_user_data,
-                "clean_status": clean
-            })
+        # Build the per-type {type_data, user_data, clean_status} items
+        response_items: list[dict[str, Any]] = build_types_clean_status_items(
+            types, field_name_sets_by_type, user_lookup,
+        )
 
         api_response = GetMultiResponse(
             response_items,
@@ -257,17 +260,17 @@ def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: Cm
 
         return api_response.make_response()
     except TypesManagerIterationError as err:
-        LOGGER.error("[get_cmdb_types] %s: %s", type(err), err, exc_info=True)
+        LOGGER.error("[get_cmdb_types_with_status] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
     except Exception as err:
-        LOGGER.error("[get_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[get_cmdb_types_with_status] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the Types with clean status!")
 
 
 @types_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@types_blueprint.protect(auth=True, right='base.framework.type.view')
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbType
@@ -282,10 +285,7 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        requested_type: dict[str, Any] | None = types_manager.get_type(public_id)
-
-        if not requested_type:
-            abort(404, f"The Type with ID:{public_id} was not found!")
+        requested_type: dict[str, Any] = get_type_or_404(types_manager, public_id)
 
         return GetSingleResponse(requested_type, body=request.method == 'HEAD').make_response()
     except HTTPException as http_err:
@@ -299,9 +299,9 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @types_blueprint.route('/count_objects/<int:public_id>', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     Counts the number of CmdbObjects in the database with the given public_id as the type_id
@@ -316,10 +316,10 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        count_query: dict[str, Any] = {"type_id": public_id}
+        count_query: dict[str, Any] = {CmdbObjectKey.TYPE_ID: public_id}
 
         if fetch_only_active_objects():
-            count_query["active"] = True
+            count_query[CmdbObjectKey.ACTIVE] = True
 
         objects_count: int = objects_manager.count_documents(count_query)
 
@@ -333,9 +333,9 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
 
 
 @types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     Returns the public_ids of CmdbObjects that have a value (integer > 0) in the
@@ -353,10 +353,7 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        target_type: CmdbType | None = types_manager.get_type(public_id, as_dict=False)
-
-        if not target_type:
-            abort(404, f"The Type with ID:{public_id} was not found!")
+        target_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
 
         object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
 
@@ -385,9 +382,9 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @types_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.edit')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.EDIT.value)
 @types_blueprint.validate(CmdbType.SCHEMA)
 def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -404,87 +401,46 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        old_type: CmdbType = types_manager.get_type(public_id, as_dict=False)
+        old_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
 
-        if not old_type:
-            abort(404, f"The Type with ID:{public_id} was not found!")
-
-        data['last_edit_time'] = datetime.now(timezone.utc)
-        data['editor_id'] = request_user.public_id
+        data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
+        data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
         new_type: CmdbType = CmdbType.from_data(data)
 
-        if not special_type_is_unchanged(old_type.special_type, data.get('special_type')):
+        if not special_type_is_unchanged(old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE)):
             abort(400, "It is not possible to change the SpecialType property of Types!")
 
-        # Block removal of the location field while CmdbObjects still hold a location value.
-        old_has_location_field: bool = any(f.get('type') == FieldType.LOCATION for f in old_type.get_fields())
-        new_has_location_field: bool = any(f.get('type') == FieldType.LOCATION for f in new_type.get_fields())
+        # Block removal of the location field while CmdbObjects still hold a location value
+        guard_location_field_removal(request_user, old_type, new_type)
 
-        if old_has_location_field and not new_has_location_field:
-            object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
-
-            if object_public_ids:
-                abort(
-                    400,
-                    "Cannot remove the location field: "
-                    f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
-                )
-
-        # Compute templates being removed by comparing the pre-update state to the
-        # incoming payload (NOT the post-update type), and snapshot each removed
-        # template's section info while it is still present on old_type — the blind
-        # update below will wipe the sections we need to identify affected fields
-        old_template_ids: set[str] = set(old_type.global_template_ids or [])
-        incoming_template_ids: set[str] = set(data.get('global_template_ids') or [])
-        removed_template_ids: set[str] = old_template_ids - incoming_template_ids
-
-        removed_template_hints: dict[str, tuple[list[str], str]] = {}
-
-        for template_name in removed_template_ids:
-            section = old_type.get_section(template_name)
-
-            if section is not None:
-                removed_template_hints[template_name] = (section.get_fields(), section.type)
+        # Compute templates being removed by comparing the pre-update state to the incoming
+        # payload (NOT the post-update type) and snapshot each removed template's section info
+        # while it is still present on old_type - the blind update below wipes those sections
+        removed_templates = compute_removed_global_templates(
+            old_type, set(data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS) or []),
+        )
 
         # Update the target CmdbType
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
-        updated_type: CmdbType = types_manager.get_type(public_id, as_dict=False)
+        updated_type: CmdbType | None = types_manager.get_type(public_id, as_dict=False)
 
         if not updated_type:
             abort(404, f"The updated Type with ID:{public_id} was not found!")
 
-        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
-            ManagerType.SECTION_TEMPLATES,
-            request_user
-        )
+        # Run the post-update persistence side effects (template cleanup, special-type wiring,
+        # location + MDS propagation)
+        apply_type_update_side_effects(request_user, types_manager, old_type, updated_type, removed_templates)
 
-        for template_name in removed_template_ids:
-            expected_fields, expected_section_type = removed_template_hints.get(
-                template_name, (None, None),
-            )
-            section_templates_manager.cleanup_global_section_from_type(
-                updated_type.public_id,
-                template_name,
-                expected_field_names=expected_fields,
-                expected_section_type=expected_section_type,
-            )
+        # Re-read the fully-persisted Type so server-side mutations applied after the initial
+        # update (special-type ref_types cross-wiring, removed-template section cleanup) are
+        # reflected in the response instead of the raw request payload
+        final_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
-        if updated_type.special_type:
-            handle_special_types(
-                types_manager,
-                updated_type.special_type,
-                section_templates_manager,
-                updated_type.public_id,
-            )
+        if not final_type:
+            abort(404, f"The updated Type with ID:{public_id} was not found!")
 
-        # When CmdbType is updated, update relevant data in all CmdbLocations of this CmdbType
-        apply_type_changes_to_locations(request_user, old_type, updated_type)
-
-        # Check and update all MDS on CmdbObjects having this CmdbType (if required)
-        apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))
-
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(final_type).make_response()
     except HTTPException as http_err:
         raise http_err
     except LocationsManagerUpdateError as err:
@@ -512,10 +468,10 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @types_blueprint.route('/<int:public_id>', methods=['DELETE'])
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
-@types_blueprint.protect(auth=True, right='base.framework.type.delete')
-def delete_cmdb_type(public_id: int, request_user: CmdbUser):
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.DELETE.value)
+def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbType
 
@@ -538,7 +494,7 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         types_manager.delete_type(public_id)
 
         # All the followup actions where the public_id need to be removed
-        type_deletion_followup(request_user, public_id, to_delete_type.get('special_type'))
+        type_deletion_followup(request_user, public_id, to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE))
         return DeleteSingleResponse(to_delete_type).make_response()
     except HTTPException as http_err:
         raise http_err

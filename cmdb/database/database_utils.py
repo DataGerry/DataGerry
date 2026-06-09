@@ -34,7 +34,6 @@ from bson.timestamp import Timestamp
 from bson.tz_util import utc
 
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure
-from azure.core.exceptions import HttpResponseError
 
 from cmdb.framework.search.search_result import SearchResult
 from cmdb.framework.search.search_result_map import SearchResultMap
@@ -152,27 +151,12 @@ def default(obj: Any) -> Any:
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1  # in seconds
 
-# Azure Cosmos DB error codes
-COSMOS_DB_ERROR_CODES: dict[int, str] = {
-    429: "Too Many Requests",
-    91: "Timeout",
-    500: "Internal Server Error",
-    503: "Service Unavailable",
-    400: "Bad Request",
-    404: "Not Found",
-    412: "Precondition Failed",
-    413: "Request Entity Too Large",
-    405: "Method Not Allowed",
-    419: "Conflict",
-}
-
 def retry_operation(func: Callable) -> Callable:
     """
     Decorator to retry database operations with exponential backoff on recoverable errors
 
-    Retries on pymongo connection/timeout errors and on Azure Cosmos DB HttpResponseError codes
-    listed in COSMOS_DB_ERROR_CODES (up to MAX_RETRIES times, with jittered exponential backoff).
-    Unrecognised errors are logged and re-raised immediately.
+    Retries on pymongo connection/timeout errors (up to MAX_RETRIES times, with jittered
+    exponential backoff). Other errors are re-raised immediately.
 
     Args:
         func (Callable): The database operation (a method taking 'self' first) to wrap
@@ -206,36 +190,7 @@ def retry_operation(func: Callable) -> Callable:
                 else:
                     LOGGER.error("All %d attempts failed for %s: %s", MAX_RETRIES, func.__name__, e)
                     raise
-            except HttpResponseError as e:
-                # Handle Cosmos DB specific error codes
-                if e.status_code in COSMOS_DB_ERROR_CODES:
-                    retries += 1
-                    error_message = COSMOS_DB_ERROR_CODES[e.status_code]
-                    backoff_delay = retry_delay + random.uniform(0, 1)  # Add jitter to prevent thundering herd problem
-                    LOGGER.warning(
-                        "Attempt %d failed for %s with Cosmos DB error %s: %s. Retrying in %.2fs...",
-                        retries,
-                        func.__name__,
-                        error_message,
-                        e.message,
-                        backoff_delay,
-                    )
 
-                    if retries < MAX_RETRIES:
-                        time.sleep(backoff_delay)
-                        retry_delay *= 2  # Exponentially increase the delay
-                    else:
-                        LOGGER.error(
-                            "All %d attempts failed for %s with Cosmos DB error %s: %s",
-                            MAX_RETRIES,
-                            func.__name__,
-                            error_message,
-                            str(e)
-                        )
-                        raise
-                else:
-                    # If the error is not recognized, log and raise it
-                    LOGGER.error("Unrecognized error for %s: %s", func.__name__, e)
-                    raise
+        return None  # unreachable: the final retry attempt always returns or re-raises
 
     return wrapper

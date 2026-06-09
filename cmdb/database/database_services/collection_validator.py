@@ -26,7 +26,7 @@ never re-seeded; only their indexes are reconciled against the current model def
 shared cache database (DG_CACHE_DB) is created on the same pass when it is missing
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable
 from datetime import datetime, timezone
 
 from pymongo import IndexModel
@@ -34,6 +34,10 @@ from pymongo.results import UpdateResult
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION, DG_CACHE_DB
+from cmdb.database.database_services.database_services_constants import (
+    BootstrapDocumentKey,
+    GENERAL_REPORT_CATEGORY_NAME,
+)
 from cmdb.database.predefined_data.isms_data import (
     get_default_protection_goals,
     get_default_risk_matrix,
@@ -70,7 +74,6 @@ from cmdb.framework.section_templates.section_template_creator import SectionTem
 from cmdb.security.key.generator import KeyGenerator
 
 from cmdb.errors.database.collection_validator import (
-    CollectionValidatorInitError,
     CollectionInitError,
     CollectionValidationError,
 )
@@ -104,16 +107,10 @@ class CollectionValidator:
             dbm (MongoDatabaseManager): The database operations manager for MongoDB
             local_mode (bool): True when DataGerry runs in local (non-cloud) mode; gates the
                 generation of encryption keys and the default admin user
-
-        Raises:
-            CollectionValidatorInitError: If the CollectionValidator could not be initialised
         """
-        try:
-            self.db_name = db_name
-            self.dbm = dbm
-            self.local_mode = local_mode
-        except Exception as err:
-            raise CollectionValidatorInitError(str(err)) from err
+        self.db_name: str = db_name
+        self.dbm: MongoDatabaseManager = dbm
+        self.local_mode: bool = local_mode
 
 
     def validate_collections(self) -> None:
@@ -202,62 +199,96 @@ class CollectionValidator:
             CollectionInitError: If any collection failed to be created or seeded
         """
         try:
-            all_collections = self.get_all_db_collections(self.db_name)
+            all_collections: list[str] = self.get_all_db_collections(self.db_name)
+
+            # Per-class predefined-data seeders, run once when a framework collection is created
+            framework_seeders: dict[type, Callable[[], None]] = {
+                CmdbLocation: self._seed_root_location,
+                CmdbReportCategory: self._seed_general_report_category,
+                IsmsProtectionGoal: self._seed_default_protection_goals,
+                IsmsRiskMatrix: self._seed_default_risk_matrix,
+                CmdbExtendableOption: self._seed_predefined_extendable_options,
+            }
 
             # Check all Framework Classes
             for framework_class in FRAMEWORK_CLASSES:
                 # get the expected indexes
-                expected_indexes = framework_class.get_index_keys()
+                expected_indexes: list[IndexModel] = framework_class.get_index_keys()
 
                 # If collection does not exist, create it and initialise with default data
                 if framework_class.COLLECTION not in all_collections:
                     self.dbm.create_collection(framework_class.COLLECTION, self.db_name)
                     self.dbm.create_indexes(framework_class.COLLECTION, self.db_name, expected_indexes)
 
-                    # Create the root CmdbLocation
-                    if framework_class == CmdbLocation:
-                        self.set_root_location(CmdbLocation.COLLECTION, self.db_name, create=True)
+                    seeder: Callable[[], None] | None = framework_seeders.get(framework_class)
 
-                    # Create the predefined CmdbReportCategories
-                    if framework_class == CmdbReportCategory:
-                        self.create_general_report_category(CmdbReportCategory.COLLECTION, self.db_name)
-
-                    # Create the default IsmsProtectionGoals
-                    if framework_class == IsmsProtectionGoal:
-                        default_protection_goals = get_default_protection_goals()
-
-                        for protection_goal in default_protection_goals:
-                            self.dbm.insert(IsmsProtectionGoal.COLLECTION, self.db_name, protection_goal)
-
-                    # Create the default IsmsRiskMatrix
-                    if framework_class == IsmsRiskMatrix:
-                        self.dbm.upsert_set(IsmsRiskMatrix.COLLECTION, self.db_name, get_default_risk_matrix())
-
-                    # Create predefined CmdbExtendableOptions
-                    if framework_class == CmdbExtendableOption:
-                        predefined_isms_options = get_default_isms_extendable_options()
-
-                        for predefined_isms_option in predefined_isms_options:
-                            self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_isms_option)
+                    if seeder is not None:
+                        seeder()
                 else:
-                    try:
-                        self.ensure_indexes(framework_class.COLLECTION, self.db_name, expected_indexes)
-                    except Exception as err:
-                        LOGGER.error(
-                            "[init_framework_collections] Failed to update indexes for collection %s. "
-                            "Exception: %s. Type: %s.",
-                            framework_class.COLLECTION,
-                            err,
-                            type(err),
-                            exc_info=True
-                        )
+                    self._reconcile_collection_indexes(framework_class, expected_indexes)
 
-                # Create the predefined CmdbSectionTemplates
+                # Create the predefined CmdbSectionTemplates (seeded on every pass)
                 if framework_class == CmdbSectionTemplate:
                     self.init_predefined_templates(CmdbSectionTemplate.COLLECTION, self.db_name)
         except Exception as err:
             LOGGER.error("[init_framework_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             raise CollectionInitError(str(err)) from err
+
+
+    def _reconcile_collection_indexes(self, model_class: type, expected_indexes: list[IndexModel]) -> None:
+        """
+        Adds any missing indexes for an existing collection (framework or user-management)
+
+        Per-collection index failures are logged but deliberately not re-raised, so one
+        collection's index problem does not abort the whole bootstrap pass.
+
+        Args:
+            model_class (type): The model class whose collection is reconciled
+            expected_indexes (list[IndexModel]): Index models the model class currently declares
+        """
+        try:
+            self.ensure_indexes(model_class.COLLECTION, self.db_name, expected_indexes)
+        except Exception as err:
+            LOGGER.error(
+                "[_reconcile_collection_indexes] Failed to update indexes for collection %s. "
+                "Exception: %s. Type: %s.",
+                model_class.COLLECTION,
+                err,
+                type(err),
+                exc_info=True
+            )
+
+# ----------------------------------------- FRAMEWORK PREDEFINED-DATA SEEDERS ---------------------------------------- #
+
+    def _seed_root_location(self) -> None:
+        """Seeds the root CmdbLocation document into a freshly created locations collection"""
+        self.set_root_location(CmdbLocation.COLLECTION, self.db_name, create=True)
+
+
+    def _seed_general_report_category(self) -> None:
+        """Seeds the predefined 'General' report category into a freshly created collection"""
+        self.create_general_report_category(CmdbReportCategory.COLLECTION, self.db_name)
+
+
+    def _seed_default_protection_goals(self) -> None:
+        """Seeds the default ISMS protection goals into a freshly created collection"""
+        default_protection_goals: list[dict[str, Any]] = get_default_protection_goals()
+
+        for protection_goal in default_protection_goals:
+            self.dbm.insert(IsmsProtectionGoal.COLLECTION, self.db_name, protection_goal)
+
+
+    def _seed_default_risk_matrix(self) -> None:
+        """Seeds the default ISMS risk matrix into a freshly created collection"""
+        self.dbm.upsert_set(IsmsRiskMatrix.COLLECTION, self.db_name, get_default_risk_matrix())
+
+
+    def _seed_predefined_extendable_options(self) -> None:
+        """Seeds the predefined ISMS extendable options into a freshly created collection"""
+        predefined_isms_options: list[dict[str, Any]] = get_default_isms_extendable_options()
+
+        for predefined_isms_option in predefined_isms_options:
+            self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_isms_option)
 
 
     def init_management_collections(self) -> None:
@@ -270,8 +301,8 @@ class CollectionValidator:
             (admin, user, etc.) defined in __FIXED_GROUPS__. The CmdbUser collection is seeded
             with the default admin/admin user only in local mode; in cloud mode the initial
             user is provisioned elsewhere.
-          - If the collection already exists, this method does NOT reconcile its indexes (in
-            contrast to init_framework_collections, which does).
+          - If the collection already exists, its indexes are reconciled against the current
+            model definition (additively), matching init_framework_collections.
 
         Raises:
             CollectionInitError: If any collection failed to be created or seeded
@@ -280,27 +311,25 @@ class CollectionValidator:
             all_collections: list[str] = self.get_all_db_collections(self.db_name)
 
             for management_class in USER_MANAGEMENT_COLLECTION:
+                expected_indexes: list[IndexModel] = management_class.get_index_keys()
+
                 if management_class.COLLECTION not in all_collections:
                     self.dbm.create_collection(management_class.COLLECTION, self.db_name)
-                    self.dbm.create_indexes(
-                                    management_class.COLLECTION,
-                                    self.db_name,
-                                    management_class.get_index_keys()
-                            )
+                    self.dbm.create_indexes(management_class.COLLECTION, self.db_name, expected_indexes)
 
                     if management_class == CmdbUserGroup:
-                        groups_manager = GroupsManager(self.dbm, self.db_name)
+                        groups_manager: GroupsManager = GroupsManager(self.dbm, self.db_name)
 
                         for group in __FIXED_GROUPS__:
                             groups_manager.insert_group(group)
 
                     # The default admin CmdbUser is only created in local_mode
                     if management_class == CmdbUser and self.local_mode:
-                        scm = SecurityManager(self.dbm, self.db_name)
-                        users_manager = UsersManager(self.dbm, self.db_name)
+                        scm: SecurityManager = SecurityManager(self.dbm, self.db_name)
+                        users_manager: UsersManager = UsersManager(self.dbm, self.db_name)
 
                         # setting the initial user to admin/admin as default
-                        admin_user = CmdbUser(
+                        admin_user: CmdbUser = CmdbUser(
                             public_id=1,
                             user_name='admin',
                             active=True,
@@ -310,6 +339,8 @@ class CollectionValidator:
                         )
 
                         users_manager.insert_user(admin_user)
+                else:
+                    self._reconcile_collection_indexes(management_class, expected_indexes)
         except Exception as err:
             LOGGER.error("[init_management_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             raise CollectionInitError(str(err)) from err
@@ -329,6 +360,25 @@ class CollectionValidator:
         return self.dbm.connector.get_database(db_name).list_collection_names()
 
 
+    def _ensure_public_id_counter(self, collection: str, db_name: str) -> None:
+        """
+        Ensures the public_id counter document for a collection exists, creating it when missing
+
+        Idempotent: looks the counter up by the collection name and initialises it only when it is
+        not yet present. Shared by every seeder that needs to assign public_ids on first creation.
+
+        Args:
+            collection (str): Name of the collection whose public_id counter is required
+            db_name (str): Name of the database that owns the collection
+        """
+        counter: dict[str, Any] | None = self.dbm.get_collection(
+            PUBLIC_ID_COUNTER_COLLECTION, db_name
+        ).find_one({BootstrapDocumentKey.ID: collection})
+
+        if not counter:
+            self.dbm.init_public_id_counter(collection, db_name)
+
+
     def ensure_indexes(self, collection: str, db_name: str, expected: list[IndexModel]) -> None:
         """
         Adds any expected indexes that are missing on a collection, leaving existing ones intact
@@ -342,11 +392,11 @@ class CollectionValidator:
             db_name (str): Name of the database that owns the collection
             expected (list[IndexModel]): Index models the model class currently declares
         """
-        existing_indexes = self.dbm.get_index_info(collection, db_name)
+        existing_indexes: dict[str, Any] = self.dbm.get_index_info(collection, db_name)
 
-        existing_names = set(existing_indexes.keys())
+        existing_names: set[str] = set(existing_indexes.keys())
 
-        missing_indexes = []
+        missing_indexes: list[IndexModel] = []
 
         for index in expected:
             if index.document['name'] not in existing_names:
@@ -382,13 +432,11 @@ class CollectionValidator:
         try:
             # If creation is requested, ensure the counter exists
             if create:
-                # Check if the counter exists, if not initialize it
-                if not self.dbm.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection}):
-                    self.dbm.init_public_id_counter(collection, db_name)
+                self._ensure_public_id_counter(collection, db_name)
 
                 # Insert root location data
                 LOGGER.info("Creating ROOT location!")
-                status = self.dbm.upsert_set(collection, self.db_name, get_root_location_data())
+                status: UpdateResult = self.dbm.upsert_set(collection, self.db_name, get_root_location_data())
             else:
                 # Update the root location data
                 LOGGER.info("Updating ROOT location!")
@@ -417,18 +465,17 @@ class CollectionValidator:
             DocumentInsertError: If counter init, the existence lookup, or any insert fails
         """
         try:
-            counter = self.dbm.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
+            self._ensure_public_id_counter(collection, db_name)
 
-            if not counter:
-                self.dbm.init_public_id_counter(collection, self.db_name)
-
-            predefined_template_creator = SectionTemplateCreator()
-            predefined_templates: list[dict] = predefined_template_creator.get_predefined_templates()
+            predefined_template_creator: SectionTemplateCreator = SectionTemplateCreator()
+            predefined_templates: list[dict[str, Any]] = predefined_template_creator.get_predefined_templates()
 
             for predefined_template in predefined_templates:
                 # First, check if the template already exists
-                template_name = predefined_template['name']
-                result = self.dbm.get_collection(collection, self.db_name).find_one({'name': template_name})
+                template_name: str = predefined_template[BootstrapDocumentKey.NAME]
+                result: dict[str, Any] | None = self.dbm.get_collection(
+                    collection, self.db_name
+                ).find_one({BootstrapDocumentKey.NAME: template_name})
 
                 if not result:
                     # The template does not exist, create it
@@ -459,20 +506,19 @@ class CollectionValidator:
             DocumentInsertError: If counter init, the existence lookup, or the insert fails
         """
         try:
-            counter = self.dbm.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one({'_id': collection})
+            self._ensure_public_id_counter(collection, db_name)
 
-            if not counter:
-                self.dbm.init_public_id_counter(collection, db_name)
-
-            result = self.dbm.get_collection(collection, db_name).find_one({'name': 'General'})
+            result: dict[str, Any] | None = self.dbm.get_collection(collection, db_name).find_one(
+                {BootstrapDocumentKey.NAME: GENERAL_REPORT_CATEGORY_NAME}
+            )
 
             if not result:
                 # The category does not exist, create it
                 LOGGER.info("Creating 'General' Report Category")
 
                 general_category: dict[str, Any] = {
-                    'name': 'General',
-                    'predefined': True,
+                    BootstrapDocumentKey.NAME: GENERAL_REPORT_CATEGORY_NAME,
+                    BootstrapDocumentKey.PREDEFINED: True,
                 }
 
                 self.dbm.insert(collection, db_name, general_category)

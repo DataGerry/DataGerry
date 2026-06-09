@@ -19,14 +19,20 @@ IP Address Management (IPAM) feature for DataGerry
 Provides the validators, overview builders, and shared CIDR helpers behind the IPAM
 SpecialTypes (SUPERNET, SUBNET, VLAN) and the dg-ipam-interface MDS section template.
 Modules:
-  - cidr: pure IPv4 helpers (parsing, containment, address-count policy)
+  - cidr: pure IPv4 / IPv6 helpers (parsing, containment, address-count policy)
   - pagination: page/page_size clamping shared by the overview routes
   - references: SpecialType id resolution
   - search: search-input normalization helpers shared by the overview routes
   - subnet_validator / interface_validator / vlan_validator: structured per-row
       validation invoked at save time and from the inline pre-validation REST routes
   - enforcement: cross-row enforcement helpers used by the validator orchestrators
-  - subnet_overview / supernet_overview: payload builders for the IPAM overview views
+  - subnet_overview (package) / supernet_overview: payload builders for the IPAM overview
+      views; subnet_overview splits into assigned_rows / candidates / rows / distribution /
+      sectors / export_rows / orchestrators modules behind a stable package API
+  - tree_overview: payload builders for the IPAM sidebar tree (flat supernet / unassigned
+      blocks plus the per-supernet CIDR-nested subnet subtree)
+  - subnet_options: paginated, family-filterable subnet list backing the dg-ipam-interface
+      subnet picker
   - supernet_membership: write-side mutations against the SUBNET <-> SUPERNET relation
       (currently the batch 'unassign subnets from supernet' flow used by the overview)
   - special_type_wiring: cross-wires the SpecialType reference fields (Subnet -> Supernet,
