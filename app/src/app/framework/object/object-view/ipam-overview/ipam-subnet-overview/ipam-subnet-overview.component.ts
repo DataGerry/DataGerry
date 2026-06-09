@@ -161,6 +161,12 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.dispatchIpsRequest();
     }
 
+    public onShowAllIps(): void {
+        if (this.hasSelectedSector) {
+            this.onClearSector();
+        }
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public get isReady(): boolean {

@@ -18,21 +18,54 @@
       </app-button>
     </div>
     <div class="ipam-subnet__cards">
-      <article class="ipam-subnet-card">
+      <article
+        class="ipam-subnet-card"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        ngbTooltip="Show all IP addresses"
+        [disableTooltip]="!hasSelectedSector"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Network</span>
         <span class="ipam-subnet-card__value ipam-subnet-card__value--mono">
           {{ subnet?.cidr || '—' }}
         </span>
       </article>
 
-      <article class="ipam-subnet-card">
+      <article
+        class="ipam-subnet-card"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        ngbTooltip="Show all IP addresses"
+        [disableTooltip]="!hasSelectedSector"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Total IPs</span>
         <span class="ipam-subnet-card__value">
           {{ (subnet?.total_ips ?? total) | number }}
         </span>
       </article>
 
-      <article class="ipam-subnet-card">
+      <article
+        class="ipam-subnet-card"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        ngbTooltip="Show all IP addresses"
+        [disableTooltip]="!hasSelectedSector"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Assignable IPs</span>
         <span class="ipam-subnet-card__value">
           @if (subnet?.assignable_ips != null) {
@@ -75,7 +108,14 @@
         </span>
       </article>
 
-      <article class="ipam-subnet-card ipam-subnet-card--vlans">
+      <article
+        class="ipam-subnet-card ipam-subnet-card--vlans"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Assigned VLANs</span>
         <span class="ipam-subnet-card__value ipam-subnet-card__value--vlans">
           @if (hasVlans) {

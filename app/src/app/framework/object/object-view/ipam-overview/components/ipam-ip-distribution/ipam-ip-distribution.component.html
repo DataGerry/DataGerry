@@ -24,7 +24,9 @@
                   [class.ipam-ip-dist__sector--active]="cell.key === activeSectorStart()"
                   [style.background-color]="cell.color"
                   [style.border-color]="cell.color"
-                  [title]="cell.label"
+                  [ngbTooltip]="cell.label"
+                  container="body"
+                  [openDelay]="100"
                   [attr.aria-label]="cell.label"
                   [attr.aria-pressed]="cell.key === activeSectorStart()"
                   (click)="onSectorSelect(cell)">

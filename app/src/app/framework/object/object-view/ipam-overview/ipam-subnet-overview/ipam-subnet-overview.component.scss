@@ -30,6 +30,23 @@
     transform: translateY(-1px);
 }
 
+.ipam-subnet-card--clickable {
+    cursor: pointer;
+}
+
+.ipam-subnet-card--clickable:hover {
+    border-color: #93c5fd;
+}
+
+.ipam-subnet-card--clickable:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.ipam-subnet-card--clickable .ipam-subnet-card__vlan-list {
+    cursor: pointer;
+}
+
 .ipam-subnet-card__label {
     font-size: 0.8125rem;
     font-weight: 500;
