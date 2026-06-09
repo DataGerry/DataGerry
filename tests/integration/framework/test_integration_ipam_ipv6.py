@@ -221,10 +221,10 @@ def test_supernet_overview_ipv6_reports_family_null_percentages_and_finds_subnet
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             SUBNET OVERVIEW (IPv6)                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_subnet_overview_ipv6_is_assigned_only_with_null_percentages(
+def test_subnet_overview_ipv6_is_assigned_only_with_assigned_share_percentages(
     objects_manager: ObjectsManager, types_manager: TypesManager,
 ) -> None:
-    """The IPv6 subnet IP table lists only the assigned address; type distribution drops Free + nulls %"""
+    """IPv6 IP table lists only the assigned address; type distribution drops Free, % is share of assigned"""
     payload = build_subnet_overview(objects_manager, types_manager, SUBNET_ID)
 
     subnet = payload[IpamOverviewKey.SUBNET]
@@ -238,7 +238,8 @@ def test_subnet_overview_ipv6_is_assigned_only_with_null_percentages(
     distribution = payload[IpamOverviewKey.TYPE_DISTRIBUTION]
     labels = [b[IpamOverviewKey.LABEL] for b in distribution]
     assert IpamBucketLabel.FREE not in labels
-    assert all(b[IpamOverviewKey.PERCENTAGE] is None for b in distribution)
+    # the single assigned address is 100% of the assigned total
+    assert distribution[0][IpamOverviewKey.PERCENTAGE] == 100.0
 
     grid = payload[IpamOverviewKey.IP_DISTRIBUTION]
     assert grid[IpamOverviewKey.RANGES][0][IpamOverviewKey.IP_START] == '2001:db8:0:1::'

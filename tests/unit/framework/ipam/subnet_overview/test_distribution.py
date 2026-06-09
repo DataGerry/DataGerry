@@ -546,8 +546,8 @@ def test_build_type_distribution_excludes_invalid_rows_from_type_counts() -> Non
     assert free_bucket[IpamOverviewKey.COUNT] == 253
 
 
-def test_build_type_distribution_ipv6_drops_free_bucket_and_nulls_percentage() -> None:
-    """IPv6: per-type + Unknown counts only, no Free bucket, percentage None on every bucket"""
+def test_build_type_distribution_ipv6_drops_free_bucket_and_uses_assigned_share_percentage() -> None:
+    """IPv6: per-type + Unknown buckets, no Free bucket, percentages against the assigned count"""
     assigned = {
         '2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
         '2001:db8::6': _make_assigned_entry(OWNER_OBJECT_ID, 999, None),  # orphan -> Unknown
@@ -559,5 +559,24 @@ def test_build_type_distribution_ipv6_drops_free_bucket_and_nulls_percentage() -
     labels = [b[IpamOverviewKey.LABEL] for b in distribution]
     assert labels == ['Server', IpamBucketLabel.UNKNOWN]
     assert IpamBucketLabel.FREE not in labels
-    assert all(b[IpamOverviewKey.PERCENTAGE] is None for b in distribution)
+    # 2 assigned addresses, one per bucket -> each is 50% of the assigned total, summing to 100%
     assert all(b[IpamOverviewKey.COUNT] == 1 for b in distribution)
+    assert all(b[IpamOverviewKey.PERCENTAGE] == 50.0 for b in distribution)
+    assert round(sum(b[IpamOverviewKey.PERCENTAGE] for b in distribution), 2) == 100.0
+
+
+def test_build_type_distribution_ipv6_percentage_is_share_of_assigned_not_capacity() -> None:
+    """An IPv6 bucket's percentage is its share of the assigned addresses, independent of the 2**n space"""
+    assigned = {
+        '2001:db8::1': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '2001:db8::2': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '2001:db8::3': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None),
+        '2001:db8::4': _make_assigned_entry(OWNER_OBJECT_ID, 999, None),  # orphan -> Unknown
+    }
+    type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
+
+    distribution = build_type_distribution(assigned, type_meta, total=2 ** 64, is_ipv6=True)
+
+    by_label = {b[IpamOverviewKey.LABEL]: b[IpamOverviewKey.PERCENTAGE] for b in distribution}
+    assert by_label['Server'] == 75.0           # 3 of 4 assigned
+    assert by_label[IpamBucketLabel.UNKNOWN] == 25.0  # 1 of 4 assigned

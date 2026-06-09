@@ -365,14 +365,16 @@ def build_type_distribution(
     row or no longer resolvable because the CmdbType was deleted) into a single 'Unknown'
     bucket so the chart never grows a slice per stale type_id. Only rows whose
     ``is_valid`` flag is True contribute - invalid (out-of-CIDR) rows are excluded so the
-    percentages stay bounded by the assignable address count; the FE surfaces those via the
-    top-level ``invalid_count`` instead. For IPv4, percentages are computed against the subnet's
-    assignable address count (rounded to two decimals) and a synthetic 'Free' bucket is appended
-    for the unused capacity. For IPv6 the percentages are None and the 'Free' bucket is omitted -
-    a free count and a used/2**n ratio are meaningless against a 2**n address space, so the chart
-    shows only the per-type (and Unknown) counts of assigned addresses. An empty list is returned
-    when the subnet has zero assignable addresses or the CIDR is unparsable, so the frontend can
-    render a placeholder
+    percentages stay bounded; the FE surfaces those via the top-level ``invalid_count`` instead.
+
+    The percentage denominator differs by family. For IPv4 it is the subnet's assignable address
+    count (capacity), so the percentages express utilisation and a synthetic 'Free' bucket is
+    appended for the unused capacity. For IPv6 it is the total assigned (valid) address count, so
+    the percentages express the composition of the in-use addresses and sum to 100% across the
+    buckets - a used/2**n ratio and a free count are meaningless against a 2**n space, so the
+    'Free' bucket is omitted. Both families emit the same per-type bucket fields (public_id,
+    label, ci_explorer_color, count, percentage). An empty list is returned when the subnet has
+    zero assignable addresses or the CIDR is unparsable, so the frontend can render a placeholder
 
     Args:
         assigned (dict[str, dict[str, Any]]): {ip_str: {'object_id', 'type_id', 'mac',
@@ -388,8 +390,8 @@ def build_type_distribution(
         list[dict[str, Any]]: One entry per type bucket with keys public_id, label,
             ci_explorer_color, count, percentage, followed by the Unknown bucket (only when
             non-empty) and - for IPv4 only - the Free bucket; the Unknown / Free buckets carry
-            ci_explorer_color=None. 'percentage' is None for every IPv6 bucket. Empty list when
-            total is 0
+            ci_explorer_color=None. 'percentage' is utilisation (vs capacity) for IPv4 and
+            share-of-assigned for IPv6. Empty list when total is 0
     """
     if total <= 0:
         return []
@@ -410,13 +412,18 @@ def build_type_distribution(
         else:
             unknown_count += 1
 
+    # IPv4 percentages express utilisation against capacity; IPv6 percentages express each type's
+    # share of the assigned addresses (capacity is not a meaningful denominator for a 2**n space).
+    # The denominator is only used to divide bucket counts, which exist only when valid_count > 0
+    denominator: int = valid_count if is_ipv6 else total
+
     distribution: list[dict[str, Any]] = [
         {
             CmdbObjectKey.PUBLIC_ID: type_id,
             IpamOverviewKey.LABEL: type_meta[type_id][IpamOverviewKey.LABEL],
             IpamOverviewKey.CI_EXPLORER_COLOR: type_meta[type_id].get(IpamOverviewKey.CI_EXPLORER_COLOR),
             IpamOverviewKey.COUNT: count,
-            IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((count / total) * 100, 2),
+            IpamOverviewKey.PERCENTAGE: round((count / denominator) * 100, 2),
         }
         for type_id, count in by_type.items()
     ]
@@ -427,7 +434,7 @@ def build_type_distribution(
             IpamOverviewKey.LABEL: IpamBucketLabel.UNKNOWN,
             IpamOverviewKey.CI_EXPLORER_COLOR: None,
             IpamOverviewKey.COUNT: unknown_count,
-            IpamOverviewKey.PERCENTAGE: None if is_ipv6 else round((unknown_count / total) * 100, 2),
+            IpamOverviewKey.PERCENTAGE: round((unknown_count / denominator) * 100, 2),
         })
 
     if not is_ipv6:

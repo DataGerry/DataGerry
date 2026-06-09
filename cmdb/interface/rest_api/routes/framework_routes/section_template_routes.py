@@ -29,7 +29,12 @@ from cmdb.manager import SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.models.section_template_model.section_template_constants import (
+    SectionTemplateKey,
+    SectionTemplateRight,
+)
 from cmdb.models.type_model import SectionType
+from cmdb.utils.helpers import str_to_bool
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -50,21 +55,91 @@ LOGGER: Logger = getLogger(__name__)
 
 section_template_blueprint = APIBlueprint('section_templates', __name__)
 
+# --------------------------------------------------- PAYLOAD HELPERS ------------------------------------------------ #
+
+def _require_params(params: dict[str, Any], keys: list[str]) -> None:
+    """
+    Aborts 400 when any of the required request parameters is missing
+
+    Args:
+        params (dict[str, Any]): The parsed request parameters
+        keys (list[str]): The parameter names that must be present
+    """
+    missing: list[str] = [key for key in keys if key not in params]
+
+    if missing:
+        abort(400, f"Missing required parameter(s): {', '.join(missing)}")
+
+
+def _parse_json_fields(raw: Any) -> Any:
+    """
+    Parses the JSON-encoded 'fields' parameter, aborting 400 on malformed input
+
+    Args:
+        raw (Any): The raw 'fields' parameter value (a JSON string)
+
+    Returns:
+        Any: The decoded JSON value
+    """
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        abort(400, "The 'fields' parameter must be a valid JSON string!")
+
+
+def _coerce_bool(raw: Any) -> bool:
+    """
+    Coerces a request parameter to a bool, aborting 400 on an unrecognised value
+
+    Args:
+        raw (Any): The raw parameter value ('true' / 'false' or a native bool)
+
+    Returns:
+        bool: The coerced boolean
+    """
+    try:
+        return str_to_bool(raw)
+    except ValueError:
+        abort(400, "Boolean parameters must be 'true' or 'false'!")
+
+
+def _coerce_public_id(raw: Any) -> int:
+    """
+    Coerces the 'public_id' parameter to an int, aborting 400 when it is not numeric
+
+    Args:
+        raw (Any): The raw 'public_id' parameter value
+
+    Returns:
+        int: The integer public_id
+    """
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        abort(400, "The 'public_id' parameter must be an integer!")
+
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @section_template_blueprint.route('/', methods=['POST'])
 @section_template_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@section_template_blueprint.protect(auth=True, right='base.framework.sectionTemplate.add')
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.ADD.value)
 def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    Creates a CmdbSectionTemplate in the database
+    Creates a CmdbSectionTemplate from the request body
+
+    Rejects a duplicate name, an invalid section type, or an attempt to create a predefined
+    template via the API; assigns the next public_id and normalizes the boolean / JSON-encoded
+    body fields before insert
 
     Args:
-        params (dict): CmdbSectionTemplate parameters
+        params (dict[str, Any]): Request body carrying 'name', 'type', 'is_global', 'predefined'
+            and a JSON-encoded 'fields' string
+        request_user (CmdbUser): The user making the request (auth / manager scoping)
+
     Returns:
-        int: public_id of the created CmdbSectionTemplate
+        Response: DefaultResponse wrapping the public_id of the created CmdbSectionTemplate
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -72,21 +147,32 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
-        existing_template: dict[str, Any] | None = section_templates_manager.get_one_by({'name': params['name']})
+        _require_params(params, [
+            SectionTemplateKey.NAME,
+            SectionTemplateKey.TYPE,
+            SectionTemplateKey.IS_GLOBAL,
+            SectionTemplateKey.PREDEFINED,
+            SectionTemplateKey.FIELDS,
+        ])
+
+        template_name: str = params[SectionTemplateKey.NAME]
+        existing_template: dict[str, Any] | None = section_templates_manager.get_one_by(
+            {SectionTemplateKey.NAME: template_name},
+        )
 
         if existing_template:
-            abort(400, f"A template with the name: {params['name']} already exists!")
+            abort(400, f"A template with the name: {template_name} already exists!")
 
-        if params['type'] not in [SectionType.SECTION, SectionType.MDS_SECTION]:
-            abort(400, f"Invalid template type provided: {params['type']}!")
+        if params[SectionTemplateKey.TYPE] not in [SectionType.SECTION, SectionType.MDS_SECTION]:
+            abort(400, f"Invalid template type provided: {params[SectionTemplateKey.TYPE]}!")
 
-        if params['predefined'] in ['true', 'True', True]:
+        if _coerce_bool(params[SectionTemplateKey.PREDEFINED]):
             abort(400, "It is not possible to create predefined section templates via API!")
 
-        params['public_id'] = section_templates_manager.get_next_public_id(inc_id=True)
-        params['is_global'] = params['is_global'] in ['true', 'True', True]
-        params['predefined'] = False
-        params['fields'] = json.loads(params['fields'])
+        params[SectionTemplateKey.PUBLIC_ID] = section_templates_manager.get_next_public_id(inc_id=True)
+        params[SectionTemplateKey.IS_GLOBAL] = _coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
+        params[SectionTemplateKey.PREDEFINED] = False
+        params[SectionTemplateKey.FIELDS] = _parse_json_fields(params[SectionTemplateKey.FIELDS])
 
         created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
@@ -106,15 +192,17 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 @section_template_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@section_template_blueprint.protect(auth=True, right='base.framework.sectionTemplate.view')
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 def get_all_section_templates(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    Returns all CmdbSectionTemplates based on the params
+    Returns a paginated collection of CmdbSectionTemplates matching the query parameters
 
     Args:
-        params (CollectionParameters): Parameters to identify documents in database
+        params (CollectionParameters): Pagination / filter / sort parameters
+        request_user (CmdbUser): The user making the request
+
     Returns:
-        (GetMultiResponse): All CmdbSectionTemplates considering the params
+        Response: GetMultiResponse with the matching CmdbSectionTemplates and the total count
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -125,7 +213,7 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
         builder_params: BuilderParameters = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
         iteration_result: IterationResult[CmdbSectionTemplate] = section_templates_manager.iterate(builder_params)
-        template_list: list[dict] = [template_.__dict__ for template_ in iteration_result.results]
+        template_list: list[dict[str, Any]] = [template_.__dict__ for template_ in iteration_result.results]
 
         api_response = GetMultiResponse(
             template_list,
@@ -136,6 +224,8 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
         )
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except SectionTemplatesManagerIterationError as err:
         LOGGER.error("[get_all_section_templates] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to iterate SectionTemplates!")
@@ -147,14 +237,17 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
 @section_template_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@section_template_blueprint.protect(auth=True, right='base.framework.sectionTemplate.view')
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Retrieves the CmdbSectionTemplate with the given public_id
-    
+    Retrieves a single CmdbSectionTemplate by public_id
+
     Args:
-        public_id (int): public_id of CmdbSectionTemplate which should be retrieved
-        request_user (CmdbUser): User which is requesting the CmdbSectionTemplate
+        public_id (int): public_id of the CmdbSectionTemplate to retrieve
+        request_user (CmdbUser): The user making the request
+
+    Returns:
+        Response: DefaultResponse wrapping the CmdbSectionTemplate; aborts 404 when it does not exist
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -173,22 +266,25 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[get_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
     except Exception as err:
-        LOGGER.error("[get_all_section_templates] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[get_section_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while retrieving SectionTemplate with ID: {public_id}!")
 
 
 @section_template_blueprint.route('/<int:public_id>/count', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@section_template_blueprint.protect(auth=True, right='base.framework.sectionTemplate.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 def get_global_section_template_count(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Retrives the count of types and objects using this global CmdbSectionTemplate
+    Returns how many types and objects use a CmdbSectionTemplate (zero when it is not global)
 
     Args:
-        public_id (int): public_id of CmdbSectionTemplate which should be checked
+        public_id (int): public_id of the CmdbSectionTemplate to inspect
+        request_user (CmdbUser): The user making the request
+
     Returns:
-        dict: Dict with counts of types and objects using this global CmdbSectionTemplate
+        Response: DefaultResponse wrapping {'types': int, 'objects': int}; aborts 404 when the
+            template does not exist
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -201,14 +297,16 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
         if not instance:
             abort(404, f"Target SectionTemplate with ID:{public_id} not found")
 
-        counts: dict = section_templates_manager.get_global_template_usage_count(instance.name, instance.is_global)
+        counts: dict[str, int] = section_templates_manager.get_global_template_usage_count(
+            instance.name, instance.is_global,
+        )
 
         return DefaultResponse(counts).make_response()
     except HTTPException as http_err:
         raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[get_global_section_template_count] %s: %s", type(err).__name__, err, exc_info=True)
-        abort(400, f"Failed to retrieve global SectionTemplate count for ID: {public_id}!")
+        abort(500, f"Failed to retrieve global SectionTemplate count for ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[get_global_section_template_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500,
@@ -221,15 +319,23 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
 @section_template_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@section_template_blueprint.protect(auth=True, right='base.framework.sectionTemplate.edit')
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.EDIT.value)
 def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    Updates a CmdbSectionTemplate
+    Updates a CmdbSectionTemplate and propagates the change to consuming types and objects
+
+    Normalizes the boolean / JSON-encoded body fields, then refuses to change the immutable
+    'predefined' and 'type' properties before persisting and running
+    handle_section_template_changes
 
     Args:
-        params (dict): updated CmdbSectionTemplate parameters
+        params (dict[str, Any]): Request body - the updated template incl. 'public_id', 'type',
+            'predefined', 'is_global' and a JSON-encoded 'fields' string
+        request_user (CmdbUser): The user making the request
+
     Returns:
-        bool: success
+        Response: UpdateSingleResponse(True); aborts 404 when the template does not exist and 400
+            when an immutable property would change
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -237,28 +343,39 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
-        params['public_id'] = int(params['public_id'])
-        params['predefined'] = params['predefined'] in ('true', 'True')
-        params['is_global'] = params['is_global'] in ('true', 'True')
-        params['fields'] = json.loads(params['fields'])
+        _require_params(params, [
+            SectionTemplateKey.PUBLIC_ID,
+            SectionTemplateKey.TYPE,
+            SectionTemplateKey.IS_GLOBAL,
+            SectionTemplateKey.PREDEFINED,
+            SectionTemplateKey.FIELDS,
+        ])
 
-        current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(params['public_id'])
+        params[SectionTemplateKey.PUBLIC_ID] = _coerce_public_id(params[SectionTemplateKey.PUBLIC_ID])
+        params[SectionTemplateKey.PREDEFINED] = _coerce_bool(params[SectionTemplateKey.PREDEFINED])
+        params[SectionTemplateKey.IS_GLOBAL] = _coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
+        params[SectionTemplateKey.FIELDS] = _parse_json_fields(params[SectionTemplateKey.FIELDS])
+
+        public_id: int = params[SectionTemplateKey.PUBLIC_ID]
+        current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
 
         if not current_template:
             abort(404, "Target section template not found!")
 
-        if current_template.predefined != params['predefined']:
+        if current_template.predefined != params[SectionTemplateKey.PREDEFINED]:
             abort(400, "The 'predefined' property of a Section Template is not changable!")
 
-        if current_template.type != params['type']:
+        if current_template.type != params[SectionTemplateKey.TYPE]:
             abort(400, "The 'type' of a Section Template is not changable!")
 
-        section_templates_manager.update_section_template(params["public_id"], params)
+        section_templates_manager.update_section_template(public_id, params)
 
         # Apply changes to all types and objects using the template
         section_templates_manager.handle_section_template_changes(params, current_template)
 
         return UpdateSingleResponse(True).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
         abort(500, f"Failed to retrieve SectionTemplate with ID: {params['public_id']}!")
@@ -274,7 +391,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 @section_template_blueprint.route('/<int:public_id>/', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@section_template_blueprint.protect(auth=True, right='base.framework.sectionTemplate.delete')
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.DELETE.value)
 def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     Delete a CmdbSectionTemplate by its public ID, with appropriate checks and permission handling.
@@ -312,11 +429,11 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
     except HTTPException as http_err:
         raise http_err
     except SectionTemplatesManagerGetError as err:
-        LOGGER.debug("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
-        abort(400, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
+        LOGGER.error("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
     except SectionTemplatesManagerDeleteError as err:
-        LOGGER.debug("[delete_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(400, f"Failed to delete SectionTemplate with public_id: {public_id}!")
+        LOGGER.error("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, f"Failed to delete SectionTemplate with public_id: {public_id}!")
     except Exception as err:
         LOGGER.error("[delete_section_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the SectionTemplate with ID:{public_id}!")
