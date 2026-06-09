@@ -17,19 +17,34 @@
 */
 import { Provider } from '@angular/core';
 
+import { CmdbMode } from '../../../modes.enum';
+import { FIELD_COMPONENT_OVERRIDES } from '../../fields/field-component-overrides';
 import { MDS_ROW_VALIDATORS } from '../../sections/multi-data-section/mds-row-validator';
+import { IpamSubnetSelectComponent } from './components/ipam-subnet-select/ipam-subnet-select.component';
+import { IPAM_INTERFACE_FIELD_NAMES } from './models/interface-fields';
 import { InterfaceMdsValidatorService } from './services/interface-mds-validator.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Registers IPAM-interface plugins against the generic MDS extension points so the MDS
- * component can pick them up without importing IPAM directly. Add this to the providers
- * of the module that owns rendering (RenderModule).
+ * Registers IPAM-interface plugins against the generic render/MDS extension points so the
+ * render and MDS components can pick them up without importing IPAM directly. Add this to the
+ * providers of the module that owns rendering (RenderModule).
  */
 export const IPAM_INTERFACE_PROVIDERS: ReadonlyArray<Provider> = [
     {
         provide: MDS_ROW_VALIDATORS,
         useExisting: InterfaceMdsValidatorService,
+        multi: true
+    },
+    {
+        // Swap the generic ref dropdown for the family-aware network picker, but only while
+        // editing - the read-only View keeps the standard reference rendering.
+        provide: FIELD_COMPONENT_OVERRIDES,
+        useValue: {
+            fieldName: IPAM_INTERFACE_FIELD_NAMES.SUBNET,
+            component: IpamSubnetSelectComponent,
+            modes: [CmdbMode.Create, CmdbMode.Edit, CmdbMode.Bulk]
+        },
         multi: true
     }
 ];
