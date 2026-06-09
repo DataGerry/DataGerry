@@ -107,7 +107,9 @@
         <cmdb-ipam-ip-distribution
           [ipDistribution]="ipDistribution"
           [typeDistribution]="typeDistribution"
-          [loading]="(isLoading$ | async) === true">
+          [activeSectorStart]="selectedSectorStart"
+          [loading]="(isLoading$ | async) === true"
+          (sectorSelect)="onSectorSelect($event)">
         </cmdb-ipam-ip-distribution>
 
         <cmdb-ipam-type-distribution
@@ -117,6 +119,23 @@
       </aside>
 
       <div class="ipam-subnet__table-wrapper">
+        @if (hasSelectedSector) {
+          <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-filter" aria-hidden="true"></i>
+              Showing sector
+              <span class="ipam-subnet__sector-range">{{ selectedSectorLabel }}</span>
+            </span>
+            <app-button
+              label="Show all IPs"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Clear sector filter and show all IP addresses"
+              title="Clear sector filter and show all IP addresses"
+              (clicked)="onClearSector()">
+            </app-button>
+          </div>
+        }
         <cmdb-ipam-ip-table
           [items]="ips"
           [totalItems]="total"

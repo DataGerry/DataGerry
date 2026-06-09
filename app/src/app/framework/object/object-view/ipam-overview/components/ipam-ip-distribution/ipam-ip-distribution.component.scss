@@ -99,7 +99,11 @@
     aspect-ratio: 1;
     min-width: var(--ipam-cell-min-size);
     min-height: var(--ipam-cell-min-size);
-    cursor: help;
+    padding: 0;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
     transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
 }
 
@@ -110,10 +114,17 @@
     z-index: 1;
 }
 
-.ipam-ip-dist__sector:focus {
+.ipam-ip-dist__sector:focus-visible {
     outline: 2px solid var(--ipam-cell-focus-outline);
     outline-offset: 1px;
     transform: scale(var(--ipam-cell-hover-scale));
+    z-index: 1;
+}
+
+.ipam-ip-dist__sector--active {
+    outline: 2px solid var(--ipam-cell-focus-outline);
+    outline-offset: 1px;
+    box-shadow: var(--ipam-cell-hover-shadow);
     z-index: 1;
 }
 

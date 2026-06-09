@@ -24,6 +24,8 @@ import { ApiCallService, resp } from '../../../../../services/api-call.service';
 import {
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
+    IpamSubnetSectorParams,
+    IpamSubnetSectorResponse,
     IpamSupernetChildrenResponse,
     IpamSupernetInvalidSubnetsParams,
     IpamSupernetInvalidSubnetsResponse,
@@ -132,6 +134,32 @@ export class IpamOverviewService {
         return this.api
             .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}`, options)
             .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+
+    public getSubnetSectorIps(
+        publicId: number,
+        sectorStart: string,
+        params: IpamSubnetSectorParams = {}
+    ): Observable<IpamSubnetSectorResponse> {
+        let httpParams = new HttpParams().set('sector_start', sectorStart);
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+
+        const options = {
+            headers: this.jsonHeaders,
+            params: httpParams,
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetSectorResponse>(`${this.servicePrefix}/subnet/overview/${publicId}/sector`, options)
+            .pipe(map(response => response?.body as IpamSubnetSectorResponse));
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
 import {
     IpamIpDistribution,
@@ -61,10 +61,19 @@ export class IpamIpDistributionComponent {
     public readonly typeDistribution = input<IpamTypeDistributionEntry[]>([]);
     public readonly loading = input(false);
     public readonly title = input('IP Distribution');
+    public readonly activeSectorStart = input<string | null>(null);
+
+    public readonly sectorSelect = output<string>();
 
     public readonly rangeViews = computed<IpamDistributionRangeView[]>(() => this.buildRangeViews());
     public readonly hasDistribution = computed(() => this.rangeViews().length > 0);
     public readonly legendItems = computed<IpamDistributionLegendItem[]>(() => this.buildLegend());
+
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onSectorSelect(sector: IpamDistributionSectorView): void {
+        this.sectorSelect.emit(sector.key);
+    }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 

@@ -186,3 +186,18 @@ export interface IpamSubnetOverviewParams {
     sort?: string;
     order?: number;
 }
+
+export interface IpamSectorRange {
+    ip_start: string;
+    ip_end: string;
+}
+
+export interface IpamSubnetSectorParams {
+    page?: number;
+    page_size?: number;
+}
+
+export interface IpamSubnetSectorResponse {
+    sector: IpamSectorRange;
+    ips: IpamIpListPage;
+}

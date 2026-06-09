@@ -170,6 +170,31 @@
     flex-wrap: wrap;
 }
 
+.ipam-subnet__sector-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 0.5rem;
+    background-color: #eff6ff;
+    color: #1e3a8a;
+    font-size: 0.875rem;
+}
+
+.ipam-subnet__sector-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.ipam-subnet__sector-range {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-weight: 600;
+}
+
 .ipam-subnet__table-title {
     font-size: 1.1rem;
     font-weight: 900;

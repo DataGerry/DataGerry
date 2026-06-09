@@ -14,18 +14,21 @@
 
             <div
               class="ipam-ip-dist__sectors"
-              role="list">
+              role="group"
+              [attr.aria-label]="range.label + ' sectors'">
               @for (cell of range.sectors; track cell.key) {
-                <span
+                <button
+                  type="button"
                   class="ipam-ip-dist__sector"
                   [class.ipam-ip-dist__sector--empty]="cell.isEmpty"
+                  [class.ipam-ip-dist__sector--active]="cell.key === activeSectorStart()"
                   [style.background-color]="cell.color"
                   [style.border-color]="cell.color"
-                  role="listitem"
-                  tabindex="0"
                   [title]="cell.label"
-                  [attr.aria-label]="cell.label">
-                </span>
+                  [attr.aria-label]="cell.label"
+                  [attr.aria-pressed]="cell.key === activeSectorStart()"
+                  (click)="onSectorSelect(cell)">
+                </button>
               }
             </div>
           </div>
