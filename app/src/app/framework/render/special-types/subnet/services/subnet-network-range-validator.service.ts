@@ -72,12 +72,13 @@ export class SubnetNetworkRangeValidatorService {
 
         const networkRange = form.get(SUBNET_FIELD_NAMES.NETWORK_RANGE);
         const supernet = form.get(SUBNET_FIELD_NAMES.SUPERNET);
+        const subnetType = form.get(SUBNET_FIELD_NAMES.SUBNET_TYPE);
 
         if (!networkRange || !supernet) {
             return NOOP_HANDLE;
         }
 
-        const validator = this.buildValidator(supernet, options.excludeSubnetId);
+        const validator = this.buildValidator(supernet, subnetType, options.excludeSubnetId);
         const previousValidator = networkRange.asyncValidator;
         networkRange.addAsyncValidators(validator);
         networkRange.updateValueAndValidity({ emitEvent: false });
@@ -87,6 +88,15 @@ export class SubnetNetworkRangeValidatorService {
                 networkRange.updateValueAndValidity();
             })
         ];
+
+
+        if (subnetType) {
+            subscriptions.push(
+                subnetType.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
+                    networkRange.updateValueAndValidity();
+                })
+            );
+        }
 
         return {
             destroy: () => {
@@ -104,6 +114,7 @@ export class SubnetNetworkRangeValidatorService {
 
     private buildValidator(
         supernet: AbstractControl,
+        subnetType: AbstractControl | null,
         excludeSubnetId: number | null
     ): AsyncValidatorFn {
         return (control: AbstractControl): Observable<ValidationErrors | null> => {
@@ -112,11 +123,23 @@ export class SubnetNetworkRangeValidatorService {
                 return of(null);
             }
 
+            // When the type field is present on the form it must be selected
+            // before validating; the backend requires subnet_type and would
+            // otherwise reject the range with a redundant "type is required".
+            const subnetTypeValue = this.normalizeType(subnetType?.value);
+            if (subnetType && !subnetTypeValue) {
+                return of(null);
+            }
+
             const payload: SubnetValidationRequest = {
                 network_range: networkRange,
                 parent_supernet_id: this.toObjectId(supernet.value),
                 exclude_subnet_id: excludeSubnetId
             };
+
+            if (subnetTypeValue) {
+                payload.subnet_type = subnetTypeValue;
+            }
 
             // timer + switchMap debounces user input and ensures only the
             // latest request resolves into the validator's outcome.
@@ -154,6 +177,16 @@ export class SubnetNetworkRangeValidatorService {
 
 
     private normalizeRange(value: unknown): string | null {
+        if (typeof value !== 'string') {
+            return null;
+        }
+
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
+
+    private normalizeType(value: unknown): string | null {
         if (typeof value !== 'string') {
             return null;
         }

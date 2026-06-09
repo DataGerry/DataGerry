@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
 
 import { ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
@@ -36,6 +36,12 @@ import { ReportCategoryService } from '../../../services/report-category.service
     standalone: false
 })
 export class CategoryOverviewComponent implements OnInit, OnDestroy {
+    private readonly categoryService = inject(ReportCategoryService);
+    private readonly modalService = inject(NgbModal);
+    private readonly location = inject(Location);
+    private readonly toast = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+
     private unsubscribe$ = new ReplaySubject<void>(1);
     public categories: Array<any> = [];
     public totalCategories: number = 0;
@@ -50,14 +56,6 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
-
-    constructor(
-        private categoryService: ReportCategoryService,
-        private modalService: NgbModal, 
-        private location: Location,
-        private toast: ToastService,
-        private loaderService: LoaderService) { }
-
 
     ngOnInit(): void {
         this.columns = [

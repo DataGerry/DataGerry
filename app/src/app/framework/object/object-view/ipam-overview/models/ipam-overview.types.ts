@@ -23,14 +23,15 @@ export interface IpamIpRange {
 
 export interface IpamSupernetSummary {
     public_id: number;
+    subnet_type?: string;
     cidr: string;
     ip_range: IpamIpRange;
     total_ips: number;
     used_ips: number;
     free_ips: number;
-    used_percent: number;
-    free_percent: number;
-    utilization_percent: number;
+    used_percent: number | null;
+    free_percent: number | null;
+    utilization_percent: number | null;
     subnet_count: number;
 }
 
@@ -41,10 +42,11 @@ export interface IpamVlanInfo {
 
 export interface IpamSubnetSummary {
     public_id: number;
+    subnet_type?: string;
     cidr: string;
     used_ips: number;
     free_ips: number;
-    usage_percent: number;
+    usage_percent: number | null;
     parent_id: number | null;
     has_children: boolean;
     is_valid?: boolean;
@@ -183,4 +185,27 @@ export interface IpamSubnetOverviewParams {
     page_size?: number;
     sort?: string;
     order?: number;
+}
+
+export interface IpamSectorRange {
+    ip_start: string;
+    ip_end: string;
+}
+
+export interface IpamSubnetSectorParams {
+    page?: number;
+    page_size?: number;
+}
+
+export interface IpamSubnetSectorResponse {
+    sector: IpamSectorRange;
+    ips: IpamIpListPage;
+}
+
+export type IpamUnassignMode = 'reference' | 'row';
+
+export interface IpamUnassignIpsResponse {
+    ips: string[];
+    mode: IpamUnassignMode;
+    unassigned_count: number;
 }

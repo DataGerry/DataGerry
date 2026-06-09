@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, Input, OnDestroy } from '@angular/core';
 import { Group } from '../../../models/group';
 import { UserService } from '../../../services/user.service';
 import { ReplaySubject } from 'rxjs';
@@ -50,8 +50,8 @@ export class GroupTableUserCellComponent implements OnDestroy {
     });
   }
 
-  constructor(private userService: UserService, private modalService: NgbModal) {
-  }
+  private readonly userService = inject(UserService);
+  private readonly modalService = inject(NgbModal);
 
   public openUserListModal(group: Group): void {
     this.modalRef = this.modalService.open(GroupUsersModalComponent);

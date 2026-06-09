@@ -18,5 +18,6 @@
 
 export const SUBNET_FIELD_NAMES = {
     SUPERNET: 'dg-supernet-ref',
+    SUBNET_TYPE: 'dg-subnet-type',
     NETWORK_RANGE: 'dg-network-range',
 } as const;

@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import {
   FormBuilder,
   FormGroup,
@@ -46,13 +46,11 @@ export class ImpactCategoryModalComponent implements OnInit {
   // All impacts fetched from API to build a row for each impact
   public allImpacts: Impact[] = [];
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private fb: FormBuilder,
-    private impactCategoryService: ImpactCategoryService,
-    private impactService: ImpactService,
-    private toast: ToastService
-  ) { }
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fb = inject(FormBuilder);
+  private readonly impactCategoryService = inject(ImpactCategoryService);
+  private readonly impactService = inject(ImpactService);
+  private readonly toast = inject(ToastService);
 
 
   ngOnInit(): void {

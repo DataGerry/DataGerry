@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import type { Editor as TinyMceEditor } from 'tinymce';
@@ -110,11 +110,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     });
     public validationError = '';
 
-    constructor(
-        public readonly activeModal: NgbActiveModal,
-        private editorConfigService: DocapiEditorConfigService,
-        private modalService: NgbModal
-    ) { }
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly editorConfigService = inject(DocapiEditorConfigService);
+    private readonly modalService = inject(NgbModal);
 
 
     public ngOnInit(): void {

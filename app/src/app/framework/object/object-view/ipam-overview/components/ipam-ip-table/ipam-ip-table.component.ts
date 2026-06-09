@@ -20,8 +20,10 @@ import {
     Component,
     EventEmitter,
     Input,
+    OnChanges,
     OnInit,
     Output,
+    SimpleChanges,
     TemplateRef,
     ViewChild
 } from '@angular/core';
@@ -37,7 +39,7 @@ import { IpamIpEntry } from '../../models/ipam-overview.types';
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class IpamIpTableComponent implements OnInit {
+export class IpamIpTableComponent implements OnInit, OnChanges {
 
     @Input() public items: IpamIpEntry[] = [];
     @Input() public totalItems = 0;
@@ -49,19 +51,31 @@ export class IpamIpTableComponent implements OnInit {
     @Output() public readonly pageChange = new EventEmitter<number>();
     @Output() public readonly pageSizeChange = new EventEmitter<number>();
     @Output() public readonly sortChange = new EventEmitter<Sort>();
+    @Output() public readonly unassign = new EventEmitter<string[]>();
 
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('typeTemplate', { static: true }) public typeTemplate: TemplateRef<unknown>;
     @ViewChild('assignedToTemplate', { static: true }) public assignedToTemplate: TemplateRef<unknown>;
     @ViewChild('valueTemplate', { static: true }) public valueTemplate: TemplateRef<unknown>;
+    @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<unknown>;
+    @ViewChild('bulkUnassignButton', { static: true }) public bulkUnassignButton: TemplateRef<unknown>;
 
     public columns: Column[] = [];
     public initialVisibleColumns: string[] = [];
+    public selectedRows: IpamIpEntry[] = [];
+    public bulkButtonTemplates: TemplateRef<unknown>[] = [];
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
         this.setupColumns();
+        this.bulkButtonTemplates = [this.bulkUnassignButton];
+    }
+
+    public ngOnChanges(changes: SimpleChanges): void {
+        if (changes['items']) {
+            this.selectedRows = [];
+        }
     }
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
@@ -78,7 +92,44 @@ export class IpamIpTableComponent implements OnInit {
         this.sortChange.emit(sort);
     }
 
+    public onSelectedChange(items: IpamIpEntry[]): void {
+        this.selectedRows = items ?? [];
+    }
+
+    public onUnassignRow(item: IpamIpEntry): void {
+        if (!this.canUnassign(item)) {
+            return;
+        }
+        this.unassign.emit([item.ip]);
+    }
+
+    public onUnassignSelected(): void {
+        const ips = this.selectedUnassignableIps;
+        if (!ips.length) {
+            return;
+        }
+        this.unassign.emit(ips);
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public get selectedUnassignableIps(): string[] {
+        const seen = new Set<string>();
+        for (const item of this.selectedRows) {
+            if (this.canUnassign(item)) {
+                seen.add(item.ip);
+            }
+        }
+        return [...seen];
+    }
+
+    public get selectedCount(): number {
+        return this.selectedUnassignableIps.length;
+    }
+
+    public canUnassign(item: IpamIpEntry): boolean {
+        return !!item?.assigned_to;
+    }
 
     public trackByIp(_index: number, item: IpamIpEntry): string {
         return item?.ip;
@@ -138,6 +189,16 @@ export class IpamIpTableComponent implements OnInit {
                 searchable: false,
                 template: this.valueTemplate,
                 style: { 'min-width': '180px' }
+            },
+            {
+                display: 'Actions',
+                name: 'actions',
+                data: 'ip',
+                sortable: false,
+                searchable: false,
+                fixed: true,
+                template: this.actionsTemplate,
+                style: { 'width': '64px', 'text-align': 'center' }
             }
         ];
 

@@ -15,10 +15,10 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit } from '@angular/core';
-import { ActivatedRoute, Event, NavigationEnd, Router } from '@angular/router';
-
-import { ReplaySubject } from 'rxjs';
+import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { filter } from 'rxjs/operators';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare type AppView = 'full' | 'embedded';
@@ -29,37 +29,25 @@ declare type AppView = 'full' | 'embedded';
     styleUrls: ['./app.component.scss'],
     standalone: false
 })
-export class AppComponent implements OnInit, OnDestroy {
+export class AppComponent implements OnInit {
 
-  private applicationSubscriber: ReplaySubject<void> = new ReplaySubject<void>();
-  public readonly defaultView: AppView = 'full';
-  public view: AppView;
+    private readonly router = inject(Router);
+    private readonly route = inject(ActivatedRoute);
+    private readonly destroyRef = inject(DestroyRef);
 
-  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+    public readonly defaultView: AppView = 'full';
+    public view: AppView = this.defaultView;
 
-    constructor(private router: Router, private route: ActivatedRoute) {
-        this.view = this.defaultView;
-    }
-
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
-        this.router.events.subscribe((e: Event) => {
-        if (e instanceof NavigationEnd) {
-            this.route.url.subscribe(() => {
-            if (this.route.snapshot.firstChild.data.view) {
-                this.view = this.route.snapshot.firstChild.data.view;
-            } else {
-                this.view = this.defaultView;
-            }
-
+        this.router.events
+            .pipe(
+                filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+                takeUntilDestroyed(this.destroyRef)
+            )
+            .subscribe(() => {
+                this.view = this.route.snapshot.firstChild?.data?.['view'] ?? this.defaultView;
             });
-        }
-        });
-    }
-
-
-    public ngOnDestroy(): void {
-        this.applicationSubscriber?.next();
-        this.applicationSubscriber?.complete();
     }
 }

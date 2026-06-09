@@ -16,17 +16,20 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
-    Component,
     Input,
     OnChanges,
     OnDestroy,
     OnInit,
-    SimpleChanges
+    SimpleChanges,
 } from '@angular/core';
+import { HttpResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { FileSaverService } from 'ngx-filesaver';
 import { Subject, finalize, takeUntil } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
@@ -61,6 +64,12 @@ type SubnetViewMode = 'all' | 'invalid';
     standalone: false
 })
 export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestroy {
+    private readonly ipamOverviewService = inject(IpamOverviewService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+    private readonly fileSaverService = inject(FileSaverService);
+    private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
 
@@ -74,19 +83,12 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
     public hasError = false;
     public hasLoadedOnce = false;
+    public isFullscreen = false;
     public readonly searchControl = new FormControl<string>('', { nonNullable: true });
     public readonly isLoading$ = this.loaderService.isLoading$;
 
     private searchTerm = '';
     private readonly destroy$ = new Subject<void>();
-
-    constructor(
-        private readonly ipamOverviewService: IpamOverviewService,
-        private readonly loaderService: LoaderService,
-        private readonly toastService: ToastService,
-        private readonly modalService: NgbModal,
-        private readonly changesRef: ChangeDetectorRef
-    ) {}
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -145,6 +147,11 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         this.setViewMode('invalid');
     }
 
+    public onFullscreenChange(isFullscreen: boolean): void {
+        this.isFullscreen = isFullscreen;
+        this.changesRef.markForCheck();
+    }
+
     public onUnassign(subnetIds: number[]): void {
         if (this.publicId == null || !subnetIds?.length) {
             return;
@@ -169,6 +176,25 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         );
     }
 
+    public onExport(): void {
+        if (this.publicId == null) {
+            return;
+        }
+
+        this.loaderService.show();
+
+        this.ipamOverviewService
+            .exportSupernetSubnets(this.publicId)
+            .pipe(
+                takeUntil(this.destroy$),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (response) => this.saveExportFile(response),
+                error: () => this.toastService.error('Unable to export the supernet overview. Please try again later.')
+            });
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public hasOverviewData(): boolean {
@@ -177,6 +203,10 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
 
     public get isSearching(): boolean {
         return this.searchTerm.length >= MIN_SEARCH_LENGTH;
+    }
+
+    public get isIpv6(): boolean {
+        return this.supernet?.subnet_type === 'ipv6';
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
@@ -208,6 +238,20 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
                     this.toastService.error(err?.error?.message);
                 }
             });
+    }
+
+    private saveExportFile(response: HttpResponse<Blob>): void {
+        const blob = response?.body;
+        if (!blob) {
+            this.toastService.error('The export response was empty.');
+            return;
+        }
+        this.fileSaverService.save(blob, this.buildExportFileName());
+    }
+
+    private buildExportFileName(): string {
+        const cidr = this.supernet?.cidr?.replace(/[^\w.-]+/g, '_');
+        return `supernet-overview-${cidr || this.publicId}.csv`;
     }
 
     private applySearch(value: string): void {

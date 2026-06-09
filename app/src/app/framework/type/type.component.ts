@@ -35,7 +35,6 @@ import { CmdbType } from '../models/cmdb-type';
 import { Column, Sort, SortDirection, TableState, TableStatePayload } from '../../layout/table/table.types';
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { UserSetting } from '../../management/user-settings/models/user-setting';
-import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { User } from '../../management/models/user';
@@ -135,7 +134,6 @@ export class TypeComponent implements OnInit, OnDestroy {
         private router: Router,
         private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
         private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
-        private sideBarService: SidebarService,
         private loaderService: LoaderService,
         private toastService: ToastService
     ) {
@@ -348,8 +346,6 @@ export class TypeComponent implements OnInit, OnDestroy {
                     });
                     this.totalTypes = apiResponse?.total;
                     this.loading = false;
-                    this.sideBarService?.loadCategoryTree();
-
                 },
                 error: (error) => {
                     this.loading = false;

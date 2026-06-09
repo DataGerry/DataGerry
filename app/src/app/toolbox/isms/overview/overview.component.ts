@@ -22,7 +22,7 @@
 // import { finalize } from 'rxjs';
 // import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import { OnInit, ChangeDetectorRef, Component } from "@angular/core";
+import { Component, inject, OnInit, ChangeDetectorRef } from "@angular/core";
 import { LoaderService } from "src/app/core/services/loader.service";
 import { ToastService } from "src/app/layout/toast/toast.service";
 import { IsmsConfigValidation } from "../models/isms-config-validation.model";
@@ -36,6 +36,11 @@ import { ActivatedRoute, Router } from "@angular/router";
     standalone: false
 })
 export class OverviewComponent implements OnInit {
+
+  private readonly ismsService = inject(ISMSService);
+  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toastService = inject(ToastService);
 
   public validationStatus: boolean = false;
   public isLoading$ = this.loaderService.isLoading$;
@@ -75,13 +80,6 @@ export class OverviewComponent implements OnInit {
     }
   ];
 
-
-  constructor(private ismsService: ISMSService,
-    private cdRef: ChangeDetectorRef,
-    private loaderService: LoaderService,
-    private toastService: ToastService,
-
-  ) { }
 
   ngOnInit(): void {
     this.loaderService.show(); // Show loader

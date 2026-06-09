@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { WebhookLogService } from '../../services/webhookLog.service';
 import { DeleteConfirmationModalComponent } from '../modal/delete-confirmation-modal.component';
@@ -34,6 +34,12 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     standalone: false
 })
 export class WebhookLogViewerComponent implements OnInit {
+    private readonly webhookService = inject(WebhookLogService);
+    private readonly toast = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+    private readonly location = inject(Location);
+    private readonly loaderService = inject(LoaderService);
+
     public logs: any[] = [];
     public loading = false;
     public datePlaceholder = 'YYYY-MM-DD';
@@ -49,14 +55,6 @@ export class WebhookLogViewerComponent implements OnInit {
 
 
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
-
-
-    constructor(
-        private webhookService: WebhookLogService,
-        private toast: ToastService, 
-        private modalService: NgbModal, 
-        private location: Location,
-        private loaderService: LoaderService) { }
 
     ngOnInit(): void {
         this.columns = [

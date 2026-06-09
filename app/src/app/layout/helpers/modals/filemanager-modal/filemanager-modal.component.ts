@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { FileMetadata } from '../../../components/file-explorer/model/metadata';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { APIGetMultiResponse } from '../../../../services/models/api-response';
@@ -36,7 +36,9 @@ export class FilemanagerModalComponent implements OnInit {
   public selectedFileElements: SelectedFileArray = {files: [], totalSize: 0};
   public recordsTotal: number = 0;
 
-  constructor(public activeModal: NgbActiveModal, private fileService: FileService, private toast: ToastService) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fileService = inject(FileService);
+  private readonly toast = inject(ToastService);
 
   public ngOnInit(): void {
     this.fileService.getAllFilesList(this.localMetadata).subscribe((data: APIGetMultiResponse<FileElement>) => {

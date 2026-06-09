@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { catchError, Observable, tap, throwError, forkJoin, switchMap, of, finalize } from 'rxjs';
@@ -36,6 +36,15 @@ import { ReportService } from '../../../services/report.service';
     standalone: false
 })
 export class RunReportComponent implements OnInit, OnChanges {
+    private readonly route = inject(ActivatedRoute);
+    private readonly reportService = inject(ReportService);
+    private readonly toast = inject(ToastService);
+    private readonly typeService = inject(TypeService);
+    private readonly fileService = inject(FileService);
+    private readonly fileSaverService = inject(FileSaverService);
+    private readonly location = inject(Location);
+    private readonly loaderService = inject(LoaderService);
+
     @Input() public reportId: number;
     @Input() public typeId: number;
     @Input() public selectedFields: string[] = [];
@@ -70,17 +79,6 @@ export class RunReportComponent implements OnInit, OnChanges {
     public total: number = 0;
     private initializedFromInputs = false;
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
-
-    constructor(
-        private route: ActivatedRoute,
-        private reportService: ReportService,
-        private toast: ToastService,
-        private typeService: TypeService,
-        private fileService: FileService,
-        private fileSaverService: FileSaverService,
-        private location: Location,
-        private loaderService: LoaderService
-    ) { }
 
     /**
      * OnInit lifecycle hook.

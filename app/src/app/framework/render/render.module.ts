@@ -60,7 +60,9 @@ import { RefSectionSimpleComponent } from './simple/special/ref-section-simple.c
 import { TableModule } from 'src/app/layout/table/table.module';
 import { MultiDataActionsComponent } from './sections/multi-data-actions/multi-data-actions.component';
 import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/directives/subnet-network-range-validator.directive';
+import { SupernetNetworkRangeValidatorDirective } from './special-types/supernet/directives/supernet-network-range-validator.directive';
 import { IPAM_INTERFACE_PROVIDERS } from './special-types/ipam-interface/ipam-interface.providers';
+import { IpamSubnetSelectComponent } from './special-types/ipam-interface/components/ipam-subnet-select/ipam-subnet-select.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -109,7 +111,9 @@ import { IPAM_INTERFACE_PROVIDERS } from './special-types/ipam-interface/ipam-in
         DateFormatterPipe,
         RefSectionSimpleComponent,
         MultiDataActionsComponent,
-        SubnetNetworkRangeValidatorDirective
+        SubnetNetworkRangeValidatorDirective,
+        SupernetNetworkRangeValidatorDirective,
+        IpamSubnetSelectComponent
     ],
     exports: [
         RenderElementComponent,

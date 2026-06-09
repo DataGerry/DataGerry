@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, inject, EventEmitter, Input, Output } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -30,6 +30,5 @@ export class ObjectDeleteModalComponent {
   @Input() public publicID: number = null;
   @Output() public closeEmitter: EventEmitter<number> = new EventEmitter<number>();
 
-  constructor(public activeModal: NgbActiveModal) {
-  }
+  public readonly activeModal = inject(NgbActiveModal);
 }

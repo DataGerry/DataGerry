@@ -16,9 +16,10 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
-    Component,
     EventEmitter,
     Input,
     OnChanges,
@@ -27,7 +28,7 @@ import {
     Output,
     SimpleChanges,
     TemplateRef,
-    ViewChild
+    ViewChild,
 } from '@angular/core';
 import { Subject, finalize, takeUntil } from 'rxjs';
 
@@ -56,6 +57,7 @@ export interface SubnetDisplayRow {
 export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDestroy {
 
     @Input() public supernetId: number | null = null;
+    @Input() public ipv6 = false;
     @Input() public rows: IpamSubnetSummary[] = [];
     @Input() public totalItems = 0;
     @Input() public page = 1;
@@ -89,12 +91,10 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     private readonly childrenCache = new Map<number, IpamSubnetSummary[]>();
     private readonly destroy$ = new Subject<void>();
 
-    constructor(
-        private readonly ipamOverviewService: IpamOverviewService,
-        private readonly loaderService: LoaderService,
-        private readonly toastService: ToastService,
-        private readonly changesRef: ChangeDetectorRef
-    ) {}
+    private readonly ipamOverviewService = inject(IpamOverviewService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+    private readonly changesRef = inject(ChangeDetectorRef);
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -104,6 +104,10 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     }
 
     public ngOnChanges(changes: SimpleChanges): void {
+        if (changes['ipv6'] && !changes['ipv6'].firstChange) {
+            this.setupColumns();
+        }
+
         if (changes['supernetId'] && !changes['supernetId'].firstChange) {
             this.resetExpansionState();
             this.selectedRows = [];
@@ -212,7 +216,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private setupColumns(): void {
-        this.columns = [
+        const columns: Column[] = [
             {
                 display: 'Subnet/CIDR',
                 name: 'cidr',
@@ -248,8 +252,12 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
                 searchable: false,
                 template: this.vlansTemplate,
                 style: { 'min-width': '160px' }
-            },
-            {
+            }
+        ];
+
+        // Utilization is percentage-based and undefined for IPv6, so omit the column there.
+        if (!this.ipv6) {
+            columns.push({
                 display: 'Utilization',
                 name: 'usage_percent',
                 data: 'subnet.usage_percent',
@@ -257,19 +265,21 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
                 searchable: false,
                 template: this.utilizationTemplate,
                 style: { 'min-width': '120px' }
-            },
-            {
-                display: 'Actions',
-                name: 'actions',
-                data: 'subnet.public_id',
-                sortable: false,
-                searchable: false,
-                fixed: true,
-                template: this.actionsTemplate,
-                style: { 'width': '64px', 'text-align': 'center' }
-            }
-        ];
+            });
+        }
 
+        columns.push({
+            display: 'Actions',
+            name: 'actions',
+            data: 'subnet.public_id',
+            sortable: false,
+            searchable: false,
+            fixed: true,
+            template: this.actionsTemplate,
+            style: { 'width': '64px', 'text-align': 'center' }
+        });
+
+        this.columns = columns;
         this.initialVisibleColumns = this.columns.map(column => column.name);
     }
 

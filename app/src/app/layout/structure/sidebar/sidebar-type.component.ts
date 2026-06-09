@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit } from '@angular/core';
 import { CmdbType } from '../../../framework/models/cmdb-type';
 import { Subscription } from 'rxjs';
 import { SidebarService } from '../../services/sidebar.service';
@@ -34,8 +34,7 @@ export class SidebarTypeComponent implements OnInit, OnDestroy {
   public objectCounter: number | null = null;
   private counterSubscription?: Subscription;
 
-  public constructor(private sidebarService: SidebarService) {
-  }
+  private readonly sidebarService = inject(SidebarService);
 
   /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

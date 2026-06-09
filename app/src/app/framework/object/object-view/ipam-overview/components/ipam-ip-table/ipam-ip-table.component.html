@@ -9,7 +9,9 @@
   [pageSize]="pageSize"
   [sort]="sort"
   [loading]="loading"
-  [selectEnabled]="false"
+  [selectEnabled]="true"
+  [selectedItems]="selectedRows"
+  [customButtons]="bulkButtonTemplates"
   [searchEnabled]="false"
   [paginationEnabled]="true"
   [pageSizeEnabled]="true"
@@ -17,8 +19,22 @@
   [emptyMessage]="'No IP addresses to display.'"
   (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)"
-  (sortChange)="onSortChange($event)">
+  (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectedChange($event)">
 </cmdb-table>
+
+<ng-template #bulkUnassignButton>
+  @if (selectedCount > 0) {
+    <button
+      type="button"
+      class="btn btn-danger btn-sm ipam-bulk-unassign"
+      (click)="onUnassignSelected()">
+      <i class="fa fa-unlink" aria-hidden="true"></i>
+      Unassign Selected
+      <span class="badge bg-secondary bg-pill">{{ selectedCount }}</span>
+    </button>
+  }
+</ng-template>
 
 <ng-template #typeTemplate let-item="item">
   @if (item?.type_info?.label) {
@@ -53,6 +69,32 @@
 <ng-template #valueTemplate let-data="data">
   @if (data) {
     <span>{{ data }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #actionsTemplate let-item="item">
+  @if (canUnassign(item)) {
+    <div class="ipam-row-actions" ngbDropdown container="body" placement="bottom-end">
+      <button
+        type="button"
+        class="ipam-row-actions__trigger"
+        aria-label="Row actions"
+        ngbDropdownToggle>
+        <i class="fa fa-ellipsis-v" aria-hidden="true"></i>
+      </button>
+      <div ngbDropdownMenu class="ipam-row-actions__menu">
+        <button
+          type="button"
+          ngbDropdownItem
+          class="ipam-row-actions__item ipam-row-actions__item--danger"
+          (click)="onUnassignRow(item)">
+          <i class="fa fa-unlink ipam-row-actions__item-icon" aria-hidden="true"></i>
+          <span>Unassign</span>
+        </button>
+      </div>
+    </div>
   } @else {
     <span class="ipam-muted" aria-hidden="true">&ndash;</span>
   }

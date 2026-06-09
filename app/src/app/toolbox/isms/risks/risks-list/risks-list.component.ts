@@ -17,9 +17,10 @@
 */
 import {
   Component,
+  inject,
   OnInit,
   TemplateRef,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -45,6 +46,14 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
     standalone: false
 })
 export class RisksListComponent implements OnInit {
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly modalService = inject(NgbModal);
+  private readonly filterBuilderService = inject(FilterBuilderService);
+  private readonly riskService = inject(RiskService);
+  private readonly extendableOptionService = inject(ExtendableOptionService);
+
   // Template references for the cmdb-table
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
   @ViewChild('riskTypeTemplate', { static: true }) riskTypeTemplate: TemplateRef<any>;
@@ -65,16 +74,6 @@ export class RisksListComponent implements OnInit {
   public sort: Sort = { name: 'public_id', order: SortDirection.DESCENDING };
   public columns: Column[] = [];
   public initialVisibleColumns: string[] = [];
-
-  constructor(
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private modalService: NgbModal,
-    private filterBuilderService: FilterBuilderService,
-    private riskService: RiskService,
-    private extendableOptionService: ExtendableOptionService
-  ) { }
 
   ngOnInit(): void {
     this.setupColumns();

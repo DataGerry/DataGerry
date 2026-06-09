@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, SimpleChanges } from '@angular/core';
+import { Component, inject, EventEmitter, Input, Output, SimpleChanges } from '@angular/core';
 
 import { AutomationsService } from '../../services/automations.service';
 
@@ -29,7 +29,7 @@ export class AutomationProgressListComponent {
   private progressTimerId?: number;
   private runningCheckTimers = new Map<number, number>();
 
-  constructor(private automationsService: AutomationsService) {}
+  private readonly automationsService = inject(AutomationsService);
 
   ngOnInit(): void {
     this.loadRunningSchedulers();

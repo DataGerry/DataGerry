@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -30,7 +30,8 @@ export class LocationFieldInUseModalComponent {
     @Input() scope: LocationFieldDeletionScope = 'field';
     @Input() objectPublicIds: number[] = [];
 
-    constructor(public activeModal: NgbActiveModal, private router: Router) {}
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly router = inject(Router);
 
     public get title(): string {
         return this.scope === 'section'
