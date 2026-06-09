@@ -126,19 +126,23 @@ class InterfaceCandidateValidatorHandle implements MdsRowValidatorHandle {
     private toRowPayloadFromSet(set: MultiDataSectionSet): InterfaceRowPayload {
         let subnet: number | null = null;
         let ip: string | null = null;
+        let type: string | null = null;
 
         for (const entry of set.data ?? []) {
             if (entry.name === IPAM_INTERFACE_FIELD_NAMES.SUBNET) {
                 subnet = this.toObjectId(entry.value);
             } else if (entry.name === IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS) {
                 ip = this.toTrimmedString(entry.value);
+            } else if (entry.name === IPAM_INTERFACE_FIELD_NAMES.TYPE) {
+                type = this.toTrimmedString(entry.value);
             }
         }
 
         return {
             row_index: set.multi_data_id,
             subnet_id: subnet,
-            ip_address: ip
+            ip_address: ip,
+            interface_type: type ?? 'ipv4'
         };
     }
 
@@ -150,7 +154,8 @@ class InterfaceCandidateValidatorHandle implements MdsRowValidatorHandle {
         return {
             row_index: rowIndex,
             subnet_id: this.toObjectId(values?.[IPAM_INTERFACE_FIELD_NAMES.SUBNET]),
-            ip_address: this.toTrimmedString(values?.[IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS])
+            ip_address: this.toTrimmedString(values?.[IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS]),
+            interface_type: this.toTrimmedString(values?.[IPAM_INTERFACE_FIELD_NAMES.TYPE]) ?? 'ipv4'
         };
     }
 

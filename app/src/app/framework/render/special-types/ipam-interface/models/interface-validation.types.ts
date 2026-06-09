@@ -20,6 +20,7 @@ export interface InterfaceRowPayload {
     row_index: number;
     subnet_id: number | null;
     ip_address: string | null;
+    interface_type: string | null;
 }
 
 
