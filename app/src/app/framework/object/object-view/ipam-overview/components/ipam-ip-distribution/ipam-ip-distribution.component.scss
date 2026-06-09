@@ -78,6 +78,12 @@
     letter-spacing: -0.01em;
 }
 
+.ipam-ip-dist__range-label[tabindex]:focus-visible {
+    outline: 2px solid var(--ipam-cell-focus-outline);
+    outline-offset: 1px;
+    border-radius: var(--ipam-cell-radius);
+}
+
 .ipam-ip-dist__sectors {
     display: grid;
     grid-template-columns: repeat(var(--ipam-cells-per-row), minmax(0, 1fr));

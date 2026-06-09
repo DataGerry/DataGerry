@@ -45,6 +45,7 @@ interface IpamDistributionSectorView {
 interface IpamDistributionRangeView {
     key: string;
     label: string;
+    tooltip: string | null;
     sectors: IpamDistributionSectorView[];
 }
 
@@ -85,6 +86,7 @@ export class IpamIpDistributionComponent {
         return ranges.map(range => ({
             key: range.ip_start,
             label: this.formatRangeLabel(range),
+            tooltip: this.formatRangeTooltip(range),
             sectors: (range.sectors ?? []).map(sector => this.buildSectorView(sector, sectorSize))
         }));
     }
@@ -124,9 +126,103 @@ export class IpamIpDistributionComponent {
 
 
     private formatRangeLabel(range: IpamIpDistributionRange): string {
+        if (this.isIpv6Address(range.ip_start)) {
+            const prefix = this.computeIpv6Prefix(range.ip_start, range.ip_end);
+            return prefix === null ? range.ip_start : `${range.ip_start}/${prefix}`;
+        }
+
         const lastDot = range.ip_end.lastIndexOf('.');
         const endTail = lastDot >= 0 ? range.ip_end.substring(lastDot) : range.ip_end;
         return `${range.ip_start} - ${endTail}`;
+    }
+
+
+    private formatRangeTooltip(range: IpamIpDistributionRange): string | null {
+        if (!this.isIpv6Address(range.ip_start)) {
+            return null;
+        }
+        return `${this.expandIpv6(range.ip_start)} - ${this.expandIpv6(range.ip_end)}`;
+    }
+
+
+    private isIpv6Address(ip: string): boolean {
+        return ip.includes(':');
+    }
+
+
+    private computeIpv6Prefix(startIp: string, endIp: string): number | null {
+        const start = this.ipv6ToBigInt(startIp);
+        const end = this.ipv6ToBigInt(endIp);
+        if (start === null || end === null) {
+            return null;
+        }
+
+        let span = end - start + 1n;
+        if (span <= 0n) {
+            return null;
+        }
+
+        let hostBits = 0;
+        while (span > 1n) {
+            // A CIDR range spans a power-of-two block; bail out otherwise.
+            if ((span & 1n) === 1n) {
+                return null;
+            }
+            span >>= 1n;
+            hostBits++;
+        }
+
+        return 128 - hostBits;
+    }
+
+
+    private expandIpv6(ip: string): string {
+        const value = this.ipv6ToBigInt(ip);
+        if (value === null) {
+            return ip;
+        }
+
+        const groups: string[] = [];
+        for (let shift = 112n; shift >= 0n; shift -= 16n) {
+            groups.push(((value >> shift) & 0xffffn).toString(16).padStart(4, '0'));
+        }
+        return groups.join(':');
+    }
+
+
+    private ipv6ToBigInt(ip: string): bigint | null {
+        const address = ip.split('%')[0];
+        const halves = address.split('::');
+        if (halves.length > 2) {
+            return null;
+        }
+
+        const head = halves[0] ? halves[0].split(':') : [];
+        const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+
+        let groups: string[];
+        if (halves.length === 2) {
+            const missing = 8 - (head.length + tail.length);
+            if (missing < 0) {
+                return null;
+            }
+            groups = [...head, ...new Array(missing).fill('0'), ...tail];
+        } else {
+            groups = head;
+        }
+
+        if (groups.length !== 8) {
+            return null;
+        }
+
+        let result = 0n;
+        for (const group of groups) {
+            if (!/^[0-9a-fA-F]{1,4}$/.test(group)) {
+                return null;
+            }
+            result = (result << 16n) | BigInt(parseInt(group, 16));
+        }
+        return result;
     }
 
 

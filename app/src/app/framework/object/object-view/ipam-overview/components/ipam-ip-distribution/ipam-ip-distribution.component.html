@@ -8,7 +8,13 @@
       <div class="ipam-ip-dist__ranges" role="list">
         @for (range of rangeViews(); track range.key) {
           <div class="ipam-ip-dist__range" role="listitem">
-            <span class="ipam-ip-dist__range-label">
+            <span
+              class="ipam-ip-dist__range-label"
+              [ngbTooltip]="range.tooltip"
+              container="body"
+              [openDelay]="100"
+              [attr.tabindex]="range.tooltip ? 0 : null"
+              [attr.aria-label]="range.tooltip">
               {{ range.label }}
             </span>
 
