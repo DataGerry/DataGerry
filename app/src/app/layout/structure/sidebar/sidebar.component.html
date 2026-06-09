@@ -20,12 +20,25 @@
 
       <li class="sb-nav-item sb-tabs" *ngIf="!isSidebarCollapsed">
         <button class="sb-tab" [class.sb-tab--active]="selectedMenu === 'categories'"
-          (click)="onSidebarMenuClicked(selectedCategories)" #selectedCategories value="categories" type="button">
+          (click)="selectTopTab('categories')" type="button">
           <span>Categories</span>
         </button>
-        <button class="sb-tab" [class.sb-tab--active]="selectedMenu === 'locations'"
-          (click)="onSidebarMenuClicked(selectedLocations)" #selectedLocations value="locations" type="button">
+        <button class="sb-tab" [class.sb-tab--active]="isNavigationView"
+          (click)="selectTopTab('navigation')" type="button">
+          <span>Navigation</span>
+        </button>
+      </li>
+
+      <li class="sb-nav-item sb-subtabs" *ngIf="isNavigationView && !isSidebarCollapsed">
+        <button class="sb-subtab" [class.sb-subtab--active]="selectedMenu === 'locations'"
+          (click)="selectNavTab('locations')" type="button">
+          <fa-icon icon="map-marker-alt"></fa-icon>
           <span>Locations</span>
+        </button>
+        <button class="sb-subtab" [class.sb-subtab--active]="selectedMenu === 'ipam'"
+          (click)="selectNavTab('ipam')" type="button">
+          <fa-icon icon="network-wired"></fa-icon>
+          <span>IPAM</span>
         </button>
       </li>
 
@@ -40,6 +53,12 @@
           (mouseleave)="onGroupMouseLeave()">
           <div class="sb-item" [class.is-active]="selectedMenu === 'locations'">
             <span class="sb-icon"><fa-icon icon="map-marker-alt"></fa-icon></span>
+          </div>
+        </li>
+        <li class="sb-nav-item" data-tip="IPAM" (mouseenter)="onGroupMouseEnter('ipam', $event)"
+          (mouseleave)="onGroupMouseLeave()">
+          <div class="sb-item" [class.is-active]="selectedMenu === 'ipam'">
+            <span class="sb-icon"><fa-icon icon="network-wired"></fa-icon></span>
           </div>
         </li>
       </ng-container>
@@ -88,6 +107,11 @@
         </location-tree>
       </li>
 
+      <li class="sb-nav-item sb-content-panel" *ngIf="selectedMenu === 'ipam' && !isSidebarCollapsed">
+        <ipam-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()">
+        </ipam-tree>
+      </li>
+
     </ul>
   </div>
 
@@ -111,6 +135,14 @@
       <div class="sb-flyout__head">Locations</div>
       <div class="sb-flyout__body">
         <location-tree [isExpanded]="false" [showSidebarExpandButton]="false"></location-tree>
+      </div>
+    </div>
+
+    <div *ngIf="flyout.group === 'ipam'" class="sb-flyout" [style.top.px]="flyout.top"
+      (mouseenter)="onFlyoutMouseEnter()" (mouseleave)="onFlyoutMouseLeave()">
+      <div class="sb-flyout__head">IPAM</div>
+      <div class="sb-flyout__body">
+        <ipam-tree [isExpanded]="false" [showSidebarExpandButton]="false"></ipam-tree>
       </div>
     </div>
   </ng-container>

@@ -133,14 +133,44 @@ export class SidebarComponent implements OnInit, OnDestroy {
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */
 
     /**
-     * Toggles the activated menu tabs (categories and locations)
-     * 
-     * @param selection :string = String representation of the selected menu
+     * Whether the "Navigation View" top tab is active (either of its nested sub-tabs is selected).
      */
-    onSidebarMenuClicked(selection: HTMLDivElement) {
-        let newValue = selection.getAttribute('value');
-        this.selectedMenu = newValue;
-        this.sidebarService.selectedMenu = newValue;
+    get isNavigationView(): boolean {
+        return this.selectedMenu === 'locations' || this.selectedMenu === 'ipam';
+    }
+
+
+    /**
+     * Selects a top-level tab. Entering "Navigation View" defaults to the Locations sub-tab,
+     * but preserves the last-used sub-tab when already inside the navigation view.
+     *
+     * @param tab the top-level tab to activate
+     */
+    selectTopTab(tab: 'categories' | 'navigation'): void {
+        if (tab === 'categories') {
+            this.setMenu('categories');
+            return;
+        }
+
+        if (!this.isNavigationView) {
+            this.setMenu('locations');
+        }
+    }
+
+
+    /**
+     * Selects a nested tab inside the "Navigation View".
+     *
+     * @param tab the nested tab to activate
+     */
+    selectNavTab(tab: 'locations' | 'ipam'): void {
+        this.setMenu(tab);
+    }
+
+
+    private setMenu(menu: string): void {
+        this.selectedMenu = menu;
+        this.sidebarService.selectedMenu = menu;
     }
 
 
