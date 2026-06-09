@@ -31,6 +31,8 @@ import {
     IpamSupernetInvalidSubnetsResponse,
     IpamSupernetOverviewParams,
     IpamSupernetOverviewResponse,
+    IpamUnassignIpsResponse,
+    IpamUnassignMode,
     IpamUnassignSubnetsResponse
 } from '../models/ipam-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -160,6 +162,27 @@ export class IpamOverviewService {
         return this.api
             .callGet<IpamSubnetSectorResponse>(`${this.servicePrefix}/subnet/overview/${publicId}/sector`, options)
             .pipe(map(response => response?.body as IpamSubnetSectorResponse));
+    }
+
+
+    public unassignIpsFromSubnet(
+        subnetId: number,
+        ips: string[],
+        mode: IpamUnassignMode = 'reference'
+    ): Observable<IpamUnassignIpsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callPost<IpamUnassignIpsResponse>(
+                `${this.servicePrefix}/subnet/overview/${subnetId}/unassign`,
+                { ips, mode },
+                options
+            )
+            .pipe(map(response => response?.body as IpamUnassignIpsResponse));
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

@@ -201,3 +201,11 @@ export interface IpamSubnetSectorResponse {
     sector: IpamSectorRange;
     ips: IpamIpListPage;
 }
+
+export type IpamUnassignMode = 'reference' | 'row';
+
+export interface IpamUnassignIpsResponse {
+    ips: string[];
+    mode: IpamUnassignMode;
+    unassigned_count: number;
+}

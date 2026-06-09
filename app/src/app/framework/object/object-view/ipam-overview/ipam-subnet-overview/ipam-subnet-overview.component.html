@@ -185,7 +185,8 @@
           [loading]="(isLoading$ | async) === true"
           (pageChange)="onPageChange($event)"
           (pageSizeChange)="onPageSizeChange($event)"
-          (sortChange)="onSortChange($event)">
+          (sortChange)="onSortChange($event)"
+          (unassign)="onUnassign($event)">
         </cmdb-ipam-ip-table>
       </div>
     </div>

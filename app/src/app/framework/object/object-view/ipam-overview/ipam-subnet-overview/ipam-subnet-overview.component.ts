@@ -26,6 +26,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Observable, Subject, catchError, finalize, of, switchMap, takeUntil, tap } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -42,9 +43,11 @@ import {
     IpamSubnetSectorParams,
     IpamSubnetSectorResponse,
     IpamTypeDistributionEntry,
+    IpamUnassignMode,
     IpamVlanInfo
 } from '../models/ipam-overview.types';
 import { IpamOverviewService } from '../services/ipam-overview.service';
+import { IpamUnassignIpModalComponent } from '../components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -72,6 +75,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     private readonly ipamOverviewService = inject(IpamOverviewService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
     private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
@@ -167,6 +171,21 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         }
     }
 
+    public onUnassign(ips: string[]): void {
+        if (this.publicId == null || !ips?.length) {
+            return;
+        }
+
+        const modalRef = this.modalService.open(IpamUnassignIpModalComponent, { size: 'lg' });
+        modalRef.componentInstance.count = ips.length;
+        modalRef.componentInstance.ipLabel = ips.length === 1 ? ips[0] : null;
+
+        modalRef.result.then(
+            (mode: IpamUnassignMode) => this.unassignIps(ips, mode),
+            () => {}
+        );
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public get isReady(): boolean {
@@ -225,6 +244,35 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private unassignIps(ips: string[], mode: IpamUnassignMode): void {
+        if (this.publicId == null || !ips?.length) {
+            return;
+        }
+
+        this.loaderService.show();
+
+        this.ipamOverviewService
+            .unassignIpsFromSubnet(this.publicId, ips, mode)
+            .pipe(
+                takeUntil(this.destroy$),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (response) => {
+                    const count = response?.unassigned_count ?? ips.length;
+                    this.toastService.success(
+                        count === 1
+                            ? 'IP address unassigned successfully.'
+                            : `${count} IP addresses unassigned successfully.`
+                    );
+                    this.dispatchIpsRequest();
+                },
+                error: (err) => {
+                    this.toastService.error(err?.error?.message);
+                }
+            });
+    }
 
     private clearSectorSelection(): void {
         this.selectedSectorStart = null;

@@ -89,8 +89,7 @@ export class SubnetNetworkRangeValidatorService {
             })
         ];
 
-        // dg-subnet-type is optional; when present, re-validate on change so the
-        // backend can re-check the candidate against the supernet's address family.
+
         if (subnetType) {
             subscriptions.push(
                 subnetType.valueChanges.pipe(distinctUntilChanged()).subscribe(() => {
