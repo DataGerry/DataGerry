@@ -187,6 +187,12 @@
     flex-wrap: wrap;
 }
 
+.ipam-subnet__table-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .ipam-subnet__sector-banner {
     display: flex;
     align-items: center;

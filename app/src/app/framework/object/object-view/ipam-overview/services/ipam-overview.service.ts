@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable, inject } from '@angular/core';
-import { HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -136,6 +136,18 @@ export class IpamOverviewService {
         return this.api
             .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}`, options)
             .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+
+    public exportSubnetOverview(publicId: number): Observable<HttpResponse<Blob>> {
+        const options = {
+            headers: new HttpHeaders({}),
+            params: {},
+            observe: resp,
+            responseType: 'blob'
+        };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/subnet/overview/${publicId}/export`, options);
     }
 
 

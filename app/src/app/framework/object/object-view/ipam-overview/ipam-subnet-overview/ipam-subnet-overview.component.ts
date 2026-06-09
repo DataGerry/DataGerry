@@ -25,8 +25,9 @@ import {
     OnDestroy,
     SimpleChanges,
 } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { FileSaverService } from 'ngx-filesaver';
 import { Observable, Subject, catchError, finalize, of, switchMap, takeUntil, tap } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -76,6 +77,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly modalService = inject(NgbModal);
+    private readonly fileSaverService = inject(FileSaverService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
@@ -186,6 +188,25 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         );
     }
 
+    public onExport(): void {
+        if (this.publicId == null) {
+            return;
+        }
+
+        this.loaderService.show();
+
+        this.ipamOverviewService
+            .exportSubnetOverview(this.publicId)
+            .pipe(
+                takeUntil(this.destroy$),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (response) => this.saveExportFile(response),
+                error: () => this.toastService.error('Unable to export the subnet overview. Please try again later.')
+            });
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public get isReady(): boolean {
@@ -272,6 +293,20 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                     this.toastService.error(err?.error?.message);
                 }
             });
+    }
+
+    private saveExportFile(response: HttpResponse<Blob>): void {
+        const blob = response?.body;
+        if (!blob) {
+            this.toastService.error('The export response was empty.');
+            return;
+        }
+        this.fileSaverService.save(blob, this.buildExportFileName());
+    }
+
+    private buildExportFileName(): string {
+        const cidr = this.subnet?.cidr?.replace(/[^\w.-]+/g, '_');
+        return `subnet-overview-${cidr || this.publicId}.xlsx`;
     }
 
     private clearSectorSelection(): void {

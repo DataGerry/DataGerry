@@ -7,15 +7,26 @@
   @if (isReady) {
     <div class="ipam-subnet__table-header">
       <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
-      <app-button
-        label=""
-        bootstrapClass="btn-outline-secondary btn-sm"
-        [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
-        [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
-        [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
-        [ariaPressed]="isFullscreen"
-        (clicked)="fullscreen.toggle()">
-      </app-button>
+      <div class="ipam-subnet__table-actions">
+        <app-button
+          label="Export"
+          bootstrapClass="btn-outline-secondary btn-sm"
+          icon="fa fa-download"
+          ariaLabel="Export the subnet overview"
+          title="Export the subnet overview"
+          [disabled]="(isLoading$ | async) === true"
+          (clicked)="onExport()">
+        </app-button>
+        <app-button
+          label=""
+          bootstrapClass="btn-outline-secondary btn-sm"
+          [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
+          [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [ariaPressed]="isFullscreen"
+          (clicked)="fullscreen.toggle()">
+        </app-button>
+      </div>
     </div>
     <div class="ipam-subnet__cards">
       <article
