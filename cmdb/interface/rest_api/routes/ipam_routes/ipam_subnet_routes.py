@@ -17,7 +17,7 @@
 REST routes for SUBNET-centric IPAM views
 
 Exposes the subnet IP-Übersicht read-side payload that powers the per-subnet IP table view in
-the frontend, the per-sector drill-down, an Excel (.xlsx) export of the IP table, plus the bulk
+the frontend, the per-sector drill-down, a CSV (.csv) export of the IP table, plus the bulk
 'unassign IPs' write-side route that clears the subnet reference on one or more dg-ipam-interface
 rows. The IP table is paginated and supports an optional case-insensitive substring search against
 the canonical IP strings; the search filter does not affect the KPI block or the distributions
@@ -54,7 +54,7 @@ from cmdb.framework.ipam.subnet_overview import (
 )
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
-from cmdb.framework.ipam.subnet_export import build_subnet_ips_xlsx
+from cmdb.framework.ipam.subnet_export import build_subnet_ips_csv
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -436,15 +436,15 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route exporting a subnet's IP rows as an Excel (.xlsx) file
+    HTTP `GET` route exporting a subnet's IP rows as a CSV (.csv) file
 
-    Returns the subnet's IP table as a single-sheet workbook with the columns IP, type, status,
+    Returns the subnet's IP table as a single CSV table with the columns IP, type, status,
     assigned-to and MAC address. An IPv4 subnet exports all assignable addresses (free + assigned);
     an IPv6 subnet exports only the assigned addresses. The file is returned as an attachment
     download.
 
     The export is capped at IpamSubnetIpsExport.MAX_EXPORT_ROWS rows: a subnet whose export would
-    exceed it aborts 400 ('too big') and no workbook is built. Aborts 404 when the subnet does not
+    exceed it aborts 400 ('too big') and no file is built. Aborts 404 when the subnet does not
     exist and 400 when the public_id refers to a non-subnet object or the subnet's network range is
     missing / unparsable
 
@@ -453,13 +453,13 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser making the request
 
     Returns:
-        Response: The .xlsx workbook as an attachment download
+        Response: The .csv file as an attachment download
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        content: bytes = build_subnet_ips_xlsx(objects_manager, types_manager, public_id)
+        content: bytes = build_subnet_ips_csv(objects_manager, types_manager, public_id)
 
         timestamp: str = datetime.now(timezone.utc).strftime('%Y_%m_%d-%H_%M_%S')
         filename: str = IpamSubnetIpsExport.FILENAME_TEMPLATE.format(public_id=public_id, timestamp=timestamp)

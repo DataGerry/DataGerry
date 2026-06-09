@@ -16,15 +16,15 @@
 """
 Unit tests for cmdb.framework.ipam.subnet_export
 
-Covers the IP-range cell formatting, the per-row mapping to export cells, and the full workbook
-build: the assigned subnet rows are stubbed (load_assigned_subnet_rows is patched) and the produced
-.xlsx bytes are read back with openpyxl to assert the sheet title, header row and data rows.
+Covers the IP-range cell formatting, the per-row mapping to export cells, and the full CSV build:
+the rows are stubbed (load_assigned_subnet_rows / build_subnet_ip_export_rows are patched) and the
+produced CSV bytes are read back with the csv module to assert the header row and data rows. CSV is
+text, so numeric cells round-trip as their string form (and large IPv6 counts keep full precision).
 """
+import csv
+from io import StringIO
 from typing import Any
-from io import BytesIO
 from unittest.mock import MagicMock, patch
-
-from openpyxl import load_workbook
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
@@ -37,8 +37,8 @@ from cmdb.framework.ipam.subnet_export import (
     _format_ip_range,
     _subnet_export_row,
     _subnet_ip_export_row,
-    build_supernet_subnets_xlsx,
-    build_subnet_ips_xlsx,
+    build_supernet_subnets_csv,
+    build_subnet_ips_csv,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -58,6 +58,12 @@ ROW_DEGENERATE: dict[str, Any] = {
     IpamOverviewKey.FREE_IPS: 0,
     IpamOverviewKey.USAGE_PERCENT: 0.0,
 }
+
+
+def _read_csv(content: bytes) -> list[list[str]]:
+    """Decodes CSV export bytes and returns the parsed rows (each a list of string cells)."""
+    return list(csv.reader(StringIO(content.decode('utf-8'))))
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              _format_ip_range                                                      #
@@ -89,26 +95,24 @@ def test_subnet_export_row_omits_usage_for_ipv6() -> None:
     assert _subnet_export_row(ROW_A, include_usage=False) == ['10.0.0.0/24', '10.0.0.0 - 10.0.0.255', 3, 253]
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        build_supernet_subnets_xlsx                                                 #
+#                                        build_supernet_subnets_csv                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_build_supernet_subnets_xlsx_ipv4_includes_usage_column() -> None:
-    """An IPv4 supernet's sheet carries the trailing 'Usage (%)' header and per-row usage cell"""
+def test_build_supernet_subnets_csv_ipv4_includes_usage_column() -> None:
+    """An IPv4 supernet's CSV carries the trailing 'Usage (%)' header and per-row usage cell"""
     with patch(f'{MODULE}.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
          patch(f'{MODULE}.load_assigned_subnet_rows', return_value=[ROW_A, ROW_DEGENERATE]):
-        content: bytes = build_supernet_subnets_xlsx(MagicMock(), MagicMock(), 42)
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), 42)
 
-    sheet = load_workbook(BytesIO(content)).active
-    assert sheet.title == IpamExport.SHEET_TITLE
-
-    rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
-    assert rows[0] == tuple(IpamExport.HEADERS + [IpamExport.USAGE_HEADER])
-    assert rows[1] == ('10.0.0.0/24', '10.0.0.0 - 10.0.0.255', 3, 253, 1.17)
-    assert rows[2] == ('not-a-cidr', None, 0, 0, 0.0)
+    rows: list[list[str]] = _read_csv(content)
+    assert rows[0] == IpamExport.HEADERS + [IpamExport.USAGE_HEADER]
+    assert rows[1] == ['10.0.0.0/24', '10.0.0.0 - 10.0.0.255', '3', '253', '1.17']
+    # the degenerate row's None range is written as an empty field
+    assert rows[2] == ['not-a-cidr', '', '0', '0', '0.0']
 
 
-def test_build_supernet_subnets_xlsx_ipv6_omits_usage_column() -> None:
-    """An IPv6 supernet's sheet has the base headers only and no per-row usage cell"""
+def test_build_supernet_subnets_csv_ipv6_omits_usage_column() -> None:
+    """An IPv6 supernet's CSV has the base headers only and no per-row usage cell"""
     row_v6: dict[str, Any] = {
         IpamOverviewKey.CIDR: '2001:db8:1::/64',
         IpamOverviewKey.IP_RANGE: {IpamOverviewKey.FIRST: '2001:db8:1::', IpamOverviewKey.LAST: '2001:db8:1::ffff'},
@@ -119,25 +123,22 @@ def test_build_supernet_subnets_xlsx_ipv6_omits_usage_column() -> None:
 
     with patch(f'{MODULE}.resolve_supernet_family', return_value=IpAddressFamily.IPV6), \
          patch(f'{MODULE}.load_assigned_subnet_rows', return_value=[row_v6]):
-        content: bytes = build_supernet_subnets_xlsx(MagicMock(), MagicMock(), 42)
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), 42)
 
-    rows: list[tuple[Any, ...]] = list(load_workbook(BytesIO(content)).active.iter_rows(values_only=True))
-    # No 'Usage (%)' column for IPv6: header + data row are both 4 cells (the huge free_ips count
-    # loses precision through Excel's float64, so only the bounded cells are asserted exactly)
-    assert rows[0] == tuple(IpamExport.HEADERS)
-    assert len(rows[1]) == 4
-    assert rows[1][:3] == ('2001:db8:1::/64', '2001:db8:1:: - 2001:db8:1::ffff', 1)
+    rows: list[list[str]] = _read_csv(content)
+    # No 'Usage (%)' column for IPv6: header + data row are both 4 cells. Unlike the old xlsx export,
+    # CSV keeps the huge free_ips count exact (text, not Excel's float64)
+    assert rows[0] == IpamExport.HEADERS
+    assert rows[1] == ['2001:db8:1::/64', '2001:db8:1:: - 2001:db8:1::ffff', '1', '18446744073709551615']
 
 
-def test_build_supernet_subnets_xlsx_emits_header_only_when_no_subnets() -> None:
-    """With no assigned subnets the workbook still carries just the (family-appropriate) header row"""
+def test_build_supernet_subnets_csv_emits_header_only_when_no_subnets() -> None:
+    """With no assigned subnets the CSV still carries just the (family-appropriate) header row"""
     with patch(f'{MODULE}.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
          patch(f'{MODULE}.load_assigned_subnet_rows', return_value=[]):
-        content: bytes = build_supernet_subnets_xlsx(MagicMock(), MagicMock(), 42)
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), 42)
 
-    rows: list[tuple[Any, ...]] = list(load_workbook(BytesIO(content)).active.iter_rows(values_only=True))
-
-    assert rows == [tuple(IpamExport.HEADERS + [IpamExport.USAGE_HEADER])]
+    assert _read_csv(content) == [IpamExport.HEADERS + [IpamExport.USAGE_HEADER]]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -161,41 +162,35 @@ IP_ROW_FREE: dict[str, Any] = {
 
 
 def test_subnet_ip_export_row_maps_assigned_row_to_human_readable_cells() -> None:
-    """An assigned row carries the type label, status, owner summary line and MAC"""
+    """An assigned row carries the type label, status value, owner summary line and MAC"""
     assert _subnet_ip_export_row(IP_ROW_ASSIGNED) == [
-        '10.0.0.5', 'Server', IpamRowStatus.ASSIGNED, 'Server: web01', 'aa:bb:cc:dd:ee:ff',
+        '10.0.0.5', 'Server', IpamRowStatus.ASSIGNED.value, 'Server: web01', 'aa:bb:cc:dd:ee:ff',
     ]
 
 
 def test_subnet_ip_export_row_blanks_type_owner_and_mac_for_free_row() -> None:
     """A free row leaves the type, assigned-to and MAC cells blank (not None)"""
-    assert _subnet_ip_export_row(IP_ROW_FREE) == ['10.0.0.6', '', IpamRowStatus.FREE, '', '']
+    assert _subnet_ip_export_row(IP_ROW_FREE) == ['10.0.0.6', '', IpamRowStatus.FREE.value, '', '']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            build_subnet_ips_xlsx                                                    #
+#                                            build_subnet_ips_csv                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_build_subnet_ips_xlsx_writes_headers_and_rows() -> None:
-    """The workbook carries the IP-export sheet title, header row and one data row per IP"""
+def test_build_subnet_ips_csv_writes_headers_and_rows() -> None:
+    """The CSV carries the header row and one data row per IP, with status as its plain value"""
     with patch(f'{MODULE}.build_subnet_ip_export_rows', return_value=[IP_ROW_ASSIGNED, IP_ROW_FREE]):
-        content: bytes = build_subnet_ips_xlsx(MagicMock(), MagicMock(), 7)
+        content: bytes = build_subnet_ips_csv(MagicMock(), MagicMock(), 7)
 
-    sheet = load_workbook(BytesIO(content)).active
-    assert sheet.title == IpamSubnetIpsExport.SHEET_TITLE
-
-    rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
-    assert rows[0] == tuple(IpamSubnetIpsExport.HEADERS)
-    assert rows[1] == ('10.0.0.5', 'Server', IpamRowStatus.ASSIGNED, 'Server: web01', 'aa:bb:cc:dd:ee:ff')
-    # the free row's blank cells round-trip back through openpyxl as empty (None) cells
-    assert rows[2] == ('10.0.0.6', None, IpamRowStatus.FREE, None, None)
+    rows: list[list[str]] = _read_csv(content)
+    assert rows[0] == IpamSubnetIpsExport.HEADERS
+    assert rows[1] == ['10.0.0.5', 'Server', IpamRowStatus.ASSIGNED.value, 'Server: web01', 'aa:bb:cc:dd:ee:ff']
+    assert rows[2] == ['10.0.0.6', '', IpamRowStatus.FREE.value, '', '']
 
 
-def test_build_subnet_ips_xlsx_emits_header_only_when_no_rows() -> None:
-    """With no exportable IPs the workbook still carries just the header row"""
+def test_build_subnet_ips_csv_emits_header_only_when_no_rows() -> None:
+    """With no exportable IPs the CSV still carries just the header row"""
     with patch(f'{MODULE}.build_subnet_ip_export_rows', return_value=[]):
-        content: bytes = build_subnet_ips_xlsx(MagicMock(), MagicMock(), 7)
+        content: bytes = build_subnet_ips_csv(MagicMock(), MagicMock(), 7)
 
-    rows: list[tuple[Any, ...]] = list(load_workbook(BytesIO(content)).active.iter_rows(values_only=True))
-
-    assert rows == [tuple(IpamSubnetIpsExport.HEADERS)]
+    assert _read_csv(content) == [IpamSubnetIpsExport.HEADERS]

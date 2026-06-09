@@ -27,6 +27,8 @@ function is not tested directly
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -75,6 +77,18 @@ UNPARSABLE_NAME_FIRST: str = 'Alpha'
 UNPARSABLE_NAME_SECOND: str = 'beta'
 
 PATH: str = 'cmdb.framework.ipam.tree_overview'
+
+SUPERNET_ICON: str = 'fas fa-sitemap'
+SUBNET_ICON: str = 'fas fa-network-wired'
+
+
+@pytest.fixture(autouse=True)
+def _stub_special_type_icon():
+    """Stubs resolve_special_type_icon so orchestrators don't hit the DB; per-family icon values."""
+    icons: dict[SpecialType, str] = {SpecialType.SUPERNET: SUPERNET_ICON, SpecialType.SUBNET: SUBNET_ICON}
+
+    with patch(f'{PATH}.resolve_special_type_icon', side_effect=lambda _types_manager, special_type: icons[special_type]):
+        yield
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -194,16 +208,24 @@ def test_collect_referenced_supernet_ids_collects_coerced_refs_and_skips_unassig
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                subnet_tree_node                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_subnet_tree_node_shapes_the_four_attributes() -> None:
-    """A well-formed subnet yields public_id, name, canonical cidr and the family under 'type'"""
+def test_subnet_tree_node_shapes_the_full_node_including_icon() -> None:
+    """A well-formed subnet yields public_id, name, canonical cidr, the family and the type icon"""
     doc = _make_subnet_doc(SUBNET_OBJECT_ID_A, network_range=SUBNET_RANGE_BROAD, name=SUBNET_NAME_A)
 
-    assert subnet_tree_node(doc) == {
+    assert subnet_tree_node(doc, SUBNET_ICON) == {
         CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID_A,
         IpamTreeKey.NAME: SUBNET_NAME_A,
         IpamTreeKey.CIDR: SUBNET_RANGE_BROAD,
         IpamTreeKey.TYPE: IpAddressFamily.IPV4,
+        IpamTreeKey.ICON: SUBNET_ICON,
     }
+
+
+def test_subnet_tree_node_icon_defaults_to_none() -> None:
+    """Without an icon argument the node carries icon=None (pass-through for the FE default)"""
+    node = subnet_tree_node(_make_subnet_doc(SUBNET_OBJECT_ID_A, network_range=SUBNET_RANGE_BROAD))
+
+    assert node[IpamTreeKey.ICON] is None
 
 
 def test_subnet_tree_node_normalises_the_cidr_to_canonical_form() -> None:
@@ -245,13 +267,14 @@ def test_supernet_tree_node_sets_has_children_from_the_referenced_set() -> None:
     """has_children is True iff the supernet's public_id appears in the referenced-id set"""
     doc = _make_supernet_doc(SUPERNET_OBJECT_ID, network_range=SUPERNET_RANGE, name=SUPERNET_NAME)
 
-    with_children = _supernet_tree_node(doc, {SUPERNET_OBJECT_ID})
-    without_children = _supernet_tree_node(doc, set())
+    with_children = _supernet_tree_node(doc, {SUPERNET_OBJECT_ID}, SUPERNET_ICON)
+    without_children = _supernet_tree_node(doc, set(), SUPERNET_ICON)
 
     assert with_children[IpamTreeKey.HAS_CHILDREN] is True
     assert without_children[IpamTreeKey.HAS_CHILDREN] is False
     assert with_children[IpamTreeKey.CIDR] == SUPERNET_RANGE
     assert with_children[IpamTreeKey.TYPE] == IpAddressFamily.IPV4
+    assert with_children[IpamTreeKey.ICON] == SUPERNET_ICON
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -429,6 +452,9 @@ def test_build_ipam_tree_assembles_sorted_supernets_and_unassigned_blocks() -> N
     assert tree[IpamTreeKey.SUPERNETS][0][IpamTreeKey.HAS_CHILDREN] is False
     assert tree[IpamTreeKey.SUPERNETS][1][IpamTreeKey.HAS_CHILDREN] is True
     assert [s[CmdbObjectKey.PUBLIC_ID] for s in tree[IpamTreeKey.UNASSIGNED]] == [SUBNET_OBJECT_ID_B]
+    # Each family carries its own resolved type icon
+    assert tree[IpamTreeKey.SUPERNETS][0][IpamTreeKey.ICON] == SUPERNET_ICON
+    assert tree[IpamTreeKey.UNASSIGNED][0][IpamTreeKey.ICON] == SUBNET_ICON
 
 
 def test_build_ipam_tree_loads_supernets_then_subnets() -> None:

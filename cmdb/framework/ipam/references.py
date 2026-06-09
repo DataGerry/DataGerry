@@ -40,6 +40,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.cmdb_type import CmdbType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -81,6 +82,29 @@ def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialTy
         return None
 
     return type_doc.get(CmdbObjectKey.PUBLIC_ID)
+
+
+def resolve_special_type_icon(types_manager: TypesManager, special_type: SpecialType) -> str | None:
+    """
+    Returns the icon of the CmdbType marked with the given SpecialType, or None if none exists
+
+    Reads the type's render_meta icon (the same icon shown for the type elsewhere). Returns None
+    when no CmdbType carries the SpecialType yet or the type has no icon set, so callers pass the
+    value through to the frontend, which applies its own default
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_type (SpecialType): The SpecialType to resolve (SUPERNET / SUBNET)
+
+    Returns:
+        str | None: The CmdbType's icon, or None when unresolved / unset
+    """
+    type_doc: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
+
+    if not type_doc:
+        return None
+
+    return CmdbType.from_data(type_doc).get_icon()
 
 
 def _find_objects_with_field_value(

@@ -29,7 +29,6 @@ from cmdb.models.type_model import FieldType, TypeSchemaKey
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
-    TypeConfigKey,
     RenderMetaKey,
 )
 from cmdb.framework.datagerry_assistant.profile_type_constructor import ProfileTypeConstructor
@@ -51,14 +50,14 @@ def test_create_type_config_sets_skeleton_and_defaults(type_constructor: Profile
     """The type body carries the given identity plus the fixed defaults (active/version/author)"""
     cfg: dict[str, Any] = type_constructor.create_type_config([_INFO_SECTION], 'demo', 'Demo', 'fas fa-cube')
 
-    assert cfg[TypeConfigKey.NAME] == 'demo'
-    assert cfg[TypeConfigKey.LABEL] == 'Demo'
-    assert cfg[TypeConfigKey.ACTIVE] is True
-    assert cfg[TypeConfigKey.SELECTABLE_AS_PARENT] is True
-    assert cfg[TypeConfigKey.VERSION] == '1.0.0'
-    assert cfg[TypeConfigKey.AUTHOR_ID] == 1
-    assert cfg[TypeConfigKey.GLOBAL_TEMPLATE_IDS] == []
-    assert cfg[TypeConfigKey.RENDER_META][RenderMetaKey.ICON] == 'fas fa-cube'
+    assert cfg[TypeSchemaKey.NAME] == 'demo'
+    assert cfg[TypeSchemaKey.LABEL] == 'Demo'
+    assert cfg[TypeSchemaKey.ACTIVE] is True
+    assert cfg[TypeSchemaKey.SELECTABLE_AS_PARENT] is True
+    assert cfg[TypeSchemaKey.VERSION] == '1.0.0'
+    assert cfg[TypeSchemaKey.AUTHOR_ID] == 1
+    assert cfg[TypeSchemaKey.GLOBAL_TEMPLATE_IDS] == []
+    assert cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.ICON] == 'fas fa-cube'
 
 
 def test_create_type_config_non_deterministic_fields_have_valid_shape(
@@ -67,20 +66,20 @@ def test_create_type_config_non_deterministic_fields_have_valid_shape(
     """ci_explorer_color is a 6-digit hex color and creation_time is a datetime"""
     cfg: dict[str, Any] = type_constructor.create_type_config([_INFO_SECTION], 'demo', 'Demo', 'fas fa-cube')
 
-    assert re.fullmatch(r'#[0-9A-F]{6}', cfg[TypeConfigKey.CI_EXPLORER_COLOR])
-    assert isinstance(cfg[TypeConfigKey.CREATION_TIME], datetime)
+    assert re.fullmatch(r'#[0-9A-F]{6}', cfg[TypeSchemaKey.CI_EXPLORER_COLOR])
+    assert isinstance(cfg[TypeSchemaKey.CREATION_TIME], datetime)
 
 
 def test_create_type_config_builds_sections_fields_and_summary(type_constructor: ProfileTypeConstructor) -> None:
     """Fields land in the flat list, under their section by name, and is_summary fields in summary"""
     cfg: dict[str, Any] = type_constructor.create_type_config([_INFO_SECTION], 'demo', 'Demo', 'fas fa-cube')
 
-    sections: list[dict[str, Any]] = cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS]
+    sections: list[dict[str, Any]] = cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS]
     assert [section['name'] for section in sections] == ['sec-info']
     assert sections[0]['fields'] == ['text-name', 'text-note']
 
-    assert [field['name'] for field in cfg[TypeConfigKey.FIELDS]] == ['text-name', 'text-note']
-    assert cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SUMMARY][RenderMetaKey.FIELDS] == ['text-name']
+    assert [field['name'] for field in cfg[TypeSchemaKey.FIELDS]] == ['text-name', 'text-note']
+    assert cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SUMMARY][RenderMetaKey.FIELDS] == ['text-name']
 
 
 def test_create_type_config_lifts_only_accepted_extras(type_constructor: ProfileTypeConstructor) -> None:
@@ -97,7 +96,7 @@ def test_create_type_config_lifts_only_accepted_extras(type_constructor: Profile
     }
 
     cfg: dict[str, Any] = type_constructor.create_type_config([section], 'demo', 'Demo', 'fas fa-cube')
-    field: dict[str, Any] = cfg[TypeConfigKey.FIELDS][0]
+    field: dict[str, Any] = cfg[TypeSchemaKey.FIELDS][0]
 
     assert field['options'] == [{'name': 'a', 'label': 'A'}]
     assert field['regex'] == '^x$'
@@ -112,10 +111,10 @@ def test_create_type_config_inlines_predefined_template(type_constructor: Profil
         [_INFO_SECTION, template_section], 'demo', 'Demo', 'fas fa-cube',
     )
 
-    assert cfg[TypeConfigKey.GLOBAL_TEMPLATE_IDS] == ['dg-modelspec']
-    section_names: list[str] = [section['name'] for section in cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS]]
+    assert cfg[TypeSchemaKey.GLOBAL_TEMPLATE_IDS] == ['dg-modelspec']
+    section_names: list[str] = [section['name'] for section in cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS]]
     assert 'dg-modelspec' in section_names
-    flat_names: list[str] = [field['name'] for field in cfg[TypeConfigKey.FIELDS]]
+    flat_names: list[str] = [field['name'] for field in cfg[TypeSchemaKey.FIELDS]]
     assert 'dg-modelspec-model' in flat_names
 
 
@@ -130,7 +129,7 @@ def test_create_type_config_preserves_mds_section_type(type_constructor: Profile
 
     cfg: dict[str, Any] = type_constructor.create_type_config([mds_section], 'demo', 'Demo', 'fas fa-cube')
     section: dict[str, Any] = next(
-        s for s in cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS] if s['name'] == 'sec-mds'
+        s for s in cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS] if s['name'] == 'sec-mds'
     )
 
     assert section['type'] == SectionType.MDS_SECTION
@@ -140,7 +139,7 @@ def test_create_type_config_preserves_mds_section_type(type_constructor: Profile
 def test_create_type_config_plain_section_stays_plain(type_constructor: ProfileTypeConstructor) -> None:
     """A section without an explicit type defaults to a plain section and carries no hidden_fields"""
     cfg: dict[str, Any] = type_constructor.create_type_config([_INFO_SECTION], 'demo', 'Demo', 'fas fa-cube')
-    section: dict[str, Any] = cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS][0]
+    section: dict[str, Any] = cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS][0]
 
     assert section['type'] == SectionType.SECTION
     assert 'hidden_fields' not in section
@@ -192,9 +191,9 @@ def test_create_special_type_config_sets_marker_sections_and_fields(
     cfg: dict[str, Any] = type_constructor.create_special_type_config(blueprint, 'supernet', 'Supernet', 'fas fa-x')
 
     assert cfg[TypeSchemaKey.SPECIAL_TYPE] == 'SUPERNET'
-    assert cfg[TypeConfigKey.NAME] == 'supernet'
-    assert cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS] == blueprint[TypeSchemaKey.SECTIONS]
-    assert cfg[TypeConfigKey.FIELDS] == blueprint[TypeSchemaKey.FIELDS]
+    assert cfg[TypeSchemaKey.NAME] == 'supernet'
+    assert cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS] == blueprint[TypeSchemaKey.SECTIONS]
+    assert cfg[TypeSchemaKey.FIELDS] == blueprint[TypeSchemaKey.FIELDS]
 
 
 def test_create_special_type_config_marks_first_field_as_summary(
@@ -203,7 +202,7 @@ def test_create_special_type_config_marks_first_field_as_summary(
     """The SpecialType's name field (first field) becomes the summary field"""
     cfg: dict[str, Any] = type_constructor.create_special_type_config(_blueprint(), 'supernet', 'Supernet', 'fas fa-x')
 
-    assert cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SUMMARY][RenderMetaKey.FIELDS] == ['dg-name']
+    assert cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SUMMARY][RenderMetaKey.FIELDS] == ['dg-name']
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                  conditional sections (the bug-adjacent logic)                                       #
@@ -219,9 +218,9 @@ def test_add_conditional_sections_includes_section_when_all_ids_present(
     type_constructor.add_conditional_sections([section])
 
     cfg: dict[str, Any] = type_constructor.type_config
-    sections: list[dict[str, Any]] = cfg[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS]
+    sections: list[dict[str, Any]] = cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS]
     assert 'sec-os' in [s['name'] for s in sections]
-    ref_field: dict[str, Any] = next(f for f in cfg[TypeConfigKey.FIELDS] if f['name'] == 'ref-os')
+    ref_field: dict[str, Any] = next(f for f in cfg[TypeSchemaKey.FIELDS] if f['name'] == 'ref-os')
     assert ref_field['type'] == FieldType.REFERENCE
     assert ref_field['ref_types'] == [7]
 
@@ -236,7 +235,7 @@ def test_add_conditional_sections_skips_section_when_any_id_is_none(
 
     type_constructor.add_conditional_sections([ok, skip])
 
-    sections: list[dict[str, Any]] = type_constructor.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS]
+    sections: list[dict[str, Any]] = type_constructor.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS]
     names: list[str] = [s['name'] for s in sections]
     assert 'sec-os' in names
     assert 'sec-user' not in names

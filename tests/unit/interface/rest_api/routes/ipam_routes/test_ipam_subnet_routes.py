@@ -227,26 +227,28 @@ def test_unassign_ips_route_forwards_mode_to_unassigner(flask_app: Flask) -> Non
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               export_subnet_ips                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_export_subnet_ips_returns_xlsx_attachment(flask_app: Flask) -> None:
-    """The route streams the builder's bytes as an xlsx attachment with a filename"""
+def test_export_subnet_ips_returns_csv_attachment(flask_app: Flask) -> None:
+    """The route streams the builder's bytes as a .csv attachment with a filename"""
     bare = _unwrap(export_subnet_ips)
 
-    with patch(f'{ROUTE_PATH}.build_subnet_ips_xlsx', return_value=b'xlsx-bytes') as mock_build, \
+    with patch(f'{ROUTE_PATH}.build_subnet_ips_csv', return_value=b'csv-bytes') as mock_build, \
          patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
          flask_app.test_request_context('/overview/5/export'):
         response = bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
     assert mock_build.call_args.args[2] == SUBNET_PUBLIC_ID
-    assert response.get_data() == b'xlsx-bytes'
-    assert response.mimetype == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    assert 'attachment; filename=subnet_5_ips_' in response.headers['Content-Disposition']
+    assert response.get_data() == b'csv-bytes'
+    assert response.mimetype == 'text/csv'
+    disposition: str = response.headers['Content-Disposition']
+    assert 'attachment; filename=subnet_5_ips_' in disposition
+    assert disposition.endswith('.csv')
 
 
 def test_export_subnet_ips_propagates_too_big_abort(flask_app: Flask) -> None:
     """A 400 raised by the builder (subnet too big) propagates out instead of becoming a 500"""
     bare = _unwrap(export_subnet_ips)
 
-    with patch(f'{ROUTE_PATH}.build_subnet_ips_xlsx', side_effect=HTTPException(), ), \
+    with patch(f'{ROUTE_PATH}.build_subnet_ips_csv', side_effect=HTTPException(), ), \
          patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
          flask_app.test_request_context('/overview/5/export'):
         with pytest.raises(HTTPException):

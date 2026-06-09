@@ -16,7 +16,6 @@
 """
 Definition of all routes for CmdbSectionTemplates
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
@@ -34,13 +33,18 @@ from cmdb.models.section_template_model.section_template_constants import (
     SectionTemplateRight,
 )
 from cmdb.models.type_model import SectionType
-from cmdb.utils.helpers import str_to_bool
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
+    require_params,
+    parse_json_fields,
+    coerce_bool,
+    coerce_public_id,
+)
 
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
@@ -54,69 +58,6 @@ from cmdb.errors.manager.section_templates_manager import (
 LOGGER: Logger = getLogger(__name__)
 
 section_template_blueprint = APIBlueprint('section_templates', __name__)
-
-# --------------------------------------------------- PAYLOAD HELPERS ------------------------------------------------ #
-
-def _require_params(params: dict[str, Any], keys: list[str]) -> None:
-    """
-    Aborts 400 when any of the required request parameters is missing
-
-    Args:
-        params (dict[str, Any]): The parsed request parameters
-        keys (list[str]): The parameter names that must be present
-    """
-    missing: list[str] = [key for key in keys if key not in params]
-
-    if missing:
-        abort(400, f"Missing required parameter(s): {', '.join(missing)}")
-
-
-def _parse_json_fields(raw: Any) -> Any:
-    """
-    Parses the JSON-encoded 'fields' parameter, aborting 400 on malformed input
-
-    Args:
-        raw (Any): The raw 'fields' parameter value (a JSON string)
-
-    Returns:
-        Any: The decoded JSON value
-    """
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        abort(400, "The 'fields' parameter must be a valid JSON string!")
-
-
-def _coerce_bool(raw: Any) -> bool:
-    """
-    Coerces a request parameter to a bool, aborting 400 on an unrecognised value
-
-    Args:
-        raw (Any): The raw parameter value ('true' / 'false' or a native bool)
-
-    Returns:
-        bool: The coerced boolean
-    """
-    try:
-        return str_to_bool(raw)
-    except ValueError:
-        abort(400, "Boolean parameters must be 'true' or 'false'!")
-
-
-def _coerce_public_id(raw: Any) -> int:
-    """
-    Coerces the 'public_id' parameter to an int, aborting 400 when it is not numeric
-
-    Args:
-        raw (Any): The raw 'public_id' parameter value
-
-    Returns:
-        int: The integer public_id
-    """
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        abort(400, "The 'public_id' parameter must be an integer!")
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -134,8 +75,8 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     body fields before insert
 
     Args:
-        params (dict[str, Any]): Request body carrying 'name', 'type', 'is_global', 'predefined'
-            and a JSON-encoded 'fields' string
+        params (dict[str, Any]): Request body carrying 'name', 'label', 'type', 'is_global',
+            'predefined' and a JSON-encoded 'fields' string
         request_user (CmdbUser): The user making the request (auth / manager scoping)
 
     Returns:
@@ -147,8 +88,9 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
-        _require_params(params, [
+        require_params(params, [
             SectionTemplateKey.NAME,
+            SectionTemplateKey.LABEL,
             SectionTemplateKey.TYPE,
             SectionTemplateKey.IS_GLOBAL,
             SectionTemplateKey.PREDEFINED,
@@ -166,13 +108,13 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         if params[SectionTemplateKey.TYPE] not in [SectionType.SECTION, SectionType.MDS_SECTION]:
             abort(400, f"Invalid template type provided: {params[SectionTemplateKey.TYPE]}!")
 
-        if _coerce_bool(params[SectionTemplateKey.PREDEFINED]):
+        if coerce_bool(params[SectionTemplateKey.PREDEFINED]):
             abort(400, "It is not possible to create predefined section templates via API!")
 
         params[SectionTemplateKey.PUBLIC_ID] = section_templates_manager.get_next_public_id(inc_id=True)
-        params[SectionTemplateKey.IS_GLOBAL] = _coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
+        params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
         params[SectionTemplateKey.PREDEFINED] = False
-        params[SectionTemplateKey.FIELDS] = _parse_json_fields(params[SectionTemplateKey.FIELDS])
+        params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
 
         created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
@@ -329,8 +271,8 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     handle_section_template_changes
 
     Args:
-        params (dict[str, Any]): Request body - the updated template incl. 'public_id', 'type',
-            'predefined', 'is_global' and a JSON-encoded 'fields' string
+        params (dict[str, Any]): Request body - the updated template incl. 'public_id', 'label',
+            'type', 'predefined', 'is_global' and a JSON-encoded 'fields' string
         request_user (CmdbUser): The user making the request
 
     Returns:
@@ -343,18 +285,19 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
-        _require_params(params, [
+        require_params(params, [
             SectionTemplateKey.PUBLIC_ID,
+            SectionTemplateKey.LABEL,
             SectionTemplateKey.TYPE,
             SectionTemplateKey.IS_GLOBAL,
             SectionTemplateKey.PREDEFINED,
             SectionTemplateKey.FIELDS,
         ])
 
-        params[SectionTemplateKey.PUBLIC_ID] = _coerce_public_id(params[SectionTemplateKey.PUBLIC_ID])
-        params[SectionTemplateKey.PREDEFINED] = _coerce_bool(params[SectionTemplateKey.PREDEFINED])
-        params[SectionTemplateKey.IS_GLOBAL] = _coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
-        params[SectionTemplateKey.FIELDS] = _parse_json_fields(params[SectionTemplateKey.FIELDS])
+        params[SectionTemplateKey.PUBLIC_ID] = coerce_public_id(params[SectionTemplateKey.PUBLIC_ID])
+        params[SectionTemplateKey.PREDEFINED] = coerce_bool(params[SectionTemplateKey.PREDEFINED])
+        params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
+        params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
 
         public_id: int = params[SectionTemplateKey.PUBLIC_ID]
         current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)

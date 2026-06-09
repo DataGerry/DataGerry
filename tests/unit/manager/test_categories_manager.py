@@ -255,19 +255,18 @@ class TestRemoveTypeFromCategories:
 #                                             validate_parent_assignment                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestValidateParentAssignment:
-    """``validate_parent_assignment`` guards the parent reference on insert and update."""
+    """``validate_parent_assignment`` guards the parent reference using ``_get_ancestor_ids``.
 
-    @staticmethod
-    def _category_doc(public_id: int, parent: int | None) -> dict:
-        """Builds a minimal stored category document with the given identity and parent."""
-        return {'public_id': public_id, 'parent': parent}
+    The ancestor resolution itself ($graphLookup) is covered against real MongoDB in
+    tests/integration/framework/test_integration_categories_crud.py; here ``_get_ancestor_ids``
+    is mocked so only the branching logic is exercised."""
 
     def test_none_parent_is_always_valid(self) -> None:
         """Detaching / root assignment (parent None) passes without any lookup."""
         mgr = _mock_manager()
 
         assert CategoriesManager.validate_parent_assignment(mgr, CATEGORY_PUBLIC_ID, None) is None
-        mgr.get_category.assert_not_called()
+        mgr._get_ancestor_ids.assert_not_called()  # pylint: disable=protected-access
 
     def test_self_parent_is_rejected_before_any_lookup(self) -> None:
         """parent == public_id returns a rejection reason without touching the database."""
@@ -276,34 +275,32 @@ class TestValidateParentAssignment:
         reason = CategoriesManager.validate_parent_assignment(mgr, CATEGORY_PUBLIC_ID, CATEGORY_PUBLIC_ID)
 
         assert reason is not None
-        mgr.get_category.assert_not_called()
+        mgr._get_ancestor_ids.assert_not_called()  # pylint: disable=protected-access
 
     def test_missing_parent_is_rejected(self) -> None:
-        """A parent id that resolves to no document returns a rejection reason."""
+        """A parent id with no document (``_get_ancestor_ids`` returns None) is rejected."""
         mgr = _mock_manager()
-        mgr.get_category.return_value = None
+        mgr._get_ancestor_ids.return_value = None  # pylint: disable=protected-access
 
         reason = CategoriesManager.validate_parent_assignment(
             mgr, CATEGORY_PUBLIC_ID, MISSING_CATEGORY_PUBLIC_ID,
         )
 
         assert reason is not None
+        assert 'does not exist' in reason
 
     def test_insert_mode_only_checks_parent_existence(self) -> None:
-        """public_id None (insert) accepts any existing parent without walking the chain."""
+        """public_id None (insert) accepts any existing parent without a cycle check."""
         mgr = _mock_manager()
-        mgr.get_category.return_value = self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID)
+        mgr._get_ancestor_ids.return_value = {GRANDPARENT_PUBLIC_ID}  # pylint: disable=protected-access
 
         assert CategoriesManager.validate_parent_assignment(mgr, None, PARENT_CATEGORY_PUBLIC_ID) is None
-        mgr.get_category.assert_called_once_with(PARENT_CATEGORY_PUBLIC_ID)
+        mgr._get_ancestor_ids.assert_called_once_with(PARENT_CATEGORY_PUBLIC_ID)  # pylint: disable=protected-access
 
     def test_valid_chain_passes(self) -> None:
-        """A parent whose ancestor chain ends at a root (parent None) is accepted."""
+        """A parent whose ancestors do not include the candidate is accepted."""
         mgr = _mock_manager()
-        mgr.get_category.side_effect = [
-            self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID),
-            self._category_doc(GRANDPARENT_PUBLIC_ID, None),
-        ]
+        mgr._get_ancestor_ids.return_value = {GRANDPARENT_PUBLIC_ID}  # pylint: disable=protected-access
 
         reason = CategoriesManager.validate_parent_assignment(
             mgr, CATEGORY_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID,
@@ -312,29 +309,14 @@ class TestValidateParentAssignment:
         assert reason is None
 
     def test_ancestor_cycle_is_rejected(self) -> None:
-        """Assigning a parent whose chain leads back to the candidate (A -> B -> A) is rejected."""
+        """Assigning a parent whose ancestors include the candidate (A -> B -> A) is rejected."""
         mgr = _mock_manager()
-        # Candidate CATEGORY wants PARENT as parent; PARENT's ancestor is the candidate itself
-        mgr.get_category.return_value = self._category_doc(PARENT_CATEGORY_PUBLIC_ID, CATEGORY_PUBLIC_ID)
+        # The candidate is among the requested parent's ancestors -> cycle
+        mgr._get_ancestor_ids.return_value = {CATEGORY_PUBLIC_ID}  # pylint: disable=protected-access
 
         reason = CategoriesManager.validate_parent_assignment(
             mgr, CATEGORY_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID,
         )
 
         assert reason is not None
-
-    def test_preexisting_cycle_in_stored_data_terminates(self) -> None:
-        """A cycle already stored among the ancestors (not involving the candidate) ends the walk
-        via the visited set instead of looping forever; the assignment itself is accepted."""
-        mgr = _mock_manager()
-        mgr.get_category.side_effect = [
-            self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID),
-            self._category_doc(GRANDPARENT_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID),
-            self._category_doc(PARENT_CATEGORY_PUBLIC_ID, GRANDPARENT_PUBLIC_ID),
-        ]
-
-        reason = CategoriesManager.validate_parent_assignment(
-            mgr, CATEGORY_PUBLIC_ID, PARENT_CATEGORY_PUBLIC_ID,
-        )
-
-        assert reason is None
+        assert 'cycle' in reason

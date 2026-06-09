@@ -216,12 +216,12 @@ class TestIpamSubnetOverviewRoutes:
         assert response.status_code == HTTPStatus.OK
         assert 'sector' in response.get_json()
 
-    def test_subnet_export_streams_a_workbook(self, rest_api):
-        """GET .../overview/<id>/export answers with the xlsx attachment"""
+    def test_subnet_export_streams_a_csv(self, rest_api):
+        """GET .../overview/<id>/export answers with the csv attachment"""
         response = rest_api.get(f'{SUBNET_OVERVIEW_URL}/{SUBNET_CHILD_ID}/export')
 
         assert response.status_code == HTTPStatus.OK
-        assert 'spreadsheetml' in response.headers['Content-Type']
+        assert 'text/csv' in response.headers['Content-Type']
 
     def test_subnet_unassign_clears_the_interface_reference(self, rest_api):
         """POST .../overview/<id>/unassign detaches the stored IP row (runs last: it writes)"""
@@ -267,12 +267,12 @@ class TestIpamSupernetOverviewRoutes:
         assert response.status_code == HTTPStatus.OK
         assert 'invalid_count' in response.get_json()
 
-    def test_supernet_subnets_export_streams_a_workbook(self, rest_api):
-        """GET .../subnets/export answers with the xlsx attachment"""
+    def test_supernet_subnets_export_streams_a_csv(self, rest_api):
+        """GET .../subnets/export answers with the csv attachment"""
         response = rest_api.get(f'{SUPERNET_OVERVIEW_URL}/{SUPERNET_ID}/subnets/export')
 
         assert response.status_code == HTTPStatus.OK
-        assert 'spreadsheetml' in response.headers['Content-Type']
+        assert 'text/csv' in response.headers['Content-Type']
 
     def test_supernet_unassign_detaches_a_subnet(self, rest_api):
         """POST .../subnets/unassign detaches the child subnet (runs last: it writes)"""
