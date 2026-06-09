@@ -30,7 +30,7 @@ from cmdb.manager.query_builder import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
@@ -661,37 +661,47 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
 
-    def get_grouped_objects_for_types(self, type_ids: list[int]) -> dict[int, list[CmdbObject]]:
+    def get_object_field_name_sets_by_type(self, type_ids: list[int]) -> dict[int, list[set[str]]]:
         """
-        Grouping all existing objects by the given public_ids of CmdbTypes
+        Returns the distinct sets of object field-names per CmdbType, deduplicated in the database
+
+        For each given CmdbType public_id, aggregates the field-name lists of its CmdbObjects and
+        returns only the distinct (order-independent) sets - so a type with thousands of identically
+        shaped objects yields a single set. Lets callers evaluate a type's 'clean status' without
+        materializing every object in memory
 
         Args:
-            type_ids (list[int]): All public_ids of CmdbTypes which should be considered
+            type_ids (list[int]): public_ids of the CmdbTypes whose objects should be inspected
+
+        Raises:
+            ObjectsManagerGetError: If the aggregation fails
 
         Returns:
-            dict[int, list[CmdbObject]]: Dictionary with grouped CmdbObjects
-
-        Example:
-            {
-                1: [Obj1, Obj2],
-                2: [Obj3, Obj4],
-            }
+            dict[int, list[set[str]]]: Mapping of type public_id to the distinct field-name sets
+                found across its objects (types with no objects are absent from the mapping)
         """
+        if not type_ids:
+            return {}
+
+        field_names_path: str = f'${CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.NAME.value}'
+
+        pipeline: list[dict[str, Any]] = [
+            {'$match': {CmdbObjectKey.TYPE_ID.value: {'$in': type_ids}}},
+            {'$group': {
+                '_id': f'${CmdbObjectKey.TYPE_ID.value}',
+                # $sortArray (MongoDB 6.0) makes the signature order-independent so $addToSet dedups
+                'signatures': {'$addToSet': {
+                    '$sortArray': {'input': {'$ifNull': [field_names_path, []]}, 'sortBy': 1},
+                }},
+            }},
+        ]
+
         try:
-            objects_of_types: list[CmdbObject] = self.find_objects(criteria={'type_id': {"$in": type_ids}})
+            result = list(self.aggregate_objects(pipeline))
 
-            # Group objects
-            objects_by_type: dict[int, list[CmdbObject]] = {}
-
-            for obj in objects_of_types:
-                objects_by_type.setdefault(obj.type_id, []).append(obj)
-
-            return objects_by_type
-        except ObjectsManagerGetError as err:
-            LOGGER.error("[get_grouped_objects_for_types] ObjectsManagerGetError: %s", err)
-            raise
+            return {row['_id']: [set(signature) for signature in row['signatures']] for row in result}
         except Exception as err:
-            LOGGER.error("[get_grouped_objects_for_types] Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[get_object_field_name_sets_by_type] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(str(err)) from err
 
 

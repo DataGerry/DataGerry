@@ -46,7 +46,7 @@ from cmdb.framework.ipam.supernet_overview import (
     build_supernet_overview,
     build_supernet_subnet_children,
 )
-from cmdb.framework.ipam.subnet_export import build_supernet_subnets_xlsx
+from cmdb.framework.ipam.subnet_export import build_supernet_subnets_csv
 from cmdb.framework.ipam.supernet_membership import unassign_subnets_from_supernet
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -182,9 +182,9 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route exporting all assigned subnets of a supernet as an Excel (.xlsx) file
+    HTTP `GET` route exporting all assigned subnets of a supernet as a CSV (.csv) file
 
-    Returns every subnet referencing the supernet (any nesting depth) as a single-sheet workbook
+    Returns every subnet referencing the supernet (any nesting depth) as a single CSV table
     with the columns CIDR, IP range, used IPs, free IPs and usage percent. The file is returned
     as an attachment download.
 
@@ -193,13 +193,13 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser making the request
 
     Returns:
-        Response: The .xlsx workbook as an attachment download
+        Response: The .csv file as an attachment download
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        content: bytes = build_supernet_subnets_xlsx(objects_manager, types_manager, public_id)
+        content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id)
 
         timestamp: str = datetime.now(timezone.utc).strftime('%Y_%m_%d-%H_%M_%S')
         filename: str = IpamExport.FILENAME_TEMPLATE.format(public_id=public_id, timestamp=timestamp)

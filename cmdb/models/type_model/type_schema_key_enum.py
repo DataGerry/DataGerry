@@ -31,8 +31,28 @@ class TypeSchemaKey(BaseStrEnum):
     RENDER_META is the persisted CmdbType document key the section list nests under
     ('render_meta.sections'); queries against stored type documents compose their dotted
     paths from RENDER_META + SECTIONS
+
+    The identity / audit / presentation members (PUBLIC_ID, NAME, LABEL, ACTIVE, AUTHOR_ID,
+    EDITOR_ID, CREATION_TIME, LAST_EDIT_TIME, GLOBAL_TEMPLATE_IDS, SELECTABLE_AS_PARENT,
+    VERSION, DESCRIPTION, CI_EXPLORER_LABEL, CI_EXPLORER_COLOR, ACL) are the remaining
+    top-level keys a stored CmdbType document carries
     """
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
     FIELDS = 'fields'
     RENDER_META = 'render_meta'
+    PUBLIC_ID = 'public_id'
+    NAME = 'name'
+    LABEL = 'label'
+    ACTIVE = 'active'
+    AUTHOR_ID = 'author_id'
+    EDITOR_ID = 'editor_id'
+    CREATION_TIME = 'creation_time'
+    LAST_EDIT_TIME = 'last_edit_time'
+    GLOBAL_TEMPLATE_IDS = 'global_template_ids'
+    SELECTABLE_AS_PARENT = 'selectable_as_parent'
+    VERSION = 'version'
+    DESCRIPTION = 'description'
+    CI_EXPLORER_LABEL = 'ci_explorer_label'
+    CI_EXPLORER_COLOR = 'ci_explorer_color'
+    ACL = 'acl'

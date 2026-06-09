@@ -45,7 +45,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamTreeKey,
 )
 from cmdb.framework.ipam.cidr import Network, parse_cidr, is_strict_subnet
-from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.references import resolve_special_type_id, resolve_special_type_icon
 from cmdb.framework.ipam.supernet_overview import (
     load_supernet_object,
     load_subnets_for_supernet,
@@ -128,13 +128,16 @@ def _shape_tree_node(
     name_field: str,
     range_field: str,
     family: str,
+    icon: str | None,
 ) -> dict[str, Any]:
     """
     Shapes one IPAM CmdbObject into a lightweight sidebar-tree node
 
     The CIDR is normalised to its canonical string form when it parses; an unparsable string
     is passed through verbatim so the FE can still display it, and a missing / non-string
-    value becomes None. The name is passed through only when it is a string
+    value becomes None. The name is passed through only when it is a string. The icon is the
+    object's CmdbType icon, resolved once per SpecialType by the caller and shared across every
+    node of the same family (None when the type has no icon / is undefined)
 
     Args:
         obj (dict[str, Any]): The SUBNET or SUPERNET CmdbObject document
@@ -142,9 +145,11 @@ def _shape_tree_node(
         range_field (str): The network-range field to read (SubnetField.NETWORK_RANGE /
             SupernetField.NETWORK_RANGE)
         family (str): The object's resolved IpAddressFamily ('ipv4' / 'ipv6')
+        icon (str | None): The object's CmdbType icon, or None when unset / undefined
 
     Returns:
-        dict[str, Any]: One node with public_id, name, cidr and the address family under 'type'
+        dict[str, Any]: One node with public_id, name, cidr, the address family under 'type'
+            and the type 'icon'
     """
     raw_cidr: Any = extract_field_value(obj, range_field)
     network: Network | None = parse_cidr(raw_cidr) if isinstance(raw_cidr, str) else None
@@ -155,10 +160,11 @@ def _shape_tree_node(
         IpamTreeKey.NAME: raw_name if isinstance(raw_name, str) else None,
         IpamTreeKey.CIDR: str(network) if network is not None else (raw_cidr if isinstance(raw_cidr, str) else None),
         IpamTreeKey.TYPE: family,
+        IpamTreeKey.ICON: icon,
     }
 
 
-def subnet_tree_node(subnet_obj: dict[str, Any]) -> dict[str, Any]:
+def subnet_tree_node(subnet_obj: dict[str, Any], icon: str | None = None) -> dict[str, Any]:
     """
     Shapes a SUBNET CmdbObject into a sidebar-tree node
 
@@ -167,21 +173,25 @@ def subnet_tree_node(subnet_obj: dict[str, Any]) -> dict[str, Any]:
 
     Args:
         subnet_obj (dict[str, Any]): The SUBNET CmdbObject document
+        icon (str | None): The SUBNET CmdbType icon (resolved once by the caller), or None
 
     Returns:
-        dict[str, Any]: One node with public_id, name, cidr and the address family under 'type'
+        dict[str, Any]: One node with public_id, name, cidr, the address family under 'type'
+            and the type 'icon'
     """
     return _shape_tree_node(
         subnet_obj,
         SubnetField.NAME,
         SubnetField.NETWORK_RANGE,
         subnet_family(subnet_obj),
+        icon,
     )
 
 
 def _supernet_tree_node(
     supernet_obj: dict[str, Any],
     referenced_supernet_ids: set[int],
+    icon: str | None,
 ) -> dict[str, Any]:
     """
     Shapes a SUPERNET CmdbObject into a sidebar-tree entry carrying 'has_children'
@@ -193,16 +203,18 @@ def _supernet_tree_node(
     Args:
         supernet_obj (dict[str, Any]): The SUPERNET CmdbObject document
         referenced_supernet_ids (set[int]): Output of ``_collect_referenced_supernet_ids``
+        icon (str | None): The SUPERNET CmdbType icon (resolved once by the caller), or None
 
     Returns:
-        dict[str, Any]: One entry with public_id, name, cidr, the address family under 'type'
-            and 'has_children'
+        dict[str, Any]: One entry with public_id, name, cidr, the address family under 'type',
+            the type 'icon' and 'has_children'
     """
     node: dict[str, Any] = _shape_tree_node(
         supernet_obj,
         SupernetField.NAME,
         SupernetField.NETWORK_RANGE,
         supernet_family(supernet_obj),
+        icon,
     )
     node[IpamTreeKey.HAS_CHILDREN] = node[CmdbObjectKey.PUBLIC_ID] in referenced_supernet_ids
 
@@ -372,12 +384,16 @@ def build_ipam_tree(
 
     referenced: set[int] = _collect_referenced_supernet_ids(subnet_objs)
 
+    # The icon is the SpecialType's CmdbType icon - one per family, shared across every node
+    supernet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUPERNET)
+    subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
+
     return {
         IpamTreeKey.SUPERNETS: sort_tree_nodes(
-            [_supernet_tree_node(s, referenced) for s in supernet_objs],
+            [_supernet_tree_node(s, referenced, supernet_icon) for s in supernet_objs],
         ),
         IpamTreeKey.UNASSIGNED: sort_tree_nodes(
-            [subnet_tree_node(s) for s in subnet_objs if _parent_supernet_id(s) is None],
+            [subnet_tree_node(s, subnet_icon) for s in subnet_objs if _parent_supernet_id(s) is None],
         ),
     }
 
@@ -413,9 +429,10 @@ def build_supernet_subnet_tree(
     subnet_objs: list[dict[str, Any]] = load_subnets_for_supernet(
         objects_manager, types_manager, supernet_public_id,
     )
+    subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 
     return {
-        IpamTreeKey.CHILDREN: nest_subnet_nodes([subnet_tree_node(s) for s in subnet_objs]),
+        IpamTreeKey.CHILDREN: nest_subnet_nodes([subnet_tree_node(s, subnet_icon) for s in subnet_objs]),
     }
 
 
@@ -441,9 +458,10 @@ def build_unassigned_subnets(
     subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
         objects_manager, types_manager, SpecialType.SUBNET,
     )
+    subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 
     return {
         IpamTreeKey.UNASSIGNED: sort_tree_nodes(
-            [subnet_tree_node(s) for s in subnet_objs if _parent_supernet_id(s) is None],
+            [subnet_tree_node(s, subnet_icon) for s in subnet_objs if _parent_supernet_id(s) is None],
         ),
     }

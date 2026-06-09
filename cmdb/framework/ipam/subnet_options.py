@@ -37,6 +37,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import IpamOverviewKey, IpamTreeKey
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.search import active_search
+from cmdb.framework.ipam.references import resolve_special_type_icon
 from cmdb.framework.ipam.tree_overview import (
     load_all_special_type_objects,
     sort_tree_nodes,
@@ -154,14 +155,15 @@ def build_subnet_options_page(
 
     Returns:
         dict[str, Any]: {'page', 'page_size', 'total', 'search', 'type', 'rows': [...]} where
-            each row is {'public_id', 'name', 'cidr', 'type'} and 'total' is the count after
-            both filters, not the unfiltered count
+            each row is {'public_id', 'name', 'cidr', 'type', 'icon'} and 'total' is the count
+            after both filters, not the unfiltered count
     """
     subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
         objects_manager, types_manager, SpecialType.SUBNET,
     )
+    subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 
-    nodes: list[dict[str, Any]] = sort_tree_nodes([subnet_tree_node(s) for s in subnet_objs])
+    nodes: list[dict[str, Any]] = sort_tree_nodes([subnet_tree_node(s, subnet_icon) for s in subnet_objs])
     filtered: list[dict[str, Any]] = filter_nodes_by_search(filter_nodes_by_family(nodes, family), search)
 
     total: int = len(filtered)

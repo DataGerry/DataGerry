@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for cmdb.interface.rest_api.routes.framework_routes.categories_routes
+Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_routes
 
 Each test unwraps the route handler past its auth / validation / collection-parameter
 decorators and drives the bare function inside a Flask test_request_context, with
@@ -31,8 +31,8 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import CategoriesManager
-from cmdb.interface.rest_api.routes.framework_routes.categories_constants import CategoryListView
-from cmdb.interface.rest_api.routes.framework_routes.categories_routes import (
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import CategoryListView
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_routes import (
     insert_cmdb_category,
     get_cmdb_categories,
     get_cmdb_category,
@@ -50,7 +50,7 @@ from cmdb.errors.manager.categories_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.categories_routes'
+ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_routes'
 
 CATEGORY_PUBLIC_ID: int = 7
 MISSING_CATEGORY_PUBLIC_ID: int = 9999

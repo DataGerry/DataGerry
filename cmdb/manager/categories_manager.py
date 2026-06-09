@@ -26,6 +26,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
+from cmdb.models.object_model import CmdbObjectKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
@@ -294,32 +295,61 @@ class CategoriesManager(GenericManager):
         if public_id is not None and parent_id == public_id:
             return f"A Category cannot be its own parent (ID:{public_id})!"
 
-        parent_doc: dict[str, Any] | None = self.get_category(parent_id)
+        ancestor_ids: set[int] | None = self._get_ancestor_ids(parent_id)
 
-        if not parent_doc:
+        if ancestor_ids is None:
             return f"The parent Category with ID:{parent_id} does not exist!"
 
         if public_id is None:
             return None
 
-        # Walk the ancestor chain of the requested parent; reaching the candidate closes a cycle.
-        # The visited set guards against pre-existing cycles in stored data ending the walk
-        visited: set[int] = set()
-        current: dict[str, Any] | None = parent_doc
-
-        while current is not None:
-            ancestor_id: Any = current.get(CategoryKey.PARENT)
-
-            if ancestor_id is None or ancestor_id in visited:
-                return None
-
-            if ancestor_id == public_id:
-                return (
-                    f"Assigning parent ID:{parent_id} would create a cycle: Category"
-                    f" ID:{public_id} is an ancestor of it!"
-                )
-
-            visited.add(ancestor_id)
-            current = self.get_category(ancestor_id)
+        # Reaching the candidate among the parent's ancestors would close a cycle (A -> B -> A)
+        if public_id in ancestor_ids:
+            return (
+                f"Assigning parent ID:{parent_id} would create a cycle: Category"
+                f" ID:{public_id} is an ancestor of it!"
+            )
 
         return None
+
+
+    def _get_ancestor_ids(self, parent_id: int) -> set[int] | None:
+        """
+        Resolves the full ancestor chain of a CmdbCategory in a single ``$graphLookup`` query
+
+        Replaces an upward walk that issued one ``get_category`` query per ancestor: ``$graphLookup``
+        follows each category's ``parent`` link to another category's ``public_id``, collecting every
+        ancestor of ``parent_id`` in one round-trip. Its built-in cycle handling means a pre-existing
+        parent cycle in stored data cannot loop forever. ``$graphLookup`` is a MongoDB 3.4 feature
+
+        Args:
+            parent_id (int): public_id of the parent CmdbCategory whose ancestors are resolved
+
+        Raises:
+            CategoriesManagerGetError: When the lookup fails
+
+        Returns:
+            set[int] | None: public_ids of all ancestors of ``parent_id``, or None when no
+                CmdbCategory with that public_id exists
+        """
+        pipeline: list[dict[str, Any]] = [
+            {'$match': {CmdbObjectKey.PUBLIC_ID.value: parent_id}},
+            {'$graphLookup': {
+                'from': CmdbCategory.COLLECTION,
+                'startWith': f'${CategoryKey.PARENT.value}',
+                'connectFromField': CategoryKey.PARENT.value,
+                'connectToField': CmdbObjectKey.PUBLIC_ID.value,
+                'as': '_ancestors',
+            }},
+            {'$project': {'_ancestor_ids': f'$_ancestors.{CmdbObjectKey.PUBLIC_ID.value}'}},
+        ]
+
+        try:
+            result: list[dict[str, Any]] = list(self.aggregate(pipeline))
+        except BaseManagerIterationError as err:
+            raise CategoriesManagerGetError(str(err)) from err
+
+        if not result:
+            return None
+
+        return set(result[0].get('_ancestor_ids', []))

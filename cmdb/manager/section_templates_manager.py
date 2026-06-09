@@ -42,8 +42,6 @@ MongoDB operators ('$set', '$push', ...) stay as literals.
 from logging import Logger, getLogger
 from typing import Any
 
-from pymongo import UpdateOne
-
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.types_manager import TypesManager
@@ -53,7 +51,6 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeFieldSection, TypeMultiDataSection, SectionType, FieldKey
 from cmdb.models.object_model import (
-    CmdbObject,
     CmdbObjectKey,
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
@@ -197,7 +194,8 @@ class SectionTemplatesManager(BaseManager):
         Counts the types and objects using a (global) CmdbSectionTemplate
 
         A non-global template is used by exactly one type and is never propagated, so it reports
-        zero. Object counting uses a count query rather than materialising the objects
+        zero. The type ids are resolved with a ``distinct`` projection and the objects with a count
+        query, so neither the CmdbTypes nor the CmdbObjects are materialised
 
         Args:
             template_name (str): Name of the CmdbSectionTemplate
@@ -214,14 +212,14 @@ class SectionTemplatesManager(BaseManager):
         if not is_global:
             return counts
 
-        found_types: list[CmdbType] = self.types_manager.find_types({GLOBAL_TEMPLATE_IDS_FIELD: template_name})
+        type_ids: list[int] = self.types_manager.get_distinct(
+            PUBLIC_ID_FIELD, {GLOBAL_TEMPLATE_IDS_FIELD: template_name},
+        )
 
-        if not found_types:
+        if not type_ids:
             return counts
 
-        counts['types'] = len(found_types)
-
-        type_ids: list[int] = [a_type.public_id for a_type in found_types]
+        counts['types'] = len(type_ids)
         counts['objects'] = self.objects_manager.count_documents({CmdbObjectKey.TYPE_ID: {"$in": type_ids}})
 
         return counts
@@ -532,47 +530,40 @@ class SectionTemplatesManager(BaseManager):
         and objects already carrying it are left untouched. Objects with the section but no rows
         get nothing, matching the per-row storage model
 
+        One server-side ``$push`` per field (no objects loaded), scoped via positional array filters
+        to the matching section (``$[s]``) and only the rows whose ``data`` lacks the field name
+        (``$[v]``). Positional array filters are a MongoDB 3.6 feature
+
         Args:
             type_id (int): public_id of the type whose objects should gain the fields
             new_fields (list[dict[str, Any]]): The added field definitions
             section_name (str): The MDS section_id to seed
         """
-        objects: list[CmdbObject] = self.objects_manager.get_objects_by(
-            type_id=type_id,
-            **{f"{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}": section_name},
-        )
+        mds_path: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+        section_id_key: str = CmdbObjectMdsKey.SECTION_ID.value
+        values_key: str = CmdbObjectMdsKey.VALUES.value
+        data_key: str = CmdbObjectMdsRowKey.DATA.value
+        name_key: str = CmdbObjectFieldKey.NAME.value
 
-        bulk_ops: list[UpdateOne] = []
+        for field_def in new_fields:
+            field_name: str = field_def[FieldKey.NAME]
+            entry: dict[str, Any] = {
+                CmdbObjectFieldKey.NAME: field_name,
+                CmdbObjectFieldKey.TYPE: field_def[FieldKey.TYPE],
+                CmdbObjectFieldKey.VALUE: field_def.get(FieldKey.VALUE, None),
+            }
 
-        for obj in objects:
-            updated: bool = False
-
-            for mds in obj.multi_data_sections:
-                if mds[CmdbObjectMdsKey.SECTION_ID] != section_name:
-                    continue
-
-                for entry in mds.get(CmdbObjectMdsKey.VALUES, []):
-                    existing_names: set[str] = {f[CmdbObjectFieldKey.NAME] for f in entry[CmdbObjectMdsRowKey.DATA]}
-
-                    for field_def in new_fields:
-                        if field_def[FieldKey.NAME] not in existing_names:
-                            entry[CmdbObjectMdsRowKey.DATA].append({
-                                CmdbObjectFieldKey.NAME: field_def[FieldKey.NAME],
-                                CmdbObjectFieldKey.TYPE: field_def[FieldKey.TYPE],
-                                CmdbObjectFieldKey.VALUE: field_def.get(FieldKey.VALUE, None),
-                            })
-                            updated = True
-
-            if updated:
-                bulk_ops.append(
-                    UpdateOne(
-                        {PUBLIC_ID_FIELD: obj.public_id},
-                        {"$set": {CmdbObjectKey.MULTI_DATA_SECTIONS: obj.multi_data_sections}}
-                    )
-                )
-
-        if bulk_ops:
-            self.objects_manager.bulk_write(bulk_ops)
+            self.objects_manager.update_many_raw(
+                filter_query={
+                    CmdbObjectKey.TYPE_ID: type_id,
+                    f"{mds_path}.{section_id_key}": section_name,
+                },
+                update={"$push": {f"{mds_path}.$[s].{values_key}.$[v].{data_key}": entry}},
+                array_filters=[
+                    {f"s.{section_id_key}": section_name},
+                    {f"v.{data_key}.{name_key}": {"$ne": field_name}},
+                ],
+            )
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     CLEANUP                                                          #
@@ -631,51 +622,34 @@ class SectionTemplatesManager(BaseManager):
         """
         Removes the named fields from every row of an MDS section on a type's objects
 
-        Loads only the objects carrying the section, filters the named fields out of each row's
-        ``data`` in memory, and persists the touched objects in one bulk write
+        A single server-side ``$pull`` (no objects loaded), scoped via a positional array filter to
+        the matching section (``$[s]``); it drops every ``data`` entry across all rows (``$[]``)
+        whose name is in ``section_field_names``. Positional array filters are a MongoDB 3.6 feature
 
         Args:
             type_id (int): public_id of the type whose objects should be cleaned
             section_field_names (list[str]): Field names to remove from each MDS row
             section_name (str): The MDS section_id to clean
         """
-        field_names_set: set[str] = set(section_field_names)
+        if not section_field_names:
+            return
 
-        objects: list[CmdbObject] = self.objects_manager.get_objects_by(
-            type_id=type_id,
-            **{f"{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}": section_name},
+        mds_path: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+        section_id_key: str = CmdbObjectMdsKey.SECTION_ID.value
+        values_key: str = CmdbObjectMdsKey.VALUES.value
+        data_key: str = CmdbObjectMdsRowKey.DATA.value
+        name_key: str = CmdbObjectFieldKey.NAME.value
+
+        self.objects_manager.update_many_raw(
+            filter_query={
+                CmdbObjectKey.TYPE_ID: type_id,
+                f"{mds_path}.{section_id_key}": section_name,
+            },
+            update={"$pull": {
+                f"{mds_path}.$[s].{values_key}.$[].{data_key}": {name_key: {"$in": section_field_names}}
+            }},
+            array_filters=[{f"s.{section_id_key}": section_name}],
         )
-
-        bulk_ops: list[UpdateOne] = []
-
-        for obj in objects:
-            updated: bool = False
-
-            for mds in obj.multi_data_sections:
-                if mds[CmdbObjectMdsKey.SECTION_ID] != section_name:
-                    continue
-
-                for entry in mds.get(CmdbObjectMdsKey.VALUES, []):
-                    original_len: int = len(entry[CmdbObjectMdsRowKey.DATA])
-
-                    entry[CmdbObjectMdsRowKey.DATA] = [
-                        field for field in entry[CmdbObjectMdsRowKey.DATA]
-                        if field[CmdbObjectFieldKey.NAME] not in field_names_set
-                    ]
-
-                    if len(entry[CmdbObjectMdsRowKey.DATA]) != original_len:
-                        updated = True
-
-            if updated:
-                bulk_ops.append(
-                    UpdateOne(
-                        {PUBLIC_ID_FIELD: obj.public_id},
-                        {"$set": {CmdbObjectKey.MULTI_DATA_SECTIONS: obj.multi_data_sections}}
-                    )
-                )
-
-        if bulk_ops:
-            self.objects_manager.bulk_write(bulk_ops)
 
 
     def delete_mds_section_from_objects(self, type_id: int, section_name: str) -> None:

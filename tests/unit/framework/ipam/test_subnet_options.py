@@ -25,6 +25,8 @@ own dedicated tests in test_tree_overview
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -57,6 +59,15 @@ SUBNET_NAME_A: str = 'Core'
 SUBNET_NAME_B: str = 'Mgmt'
 
 PATH: str = 'cmdb.framework.ipam.subnet_options'
+
+SUBNET_ICON: str = 'fas fa-network-wired'
+
+
+@pytest.fixture(autouse=True)
+def _stub_special_type_icon():
+    """Stubs resolve_special_type_icon so the picker builder does not hit the DB for the icon."""
+    with patch(f'{PATH}.resolve_special_type_icon', return_value=SUBNET_ICON):
+        yield
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -183,6 +194,7 @@ def test_build_subnet_options_page_loads_subnets_and_shapes_sorted_rows() -> Non
         IpamTreeKey.NAME: SUBNET_NAME_A,
         IpamTreeKey.CIDR: SUBNET_RANGE_V4_LOW,
         IpamTreeKey.TYPE: IpAddressFamily.IPV4,
+        IpamTreeKey.ICON: SUBNET_ICON,
     }
 
 

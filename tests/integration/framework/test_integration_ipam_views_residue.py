@@ -19,15 +19,15 @@ Integration tests for the remaining IPAM view / export / wiring paths against a 
 Pins the DB-touching behaviour the unit tests only mock: the per-subnet lazy children fetch
 (build_supernet_subnet_children), the invalid-subnets-only overview, the supernet overview's
 flat search branch, the subnet IP table's status / sort / type-filter query parameters, the
-supernet subnets .xlsx export, resolve_supernet_family and validate_vlan's subnet lookup.
+supernet subnets .csv export, resolve_supernet_family and validate_vlan's subnet lookup.
 The SpecialType ref_types cross-wiring lives in test_integration_ipam_wiring (own module: it
 must not share the DB with another SUBNET / SUPERNET SpecialType seed)
 """
-from io import BytesIO
+import csv
+from io import StringIO
 from typing import Any
 
 import pytest
-from openpyxl import load_workbook
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectsManager, TypesManager
@@ -56,7 +56,7 @@ from cmdb.framework.ipam.supernet_overview import (
     resolve_supernet_family,
 )
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview
-from cmdb.framework.ipam.subnet_export import build_supernet_subnets_xlsx
+from cmdb.framework.ipam.subnet_export import build_supernet_subnets_csv
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.utils import ValidationErrorKey
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
@@ -270,14 +270,14 @@ def test_subnet_overview_type_filter_restricts_to_one_owner_type(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              SUPERNET SUBNETS EXPORT                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_supernet_subnets_xlsx_exports_every_assigned_subnet(
+def test_supernet_subnets_csv_exports_every_assigned_subnet(
     objects_manager: ObjectsManager, types_manager: TypesManager,
 ) -> None:
-    """The export workbook carries one row per assigned subnet with its CIDR"""
-    content = build_supernet_subnets_xlsx(objects_manager, types_manager, SUPERNET_ID)
+    """The export CSV carries one row per assigned subnet with its CIDR"""
+    content = build_supernet_subnets_csv(objects_manager, types_manager, SUPERNET_ID)
 
-    sheet = load_workbook(BytesIO(content)).active
-    cidr_column = [row[0] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    csv_rows = list(csv.reader(StringIO(content.decode('utf-8'))))
+    cidr_column = [row[0] for row in csv_rows[1:]]
 
     assert set(cidr_column) == {
         SUBNET_PARENT_RANGE, SUBNET_CHILD_RANGE, SUBNET_INVALID_RANGE, SUBNET_IPS_RANGE,

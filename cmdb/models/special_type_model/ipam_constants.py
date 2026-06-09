@@ -348,6 +348,7 @@ class IpamTreeKey(BaseStrEnum):
     NAME = 'name'
     CIDR = 'cidr'
     TYPE = 'type'
+    ICON = 'icon'
     HAS_CHILDREN = 'has_children'
 
 
@@ -457,36 +458,34 @@ class IpamSection(BaseStrEnum):
 
 class IpamExport:
     """
-    Constants for the supernet 'assigned subnets' Excel (.xlsx) export
+    Constants for the supernet 'assigned subnets' CSV (.csv) export
 
-    SHEET_TITLE names the single worksheet; HEADERS is the ordered base column header row shared by
-    both address families (CIDR, IP range, used / free counts). USAGE_HEADER is the IPv4-only
-    trailing 'Usage (%)' column: it is appended to HEADERS for an IPv4 supernet's export but omitted
-    for an IPv6 one, where a used/total ratio against a 2**n address space is meaningless.
-    IP_RANGE_SEPARATOR joins the range's first and last address into a single cell. MIMETYPE is the
-    OpenXML spreadsheet content type and FILENAME_TEMPLATE builds the download filename
+    HEADERS is the ordered base column header row shared by both address families (CIDR, IP range,
+    used / free counts). USAGE_HEADER is the IPv4-only trailing 'Usage (%)' column: it is appended
+    to HEADERS for an IPv4 supernet's export but omitted for an IPv6 one, where a used/total ratio
+    against a 2**n address space is meaningless. IP_RANGE_SEPARATOR joins the range's first and last
+    address into a single cell. MIMETYPE is the CSV content type and FILENAME_TEMPLATE builds the
+    download filename
     """
-    SHEET_TITLE: str = 'Assigned Subnets'
     HEADERS: list[str] = ['CIDR', 'IP Range', 'Used IPs', 'Free IPs']
     USAGE_HEADER: str = 'Usage (%)'
     IP_RANGE_SEPARATOR: str = ' - '
-    MIMETYPE: str = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    FILENAME_TEMPLATE: str = 'supernet_{public_id}_subnets_{timestamp}.xlsx'
+    MIMETYPE: str = 'text/csv'
+    FILENAME_TEMPLATE: str = 'supernet_{public_id}_subnets_{timestamp}.csv'
 
 
 class IpamSubnetIpsExport:
     """
-    Constants for the subnet 'IP overview' Excel (.xlsx) export
+    Constants for the subnet 'IP overview' CSV (.csv) export
 
-    SHEET_TITLE names the single worksheet; HEADERS is the ordered column row, identical for both
-    address families (the family difference is which rows are emitted, not which columns). The
-    columns mirror the overview IP table: the address, its type label, its status, the assigned
-    owner's summary line and its MAC. MAX_EXPORT_ROWS caps how many IP rows may be exported - an
-    export that would exceed it is rejected (HTTP 400) and no workbook is built; the counted volume
-    is the IPv4 assignable count (free + assigned) or the IPv6 assigned count. FILENAME_TEMPLATE
-    builds the download filename. The OpenXML content type is shared via IpamExport.MIMETYPE
+    HEADERS is the ordered column row, identical for both address families (the family difference is
+    which rows are emitted, not which columns). The columns mirror the overview IP table: the
+    address, its type label, its status, the assigned owner's summary line and its MAC.
+    MAX_EXPORT_ROWS caps how many IP rows may be exported - an export that would exceed it is
+    rejected (HTTP 400) and no file is built; the counted volume is the IPv4 assignable count (free +
+    assigned) or the IPv6 assigned count. FILENAME_TEMPLATE builds the download filename. The CSV
+    content type is shared via IpamExport.MIMETYPE
     """
-    SHEET_TITLE: str = 'Subnet IPs'
     HEADERS: list[str] = ['IP', 'Type', 'Status', 'Assigned To', 'MAC Address']
     MAX_EXPORT_ROWS: int = 2500
-    FILENAME_TEMPLATE: str = 'subnet_{public_id}_ips_{timestamp}.xlsx'
+    FILENAME_TEMPLATE: str = 'subnet_{public_id}_ips_{timestamp}.csv'

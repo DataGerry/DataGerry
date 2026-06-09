@@ -31,12 +31,12 @@ test_request_context. build_supernet_overview and ManagerProvider.get_manager ar
 the route module path so no DB or business logic runs
 """
 from typing import Any, Callable
-from io import BytesIO
+import csv
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from openpyxl import load_workbook
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.models.special_type_model.ipam_constants import (
@@ -208,14 +208,14 @@ def fixture_bare_export_supernet_subnets() -> Callable[..., Any]:
     return _unwrap(export_supernet_subnets)
 
 
-def test_export_route_returns_xlsx_attachment_download(
+def test_export_route_returns_csv_attachment_download(
     bare_export_supernet_subnets: Callable[..., Any],
     flask_app: Flask,
 ) -> None:
-    """The route returns the builder's bytes as an .xlsx attachment with the OpenXML mimetype"""
-    content: bytes = b'fake-xlsx-bytes'
+    """The route returns the builder's bytes as a .csv attachment with the CSV mimetype"""
+    content: bytes = b'fake-csv-bytes'
 
-    with patch(f'{ROUTE_PATH}.build_supernet_subnets_xlsx', return_value=content) as mock_build, \
+    with patch(f'{ROUTE_PATH}.build_supernet_subnets_csv', return_value=content) as mock_build, \
          patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
          flask_app.test_request_context('/'):
         response = bare_export_supernet_subnets(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
@@ -226,16 +226,16 @@ def test_export_route_returns_xlsx_attachment_download(
     disposition: str = response.headers['Content-Disposition']
     assert disposition.startswith('attachment; filename=')
     assert f'supernet_{SUPERNET_PUBLIC_ID}_subnets_' in disposition
-    assert disposition.endswith('.xlsx')
+    assert disposition.endswith('.csv')
 
     mock_build.assert_called_once()
 
 
-def test_export_route_body_parses_as_a_valid_xlsx_workbook(
+def test_export_route_body_parses_as_valid_csv(
     bare_export_supernet_subnets: Callable[..., Any],
     flask_app: Flask,
 ) -> None:
-    """End-to-end: with the real builder, the route's body is a parseable .xlsx with the expected rows"""
+    """End-to-end: with the real builder, the route's body is parseable CSV with the expected rows"""
     rows: list[dict[str, Any]] = [{
         IpamOverviewKey.CIDR: '10.0.0.0/24',
         IpamOverviewKey.IP_RANGE: {IpamOverviewKey.FIRST: '10.0.0.0', IpamOverviewKey.LAST: '10.0.0.255'},
@@ -251,13 +251,11 @@ def test_export_route_body_parses_as_a_valid_xlsx_workbook(
          flask_app.test_request_context('/'):
         response = bare_export_supernet_subnets(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
 
-    sheet = load_workbook(BytesIO(response.data)).active
-    sheet_rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
+    csv_rows: list[list[str]] = list(csv.reader(StringIO(response.data.decode('utf-8'))))
 
-    assert sheet.title == IpamExport.SHEET_TITLE
-    # IPv4 supernet export keeps the trailing 'Usage (%)' column
-    assert sheet_rows[0] == tuple(IpamExport.HEADERS + [IpamExport.USAGE_HEADER])
-    assert sheet_rows[1] == ('10.0.0.0/24', '10.0.0.0 - 10.0.0.255', 3, 253, 1.17)
+    # IPv4 supernet export keeps the trailing 'Usage (%)' column; CSV cells are text
+    assert csv_rows[0] == IpamExport.HEADERS + [IpamExport.USAGE_HEADER]
+    assert csv_rows[1] == ['10.0.0.0/24', '10.0.0.0 - 10.0.0.255', '3', '253', '1.17']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

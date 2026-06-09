@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for cmdb.interface.rest_api.routes.framework_routes.section_template_routes
+Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_routes
 
 Each test unwraps the route handler past its auth / validation decorators and drives the bare
 function inside a Flask test_request_context, with SectionTemplatesManager and the response
@@ -33,7 +33,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import SectionTemplatesManager
-from cmdb.interface.rest_api.routes.framework_routes.section_template_routes import (
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_routes import (
     create_section_template,
     get_all_section_templates,
     get_section_template,
@@ -50,7 +50,7 @@ from cmdb.errors.manager.section_templates_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.section_template_routes'
+ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_routes'
 
 TEMPLATE_PUBLIC_ID: int = 7
 
@@ -73,6 +73,7 @@ def _create_params(**overrides: Any) -> dict[str, Any]:
     """Builds a valid create payload (query-string style: booleans/fields are strings)."""
     params: dict[str, Any] = {
         'name': 'tpl',
+        'label': 'Tpl',
         'type': 'section',
         'is_global': 'false',
         'predefined': 'false',
@@ -87,6 +88,7 @@ def _update_params(**overrides: Any) -> dict[str, Any]:
     """Builds a valid update payload (query-string style)."""
     params: dict[str, Any] = {
         'public_id': str(TEMPLATE_PUBLIC_ID),
+        'label': 'Tpl',
         'type': 'section',
         'is_global': 'false',
         'predefined': 'false',
@@ -155,7 +157,7 @@ def test_create_normalizes_booleans_and_fields_before_insert(
     assert inserted['fields'] == [{"name": "f"}]
 
 
-@pytest.mark.parametrize('missing_key', ['name', 'type', 'is_global', 'predefined', 'fields'])
+@pytest.mark.parametrize('missing_key', ['name', 'label', 'type', 'is_global', 'predefined', 'fields'])
 def test_create_missing_required_param_maps_to_400(
     flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, missing_key: str,
 ) -> None:
@@ -398,6 +400,21 @@ def test_update_non_integer_public_id_maps_to_400(
         _call_update(flask_app, _update_params(public_id='abc'))
 
     assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+def test_update_missing_label_maps_to_400(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """An update payload missing 'label' aborts 400 before touching the manager"""
+    del patched_manager_provider
+    params = _update_params()
+    del params['label']
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, params)
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.update_section_template.assert_not_called()
 
 
 def test_update_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:

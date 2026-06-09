@@ -35,7 +35,6 @@ from .predefined_template_provider import PredefinedTemplateProvider
 from .datagerry_assistant_constants import (
     AssistantFieldKey,
     AssistantSectionKey,
-    TypeConfigKey,
     RenderMetaKey,
     TypeDefault,
 )
@@ -125,13 +124,13 @@ class ProfileTypeConstructor:
         self.__create_type_body(name, label, icon, selectable_as_parent)
 
         self.type_config[TypeSchemaKey.SPECIAL_TYPE] = schema[TypeSchemaKey.SPECIAL_TYPE]
-        self.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS] = schema[TypeSchemaKey.SECTIONS]
-        self.type_config[TypeConfigKey.FIELDS] = schema[TypeSchemaKey.FIELDS]
+        self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS] = schema[TypeSchemaKey.SECTIONS]
+        self.type_config[TypeSchemaKey.FIELDS] = schema[TypeSchemaKey.FIELDS]
 
         schema_fields: list[dict[str, Any]] = schema[TypeSchemaKey.FIELDS]
 
         if schema_fields:
-            summary: dict[str, Any] = self.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SUMMARY]
+            summary: dict[str, Any] = self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SUMMARY]
             summary[RenderMetaKey.FIELDS] = [schema_fields[0][FieldKey.NAME]]
 
         return self.type_config
@@ -152,22 +151,22 @@ class ProfileTypeConstructor:
         ci_explorer_color: str = f'#{color_value:0{TypeDefault.CI_EXPLORER_COLOR_HEX_WIDTH}X}'
 
         self.type_config = {
-            TypeConfigKey.NAME: name,
-            TypeConfigKey.SELECTABLE_AS_PARENT: selectable_as_parent,
-            TypeConfigKey.GLOBAL_TEMPLATE_IDS: [],
-            TypeConfigKey.ACTIVE: True,
-            TypeConfigKey.AUTHOR_ID: TypeDefault.AUTHOR_ID,
-            TypeConfigKey.CREATION_TIME: datetime.now(timezone.utc),
-            TypeConfigKey.EDITOR_ID: None,
-            TypeConfigKey.LAST_EDIT_TIME: None,
-            TypeConfigKey.LABEL: label,
-            TypeConfigKey.VERSION: TypeDefault.VERSION,
-            TypeConfigKey.DESCRIPTION: None,
-            TypeConfigKey.RENDER_META: self.__create_render_meta(icon),
-            TypeConfigKey.CI_EXPLORER_LABEL: None,
-            TypeConfigKey.CI_EXPLORER_COLOR: ci_explorer_color,
-            TypeConfigKey.FIELDS: [],
-            TypeConfigKey.ACL: {
+            TypeSchemaKey.NAME: name,
+            TypeSchemaKey.SELECTABLE_AS_PARENT: selectable_as_parent,
+            TypeSchemaKey.GLOBAL_TEMPLATE_IDS: [],
+            TypeSchemaKey.ACTIVE: True,
+            TypeSchemaKey.AUTHOR_ID: TypeDefault.AUTHOR_ID,
+            TypeSchemaKey.CREATION_TIME: datetime.now(timezone.utc),
+            TypeSchemaKey.EDITOR_ID: None,
+            TypeSchemaKey.LAST_EDIT_TIME: None,
+            TypeSchemaKey.LABEL: label,
+            TypeSchemaKey.VERSION: TypeDefault.VERSION,
+            TypeSchemaKey.DESCRIPTION: None,
+            TypeSchemaKey.RENDER_META: self.__create_render_meta(icon),
+            TypeSchemaKey.CI_EXPLORER_LABEL: None,
+            TypeSchemaKey.CI_EXPLORER_COLOR: ci_explorer_color,
+            TypeSchemaKey.FIELDS: [],
+            TypeSchemaKey.ACL: {
                 "activated": False,
                 "groups": {
                     "includes": {}
@@ -242,7 +241,7 @@ class ProfileTypeConstructor:
         if section_type == SectionType.MDS_SECTION:
             default_section[SectionKey.HIDDEN_FIELDS] = []
 
-        self.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS].append(default_section)
+        self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS].append(default_section)
 
 # ---------------------------------------------- SECTION FIELD HANDLING ---------------------------------------------- #
 
@@ -291,11 +290,11 @@ class ProfileTypeConstructor:
             type_field = self.__set_type_field_extras(type_field, extras)
 
         # Add to the flat field list
-        self.type_config[TypeConfigKey.FIELDS].append(type_field)
+        self.type_config[TypeSchemaKey.FIELDS].append(type_field)
 
         # Add the field name under its section in render_meta
         section: dict[str, Any]
-        for section in self.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SECTIONS]:
+        for section in self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS]:
             if section[SectionKey.NAME] == section_name:
                 section[SectionKey.FIELDS].append(field_name)
                 break
@@ -485,7 +484,7 @@ class ProfileTypeConstructor:
         Args:
             template_id_name (str): name of the predefined section template
         """
-        self.type_config[TypeConfigKey.GLOBAL_TEMPLATE_IDS].append(template_id_name)
+        self.type_config[TypeSchemaKey.GLOBAL_TEMPLATE_IDS].append(template_id_name)
 
 # ------------------------------------------------- SUMMARY HANDLING ------------------------------------------------- #
 
@@ -496,5 +495,5 @@ class ProfileTypeConstructor:
         Args:
             field_name (str): name of the field to mark as a summary field
         """
-        summary: dict[str, Any] = self.type_config[TypeConfigKey.RENDER_META][RenderMetaKey.SUMMARY]
+        summary: dict[str, Any] = self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SUMMARY]
         summary[RenderMetaKey.FIELDS].append(field_name)

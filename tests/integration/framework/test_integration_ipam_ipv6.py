@@ -26,12 +26,12 @@ behaviour of enforce_object_invariants.
 A SUPERNET + SUBNET + carrier CmdbType and one IPv6 supernet / subnet / interface object are
 seeded directly into the collections; the framework helpers then run against that real data.
 """
+import csv
 from datetime import datetime, timezone
-from io import BytesIO
+from io import StringIO
 from typing import Any
 
 import pytest
-from openpyxl import load_workbook
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectsManager, TypesManager
@@ -61,7 +61,7 @@ from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_overview import build_supernet_overview
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview, build_subnet_sector_ips
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
-from cmdb.framework.ipam.subnet_export import build_subnet_ips_xlsx
+from cmdb.framework.ipam.subnet_export import build_subnet_ips_csv
 from cmdb.framework.ipam.enforcement import enforce_object_invariants
 from cmdb.utils import ValidationErrorKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -349,21 +349,19 @@ def test_unassign_row_mode_deletes_the_interface_row_against_mongo(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       SUBNET IP EXPORT (IPv6, real Mongo)                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_build_subnet_ips_xlsx_ipv6_exports_assigned_only_against_mongo(
+def test_build_subnet_ips_csv_ipv6_exports_assigned_only_against_mongo(
     objects_manager: ObjectsManager, types_manager: TypesManager,
 ) -> None:
     """The IPv6 subnet export runs the real assigned-rows query and emits only the assigned IP row"""
-    content: bytes = build_subnet_ips_xlsx(objects_manager, types_manager, SUBNET_ID)
+    content: bytes = build_subnet_ips_csv(objects_manager, types_manager, SUBNET_ID)
 
-    sheet = load_workbook(BytesIO(content)).active
-    rows: list[tuple[Any, ...]] = list(sheet.iter_rows(values_only=True))
+    rows: list[list[str]] = list(csv.reader(StringIO(content.decode('utf-8'))))
 
-    assert sheet.title == IpamSubnetIpsExport.SHEET_TITLE
-    assert rows[0] == tuple(IpamSubnetIpsExport.HEADERS)
+    assert rows[0] == IpamSubnetIpsExport.HEADERS
     # IPv6 exports assigned addresses only: the seeded carrier at ::5 is the single data row
     assert len(rows) == 2
     assert rows[1][0] == ASSIGNED_IP_V6
-    assert rows[1][2] == IpamRowStatus.ASSIGNED
+    assert rows[1][2] == IpamRowStatus.ASSIGNED.value
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

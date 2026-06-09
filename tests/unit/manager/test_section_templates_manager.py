@@ -101,19 +101,6 @@ def _field_def(name: str, field_type: str = 'text', value: Any = None) -> dict[s
     return field
 
 
-def _object(public_id: int, mds_sections: list[dict[str, Any]]) -> SimpleNamespace:
-    """Builds a CmdbObject stand-in exposing the public_id and multi_data_sections the methods read."""
-    return SimpleNamespace(public_id=public_id, multi_data_sections=mds_sections)
-
-
-def _mds_section(section_id: str, rows: list[list[dict[str, Any]]]) -> dict[str, Any]:
-    """Builds one MDS section dict with the given rows (each row a list of {name,value,type} entries)."""
-    return {
-        CmdbObjectMdsKey.SECTION_ID.value: section_id,
-        CmdbObjectMdsKey.VALUES.value: [{CmdbObjectMdsRowKey.DATA.value: row} for row in rows],
-    }
-
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              get_section_label_diff                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -233,76 +220,68 @@ def test_add_flat_fields_to_objects_pushes_each_missing_field_with_its_default()
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            _add_mds_fields_to_objects                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_add_mds_fields_to_objects_seeds_missing_field_into_each_row_with_default() -> None:
-    """Every row of the matching section gains the missing field, seeded with its default value"""
+_MDS: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+_VALUES: str = CmdbObjectMdsKey.VALUES.value
+_DATA: str = CmdbObjectMdsRowKey.DATA.value
+_SECTION_ID: str = CmdbObjectMdsKey.SECTION_ID.value
+_NAME: str = CmdbObjectFieldKey.NAME.value
+
+
+def test_add_mds_fields_to_objects_pushes_each_missing_field_via_array_filters() -> None:
+    """Each new field is $pushed into the matching section's rows that lack it, server-side"""
     mock_self = MagicMock()
-    obj = _object(1, [_mds_section(SECTION_NAME, rows=[
-        [{CmdbObjectFieldKey.NAME.value: 'existing', CmdbObjectFieldKey.VALUE.value: 'x'}],
-    ])])
-    mock_self.objects_manager.get_objects_by.return_value = [obj]
 
     SectionTemplatesManager._add_mds_fields_to_objects(
         mock_self, TYPE_ID, [_field_def('ip-type', field_type='select', value='ipv4')], SECTION_NAME,
     )
 
-    row_data = obj.multi_data_sections[0][CmdbObjectMdsKey.VALUES.value][0][CmdbObjectMdsRowKey.DATA.value]
-    assert {
+    mock_self.objects_manager.update_many_raw.assert_called_once()
+    call = mock_self.objects_manager.update_many_raw.call_args.kwargs
+    assert call['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, f'{_MDS}.{_SECTION_ID}': SECTION_NAME}
+    assert call['update'] == {'$push': {f'{_MDS}.$[s].{_VALUES}.$[v].{_DATA}': {
         CmdbObjectFieldKey.NAME: 'ip-type',
         CmdbObjectFieldKey.TYPE: 'select',
         CmdbObjectFieldKey.VALUE: 'ipv4',
-    } in row_data
-    mock_self.objects_manager.bulk_write.assert_called_once()
+    }}}
+    # Section is targeted via $[s]; only rows whose data lacks the name are targeted via $[v]
+    assert call['array_filters'] == [
+        {f's.{_SECTION_ID}': SECTION_NAME},
+        {f'v.{_DATA}.{_NAME}': {'$ne': 'ip-type'}},
+    ]
 
 
-def test_add_mds_fields_to_objects_skips_rows_already_carrying_the_field() -> None:
-    """A row that already has the field is left unchanged and triggers no write"""
+def test_add_mds_fields_to_objects_is_a_noop_for_empty_fields() -> None:
+    """No update is issued when there are no fields to add"""
     mock_self = MagicMock()
-    obj = _object(1, [_mds_section(SECTION_NAME, rows=[
-        [{CmdbObjectFieldKey.NAME.value: 'ip-type', CmdbObjectFieldKey.VALUE.value: 'ipv6'}],
-    ])])
-    mock_self.objects_manager.get_objects_by.return_value = [obj]
 
-    SectionTemplatesManager._add_mds_fields_to_objects(
-        mock_self, TYPE_ID, [_field_def('ip-type', value='ipv4')], SECTION_NAME,
-    )
+    SectionTemplatesManager._add_mds_fields_to_objects(mock_self, TYPE_ID, [], SECTION_NAME)
 
-    row_data = obj.multi_data_sections[0][CmdbObjectMdsKey.VALUES.value][0][CmdbObjectMdsRowKey.DATA.value]
-    assert len(row_data) == 1
-    mock_self.objects_manager.bulk_write.assert_not_called()
+    mock_self.objects_manager.update_many_raw.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                cleanup_mds_fields                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_cleanup_mds_fields_removes_named_fields_from_every_row() -> None:
-    """Named fields are filtered out of each row's data; the touched object is written once"""
+def test_cleanup_mds_fields_pulls_named_fields_via_array_filter() -> None:
+    """Named fields are $pulled from every row of the matching section server-side"""
     mock_self = MagicMock()
-    obj = _object(1, [_mds_section(SECTION_NAME, rows=[
-        [
-            {CmdbObjectFieldKey.NAME.value: 'keep', CmdbObjectFieldKey.VALUE.value: 'a'},
-            {CmdbObjectFieldKey.NAME.value: 'drop', CmdbObjectFieldKey.VALUE.value: 'b'},
-        ],
-    ])])
-    mock_self.objects_manager.get_objects_by.return_value = [obj]
 
     SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, ['drop'], SECTION_NAME)
 
-    row_data = obj.multi_data_sections[0][CmdbObjectMdsKey.VALUES.value][0][CmdbObjectMdsRowKey.DATA.value]
-    assert [entry[CmdbObjectFieldKey.NAME.value] for entry in row_data] == ['keep']
-    mock_self.objects_manager.bulk_write.assert_called_once()
+    mock_self.objects_manager.update_many_raw.assert_called_once()
+    call = mock_self.objects_manager.update_many_raw.call_args.kwargs
+    assert call['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, f'{_MDS}.{_SECTION_ID}': SECTION_NAME}
+    assert call['update'] == {'$pull': {f'{_MDS}.$[s].{_VALUES}.$[].{_DATA}': {_NAME: {'$in': ['drop']}}}}
+    assert call['array_filters'] == [{f's.{_SECTION_ID}': SECTION_NAME}]
 
 
-def test_cleanup_mds_fields_writes_nothing_when_no_field_matched() -> None:
-    """A row with none of the named fields is untouched and no bulk write is issued"""
+def test_cleanup_mds_fields_is_a_noop_for_empty_list() -> None:
+    """An empty field list issues no update"""
     mock_self = MagicMock()
-    obj = _object(1, [_mds_section(SECTION_NAME, rows=[
-        [{CmdbObjectFieldKey.NAME.value: 'keep', CmdbObjectFieldKey.VALUE.value: 'a'}],
-    ])])
-    mock_self.objects_manager.get_objects_by.return_value = [obj]
 
-    SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, ['absent'], SECTION_NAME)
+    SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, [], SECTION_NAME)
 
-    mock_self.objects_manager.bulk_write.assert_not_called()
+    mock_self.objects_manager.update_many_raw.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -437,13 +416,13 @@ def test_get_global_template_usage_count_returns_zero_for_non_global() -> None:
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=False)
 
     assert counts == {'types': 0, 'objects': 0}
-    mock_self.types_manager.find_types.assert_not_called()
+    mock_self.types_manager.get_distinct.assert_not_called()
 
 
 def test_get_global_template_usage_count_counts_types_and_objects() -> None:
-    """Types are counted from the lookup; objects via a count query over the matching type ids"""
+    """Type ids come from a distinct projection (not materialised types); objects via a count query"""
     mock_self = MagicMock()
-    mock_self.types_manager.find_types.return_value = [SimpleNamespace(public_id=1), SimpleNamespace(public_id=2)]
+    mock_self.types_manager.get_distinct.return_value = [1, 2]
     mock_self.objects_manager.count_documents.return_value = 7
 
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)

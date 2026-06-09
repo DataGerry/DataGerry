@@ -31,7 +31,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.category_model import CmdbCategory
-from cmdb.interface.rest_api.routes.framework_routes.categories_constants import CategoryListView
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import CategoryListView
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/categories'

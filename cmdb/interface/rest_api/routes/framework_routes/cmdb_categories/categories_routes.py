@@ -58,7 +58,7 @@ from cmdb.interface.rest_api.responses import (
     GetMultiResponse,
     GetSingleResponse,
 )
-from cmdb.interface.rest_api.routes.framework_routes.categories_constants import (
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import (
     CATEGORY_VIEW_PARAM,
     CategoryListView,
 )

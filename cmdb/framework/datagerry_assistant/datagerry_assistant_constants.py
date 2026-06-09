@@ -93,32 +93,6 @@ class AssistantSectionKey(BaseStrEnum):
     CONDITIONAL_IDS = 'conditional_ids'
 
 
-class TypeConfigKey(BaseStrEnum):
-    """
-    Top-level keys of the CmdbType config dict the ProfileTypeConstructor builds
-
-    Names every key written by the type-body builder and re-read while sections, fields and the
-    summary are populated. Mirrors the persisted CmdbType document shape
-    """
-    NAME = 'name'
-    SELECTABLE_AS_PARENT = 'selectable_as_parent'
-    GLOBAL_TEMPLATE_IDS = 'global_template_ids'
-    ACTIVE = 'active'
-    AUTHOR_ID = 'author_id'
-    CREATION_TIME = 'creation_time'
-    EDITOR_ID = 'editor_id'
-    LAST_EDIT_TIME = 'last_edit_time'
-    LABEL = 'label'
-    VERSION = 'version'
-    DESCRIPTION = 'description'
-    RENDER_META = 'render_meta'
-    CI_EXPLORER_LABEL = 'ci_explorer_label'
-    CI_EXPLORER_COLOR = 'ci_explorer_color'
-    PUBLIC_ID = 'public_id'
-    FIELDS = 'fields'
-    ACL = 'acl'
-
-
 class RenderMetaKey(BaseStrEnum):
     """
     Keys of the CmdbType 'render_meta' sub-dict the ProfileTypeConstructor builds
