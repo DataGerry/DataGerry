@@ -16,28 +16,23 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export interface InterfaceRowPayload {
-    row_index: number;
-    subnet_id: number | null;
-    ip_address: string | null;
-    interface_type: string | null;
+/**
+ * Lightweight subnet node backing the dg-ipam-interface network picker. Mirrors the
+ * {@code GET ipam/subnet/} row shape; carries only what the dropdown needs to display and bind.
+ */
+export interface SubnetOption {
+    public_id: number;
+    name: string;
+    cidr: string;
+    type: string;
 }
 
 
-export interface InterfaceValidationRequest {
-    rows: InterfaceRowPayload[];
-    exclude_object_id: number | null;
-}
-
-
-export interface InterfaceValidationError {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-}
-
-
-export interface InterfaceValidationResponse {
-    valid: boolean;
-    errors: InterfaceValidationError[];
+export interface SubnetOptionsResponse {
+    page: number;
+    page_size: number;
+    total: number;
+    search: string;
+    type: string;
+    rows: SubnetOption[];
 }

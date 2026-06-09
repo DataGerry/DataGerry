@@ -26,8 +26,10 @@ import {
     OnInit,
     SimpleChanges,
 } from '@angular/core';
+import { HttpResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { FileSaverService } from 'ngx-filesaver';
 import { Subject, finalize, takeUntil } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
@@ -66,6 +68,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly modalService = inject(NgbModal);
+    private readonly fileSaverService = inject(FileSaverService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
@@ -173,6 +176,25 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         );
     }
 
+    public onExport(): void {
+        if (this.publicId == null) {
+            return;
+        }
+
+        this.loaderService.show();
+
+        this.ipamOverviewService
+            .exportSupernetSubnets(this.publicId)
+            .pipe(
+                takeUntil(this.destroy$),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (response) => this.saveExportFile(response),
+                error: () => this.toastService.error('Unable to export the supernet overview. Please try again later.')
+            });
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public hasOverviewData(): boolean {
@@ -216,6 +238,20 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
                     this.toastService.error(err?.error?.message);
                 }
             });
+    }
+
+    private saveExportFile(response: HttpResponse<Blob>): void {
+        const blob = response?.body;
+        if (!blob) {
+            this.toastService.error('The export response was empty.');
+            return;
+        }
+        this.fileSaverService.save(blob, this.buildExportFileName());
+    }
+
+    private buildExportFileName(): string {
+        const cidr = this.supernet?.cidr?.replace(/[^\w.-]+/g, '_');
+        return `supernet-overview-${cidr || this.publicId}.csv`;
     }
 
     private applySearch(value: string): void {

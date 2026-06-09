@@ -34,6 +34,7 @@ $sb-speed : 200ms;
 
     .sb-label,
     .sb-tabs,
+    .sb-subtabs,
     .sb-content-panel,
     .sb-divider,
     .sb-section-label {
@@ -207,6 +208,7 @@ $sb-speed : 200ms;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
   color: $sb-text-muted;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 
@@ -218,6 +220,46 @@ $sb-speed : 200ms;
     background: #ffffff;
     color: $sb-text-primary;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+}
+
+// NESTED SUB-TABS (Navigation View: Locations / IPAM)
+.sb-subtabs {
+  display: flex;
+  gap: 4px;
+  margin: -8px 12px 16px;
+  padding: 0;
+}
+
+.sb-subtab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border: 1px solid $sb-border-color;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: $sb-text-muted;
+  transition: all 0.2s ease;
+
+  fa-icon {
+    font-size: 12px;
+  }
+
+  &:hover {
+    color: $sb-text-primary;
+    border-color: $sb-accent;
+  }
+
+  &.sb-subtab--active {
+    background: rgba(233, 77, 24, 0.08);
+    border-color: $sb-accent;
+    color: $sb-accent;
   }
 }
 

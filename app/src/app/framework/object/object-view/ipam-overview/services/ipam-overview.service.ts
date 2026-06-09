@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable, inject } from '@angular/core';
-import { HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -24,11 +24,15 @@ import { ApiCallService, resp } from '../../../../../services/api-call.service';
 import {
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
+    IpamSubnetSectorParams,
+    IpamSubnetSectorResponse,
     IpamSupernetChildrenResponse,
     IpamSupernetInvalidSubnetsParams,
     IpamSupernetInvalidSubnetsResponse,
     IpamSupernetOverviewParams,
     IpamSupernetOverviewResponse,
+    IpamUnassignIpsResponse,
+    IpamUnassignMode,
     IpamUnassignSubnetsResponse
 } from '../models/ipam-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -119,6 +123,18 @@ export class IpamOverviewService {
     }
 
 
+    public exportSupernetSubnets(publicId: number): Observable<HttpResponse<Blob>> {
+        const options = {
+            headers: new HttpHeaders({}),
+            params: {},
+            observe: resp,
+            responseType: 'blob'
+        };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/supernet/overview/${publicId}/subnets/export`, options);
+    }
+
+
     public getSubnetOverview(
         publicId: number,
         params: IpamSubnetOverviewParams = {}
@@ -132,6 +148,65 @@ export class IpamOverviewService {
         return this.api
             .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}`, options)
             .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+
+    public exportSubnetOverview(publicId: number): Observable<HttpResponse<Blob>> {
+        const options = {
+            headers: new HttpHeaders({}),
+            params: {},
+            observe: resp,
+            responseType: 'blob'
+        };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/subnet/overview/${publicId}/export`, options);
+    }
+
+
+    public getSubnetSectorIps(
+        publicId: number,
+        sectorStart: string,
+        params: IpamSubnetSectorParams = {}
+    ): Observable<IpamSubnetSectorResponse> {
+        let httpParams = new HttpParams().set('sector_start', sectorStart);
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+
+        const options = {
+            headers: this.jsonHeaders,
+            params: httpParams,
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetSectorResponse>(`${this.servicePrefix}/subnet/overview/${publicId}/sector`, options)
+            .pipe(map(response => response?.body as IpamSubnetSectorResponse));
+    }
+
+
+    public unassignIpsFromSubnet(
+        subnetId: number,
+        ips: string[],
+        mode: IpamUnassignMode = 'reference'
+    ): Observable<IpamUnassignIpsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callPost<IpamUnassignIpsResponse>(
+                `${this.servicePrefix}/subnet/overview/${subnetId}/unassign`,
+                { ips, mode },
+                options
+            )
+            .pipe(map(response => response?.body as IpamUnassignIpsResponse));
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

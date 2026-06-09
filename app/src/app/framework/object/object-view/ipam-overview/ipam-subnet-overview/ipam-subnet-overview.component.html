@@ -7,32 +7,76 @@
   @if (isReady) {
     <div class="ipam-subnet__table-header">
       <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
-      <app-button
-        label=""
-        bootstrapClass="btn-outline-secondary btn-sm"
-        [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
-        [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
-        [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
-        [ariaPressed]="isFullscreen"
-        (clicked)="fullscreen.toggle()">
-      </app-button>
+      <div class="ipam-subnet__table-actions">
+        <app-button
+          label="Export"
+          bootstrapClass="btn-secondary btn-sm"
+          icon="fa fa-file-export"
+          ariaLabel="Export the subnet overview"
+          title="Export the subnet overview"
+          [disabled]="(isLoading$ | async) === true"
+          (clicked)="onExport()">
+        </app-button>
+        <app-button
+          label=""
+          bootstrapClass="btn-secondary btn-sm"
+          [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
+          [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [ariaPressed]="isFullscreen"
+          (clicked)="fullscreen.toggle()">
+        </app-button>
+      </div>
     </div>
     <div class="ipam-subnet__cards">
-      <article class="ipam-subnet-card">
+      <article
+        class="ipam-subnet-card"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        ngbTooltip="Show all IP addresses"
+        [disableTooltip]="!hasSelectedSector"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Network</span>
         <span class="ipam-subnet-card__value ipam-subnet-card__value--mono">
           {{ subnet?.cidr || '—' }}
         </span>
       </article>
 
-      <article class="ipam-subnet-card">
+      <article
+        class="ipam-subnet-card"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        ngbTooltip="Show all IP addresses"
+        [disableTooltip]="!hasSelectedSector"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Total IPs</span>
         <span class="ipam-subnet-card__value">
           {{ (subnet?.total_ips ?? total) | number }}
         </span>
       </article>
 
-      <article class="ipam-subnet-card">
+      <article
+        class="ipam-subnet-card"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        ngbTooltip="Show all IP addresses"
+        [disableTooltip]="!hasSelectedSector"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Assignable IPs</span>
         <span class="ipam-subnet-card__value">
           @if (subnet?.assignable_ips != null) {
@@ -75,7 +119,14 @@
         </span>
       </article>
 
-      <article class="ipam-subnet-card ipam-subnet-card--vlans">
+      <article
+        class="ipam-subnet-card ipam-subnet-card--vlans"
+        [class.ipam-subnet-card--clickable]="hasSelectedSector"
+        [attr.role]="hasSelectedSector ? 'button' : null"
+        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        (click)="onShowAllIps()"
+        (keydown.enter)="onShowAllIps()"
+        (keydown.space)="onShowAllIps(); $event.preventDefault()">
         <span class="ipam-subnet-card__label">Assigned VLANs</span>
         <span class="ipam-subnet-card__value ipam-subnet-card__value--vlans">
           @if (hasVlans) {
@@ -107,7 +158,9 @@
         <cmdb-ipam-ip-distribution
           [ipDistribution]="ipDistribution"
           [typeDistribution]="typeDistribution"
-          [loading]="(isLoading$ | async) === true">
+          [activeSectorStart]="selectedSectorStart"
+          [loading]="(isLoading$ | async) === true"
+          (sectorSelect)="onSectorSelect($event)">
         </cmdb-ipam-ip-distribution>
 
         <cmdb-ipam-type-distribution
@@ -117,6 +170,23 @@
       </aside>
 
       <div class="ipam-subnet__table-wrapper">
+        @if (hasSelectedSector) {
+          <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-filter" aria-hidden="true"></i>
+              Showing sector
+              <span class="ipam-subnet__sector-range">{{ selectedSectorLabel }}</span>
+            </span>
+            <app-button
+              label="Show all IPs"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Clear sector filter and show all IP addresses"
+              title="Clear sector filter and show all IP addresses"
+              (clicked)="onClearSector()">
+            </app-button>
+          </div>
+        }
         <cmdb-ipam-ip-table
           [items]="ips"
           [totalItems]="total"
@@ -126,7 +196,8 @@
           [loading]="(isLoading$ | async) === true"
           (pageChange)="onPageChange($event)"
           (pageSizeChange)="onPageSizeChange($event)"
-          (sortChange)="onSortChange($event)">
+          (sortChange)="onSortChange($event)"
+          (unassign)="onUnassign($event)">
         </cmdb-ipam-ip-table>
       </div>
     </div>

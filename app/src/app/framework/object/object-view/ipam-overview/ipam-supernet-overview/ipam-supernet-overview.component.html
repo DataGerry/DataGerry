@@ -27,8 +27,18 @@
         </label>
 
         <app-button
+          label="Export"
+          bootstrapClass="btn-secondary btn-sm"
+          icon="fa fa-file-export"
+          ariaLabel="Export the supernet overview"
+          title="Export the supernet overview"
+          [disabled]="(isLoading$ | async) === true"
+          (clicked)="onExport()">
+        </app-button>
+
+        <app-button
           label=""
-          bootstrapClass="btn-outline-secondary btn-sm"
+          bootstrapClass="btn-secondary btn-sm"
           [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
           [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
           [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"

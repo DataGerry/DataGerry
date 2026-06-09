@@ -30,6 +30,23 @@
     transform: translateY(-1px);
 }
 
+.ipam-subnet-card--clickable {
+    cursor: pointer;
+}
+
+.ipam-subnet-card--clickable:hover {
+    border-color: #93c5fd;
+}
+
+.ipam-subnet-card--clickable:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.ipam-subnet-card--clickable .ipam-subnet-card__vlan-list {
+    cursor: pointer;
+}
+
 .ipam-subnet-card__label {
     font-size: 0.8125rem;
     font-weight: 500;
@@ -168,6 +185,37 @@
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
+}
+
+.ipam-subnet__table-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.ipam-subnet__sector-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 0.5rem;
+    background-color: #eff6ff;
+    color: #1e3a8a;
+    font-size: 0.875rem;
+}
+
+.ipam-subnet__sector-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.ipam-subnet__sector-range {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-weight: 600;
 }
 
 .ipam-subnet__table-title {

@@ -50,21 +50,30 @@ describe('InterfaceMdsValidatorService', () => {
         } as CmdbMultiDataSection;
     }
 
-    function buildRow(rowId: number, subnet: unknown, ip: unknown): MultiDataSectionSet {
-        return {
-            multi_data_id: rowId,
-            data: [
-                { name: IPAM_INTERFACE_FIELD_NAMES.SUBNET, value: subnet },
-                { name: IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS, value: ip }
-            ]
-        };
+    function buildRow(rowId: number, subnet: unknown, ip: unknown, type?: unknown): MultiDataSectionSet {
+        const data: MultiDataSectionSet['data'] = [
+            { name: IPAM_INTERFACE_FIELD_NAMES.SUBNET, value: subnet },
+            { name: IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS, value: ip }
+        ];
+
+        if (type !== undefined) {
+            data.push({ name: IPAM_INTERFACE_FIELD_NAMES.TYPE, value: type });
+        }
+
+        return { multi_data_id: rowId, data };
     }
 
-    function buildCandidate(subnet: unknown, ip: unknown): Record<string, unknown> {
-        return {
+    function buildCandidate(subnet: unknown, ip: unknown, type?: unknown): Record<string, unknown> {
+        const candidate: Record<string, unknown> = {
             [IPAM_INTERFACE_FIELD_NAMES.SUBNET]: subnet,
             [IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS]: ip
         };
+
+        if (type !== undefined) {
+            candidate[IPAM_INTERFACE_FIELD_NAMES.TYPE] = type;
+        }
+
+        return candidate;
     }
 
     function readState(observable: ReturnType<MdsRowValidatorHandle['validateCandidate']>): MdsCandidateValidationState {
@@ -144,10 +153,10 @@ describe('InterfaceMdsValidatorService', () => {
             const payload = api.validateInterface.calls.mostRecent().args[0];
             expect(payload.exclude_object_id).toBe(24);
             expect(payload.rows.length).toBe(3);
-            expect(payload.rows[0]).toEqual({ row_index: 0, subnet_id: 5, ip_address: '10.0.0.1' });
-            expect(payload.rows[1]).toEqual({ row_index: 1, subnet_id: 5, ip_address: '10.0.0.2' });
+            expect(payload.rows[0]).toEqual({ row_index: 0, subnet_id: 5, ip_address: '10.0.0.1', interface_type: 'ipv4' });
+            expect(payload.rows[1]).toEqual({ row_index: 1, subnet_id: 5, ip_address: '10.0.0.2', interface_type: 'ipv4' });
             // Candidate gets max(existing)+1 in add mode so the backend can distinguish it.
-            expect(payload.rows[2]).toEqual({ row_index: 2, subnet_id: 5, ip_address: '10.0.0.3' });
+            expect(payload.rows[2]).toEqual({ row_index: 2, subnet_id: 5, ip_address: '10.0.0.3', interface_type: 'ipv4' });
 
             handle.destroy();
         });
@@ -159,7 +168,7 @@ describe('InterfaceMdsValidatorService', () => {
             readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
 
             const payload = api.validateInterface.calls.mostRecent().args[0];
-            expect(payload.rows).toEqual([{ row_index: 0, subnet_id: 5, ip_address: '10.0.0.1' }]);
+            expect(payload.rows).toEqual([{ row_index: 0, subnet_id: 5, ip_address: '10.0.0.1', interface_type: 'ipv4' }]);
             handle.destroy();
         });
 
@@ -184,7 +193,7 @@ describe('InterfaceMdsValidatorService', () => {
             // Row 1 is excluded from the committed copies and re-added as the candidate.
             expect(payload.rows.map(r => r.row_index).sort()).toEqual([0, 1, 2]);
             const edited = payload.rows.find(r => r.row_index === 1);
-            expect(edited).toEqual({ row_index: 1, subnet_id: 5, ip_address: '10.0.0.99' });
+            expect(edited).toEqual({ row_index: 1, subnet_id: 5, ip_address: '10.0.0.99', interface_type: 'ipv4' });
 
             handle.destroy();
         });
@@ -199,16 +208,51 @@ describe('InterfaceMdsValidatorService', () => {
             handle.destroy();
         });
 
-        it('normalizes empty / whitespace / non-string IPs in the candidate to null', () => {
+        it('does not call the backend until an IP-Address is entered', () => {
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const emptyIps: unknown[] = ['', '   ', 12345, null, undefined];
+            for (const value of emptyIps) {
+                api.validateInterface.calls.reset();
+                readState(handle.validateCandidate([], buildCandidate(5, value), null));
+                expect(api.validateInterface).not.toHaveBeenCalled();
+            }
+
+            handle.destroy();
+        });
+
+        it('flags the IP-Address as required when a network is selected without one', () => {
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const state = readState(handle.validateCandidate([], buildCandidate(5, ''), null));
+
+            expect(state.valid).toBeFalse();
+            expect(state.errors.length).toBeGreaterThan(0);
+            expect(api.validateInterface).not.toHaveBeenCalled();
+
+            handle.destroy();
+        });
+
+        it('stays valid without a backend call when neither network nor IP is set', () => {
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const state = readState(handle.validateCandidate([], buildCandidate(0, ''), null));
+
+            expect(state.valid).toBeTrue();
+            expect(state.errors.length).toBe(0);
+            expect(api.validateInterface).not.toHaveBeenCalled();
+
+            handle.destroy();
+        });
+
+        it('treats the network as optional and validates an IP entered on its own', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
             const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            const cases: unknown[] = ['', '   ', 12345, null, undefined];
-            for (const value of cases) {
-                api.validateInterface.calls.reset();
-                readState(handle.validateCandidate([], buildCandidate(5, value), null));
-                expect(api.validateInterface.calls.mostRecent().args[0].rows[0].ip_address).toBeNull();
-            }
+            readState(handle.validateCandidate([], buildCandidate(0, '10.0.0.1'), null));
+
+            expect(api.validateInterface).toHaveBeenCalledTimes(1);
+            expect(api.validateInterface.calls.mostRecent().args[0].rows[0].subnet_id).toBeNull();
 
             handle.destroy();
         });
@@ -224,6 +268,34 @@ describe('InterfaceMdsValidatorService', () => {
                 expect(api.validateInterface.calls.mostRecent().args[0].rows[0].subnet_id).toBeNull();
             }
 
+            handle.destroy();
+        });
+
+        it('sends the selected interface type for committed rows and the candidate', () => {
+            api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const committed = [buildRow(0, 5, '2001:db8::1', 'ipv6')];
+
+            readState(handle.validateCandidate(
+                committed,
+                buildCandidate(5, '2001:db8::2', 'ipv6'),
+                null
+            ));
+
+            const payload = api.validateInterface.calls.mostRecent().args[0];
+            expect(payload.rows.map(r => r.interface_type)).toEqual(['ipv6', 'ipv6']);
+
+            handle.destroy();
+        });
+
+        it('falls back to ipv4 when no interface type is selected', () => {
+            api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            readState(handle.validateCandidate([], buildCandidate(5, '10.0.0.1'), null));
+
+            expect(api.validateInterface.calls.mostRecent().args[0].rows[0].interface_type).toBe('ipv4');
             handle.destroy();
         });
 
