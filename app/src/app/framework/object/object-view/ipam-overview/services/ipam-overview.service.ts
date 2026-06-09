@@ -123,6 +123,18 @@ export class IpamOverviewService {
     }
 
 
+    public exportSupernetSubnets(publicId: number): Observable<HttpResponse<Blob>> {
+        const options = {
+            headers: new HttpHeaders({}),
+            params: {},
+            observe: resp,
+            responseType: 'blob'
+        };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/supernet/overview/${publicId}/subnets/export`, options);
+    }
+
+
     public getSubnetOverview(
         publicId: number,
         params: IpamSubnetOverviewParams = {}

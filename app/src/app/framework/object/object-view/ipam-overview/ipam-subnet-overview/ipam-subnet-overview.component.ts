@@ -306,7 +306,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     private buildExportFileName(): string {
         const cidr = this.subnet?.cidr?.replace(/[^\w.-]+/g, '_');
-        return `subnet-overview-${cidr || this.publicId}.xlsx`;
+        return `subnet-overview-${cidr || this.publicId}.csv`;
     }
 
     private clearSectorSelection(): void {
