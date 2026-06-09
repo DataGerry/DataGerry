@@ -863,8 +863,8 @@ def test_build_subnet_overview_search_matches_invalid_ips_too() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              IPv6 ADAPTATION                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_build_subnet_overview_ipv6_is_assigned_only_with_family_and_null_percentages() -> None:
-    """IPv6 overview: subnet_type=ipv6, ips list only assigned rows, type_distribution has no Free + null %"""
+def test_build_subnet_overview_ipv6_is_assigned_only_with_family_and_assigned_share_percentages() -> None:
+    """IPv6 overview: subnet_type=ipv6, ips list only assigned rows, type_distribution has no Free, % of assigned"""
     subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE_V6)
     assigned = {'2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True)}
     type_meta = {OWNER_TYPE_ID: {IpamOverviewKey.LABEL: 'Server', IpamOverviewKey.CI_EXPLORER_COLOR: None}}
@@ -883,10 +883,11 @@ def test_build_subnet_overview_ipv6_is_assigned_only_with_family_and_null_percen
     ip_rows = payload[IpamOverviewKey.IPS][IpamOverviewKey.ROWS]
     assert [r[IpamOverviewKey.IP] for r in ip_rows] == ['2001:db8::5']
     assert payload[IpamOverviewKey.IPS][IpamOverviewKey.TOTAL] == 1
-    # type_distribution: one type bucket, no Free, percentage null
-    labels = [b[IpamOverviewKey.LABEL] for b in payload[IpamOverviewKey.TYPE_DISTRIBUTION]]
+    # type_distribution: one type bucket, no Free, percentage = share of the assigned addresses
+    distribution = payload[IpamOverviewKey.TYPE_DISTRIBUTION]
+    labels = [b[IpamOverviewKey.LABEL] for b in distribution]
     assert IpamBucketLabel.FREE not in labels
-    assert all(b[IpamOverviewKey.PERCENTAGE] is None for b in payload[IpamOverviewKey.TYPE_DISTRIBUTION])
+    assert distribution[0][IpamOverviewKey.PERCENTAGE] == 100.0  # the one assigned address is 100% of assigned
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
