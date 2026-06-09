@@ -208,16 +208,51 @@ describe('InterfaceMdsValidatorService', () => {
             handle.destroy();
         });
 
-        it('normalizes empty / whitespace / non-string IPs in the candidate to null', () => {
+        it('does not call the backend until an IP-Address is entered', () => {
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const emptyIps: unknown[] = ['', '   ', 12345, null, undefined];
+            for (const value of emptyIps) {
+                api.validateInterface.calls.reset();
+                readState(handle.validateCandidate([], buildCandidate(5, value), null));
+                expect(api.validateInterface).not.toHaveBeenCalled();
+            }
+
+            handle.destroy();
+        });
+
+        it('flags the IP-Address as required when a network is selected without one', () => {
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const state = readState(handle.validateCandidate([], buildCandidate(5, ''), null));
+
+            expect(state.valid).toBeFalse();
+            expect(state.errors.length).toBeGreaterThan(0);
+            expect(api.validateInterface).not.toHaveBeenCalled();
+
+            handle.destroy();
+        });
+
+        it('stays valid without a backend call when neither network nor IP is set', () => {
+            const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
+
+            const state = readState(handle.validateCandidate([], buildCandidate(0, ''), null));
+
+            expect(state.valid).toBeTrue();
+            expect(state.errors.length).toBe(0);
+            expect(api.validateInterface).not.toHaveBeenCalled();
+
+            handle.destroy();
+        });
+
+        it('treats the network as optional and validates an IP entered on its own', () => {
             api.validateInterface.and.returnValue(of({ valid: true, errors: [] } as InterfaceValidationResponse));
             const handle = service.attach(buildIpamSection(), { excludeObjectId: null })!;
 
-            const cases: unknown[] = ['', '   ', 12345, null, undefined];
-            for (const value of cases) {
-                api.validateInterface.calls.reset();
-                readState(handle.validateCandidate([], buildCandidate(5, value), null));
-                expect(api.validateInterface.calls.mostRecent().args[0].rows[0].ip_address).toBeNull();
-            }
+            readState(handle.validateCandidate([], buildCandidate(0, '10.0.0.1'), null));
+
+            expect(api.validateInterface).toHaveBeenCalledTimes(1);
+            expect(api.validateInterface.calls.mostRecent().args[0].rows[0].subnet_id).toBeNull();
 
             handle.destroy();
         });

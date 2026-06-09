@@ -42,6 +42,13 @@ import { InterfaceIpamApiService } from './interface-ipam-api.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
+/** Verdict surfaced when a network is selected but the (now compulsory) IP-Address is empty. */
+const IP_REQUIRED_STATE: MdsCandidateValidationState = Object.freeze({
+    valid: false,
+    errors: Object.freeze(['IP-Address is required when a Network is selected.']) as ReadonlyArray<string>
+});
+
+
 /**
  * Implementation of {@link MdsRowValidator} for the dg-ipam-interface MDS section. Plugs
  * into the MDS component via the {@code MDS_ROW_VALIDATORS} multi-provider, so the generic
@@ -93,6 +100,16 @@ class InterfaceCandidateValidatorHandle implements MdsRowValidatorHandle {
         candidate: Record<string, unknown>,
         editingRowId: number | null
     ): Observable<MdsCandidateValidationState> {
+        const ip = this.toTrimmedString(candidate?.[IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS]);
+        const subnet = this.toObjectId(candidate?.[IPAM_INTERFACE_FIELD_NAMES.SUBNET]);
+
+        // The backend is only consulted once an IP-Address has been entered - there is nothing
+        // to check (uniqueness / family / subnet membership) without one. A selected network
+        // makes the IP-Address compulsory, so flag that locally instead of calling the API.
+        if (!ip) {
+            return of(subnet !== null ? IP_REQUIRED_STATE : VALID_CANDIDATE_STATE);
+        }
+
         const rows: InterfaceRowPayload[] = [];
 
         for (const row of currentRows ?? []) {
