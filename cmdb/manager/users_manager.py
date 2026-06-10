@@ -262,7 +262,26 @@ class UsersManager(BaseManager):
         action: GroupDeleteMode,
         target_group_id: int | None
     ) -> None:
-        """TODO: document"""
+        """
+        Redistribute the members of a UserGroup that is about to be deleted
+
+        Depending on ``action``:
+          * ``MOVE`` - every user in ``group_id`` is reassigned to ``target_group_id`` in a single
+            bulk write (``target_group_id`` must be provided)
+          * ``DELETE`` - every user in ``group_id`` is deleted, but the call is refused first if the
+            bootstrap admin user is a member (the admin must never be deleted)
+        A group with no members is a no-op
+
+        Args:
+            group_id (int): public_id of the UserGroup being deleted
+            action (GroupDeleteMode): How to handle the group's members (MOVE or DELETE)
+            target_group_id (int | None): Destination group for MOVE; ignored for DELETE
+
+        Raises:
+            UsersManagerDeleteError: When the admin user is a member on DELETE, or a member delete /
+                move failed
+            UsersManagerGetError: When the group's members could not be retrieved
+        """
         try:
             users_in_group: list[CmdbUser] = self.get_many_users({'group_id': group_id})
 
@@ -286,7 +305,7 @@ class UsersManager(BaseManager):
                 # Check if the admin user is part of this UserGroup
                 admin_user: dict[str, Any] | None = self.get_one_by({
                     "group_id": group_id,
-                    "public_id": 1
+                    "public_id": CmdbUser.ADMIN_PUBLIC_ID
                 })
 
                 if admin_user:

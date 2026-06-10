@@ -170,24 +170,61 @@ class TestGetGroup:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                   is_protected_group                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestIsProtectedGroup:
+    """``is_protected_group`` reports membership in ``PROTECTED_GROUP_IDS``."""
+
+    @pytest.mark.parametrize('protected_id', [ADMIN_GROUP_PUBLIC_ID, USER_GROUP_PUBLIC_ID])
+    def test_bootstrap_ids_are_protected(self, protected_id: int) -> None:
+        """The bootstrap admin / user group ids are reported as protected."""
+        assert GroupsManager.is_protected_group(_mock_manager(), protected_id) is True
+
+    def test_regular_id_is_not_protected(self) -> None:
+        """A regular group id is not protected."""
+        assert GroupsManager.is_protected_group(_mock_manager(), REGULAR_GROUP_PUBLIC_ID) is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                      hydrate_group                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestHydrateGroup:
+    """``hydrate_group`` resolves rights via the cached tree and serializes with insert_mode=True."""
+
+    def test_hydrates_via_cached_rights_and_insert_mode(self) -> None:
+        """from_data is fed ``self.rights``; the result is serialized via ``to_json(group, True)``."""
+        mgr = _mock_manager()
+        sentinel_group = MagicMock(spec=CmdbUserGroup)
+
+        with patch.object(CmdbUserGroup, 'from_data', return_value=sentinel_group) as from_data_mock, \
+             patch.object(CmdbUserGroup, 'to_json', return_value=SERIALIZED_GROUP_DICT) as to_json_mock:
+            result = GroupsManager.hydrate_group(mgr, SAMPLE_GROUP_DICT)
+
+        from_data_mock.assert_called_once_with(SAMPLE_GROUP_DICT, mgr.rights)
+        to_json_mock.assert_called_once_with(sentinel_group, True)
+        assert result is SERIALIZED_GROUP_DICT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                      delete_group                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteGroup:
-    """``delete_group`` refuses protected ids and otherwise delegates to ``GenericManager.delete_item``."""
+    """``delete_group`` refuses protected groups and otherwise delegates to ``GenericManager.delete_item``."""
 
-    @pytest.mark.parametrize('protected_id', [ADMIN_GROUP_PUBLIC_ID, USER_GROUP_PUBLIC_ID])
-    def test_protected_ids_raise_delete_error(self, protected_id: int) -> None:
-        """Protected ids in ``PROTECTED_GROUP_IDS`` raise without touching the storage layer."""
+    def test_protected_group_raises_delete_error(self) -> None:
+        """When ``is_protected_group`` is True the delete raises without touching the storage layer."""
         mgr = _mock_manager()
+        mgr.is_protected_group.return_value = True
 
         with pytest.raises(GroupsManagerDeleteError):
-            GroupsManager.delete_group(mgr, protected_id)
+            GroupsManager.delete_group(mgr, ADMIN_GROUP_PUBLIC_ID)
 
         mgr.delete_item.assert_not_called()
 
     def test_unprotected_id_delegates_to_delete_item(self) -> None:
         """A non-protected id is delegated to ``delete_item`` and its bool return is returned."""
         mgr = _mock_manager()
+        mgr.is_protected_group.return_value = False
         mgr.delete_item.return_value = True
 
         result = GroupsManager.delete_group(mgr, REGULAR_GROUP_PUBLIC_ID)

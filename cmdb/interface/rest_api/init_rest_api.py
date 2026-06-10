@@ -197,7 +197,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     )
     from cmdb.interface.rest_api.routes.user_management_routes.users_routes import users_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.user_settings_routes import user_settings_blueprint
-    from cmdb.interface.rest_api.routes.user_management_routes.groups_routes import groups_blueprint
+    from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_routes import groups_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.rights_routes import rights_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_object_routes import exporter_blueprint

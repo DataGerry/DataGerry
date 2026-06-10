@@ -19,7 +19,7 @@ Functional smoke for the ``/groups`` REST routes
 Covers the route-layer concerns that the GroupsManager integration suite cannot: HTTP status
 codes, the 404 on a missing id, the JSON envelopes, the PUT round-trip, the DELETE
 status (200), and the DELETE delete-mode matrix (None / MOVE+missing group_id→400 /
-MOVE+target / DELETE+admin-in-group→500). CRUD behavior itself is asserted at the manager
+MOVE+target / DELETE+admin-in-group→400 / protected-group→400). CRUD behavior itself is asserted at the manager
 layer; these tests verify that the route wraps it correctly and that the recent bug fixes
 to the delete-mode flow hold
 """
@@ -47,6 +47,8 @@ GROUP_ID_FOR_DELETE_NONE: int = 9854
 GROUP_ID_FOR_DELETE_MOVE: int = 9855
 GROUP_ID_FOR_DELETE_MOVE_TARGET: int = 9856
 GROUP_ID_FOR_DELETE_MODE: int = 9857
+MISMATCHED_PAYLOAD_GROUP_ID: int = 9858
+GUARD_USER_PUBLIC_ID: int = 9860
 MISSING_GROUP_ID: int = 9899
 
 ALL_GROUP_IDS: list[int] = [
@@ -57,6 +59,7 @@ ALL_GROUP_IDS: list[int] = [
     GROUP_ID_FOR_DELETE_MOVE,
     GROUP_ID_FOR_DELETE_MOVE_TARGET,
     GROUP_ID_FOR_DELETE_MODE,
+    MISMATCHED_PAYLOAD_GROUP_ID,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -221,6 +224,30 @@ class TestPutGroup:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
+    def test_update_pins_public_id_to_the_url(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A payload public_id different from the URL cannot rewrite the document's identity."""
+        collection = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
+        _insert_group_doc(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                json=_group_payload(MISMATCHED_PAYLOAD_GROUP_ID, UPDATED_LABEL),
+            )
+
+            assert response.status_code == HTTPStatus.ACCEPTED
+            # The document keeps its URL id and is updated in place ...
+            assert collection.find_one({'public_id': GROUP_ID_FOR_UPDATE})['label'] == UPDATED_LABEL
+            # ... and no shadow document is created under the payload's id.
+            assert collection.find_one({'public_id': MISMATCHED_PAYLOAD_GROUP_ID}) is None
+        finally:
+            _drop_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+            _drop_group(database_manager, database_name, MISMATCHED_PAYLOAD_GROUP_ID)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #
@@ -316,7 +343,8 @@ class TestDeleteGroup:
                 query_string={'action': GroupDeleteMode.DELETE.value},
             )
 
-            assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+            # Admin-in-group is a business-rule rejection -> 400 (not a 500 server fault).
+            assert response.status_code == HTTPStatus.BAD_REQUEST
             # The group still exists because the delete was refused.
             follow_up = rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}')
             assert follow_up.status_code == HTTPStatus.OK
@@ -326,6 +354,31 @@ class TestDeleteGroup:
                 {'$set': {'group_id': original_group_id}},
             )
             _drop_group(database_manager, database_name, GROUP_ID_FOR_DELETE_MODE)
+
+    def test_delete_protected_group_is_rejected_without_touching_members(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """Deleting a protected bootstrap group is refused with 400, leaving its members untouched."""
+        # Seed a throwaway member of the protected user group; the move target (admin group) exists.
+        _insert_user_in_group(database_manager, database_name, GUARD_USER_PUBLIC_ID, USER_GROUP_PUBLIC_ID)
+        try:
+            response = rest_api.delete(
+                f'{ROUTE_URL}/{USER_GROUP_PUBLIC_ID}',
+                query_string={'action': GroupDeleteMode.MOVE.value, 'group_id': ADMIN_GROUP_PUBLIC_ID},
+            )
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            # The protected group still exists ...
+            assert rest_api.get(f'{ROUTE_URL}/{USER_GROUP_PUBLIC_ID}').status_code == HTTPStatus.OK
+            # ... and the member was NOT moved (no side effects on a rejected delete).
+            guard_user = database_manager.get_collection(CmdbUser.COLLECTION, database_name)\
+                .find_one({'public_id': GUARD_USER_PUBLIC_ID})
+            assert guard_user['group_id'] == USER_GROUP_PUBLIC_ID
+        finally:
+            _drop_user(database_manager, database_name, GUARD_USER_PUBLIC_ID)
 
     def test_delete_missing_group_returns_404(self, rest_api) -> None:
         """DELETE against a missing group id returns 404 regardless of action."""
