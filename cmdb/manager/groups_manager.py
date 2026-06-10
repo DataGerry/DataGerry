@@ -17,6 +17,7 @@
 This module contains the implementation of the GroupsManager
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -56,7 +57,7 @@ class GroupsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager = None, database: str = None) -> None:
+    def __init__(self, dbm: MongoDatabaseManager | None = None, database: str | None = None) -> None:
         """
         Set the database connection for the GroupsManager and cache the flat right tree
 
@@ -76,7 +77,7 @@ class GroupsManager(GenericManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_group(self, group: CmdbUserGroup | dict) -> int:
+    def insert_group(self, group: CmdbUserGroup | dict[str, Any]) -> int:
         """
         Insert a single CmdbUserGroup into the database
 
@@ -85,7 +86,7 @@ class GroupsManager(GenericManager):
         than as a list of full BaseRight dicts
 
         Args:
-            group (CmdbUserGroup | dict): Raw dict or model instance of the CmdbUserGroup to create
+            group (CmdbUserGroup | dict[str, Any]): Raw dict or model instance of the CmdbUserGroup to create
 
         Raises:
             GroupsManagerInsertError: When the CmdbUserGroup could not be inserted
@@ -151,13 +152,32 @@ class GroupsManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_group(self, public_id: int, group: CmdbUserGroup | dict) -> None:
+    def hydrate_group(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Build the persisted (insert-mode) serialization of a CmdbUserGroup from raw payload data
+
+        Resolves the submitted right names through the manager's cached right tree
+        (``self.rights``) instead of recomputing ``flat_rights_tree(ALL_RIGHTS)`` per call, then
+        serializes with ``insert_mode=True`` so rights are stored as name strings
+
+        Args:
+            data (dict[str, Any]): Raw CmdbUserGroup payload (e.g. a validated request body)
+
+        Returns:
+            dict[str, Any]: The insert-mode json of the hydrated CmdbUserGroup
+        """
+        group: CmdbUserGroup = CmdbUserGroup.from_data(data, self.rights)
+
+        return CmdbUserGroup.to_json(group, True)
+
+
+    def update_group(self, public_id: int, group: CmdbUserGroup | dict[str, Any]) -> None:
         """
         Update an existing CmdbUserGroup via the generic update path
 
         Args:
             public_id (int): public_id of the CmdbUserGroup which should be updated
-            group (CmdbUserGroup | dict): New data for the CmdbUserGroup
+            group (CmdbUserGroup | dict[str, Any]): New data for the CmdbUserGroup
 
         Raises:
             GroupsManagerUpdateError: When the update operation failed
@@ -166,13 +186,29 @@ class GroupsManager(GenericManager):
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
+    def is_protected_group(self, public_id: int) -> bool:
+        """
+        Check whether a CmdbUserGroup is a protected bootstrap group that must not be deleted
+
+        The bootstrap admin and user groups (public_ids in ``PROTECTED_GROUP_IDS``) are protected.
+        Call sites can use this to refuse a deletion *before* performing any side effects (e.g.
+        redistributing the group's users), so a rejected delete leaves no partial mutation behind
+
+        Args:
+            public_id (int): public_id of the CmdbUserGroup to check
+
+        Returns:
+            bool: True if the group is protected and may not be deleted
+        """
+        return public_id in PROTECTED_GROUP_IDS
+
+
     def delete_group(self, public_id: int) -> bool:
         """
         Delete an existing CmdbUserGroup by its public_id
 
-        Refuses to delete the bootstrap admin and user groups (public_ids in
-        ``PROTECTED_GROUP_IDS``); for any other id the deletion is delegated to the generic
-        delete path
+        Refuses to delete the bootstrap admin and user groups (see ``is_protected_group``); for any
+        other id the deletion is delegated to the generic delete path
 
         Args:
             public_id (int): public_id of the CmdbUserGroup which should be deleted
@@ -183,7 +219,7 @@ class GroupsManager(GenericManager):
         Returns:
             bool: True if a document was actually removed, False otherwise
         """
-        if public_id in PROTECTED_GROUP_IDS:
+        if self.is_protected_group(public_id):
             raise GroupsManagerDeleteError(f'Deletion of Group with ID: {public_id} is not allowed!')
 
         return self.delete_item(public_id)

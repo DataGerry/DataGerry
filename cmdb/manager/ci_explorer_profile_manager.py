@@ -37,42 +37,33 @@ class CiExplorerProfileManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Set the database connection for the CiExplorerProfileManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Name of the database the dbm should connect to. Only used in cloud mode
+        """
         super().__init__(dbm, CmdbCiExplorerProfile, CI_EXPLORER_PROFILE_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     def remove_type_from_profiles(self, type_id: int) -> None:
         """
-        Removes a type_id from all CiExplorerProfiles
+        Removes a type_id from the 'types_filter' of all CiExplorerProfiles
 
         Args:
             type_id(int): public_id of the CmdbType which should be removed from all CiExplorerProfiles
         """
-        criteria: dict[str, int] = {'types_filter': type_id}
-
-        update: dict[str, dict[str, int]] = {
-            '$pull': {
-                'types_filter': type_id
-            }
-        }
-
-        self.update_many(criteria=criteria, update=update, plain=True)
+        self.update_many_pull({'types_filter': type_id}, {'types_filter': type_id})
 
 
     def remove_relation_from_profiles(self, relation_id: int) -> None:
         """
-        Removes a relation_id from all CiExplorerProfiles
+        Removes a relation_id from the 'relations_filter' of all CiExplorerProfiles
 
         Args:
             relation_id(int): public_id of the CmdbRelation which should be removed from all CiExplorerProfiles
         """
-        criteria: dict[str, int] = {'relations_filter': relation_id}
-
-        update: dict[str, dict[str, int]] = {
-            '$pull': {
-                'relations_filter': relation_id
-            }
-        }
-
-        self.update_many(criteria=criteria, update=update, plain=True)
+        self.update_many_pull({'relations_filter': relation_id}, {'relations_filter': relation_id})

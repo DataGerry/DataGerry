@@ -38,7 +38,7 @@ from cmdb.manager import (
 from cmdb.framework.results import IterationResult
 from cmdb.models.group_model import CmdbUserGroup, GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.right_model.all_rights import flat_rights_tree, ALL_RIGHTS
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import (
     GroupDeletionParameters,
@@ -224,9 +224,10 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
     """
     HTTP ``PUT`` / ``PATCH`` route to update a single CmdbUserGroup
 
-    Validates the payload against ``CmdbUserGroup.SCHEMA``, hydrates a ``CmdbUserGroup`` so the
-    submitted right names are resolved through the right tree, then persists with ``insert_mode``
-    serialization (rights stored as name strings)
+    Validates the payload against ``CmdbUserGroup.SCHEMA``, pins the identity to the URL public_id
+    (so a payload ``public_id`` can never rewrite the document's id), hydrates the submitted right
+    names through the manager's cached right tree, then persists with ``insert_mode`` serialization
+    (rights stored as name strings)
 
     Status codes:
         202 ACCEPTED: Update applied; body is the persisted serialization
@@ -250,8 +251,10 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
         if not to_update_group:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-        group: CmdbUserGroup = CmdbUserGroup.from_data(data=data, rights=flat_rights_tree(ALL_RIGHTS))
-        group_dict: dict[str, Any] = CmdbUserGroup.to_json(group, True)
+        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
+        data[CmdbObjectKey.PUBLIC_ID] = public_id
+
+        group_dict: dict[str, Any] = groups_manager.hydrate_group(data)
 
         groups_manager.update_group(public_id, group_dict)
 
@@ -279,20 +282,21 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     """
     HTTP ``DELETE`` route to remove a CmdbUserGroup with optional user redistribution
 
+    Protected bootstrap groups (admin / user group) are refused up front, before any member
+    redistribution, so a rejected delete never leaves users half-moved or half-deleted.
     Delete-mode flow driven by ``params.action``:
       * ``MOVE`` — every user currently in the deleted group is reassigned to the group named
         by ``params.group_id``; that target group must exist
       * ``DELETE`` — every user currently in the deleted group is deleted alongside the group;
-        the bootstrap admin user (``CmdbUser.ADMIN_PUBLIC_ID``) is protected and the request is
-        refused if it would be deleted
+        the bootstrap admin user is protected and the request is refused if it would be deleted
       * ``None`` — the group is deleted without touching its members
 
     Status codes:
         200 OK: Deleted; body is the serialized deleted group
-        400 BAD_REQUEST: ``MOVE`` requested without a target ``group_id``, target lookup failed,
-            or the manager rejected the delete (e.g. protected admin / user group)
+        400 BAD_REQUEST: Protected group, ``MOVE`` requested without a target ``group_id``, target
+            lookup failed, or the admin user is a member on ``DELETE``
         404 NOT_FOUND: Source group not found, or ``MOVE`` target group not found
-        500: Admin guard tripped or unexpected error
+        500: Unexpected error
 
     Args:
         public_id (int): public_id of the CmdbUserGroup to delete
@@ -311,6 +315,10 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         if not to_delete_group:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
+        # Refuse protected bootstrap groups up front, before any user-redistribution side effects
+        if groups_manager.is_protected_group(public_id):
+            abort(400, f"Deletion of the UserGroup with ID:{public_id} is not allowed!")
+
         if params.action == GroupDeleteMode.MOVE:
             if not params.group_id:
                 abort(400, "The target group for moving users was not provided!")
@@ -319,15 +327,6 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
             if not target_group:
                 abort(404, f"The target UserGroup for moving users with ID:{params.group_id} was not found!")
-
-        if params.action == GroupDeleteMode.DELETE:
-            admin_user = users_manager.get_one_by({
-                "group_id": public_id,
-                "public_id": CmdbUser.ADMIN_PUBLIC_ID,
-            })
-
-            if admin_user:
-                raise UsersManagerDeleteError("This Group can not be deleted because the admin user is part of it!")
 
         if params.action is not None:
             users_manager.handle_users_on_group_delete(public_id, params.action, params.group_id)
@@ -338,8 +337,9 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     except HTTPException as http_err:
         raise http_err
     except UsersManagerDeleteError as err:
+        # The members helper raises this only as the admin-protection business rule -> 400, not 500
         LOGGER.error("[delete_cmdb_user_group] UsersManagerDeleteError: %s", err, exc_info=True)
-        abort(500, 'Failed to delete User from Group!')
+        abort(400, "This UserGroup cannot be deleted because the admin user is part of it!")
     except UsersManagerUpdateError as err:
         LOGGER.error("[delete_cmdb_user_group] UsersManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to move User to Group with ID: {params.group_id}!")
