@@ -217,6 +217,7 @@
           [page]="page"
           [pageSize]="pageSize"
           [sort]="sort"
+          [isFullscreen]="isFullscreen"
           [loading]="(isLoading$ | async) === true"
           (pageChange)="onPageChange($event)"
           (pageSizeChange)="onPageSizeChange($event)"

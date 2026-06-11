@@ -46,6 +46,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
     @Input() public page = 1;
     @Input() public pageSize = 10;
     @Input() public sort: Sort = { name: 'ip', order: SortDirection.ASCENDING };
+    @Input() public isFullscreen = false;
     @Input() public loading = false;
 
     @Output() public readonly pageChange = new EventEmitter<number>();

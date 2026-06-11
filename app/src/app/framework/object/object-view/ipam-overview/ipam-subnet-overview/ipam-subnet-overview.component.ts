@@ -30,6 +30,7 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { FileSaverService } from 'ngx-filesaver';
 import { Observable, Subject, catchError, finalize, of, switchMap, takeUntil, tap } from 'rxjs';
 
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
@@ -79,6 +80,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly modalService = inject(NgbModal);
+    private readonly fullscreenModalService = inject(FullscreenModalService);
     private readonly fileSaverService = inject(FileSaverService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
@@ -217,7 +219,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             return;
         }
 
-        const modalRef = this.modalService.open(IpamUnassignIpModalComponent, { size: 'lg' });
+        const modalRef = this.fullscreenModalService.open(this.modalService, IpamUnassignIpModalComponent, { size: 'lg' });
         modalRef.componentInstance.count = ips.length;
         modalRef.componentInstance.ipLabel = ips.length === 1 ? ips[0] : null;
 

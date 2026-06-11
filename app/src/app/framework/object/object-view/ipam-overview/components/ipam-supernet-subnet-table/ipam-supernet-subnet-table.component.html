@@ -83,7 +83,7 @@
 </ng-template>
 
 <ng-template #actionsTemplate let-item="item">
-  <div class="ipam-row-actions" ngbDropdown container="body" placement="bottom-end">
+  <div class="ipam-row-actions" ngbDropdown [container]="isFullscreen ? null : 'body'" placement="bottom-end">
     <button
       type="button"
       class="ipam-row-actions__trigger"
