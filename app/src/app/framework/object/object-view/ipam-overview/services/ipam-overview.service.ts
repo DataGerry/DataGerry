@@ -212,7 +212,16 @@ export class IpamOverviewService {
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private buildSubnetParams(params: IpamSubnetOverviewParams): HttpParams {
-        return this.buildPagedParams(params);
+        let httpParams = this.buildPagedParams(params);
+
+        if (params.status) {
+            httpParams = httpParams.set('status', params.status);
+        }
+        if (params.type?.length) {
+            httpParams = httpParams.set('type', params.type.join(','));
+        }
+
+        return httpParams;
     }
 
     private buildPagedParams(

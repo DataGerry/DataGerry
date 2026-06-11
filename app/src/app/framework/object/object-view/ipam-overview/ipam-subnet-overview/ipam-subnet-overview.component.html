@@ -159,8 +159,12 @@
           [ipDistribution]="ipDistribution"
           [typeDistribution]="typeDistribution"
           [activeSectorStart]="selectedSectorStart"
+          [activeTypeIds]="selectedTypeIds"
+          [freeActive]="selectedStatus === 'free'"
           [loading]="(isLoading$ | async) === true"
-          (sectorSelect)="onSectorSelect($event)">
+          (sectorSelect)="onSectorSelect($event)"
+          (typeToggle)="onTypeToggle($event)"
+          (freeToggle)="onFreeToggle()">
         </cmdb-ipam-ip-distribution>
 
         <cmdb-ipam-type-distribution
@@ -184,6 +188,26 @@
               ariaLabel="Clear sector filter and show all IP addresses"
               title="Clear sector filter and show all IP addresses"
               (clicked)="onClearSector()">
+            </app-button>
+          </div>
+        } @else if (hasOverviewFilter) {
+          <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-filter" aria-hidden="true"></i>
+              @if (selectedStatus === 'free') {
+                Showing free IP addresses
+              } @else {
+                Filtering by type
+                <span class="ipam-subnet__sector-range">{{ selectedTypeFilterLabel }}</span>
+              }
+            </span>
+            <app-button
+              label="Clear filter"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Clear filter and show all IP addresses"
+              title="Clear filter and show all IP addresses"
+              (clicked)="onClearOverviewFilter()">
             </app-button>
           </div>
         }

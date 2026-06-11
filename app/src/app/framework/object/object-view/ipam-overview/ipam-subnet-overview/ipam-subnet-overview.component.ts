@@ -63,6 +63,8 @@ interface IpamIpsRequest {
     pageSize: number;
     sort: Sort;
     sectorStart: string | null;
+    typeIds: number[];
+    status: 'free' | null;
 }
 
 @Component({
@@ -96,6 +98,8 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public isFullscreen = false;
     public selectedSectorStart: string | null = null;
     public selectedSectorRange: IpamSectorRange | null = null;
+    public selectedTypeIds: number[] = [];
+    public selectedStatus: 'free' | null = null;
     public readonly isLoading$ = this.loaderService.isLoading$;
 
     private readonly destroy$ = new Subject<void>();
@@ -118,6 +122,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         if (changes['publicId'] && this.publicId != null) {
             this.page = 1;
             this.clearSectorSelection();
+            this.clearOverviewFilters();
             this.dispatchIpsRequest();
         }
     }
@@ -156,6 +161,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     }
 
     public onSectorSelect(sectorStart: string): void {
+        this.clearOverviewFilters();
         this.selectedSectorStart = sectorStart;
         this.page = 1;
         this.dispatchIpsRequest();
@@ -163,6 +169,39 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public onClearSector(): void {
         this.clearSectorSelection();
+        this.page = 1;
+        this.dispatchIpsRequest();
+    }
+
+    public onTypeToggle(typeId: number): void {
+        if (typeId == null) {
+            return;
+        }
+
+        this.selectedTypeIds = this.selectedTypeIds.includes(typeId)
+            ? this.selectedTypeIds.filter(id => id !== typeId)
+            : [...this.selectedTypeIds, typeId];
+
+        // Type and "free" filters are mutually exclusive — free IPs have no type.
+        this.selectedStatus = null;
+        this.clearSectorSelection();
+        this.page = 1;
+        this.dispatchIpsRequest();
+    }
+
+    public onFreeToggle(): void {
+        this.selectedStatus = this.selectedStatus === 'free' ? null : 'free';
+        this.selectedTypeIds = [];
+        this.clearSectorSelection();
+        this.page = 1;
+        this.dispatchIpsRequest();
+    }
+
+    public onClearOverviewFilter(): void {
+        if (!this.selectedTypeIds.length && this.selectedStatus === null) {
+            return;
+        }
+        this.clearOverviewFilters();
         this.page = 1;
         this.dispatchIpsRequest();
     }
@@ -223,6 +262,23 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public get hasSelectedSector(): boolean {
         return this.selectedSectorStart !== null;
+    }
+
+    public get hasOverviewFilter(): boolean {
+        return this.selectedTypeIds.length > 0 || this.selectedStatus !== null;
+    }
+
+    public get selectedTypeFilterLabel(): string {
+        if (!this.selectedTypeIds.length) {
+            return '';
+        }
+
+        return this.selectedTypeIds
+            .map(id => {
+                const match = this.typeDistribution.find(entry => entry.public_id === id);
+                return match?.label?.trim() || `Type ${id}`;
+            })
+            .join(', ');
     }
 
     public get selectedSectorLabel(): string {
@@ -314,6 +370,11 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.selectedSectorRange = null;
     }
 
+    private clearOverviewFilters(): void {
+        this.selectedTypeIds = [];
+        this.selectedStatus = null;
+    }
+
     private computeShare(part: number | null | undefined): number | null {
         if (part == null) {
             return null;
@@ -337,7 +398,9 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             page: this.page,
             pageSize: this.pageSize,
             sort: this.sort,
-            sectorStart: this.selectedSectorStart
+            sectorStart: this.selectedSectorStart,
+            typeIds: this.selectedTypeIds,
+            status: this.selectedStatus
         });
     }
 
@@ -358,8 +421,17 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             order: request.sort?.order
         };
 
+        if (request.status) {
+            params.status = request.status;
+        }
+        if (request.typeIds.length) {
+            params.type = request.typeIds;
+        }
+
+        const isFiltered = request.typeIds.length > 0 || request.status !== null;
+
         return this.ipamOverviewService.getSubnetOverview(request.publicId, params).pipe(
-            tap((response: IpamSubnetOverviewResponse) => this.applyOverviewResponse(response)),
+            tap((response: IpamSubnetOverviewResponse) => this.applyOverviewResponse(response, isFiltered)),
             catchError((err) => {
                 this.handleOverviewError(err);
                 return of(null);
@@ -384,16 +456,22 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         );
     }
 
-    private applyOverviewResponse(response: IpamSubnetOverviewResponse): void {
+    private applyOverviewResponse(response: IpamSubnetOverviewResponse, preserveDistribution: boolean): void {
         const ipsPage = response?.ips;
         this.ips = ipsPage?.rows ?? [];
-        this.subnet = response?.subnet ?? null;
-        this.ipDistribution = response?.ip_distribution ?? null;
-        this.typeDistribution = response?.type_distribution ?? [];
-        this.vlans = response?.vlans ?? [];
         this.page = ipsPage?.page ?? this.page;
         this.pageSize = ipsPage?.page_size ?? this.pageSize;
         this.total = ipsPage?.total ?? 0;
+
+        // While a type filter narrows the table, keep the subnet summary and
+        // distributions describing the whole subnet so the legend stays stable.
+        if (!preserveDistribution) {
+            this.subnet = response?.subnet ?? null;
+            this.ipDistribution = response?.ip_distribution ?? null;
+            this.typeDistribution = response?.type_distribution ?? [];
+            this.vlans = response?.vlans ?? [];
+        }
+
         this.hasLoadedOnce = true;
         this.changesRef.markForCheck();
     }

@@ -44,20 +44,44 @@
       </div>
 
       <div class="ipam-ip-dist__legend" aria-label="Distribution legend">
-        <span class="ipam-ip-dist__legend-item">
+        <button
+          type="button"
+          class="ipam-ip-dist__legend-item ipam-ip-dist__legend-item--button"
+          [class.ipam-ip-dist__legend-item--active]="freeActive()"
+          [attr.aria-pressed]="freeActive()"
+          [attr.aria-label]="freeActive() ? 'Remove filter for free IP addresses' : 'Filter by free IP addresses'"
+          (click)="onFreeToggle()">
           <span class="ipam-ip-dist__legend-swatch ipam-ip-dist__sector--empty" aria-hidden="true"></span>
           Free
-        </span>
+        </button>
         @for (item of legendItems(); track item.label) {
-          <span class="ipam-ip-dist__legend-item">
-            <span
-              class="ipam-ip-dist__legend-swatch"
-              [style.background-color]="item.color"
-              [style.border-color]="item.color"
-              aria-hidden="true">
+          @if (item.id != null) {
+            <button
+              type="button"
+              class="ipam-ip-dist__legend-item ipam-ip-dist__legend-item--button"
+              [class.ipam-ip-dist__legend-item--active]="isTypeActive(item.id)"
+              [attr.aria-pressed]="isTypeActive(item.id)"
+              [attr.aria-label]="(isTypeActive(item.id) ? 'Remove filter for type ' : 'Filter by type ') + item.label"
+              (click)="onTypeToggle(item)">
+              <span
+                class="ipam-ip-dist__legend-swatch"
+                [style.background-color]="item.color"
+                [style.border-color]="item.color"
+                aria-hidden="true">
+              </span>
+              {{ item.label }}
+            </button>
+          } @else {
+            <span class="ipam-ip-dist__legend-item">
+              <span
+                class="ipam-ip-dist__legend-swatch"
+                [style.background-color]="item.color"
+                [style.border-color]="item.color"
+                aria-hidden="true">
+              </span>
+              {{ item.label }}
             </span>
-            {{ item.label }}
-          </span>
+          }
         }
       </div>
     </div>

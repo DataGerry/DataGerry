@@ -180,11 +180,15 @@ export interface IpamSubnetOverviewResponse {
     vlans?: IpamVlanInfo[];
 }
 
+export type IpamStatusFilter = 'assigned' | 'free';
+
 export interface IpamSubnetOverviewParams {
     page?: number;
     page_size?: number;
     sort?: string;
     order?: number;
+    status?: IpamStatusFilter;
+    type?: number[];
 }
 
 export interface IpamSectorRange {
