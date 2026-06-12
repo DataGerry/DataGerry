@@ -66,6 +66,17 @@
         </span>
       </article>
 
+      @if (data.ip_range; as range) {
+        <article class="ipam-card ipam-card--range">
+          <span class="ipam-card__label">IP Range</span>
+          <span class="ipam-card__range">
+            <span class="ipam-card__range-ip">{{ range.first }}</span>
+            <span class="ipam-card__range-dash" aria-hidden="true">&ndash;</span>
+            <span class="ipam-card__range-ip">{{ range.last }}</span>
+          </span>
+        </article>
+      }
+
       <article class="ipam-card ipam-card--used">
         <span class="ipam-card__label">Used IPs</span>
         <span class="ipam-card__value">
@@ -126,6 +137,7 @@
       [sort]="sort"
       [searchMode]="isSearching"
       [invalidMode]="viewMode === 'invalid'"
+      [isFullscreen]="isFullscreen"
       [loading]="(isLoading$ | async) === true"
       (pageChange)="onPageChange($event)"
       (pageSizeChange)="onPageSizeChange($event)"

@@ -46,12 +46,14 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
     @Input() public page = 1;
     @Input() public pageSize = 10;
     @Input() public sort: Sort = { name: 'ip', order: SortDirection.ASCENDING };
+    @Input() public isFullscreen = false;
     @Input() public loading = false;
 
     @Output() public readonly pageChange = new EventEmitter<number>();
     @Output() public readonly pageSizeChange = new EventEmitter<number>();
     @Output() public readonly sortChange = new EventEmitter<Sort>();
     @Output() public readonly unassign = new EventEmitter<string[]>();
+    @Output() public readonly assign = new EventEmitter<IpamIpEntry>();
 
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('typeTemplate', { static: true }) public typeTemplate: TemplateRef<unknown>;
@@ -103,6 +105,13 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
         this.unassign.emit([item.ip]);
     }
 
+    public onAssignRow(item: IpamIpEntry): void {
+        if (!this.canAssign(item)) {
+            return;
+        }
+        this.assign.emit(item);
+    }
+
     public onUnassignSelected(): void {
         const ips = this.selectedUnassignableIps;
         if (!ips.length) {
@@ -131,6 +140,10 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
         return !!item?.assigned_to;
     }
 
+    public canAssign(item: IpamIpEntry): boolean {
+        return item?.status === 'free';
+    }
+
     public trackByIp(_index: number, item: IpamIpEntry): string {
         return item?.ip;
     }
@@ -150,7 +163,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'IP Address',
                 name: 'ip',
                 data: 'ip',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 style: { 'min-width': '120px' }
             },
@@ -158,7 +171,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'Type',
                 name: 'type_info',
                 data: 'type_info',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.typeTemplate,
                 style: { 'min-width': '100px', 'text-align': 'center' }
@@ -167,7 +180,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'Status',
                 name: 'status',
                 data: 'status',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.statusTemplate,
                 style: { 'min-width': '120px' }
@@ -176,7 +189,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'Assigned To',
                 name: 'assigned_to',
                 data: 'assigned_to',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.assignedToTemplate,
                 style: { 'min-width': '180px' }
@@ -185,7 +198,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'MAC Address',
                 name: 'mac_address',
                 data: 'mac_address',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.valueTemplate,
                 style: { 'min-width': '180px' }

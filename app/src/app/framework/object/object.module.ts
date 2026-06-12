@@ -50,6 +50,7 @@ import { IpamIpDistributionComponent } from './object-view/ipam-overview/compone
 import { IpamTypeDistributionComponent } from './object-view/ipam-overview/components/ipam-type-distribution/ipam-type-distribution.component';
 import { IpamSupernetSubnetTableComponent } from './object-view/ipam-overview/components/ipam-supernet-subnet-table/ipam-supernet-subnet-table.component';
 import { IpamUnassignIpModalComponent } from './object-view/ipam-overview/components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
+import { IpamAssignIpModalComponent } from './object-view/ipam-overview/components/ipam-assign-ip-modal/ipam-assign-ip-modal.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
 import { ObjectEditComponent } from './object-edit/object-edit.component';
@@ -104,6 +105,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         IpamTypeDistributionComponent,
         IpamSupernetSubnetTableComponent,
         IpamUnassignIpModalComponent,
+        IpamAssignIpModalComponent,
         ObjectActionsComponent,
         ObjectViewRenderComponent,
         ObjectViewMetaComponent,

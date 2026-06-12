@@ -92,7 +92,7 @@
 
 .ipam-overview__cards {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
     gap: 1rem;
 }
 
@@ -167,6 +167,26 @@ button.ipam-card {
     color: inherit;
     opacity: 0.75;
     margin-left: 0.25rem;
+}
+
+.ipam-card__range {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.375rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.ipam-card__range-ip {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #1f2937;
+    line-height: 1.25;
+    word-break: break-all;
+}
+
+.ipam-card__range-dash {
+    color: #9ca3af;
 }
 
 .ipam-card--used .ipam-card__value {
