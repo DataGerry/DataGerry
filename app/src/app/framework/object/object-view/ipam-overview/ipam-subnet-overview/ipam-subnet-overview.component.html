@@ -8,6 +8,17 @@
     <div class="ipam-subnet__table-header">
       <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
       <div class="ipam-subnet__table-actions">
+        <label class="ipam-subnet__search" for="ipamSubnetSearch">
+          <span class="ipam-subnet__search-visually-hidden">Search IP addresses</span>
+          <i class="fa fa-search ipam-subnet__search-icon" aria-hidden="true"></i>
+          <input
+            id="ipamSubnetSearch"
+            type="search"
+            class="ipam-subnet__search-input"
+            placeholder="Search IP addresses..."
+            autocomplete="off"
+            [formControl]="searchControl">
+        </label>
         <app-button
           label="Export"
           bootstrapClass="btn-secondary btn-sm"
@@ -31,11 +42,11 @@
     <div class="ipam-subnet__cards">
       <article
         class="ipam-subnet-card"
-        [class.ipam-subnet-card--clickable]="hasSelectedSector"
-        [attr.role]="hasSelectedSector ? 'button' : null"
-        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        [class.ipam-subnet-card--clickable]="canShowAll"
+        [attr.role]="canShowAll ? 'button' : null"
+        [attr.tabindex]="canShowAll ? 0 : null"
         ngbTooltip="Show all IP addresses"
-        [disableTooltip]="!hasSelectedSector"
+        [disableTooltip]="!canShowAll"
         container="body"
         [openDelay]="100"
         (click)="onShowAllIps()"
@@ -49,11 +60,11 @@
 
       <article
         class="ipam-subnet-card"
-        [class.ipam-subnet-card--clickable]="hasSelectedSector"
-        [attr.role]="hasSelectedSector ? 'button' : null"
-        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        [class.ipam-subnet-card--clickable]="canShowAll"
+        [attr.role]="canShowAll ? 'button' : null"
+        [attr.tabindex]="canShowAll ? 0 : null"
         ngbTooltip="Show all IP addresses"
-        [disableTooltip]="!hasSelectedSector"
+        [disableTooltip]="!canShowAll"
         container="body"
         [openDelay]="100"
         (click)="onShowAllIps()"
@@ -67,11 +78,11 @@
 
       <article
         class="ipam-subnet-card"
-        [class.ipam-subnet-card--clickable]="hasSelectedSector"
-        [attr.role]="hasSelectedSector ? 'button' : null"
-        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        [class.ipam-subnet-card--clickable]="canShowAll"
+        [attr.role]="canShowAll ? 'button' : null"
+        [attr.tabindex]="canShowAll ? 0 : null"
         ngbTooltip="Show all IP addresses"
-        [disableTooltip]="!hasSelectedSector"
+        [disableTooltip]="!canShowAll"
         container="body"
         [openDelay]="100"
         (click)="onShowAllIps()"
@@ -119,11 +130,24 @@
         </span>
       </article>
 
+      <button
+        type="button"
+        class="ipam-subnet-card ipam-subnet-card--invalid ipam-subnet-card--clickable"
+        [class.ipam-subnet-card--active]="isInvalidView"
+        [attr.aria-pressed]="isInvalidView"
+        ngbTooltip="Show conflict IP addresses"
+        container="body"
+        [openDelay]="100"
+        (click)="onShowInvalidIps()">
+        <span class="ipam-subnet-card__label">Conflict IPs</span>
+        <span class="ipam-subnet-card__value">{{ invalidCount | number }}</span>
+      </button>
+
       <article
         class="ipam-subnet-card ipam-subnet-card--vlans"
-        [class.ipam-subnet-card--clickable]="hasSelectedSector"
-        [attr.role]="hasSelectedSector ? 'button' : null"
-        [attr.tabindex]="hasSelectedSector ? 0 : null"
+        [class.ipam-subnet-card--clickable]="canShowAll"
+        [attr.role]="canShowAll ? 'button' : null"
+        [attr.tabindex]="canShowAll ? 0 : null"
         (click)="onShowAllIps()"
         (keydown.enter)="onShowAllIps()"
         (keydown.space)="onShowAllIps(); $event.preventDefault()">
@@ -159,8 +183,12 @@
           [ipDistribution]="ipDistribution"
           [typeDistribution]="typeDistribution"
           [activeSectorStart]="selectedSectorStart"
+          [activeTypeIds]="selectedTypeIds"
+          [freeActive]="selectedStatus === 'free'"
           [loading]="(isLoading$ | async) === true"
-          (sectorSelect)="onSectorSelect($event)">
+          (sectorSelect)="onSectorSelect($event)"
+          (typeToggle)="onTypeToggle($event)"
+          (freeToggle)="onFreeToggle()">
         </cmdb-ipam-ip-distribution>
 
         <cmdb-ipam-type-distribution
@@ -170,7 +198,22 @@
       </aside>
 
       <div class="ipam-subnet__table-wrapper">
-        @if (hasSelectedSector) {
+        @if (isInvalidView) {
+          <div class="ipam-subnet__sector-banner ipam-subnet__sector-banner--invalid" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-exclamation-triangle" aria-hidden="true"></i>
+              Showing conflict IP addresses
+            </span>
+            <app-button
+              label="Show all IPs"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Show all IP addresses"
+              title="Show all IP addresses"
+              (clicked)="onShowAllIps()">
+            </app-button>
+          </div>
+        } @else if (hasSelectedSector) {
           <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
             <span class="ipam-subnet__sector-info">
               <i class="fa fa-filter" aria-hidden="true"></i>
@@ -186,6 +229,42 @@
               (clicked)="onClearSector()">
             </app-button>
           </div>
+        } @else if (hasOverviewFilter) {
+          <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-filter" aria-hidden="true"></i>
+              @if (selectedStatus === 'free') {
+                Showing free IP addresses
+              } @else {
+                Filtering by type
+                <span class="ipam-subnet__sector-range">{{ selectedTypeFilterLabel }}</span>
+              }
+            </span>
+            <app-button
+              label="Clear filter"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Clear filter and show all IP addresses"
+              title="Clear filter and show all IP addresses"
+              (clicked)="onClearOverviewFilter()">
+            </app-button>
+          </div>
+        } @else if (isSearching) {
+          <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-search" aria-hidden="true"></i>
+              Showing results for
+              <span class="ipam-subnet__sector-range">{{ searchTermLabel }}</span>
+            </span>
+            <app-button
+              label="Clear search"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Clear search and show all IP addresses"
+              title="Clear search and show all IP addresses"
+              (clicked)="onClearSearch()">
+            </app-button>
+          </div>
         }
         <cmdb-ipam-ip-table
           [items]="ips"
@@ -193,11 +272,13 @@
           [page]="page"
           [pageSize]="pageSize"
           [sort]="sort"
+          [isFullscreen]="isFullscreen"
           [loading]="(isLoading$ | async) === true"
           (pageChange)="onPageChange($event)"
           (pageSizeChange)="onPageSizeChange($event)"
           (sortChange)="onSortChange($event)"
-          (unassign)="onUnassign($event)">
+          (unassign)="onUnassign($event)"
+          (assign)="onAssign($event)">
         </cmdb-ipam-ip-table>
       </div>
     </div>

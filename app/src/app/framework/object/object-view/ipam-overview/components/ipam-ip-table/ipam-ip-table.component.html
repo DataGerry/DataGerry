@@ -60,7 +60,16 @@
 
 <ng-template #assignedToTemplate let-item="item">
   @if (item?.assigned_to?.summary_line) {
-    <span>{{ item.assigned_to.summary_line }}</span>
+    @if (item.assigned_to.public_id != null) {
+      <a
+        class="ipam-assigned-link"
+        [routerLink]="['/', 'framework', 'object', 'view', item.assigned_to.public_id]"
+        [title]="'View ' + item.assigned_to.summary_line">
+        {{ item.assigned_to.summary_line }}
+      </a>
+    } @else {
+      <span>{{ item.assigned_to.summary_line }}</span>
+    }
   } @else {
     <span class="ipam-muted" aria-hidden="true">&ndash;</span>
   }
@@ -75,8 +84,8 @@
 </ng-template>
 
 <ng-template #actionsTemplate let-item="item">
-  @if (canUnassign(item)) {
-    <div class="ipam-row-actions" ngbDropdown container="body" placement="bottom-end">
+  @if (canUnassign(item) || canAssign(item)) {
+    <div class="ipam-row-actions" ngbDropdown [container]="isFullscreen ? null : 'body'" placement="bottom-end">
       <button
         type="button"
         class="ipam-row-actions__trigger"
@@ -85,14 +94,26 @@
         <i class="fa fa-ellipsis-v" aria-hidden="true"></i>
       </button>
       <div ngbDropdownMenu class="ipam-row-actions__menu">
-        <button
-          type="button"
-          ngbDropdownItem
-          class="ipam-row-actions__item ipam-row-actions__item--danger"
-          (click)="onUnassignRow(item)">
-          <i class="fa fa-unlink ipam-row-actions__item-icon" aria-hidden="true"></i>
-          <span>Unassign</span>
-        </button>
+        @if (canAssign(item)) {
+          <button
+            type="button"
+            ngbDropdownItem
+            class="ipam-row-actions__item"
+            (click)="onAssignRow(item)">
+            <i class="fa fa-link ipam-row-actions__item-icon" aria-hidden="true"></i>
+            <span>Assign</span>
+          </button>
+        }
+        @if (canUnassign(item)) {
+          <button
+            type="button"
+            ngbDropdownItem
+            class="ipam-row-actions__item ipam-row-actions__item--danger"
+            (click)="onUnassignRow(item)">
+            <i class="fa fa-unlink ipam-row-actions__item-icon" aria-hidden="true"></i>
+            <span>Unassign</span>
+          </button>
+        }
       </div>
     </div>
   } @else {

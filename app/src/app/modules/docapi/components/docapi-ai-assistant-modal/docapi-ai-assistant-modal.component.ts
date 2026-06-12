@@ -153,7 +153,7 @@ export class DocapiAiAssistantModalComponent {
                 this.requestError.set('No HTML response was returned by the AI Assistant.');
             }
         } catch {
-            this.requestError.set('Failed to generate HTML. Please try again.');
+            this.requestError.set('Failed to generate the document. Please try again.');
         } finally {
             this.isGenerating.set(false);
         }
