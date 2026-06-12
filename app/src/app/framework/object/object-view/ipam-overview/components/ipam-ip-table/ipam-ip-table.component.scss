@@ -8,6 +8,19 @@
     width: 100%;
 }
 
+/* Keep a wide table contained within the card by scrolling it horizontally
+   instead of letting it overflow the layout. */
+.ipam-ip-table ::ng-deep .table-container {
+    overflow-x: auto;
+}
+
+/* In fullscreen the row-actions dropdown renders inline (it cannot escape to the
+   body, which sits behind the fullscreen layer). Drop the scroll clipping so the
+   menu is never cut off; the extra viewport width makes horizontal scroll moot. */
+:host-context(:fullscreen) .ipam-ip-table ::ng-deep .table-container {
+    overflow: visible;
+}
+
 .ipam-status {
     display: inline-flex;
     align-items: center;
