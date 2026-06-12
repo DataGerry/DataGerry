@@ -7,7 +7,7 @@
 
 .ipam-subnet__cards {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 0.75rem;
 }
 
@@ -22,6 +22,13 @@
     box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
     transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
     min-width: 0;
+}
+
+button.ipam-subnet-card {
+    appearance: none;
+    text-align: left;
+    font: inherit;
+    color: inherit;
 }
 
 .ipam-subnet-card:hover {
@@ -41,6 +48,28 @@
 .ipam-subnet-card--clickable:focus-visible {
     outline: 2px solid #0d6efd;
     outline-offset: 2px;
+}
+
+.ipam-subnet-card--clickable.ipam-subnet-card--active {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+}
+
+.ipam-subnet-card--invalid .ipam-subnet-card__value {
+    color: #dc3545;
+}
+
+.ipam-subnet-card--invalid.ipam-subnet-card--clickable:hover {
+    border-color: #dc3545;
+}
+
+.ipam-subnet-card--invalid.ipam-subnet-card--clickable:focus-visible {
+    outline-color: #dc3545;
+}
+
+.ipam-subnet-card--invalid.ipam-subnet-card--active {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15);
 }
 
 .ipam-subnet-card--clickable .ipam-subnet-card__vlan-list {
@@ -253,6 +282,12 @@
     background-color: #eff6ff;
     color: #1e3a8a;
     font-size: 0.875rem;
+}
+
+.ipam-subnet__sector-banner--invalid {
+    border-color: #fecaca;
+    background-color: #fef2f2;
+    color: #991b1b;
 }
 
 .ipam-subnet__sector-info {

@@ -151,6 +151,22 @@ export class IpamOverviewService {
     }
 
 
+    public getSubnetInvalidOverview(
+        publicId: number,
+        params: IpamSubnetOverviewParams = {}
+    ): Observable<IpamSubnetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildSubnetParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}/invalid`, options)
+            .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+
     public exportSubnetOverview(publicId: number): Observable<HttpResponse<Blob>> {
         const options = {
             headers: new HttpHeaders({}),

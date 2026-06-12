@@ -178,6 +178,7 @@ export interface IpamSubnetOverviewResponse {
     type_distribution?: IpamTypeDistributionEntry[];
     ip_distribution?: IpamIpDistribution | null;
     vlans?: IpamVlanInfo[];
+    invalid_count?: number;
 }
 
 export type IpamStatusFilter = 'assigned' | 'free';

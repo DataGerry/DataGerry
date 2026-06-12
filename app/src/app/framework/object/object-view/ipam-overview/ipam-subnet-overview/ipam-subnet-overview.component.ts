@@ -59,7 +59,8 @@ const VLAN_CARD_VISIBLE_LIMIT = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 const MIN_SEARCH_LENGTH = 2;
 
-type IpamIpsRequestKind = 'overview' | 'sector';
+type IpamIpsRequestKind = 'overview' | 'sector' | 'invalid';
+type IpamSubnetViewMode = 'all' | 'invalid';
 
 interface IpamIpsRequest {
     publicId: number;
@@ -107,6 +108,8 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public selectedSectorRange: IpamSectorRange | null = null;
     public selectedTypeIds: number[] = [];
     public selectedStatus: 'free' | null = null;
+    public viewMode: IpamSubnetViewMode = 'all';
+    public invalidCount = 0;
     public readonly searchControl = new FormControl<string>('', { nonNullable: true });
     public readonly isLoading$ = this.loaderService.isLoading$;
 
@@ -138,6 +141,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public ngOnChanges(changes: SimpleChanges): void {
         if (changes['publicId'] && this.publicId != null) {
             this.page = 1;
+            this.viewMode = 'all';
             this.clearSectorSelection();
             this.clearOverviewFilters();
             this.clearSearch();
@@ -179,6 +183,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     }
 
     public onSectorSelect(sectorStart: string): void {
+        this.viewMode = 'all';
         this.clearOverviewFilters();
         this.clearSearch();
         this.selectedSectorStart = sectorStart;
@@ -203,6 +208,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
         // Type and "free" filters are mutually exclusive — free IPs have no type.
         this.selectedStatus = null;
+        this.viewMode = 'all';
         this.clearSectorSelection();
         this.clearSearch();
         this.page = 1;
@@ -212,6 +218,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public onFreeToggle(): void {
         this.selectedStatus = this.selectedStatus === 'free' ? null : 'free';
         this.selectedTypeIds = [];
+        this.viewMode = 'all';
         this.clearSectorSelection();
         this.clearSearch();
         this.page = 1;
@@ -236,10 +243,28 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.dispatchIpsRequest();
     }
 
-    public onShowAllIps(): void {
-        if (this.hasSelectedSector) {
-            this.onClearSector();
+    public onShowInvalidIps(): void {
+        if (this.viewMode === 'invalid') {
+            return;
         }
+        this.viewMode = 'invalid';
+        this.clearSectorSelection();
+        this.clearOverviewFilters();
+        this.clearSearch();
+        this.page = 1;
+        this.dispatchIpsRequest();
+    }
+
+    public onShowAllIps(): void {
+        if (this.viewMode === 'all' && !this.hasSelectedSector) {
+            return;
+        }
+        this.viewMode = 'all';
+        this.clearSectorSelection();
+        this.clearOverviewFilters();
+        this.clearSearch();
+        this.page = 1;
+        this.dispatchIpsRequest();
     }
 
     public onUnassign(ips: string[]): void {
@@ -292,6 +317,14 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public get hasSelectedSector(): boolean {
         return this.selectedSectorStart !== null;
+    }
+
+    public get isInvalidView(): boolean {
+        return this.viewMode === 'invalid';
+    }
+
+    public get canShowAll(): boolean {
+        return this.hasSelectedSector || this.isInvalidView;
     }
 
     public get hasOverviewFilter(): boolean {
@@ -457,7 +490,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.loaderService.show();
         this.ipsRequest$.next({
             publicId: this.publicId,
-            kind: this.selectedSectorStart ? 'sector' : 'overview',
+            kind: this.resolveRequestKind(),
             page: this.page,
             pageSize: this.pageSize,
             sort: this.sort,
@@ -468,7 +501,17 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         });
     }
 
+    private resolveRequestKind(): IpamIpsRequestKind {
+        if (this.viewMode === 'invalid') {
+            return 'invalid';
+        }
+        return this.selectedSectorStart ? 'sector' : 'overview';
+    }
+
     private executeIpsRequest(request: IpamIpsRequest): Observable<unknown> {
+        if (request.kind === 'invalid') {
+            return this.requestInvalidIps(request);
+        }
         if (request.kind === 'sector' && request.sectorStart) {
             return this.requestSectorIps(request, request.sectorStart);
         }
@@ -516,7 +559,27 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         return this.ipamOverviewService.getSubnetSectorIps(request.publicId, sectorStart, params).pipe(
             tap((response: IpamSubnetSectorResponse) => this.applySectorResponse(response)),
             catchError((err) => {
-                this.handleSectorError(err);
+                this.handleScopedError(err);
+                return of(null);
+            }),
+            finalize(() => this.loaderService.hide())
+        );
+    }
+
+    private requestInvalidIps(request: IpamIpsRequest): Observable<unknown> {
+        const params: IpamSubnetOverviewParams = {
+            page: request.page,
+            page_size: request.pageSize
+        };
+
+        if (request.search) {
+            params.search = request.search;
+        }
+
+        return this.ipamOverviewService.getSubnetInvalidOverview(request.publicId, params).pipe(
+            tap((response: IpamSubnetOverviewResponse) => this.applyInvalidResponse(response)),
+            catchError((err) => {
+                this.handleScopedError(err);
                 return of(null);
             }),
             finalize(() => this.loaderService.hide())
@@ -537,6 +600,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             this.ipDistribution = response?.ip_distribution ?? null;
             this.typeDistribution = response?.type_distribution ?? [];
             this.vlans = response?.vlans ?? [];
+            this.invalidCount = response?.invalid_count ?? 0;
         }
 
         this.hasLoadedOnce = true;
@@ -551,6 +615,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.typeDistribution = [];
         this.vlans = [];
         this.total = 0;
+        this.invalidCount = 0;
         this.hasLoadedOnce = true;
         this.toastService.error(err?.error?.message);
         this.changesRef.markForCheck();
@@ -566,7 +631,23 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.changesRef.markForCheck();
     }
 
-    private handleSectorError(err: HttpErrorResponse): void {
+    private applyInvalidResponse(response: IpamSubnetOverviewResponse): void {
+        const ipsPage = response?.ips;
+        this.ips = ipsPage?.rows ?? [];
+        this.page = ipsPage?.page ?? this.page;
+        this.pageSize = ipsPage?.page_size ?? this.pageSize;
+        this.total = ipsPage?.total ?? 0;
+
+        // The invalid view only swaps the table rows; the summary cards and
+        // distributions keep describing the whole subnet.
+        if (response?.invalid_count != null) {
+            this.invalidCount = response.invalid_count;
+        }
+
+        this.changesRef.markForCheck();
+    }
+
+    private handleScopedError(err: HttpErrorResponse): void {
         this.ips = [];
         this.total = 0;
         this.toastService.error(err?.error?.message);
