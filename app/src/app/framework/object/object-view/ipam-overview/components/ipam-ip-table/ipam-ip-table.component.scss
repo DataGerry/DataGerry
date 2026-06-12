@@ -66,9 +66,10 @@
 }
 
 .ipam-assigned-link {
-    color: #2563eb;
+    color: #000000;
     text-decoration: none;
     cursor: pointer;
+    text-decoration: underline;
 
     &:hover {
         text-decoration: underline;
