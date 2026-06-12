@@ -60,6 +60,15 @@ const VLAN_CARD_VISIBLE_LIMIT = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 const MIN_SEARCH_LENGTH = 2;
 
+// Maps the IP table column identifiers to the sort fields accepted by the overview API.
+const IP_SORT_FIELDS: Record<string, string> = {
+    ip: 'ip',
+    status: 'status',
+    type_info: 'type',
+    assigned_to: 'assigned_to',
+    mac_address: 'mac_address'
+};
+
 type IpamIpsRequestKind = 'overview' | 'sector' | 'invalid';
 type IpamSubnetViewMode = 'all' | 'invalid';
 
@@ -174,6 +183,9 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public onSortChange(sort: Sort): void {
         this.sort = sort;
         this.page = 1;
+        // Sorting is only supported by the overview endpoint, so leave any
+        // sector/invalid scope and apply the order to the full overview.
+        this.viewMode = 'all';
         this.clearSectorSelection();
         this.dispatchIpsRequest();
     }
@@ -548,10 +560,14 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
         const params: IpamSubnetOverviewParams = {
             page: request.page,
-            page_size: request.pageSize,
-            sort: request.sort?.name,
-            order: request.sort?.order
+            page_size: request.pageSize
         };
+
+        const sortField = request.sort?.name ? IP_SORT_FIELDS[request.sort.name] : undefined;
+        if (sortField) {
+            params.sort = sortField;
+            params.order = request.sort.order;
+        }
 
         if (request.status) {
             params.status = request.status;

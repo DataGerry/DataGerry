@@ -163,7 +163,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'IP Address',
                 name: 'ip',
                 data: 'ip',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 style: { 'min-width': '120px' }
             },
@@ -171,7 +171,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'Type',
                 name: 'type_info',
                 data: 'type_info',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.typeTemplate,
                 style: { 'min-width': '100px', 'text-align': 'center' }
@@ -180,7 +180,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'Status',
                 name: 'status',
                 data: 'status',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.statusTemplate,
                 style: { 'min-width': '120px' }
@@ -189,7 +189,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'Assigned To',
                 name: 'assigned_to',
                 data: 'assigned_to',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.assignedToTemplate,
                 style: { 'min-width': '180px' }
@@ -198,7 +198,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
                 display: 'MAC Address',
                 name: 'mac_address',
                 data: 'mac_address',
-                sortable: false,
+                sortable: true,
                 searchable: false,
                 template: this.valueTemplate,
                 style: { 'min-width': '180px' }
