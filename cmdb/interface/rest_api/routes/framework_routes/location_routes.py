@@ -69,18 +69,18 @@ location_blueprint = APIBlueprint('locations', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right='base.framework.object.edit')
-@location_blueprint.parse_request_parameters()
-# @location_blueprint.validate(CmdbLocation.SCHEMA)
-def insert_cmdb_location(params: dict, request_user: CmdbUser) -> Response:
+@location_blueprint.parse_request_body()
+def insert_cmdb_location(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbLocation into the database
 
     Args:
-        data (CmdbRelation.SCHEMA): Data of the CmdbRelation which should be inserted
+        data (dict): JSON payload of the CmdbLocation which should be inserted
+                     (expects `object_id`, `parent`, `type_id` and `name`)
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        InsertSingleResponse: The new CmdbRelation and its public_id
+        DefaultResponse: The public_id of the newly created CmdbLocation
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -89,9 +89,9 @@ def insert_cmdb_location(params: dict, request_user: CmdbUser) -> Response:
 
         location_creation_params = {}
 
-        location_creation_params['object_id'] = int(params['object_id'])
-        location_creation_params['parent'] = int(params['parent'])
-        location_creation_params['type_id'] = int(params['type_id'])
+        location_creation_params['object_id'] = int(data['object_id'])
+        location_creation_params['parent'] = int(data['parent'])
+        location_creation_params['type_id'] = int(data['type_id'])
 
         object_type = types_manager.get_type(location_creation_params['type_id'])
 
@@ -104,8 +104,8 @@ def insert_cmdb_location(params: dict, request_user: CmdbUser) -> Response:
         location_creation_params['type_icon'] = object_type.get_icon()
         location_creation_params['type_selectable'] = object_type.selectable_as_parent
 
-        if params['name'] == '' or params['name'] is None:
-            current_object = objects_manager.get_object(int(params['object_id']))
+        if data['name'] == '' or data['name'] is None:
+            current_object = objects_manager.get_object(int(data['object_id']))
 
             if not current_object:
                 abort(404, "The linked Object was not found in the database!")
@@ -118,9 +118,9 @@ def insert_cmdb_location(params: dict, request_user: CmdbUser) -> Response:
                 True
             ).render_result_list(True)
 
-            params['name'] = rendered_list[0]['summary_line']
+            data['name'] = rendered_list[0]['summary_line']
 
-        location_creation_params['name'] =  params['name'] if params['name'] not in ['', None]\
+        location_creation_params['name'] =  data['name'] if data['name'] not in ['', None]\
                                                         else f"ObjectID: {location_creation_params['object_id']}"
 
         created_location_id = locations_manager.insert_location(location_creation_params)
@@ -390,13 +390,13 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right='base.framework.object.edit')
-@location_blueprint.parse_request_parameters()
-def update_cmdb_location_for_object(params: dict, request_user: CmdbUser):
+@location_blueprint.parse_request_body()
+def update_cmdb_location_for_object(data: dict, request_user: CmdbUser):
     """
     Updates a location
 
     Args:
-        params (dict): location parameters
+        data (dict): JSON payload with the location parameters (expects `object_id`, `parent` and `name`)
         request_user (CmdbUser): User requesting the update
 
     Returns:
@@ -408,15 +408,15 @@ def update_cmdb_location_for_object(params: dict, request_user: CmdbUser):
 
         location_update_params = {}
 
-        object_id = int(params['object_id'])
-        location_update_params['parent'] = int(params['parent'])
+        object_id = int(data['object_id'])
+        location_update_params['parent'] = int(data['parent'])
 
         to_update_location = locations_manager.get_location_for_object(object_id)
 
         if not to_update_location:
             abort(404, f"The Location for Object with ID:{object_id} was not found!")
 
-        if params['name'] == '' or params['name'] is None:
+        if data['name'] == '' or data['name'] is None:
             current_object = objects_manager.get_object(object_id)
 
             if not current_object:
@@ -430,14 +430,14 @@ def update_cmdb_location_for_object(params: dict, request_user: CmdbUser):
                 True
             ).render_result_list(raw=True)
 
-            params['name'] = rendered_list[0]['summary_line']
+            data['name'] = rendered_list[0]['summary_line']
 
-        location_update_params['name'] =  params['name'] if params['name'] not in ['', None]\
-                                                        else f"ObjectID: {location_update_params['object_id']}"
+        location_update_params['name'] =  data['name'] if data['name'] not in ['', None]\
+                                                        else f"ObjectID: {object_id}"
 
         locations_manager.update_location(object_id, location_update_params)
 
-        return UpdateSingleResponse(params).make_response()
+        return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectsManagerGetError as err:
