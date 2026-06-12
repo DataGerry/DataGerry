@@ -106,14 +106,7 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
     public postLocation(params): Observable<any> {
 
       const postOptions = this.options;
-      let httpParams = new HttpParams();
-
-      for (let key in params){
-        let val:string = String(params[key]);
-        httpParams = httpParams.set(key, val);
-      }
-
-      postOptions.params = httpParams;
+      postOptions.params = new HttpParams();
 
       return this.api.callPost<CmdbLocation>(this.servicePrefix + '/', params , postOptions).pipe(
           map((apiResponse) => {
@@ -320,14 +313,7 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
     public updateLocationForObject(params): Observable<any> {
 
         const putOptions = this.options;
-        let httpParams = new HttpParams();
-
-        for (let key in params){
-          let val:string = String(params[key]);
-          httpParams = httpParams.set(key, val);
-        }
-
-        putOptions.params = httpParams;
+        putOptions.params = new HttpParams();
 
         return this.api.callPut<T>(`${ this.servicePrefix }/update_location`, params, putOptions).pipe(
             map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
