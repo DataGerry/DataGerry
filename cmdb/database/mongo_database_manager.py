@@ -774,14 +774,16 @@ class MongoDatabaseManager:
             criteria: dict[str, Any],
             update: dict[str, Any]) -> UpdateResult:
         """
-        Updates multiple documents that match the filter in a collection
+        Removes array elements from documents matching the filter using a `$pull` update
+
+        The given `update` is wrapped in a `$pull` operator, so `criteria={'types_filter': 5}` with
+        `update={'types_filter': 5}` removes 5 from the `types_filter` array of every matching document
 
         Args:
             collection (str): Name of database collection
+            db_name (str): Name of the database holding the collection
             criteria (dict): The filter used to match the documents for updating
-            update (dict): The modifications to apply
-            add_to_set(bool): If True, uses '$addToSet' to add values to an array without duplicates.
-                              If False, uses '$set' to update fields. Defaults to False.
+            update (dict): The `$pull` specification of the array elements to remove
 
         Raises:
             DocumentUpdateError: If the update operation fails

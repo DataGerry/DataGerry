@@ -44,8 +44,6 @@ from cmdb.models.docapi_model.relation_result import RelationResult
 
 LOGGER: Logger = getLogger(__name__)
 
-DATETIME_PATTERN = r"datetime\.datetime\((.*?)\)"
-
 EXTERNAL_OBJECT_REGEX = re.compile(r"\{\{\s*object\((\d+)\)")
 
 REPORT_REGEX = re.compile(r"\{\{\s*report\((\d+)\)\s*\}\}")
@@ -323,15 +321,11 @@ class DefaultTemplateData:
             # Run report query
             query_str = report["report_query"]["data"]
 
-            processed_query_string = re.sub(
-                DATETIME_PATTERN,
-                self.replace_datetime,
-                query_str.replace("datetime.datetime", "datetime")
-            )
-
-            safe_globals = {"datetime": datetime}
+            # The stored query is the repr of a Python dict; normalise the datetime calls and eval in
+            # a locked-down namespace (only 'datetime', no builtins) so it cannot reach arbitrary code
+            safe_globals = {"datetime": datetime, "__builtins__": {}}
             # pylint: disable=W0123
-            report_query = eval(processed_query_string, safe_globals)
+            report_query = eval(query_str.replace("datetime.datetime", "datetime"), safe_globals)
 
             objects = []
 
@@ -503,28 +497,6 @@ class DefaultTemplateData:
         tpl_html.append("</tbody></table>")
 
         return "".join(tpl_html)
-
-
-    def replace_datetime(self, match: re.Match) -> str:
-        """
-        Replaces a regex match containing datetime arguments with a Python datetime object
-
-        Args:
-            match (re.Match): A regular expression match object containing 
-                            a string of datetime arguments (e.g., "2024, 11, 26, 0, 0").
-
-        Returns:
-            str: A string representation (repr) of the evaluated datetime object.
-
-        Notes:
-            - This function expects the match to contain arguments suitable for datetime().
-            - The returned value is the repr of the datetime object, 
-            which can be used in source code or serialization.
-        """
-        args = match.group(1)
-
-        #pylint: disable=W0123
-        return repr(eval(f"datetime({args})"))
 
 
     def _expand_mds_rows(self, base_fields: dict, mds_sections: list[dict]) -> list[dict]:

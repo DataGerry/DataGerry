@@ -227,6 +227,36 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
+    def parse_request_body(cls, **optional):
+        """
+        Decorator to extract the JSON request body and pass it to the decorated function
+
+        Args:
+            **optional: (Currently unused) Additional optional keyword arguments
+
+        Returns:
+            function: A decorator that injects the parsed JSON body as a dictionary into the decorated function
+
+        Raises:
+            400 Bad Request: If the request body is missing or is not a valid JSON object
+        """
+        def _parse(f):
+            @wraps(f)
+            def _decorate(*args, **kwargs):
+                payload = request.get_json(silent=True)
+
+                if not isinstance(payload, dict):
+                    LOGGER.error("[parse_request_body] Request body is not a valid JSON object")
+                    abort(400, "Failed to parse the request body!")
+
+                return f(data=payload, *args, **kwargs)
+
+            return _decorate
+
+        return _parse
+
+
+    @classmethod
     def parse_collection_parameters(cls, **optional):
         """
         Wrapper function for the flask routes.

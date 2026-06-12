@@ -22,12 +22,12 @@ from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 from bson import json_util
+from pymongo import UpdateOne
 from flask import abort, current_app, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database.database_utils import default, object_hook
-from cmdb.database import MongoDBQueryBuilder
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
@@ -75,6 +75,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     sync_select_field_options,
     is_special_type_changed,
 )
+from cmdb.interface.rest_api.routes.report_routes.report_helper import build_report_query
 from cmdb.framework.ipam.enforcement import (
     enforce_object_invariants,
     enforce_delete_guards,
@@ -1102,6 +1103,10 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> 
                                                     type_id=public_id
                                                  )
 
+        # Field names dropped from any object of this type, accumulated across all objects so the
+        # type's reports can be cleaned once afterwards rather than per object/field
+        removed_field_names: set[str] = set()
+
         for obj in objects_by_type:
             incorrect: list[str] = []
             correct: list[str] = []
@@ -1131,21 +1136,32 @@ def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> 
                     )
                     abort(500, "An interlal server error occured while cleaning objects!")
 
-                # Check all reports and clear selected_fields and conditions
-                try:
-                    for a_report in reports_for_type:
-                        tmp_report: CmdbReport = CmdbReport.from_data(a_report)
-                        tmp_report.remove_field_occurences(field)
-                        tmp_report.report_query = {
-                            'data': str(MongoDBQueryBuilder(tmp_report.conditions, update_type_instance).build())
-                        }
+                removed_field_names.add(field)
 
-                        reports_manager.update_item(tmp_report.public_id, tmp_report.__dict__)
-                except Exception as error:
-                    LOGGER.debug(
-                        "[update_unstructured_cmdb_objects] Clean Reports Exception: %s, Type: %s", error, type(error)
+        # Reports belong to the Type, not individual objects: strip every removed field from each
+        # report once, rebuild its query, and apply all reports in a single bulk write
+        if removed_field_names:
+            try:
+                report_ops: list[UpdateOne] = []
+
+                for a_report in reports_for_type:
+                    tmp_report: CmdbReport = CmdbReport.from_data(a_report)
+
+                    for field in removed_field_names:
+                        tmp_report.remove_field_occurences(field)
+
+                    tmp_report.report_query = build_report_query(tmp_report.conditions, update_type_instance)
+                    report_ops.append(
+                        UpdateOne({'public_id': tmp_report.public_id}, {'$set': tmp_report.__dict__})
                     )
-                    abort(500, "An interlal server error occured while cleaning reports!")
+
+                if report_ops:
+                    reports_manager.bulk_write(report_ops)
+            except Exception as error:
+                LOGGER.debug(
+                    "[update_unstructured_cmdb_objects] Clean Reports Exception: %s, Type: %s", error, type(error)
+                )
+                abort(500, "An interlal server error occured while cleaning reports!")
 
         objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=public_id)
 
