@@ -189,6 +189,7 @@ export interface IpamSubnetOverviewParams {
     order?: number;
     status?: IpamStatusFilter;
     type?: number[];
+    search?: string;
 }
 
 export interface IpamSectorRange {

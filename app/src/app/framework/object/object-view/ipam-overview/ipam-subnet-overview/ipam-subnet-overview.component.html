@@ -8,6 +8,17 @@
     <div class="ipam-subnet__table-header">
       <h4 class="ipam-subnet__table-title">IP Address Overview</h4>
       <div class="ipam-subnet__table-actions">
+        <label class="ipam-subnet__search" for="ipamSubnetSearch">
+          <span class="ipam-subnet__search-visually-hidden">Search IP addresses</span>
+          <i class="fa fa-search ipam-subnet__search-icon" aria-hidden="true"></i>
+          <input
+            id="ipamSubnetSearch"
+            type="search"
+            class="ipam-subnet__search-input"
+            placeholder="Search IP addresses..."
+            autocomplete="off"
+            [formControl]="searchControl">
+        </label>
         <app-button
           label="Export"
           bootstrapClass="btn-secondary btn-sm"
@@ -208,6 +219,22 @@
               ariaLabel="Clear filter and show all IP addresses"
               title="Clear filter and show all IP addresses"
               (clicked)="onClearOverviewFilter()">
+            </app-button>
+          </div>
+        } @else if (isSearching) {
+          <div class="ipam-subnet__sector-banner" role="status" aria-live="polite">
+            <span class="ipam-subnet__sector-info">
+              <i class="fa fa-search" aria-hidden="true"></i>
+              Showing results for
+              <span class="ipam-subnet__sector-range">{{ searchTermLabel }}</span>
+            </span>
+            <app-button
+              label="Clear search"
+              bootstrapClass="btn-outline-secondary btn-sm"
+              icon="fa fa-times"
+              ariaLabel="Clear search and show all IP addresses"
+              title="Clear search and show all IP addresses"
+              (clicked)="onClearSearch()">
             </app-button>
           </div>
         }

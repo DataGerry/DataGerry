@@ -26,9 +26,11 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
+import { FormControl } from '@angular/forms';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { FileSaverService } from 'ngx-filesaver';
 import { Observable, Subject, catchError, finalize, of, switchMap, takeUntil, tap } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -54,6 +56,8 @@ import { IpamUnassignIpModalComponent } from '../components/ipam-unassign-ip-mod
 
 const DEFAULT_PAGE_SIZE = 10;
 const VLAN_CARD_VISIBLE_LIMIT = 2;
+const SEARCH_DEBOUNCE_MS = 300;
+const MIN_SEARCH_LENGTH = 2;
 
 type IpamIpsRequestKind = 'overview' | 'sector';
 
@@ -66,6 +70,7 @@ interface IpamIpsRequest {
     sectorStart: string | null;
     typeIds: number[];
     status: 'free' | null;
+    search: string;
 }
 
 @Component({
@@ -102,8 +107,10 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     public selectedSectorRange: IpamSectorRange | null = null;
     public selectedTypeIds: number[] = [];
     public selectedStatus: 'free' | null = null;
+    public readonly searchControl = new FormControl<string>('', { nonNullable: true });
     public readonly isLoading$ = this.loaderService.isLoading$;
 
+    private searchTerm = '';
     private readonly destroy$ = new Subject<void>();
     private readonly ipsRequest$ = new Subject<IpamIpsRequest>();
 
@@ -116,6 +123,14 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
                 takeUntil(this.destroy$)
             )
             .subscribe();
+
+        this.searchControl.valueChanges
+            .pipe(
+                debounceTime(SEARCH_DEBOUNCE_MS),
+                distinctUntilChanged(),
+                takeUntil(this.destroy$)
+            )
+            .subscribe(value => this.applySearch(value));
     }
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -125,6 +140,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             this.page = 1;
             this.clearSectorSelection();
             this.clearOverviewFilters();
+            this.clearSearch();
             this.dispatchIpsRequest();
         }
     }
@@ -164,6 +180,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public onSectorSelect(sectorStart: string): void {
         this.clearOverviewFilters();
+        this.clearSearch();
         this.selectedSectorStart = sectorStart;
         this.page = 1;
         this.dispatchIpsRequest();
@@ -187,6 +204,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         // Type and "free" filters are mutually exclusive — free IPs have no type.
         this.selectedStatus = null;
         this.clearSectorSelection();
+        this.clearSearch();
         this.page = 1;
         this.dispatchIpsRequest();
     }
@@ -195,6 +213,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         this.selectedStatus = this.selectedStatus === 'free' ? null : 'free';
         this.selectedTypeIds = [];
         this.clearSectorSelection();
+        this.clearSearch();
         this.page = 1;
         this.dispatchIpsRequest();
     }
@@ -204,6 +223,15 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             return;
         }
         this.clearOverviewFilters();
+        this.page = 1;
+        this.dispatchIpsRequest();
+    }
+
+    public onClearSearch(): void {
+        if (!this.searchTerm) {
+            return;
+        }
+        this.clearSearch();
         this.page = 1;
         this.dispatchIpsRequest();
     }
@@ -268,6 +296,14 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
     public get hasOverviewFilter(): boolean {
         return this.selectedTypeIds.length > 0 || this.selectedStatus !== null;
+    }
+
+    public get isSearching(): boolean {
+        return this.searchTerm.length > 0;
+    }
+
+    public get searchTermLabel(): string {
+        return this.searchTerm;
     }
 
     public get selectedTypeFilterLabel(): string {
@@ -367,6 +403,26 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         return `subnet-overview-${cidr || this.publicId}.csv`;
     }
 
+    private applySearch(value: string): void {
+        const trimmed = (value ?? '').trim();
+
+        // Ignore single-character terms; require a meaningful query before hitting the API.
+        if (trimmed.length > 0 && trimmed.length < MIN_SEARCH_LENGTH) {
+            return;
+        }
+
+        if (trimmed === this.searchTerm) {
+            return;
+        }
+
+        this.searchTerm = trimmed;
+        // Search runs against the whole subnet, so drop any narrowing filters first.
+        this.clearSectorSelection();
+        this.clearOverviewFilters();
+        this.page = 1;
+        this.dispatchIpsRequest();
+    }
+
     private clearSectorSelection(): void {
         this.selectedSectorStart = null;
         this.selectedSectorRange = null;
@@ -375,6 +431,11 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     private clearOverviewFilters(): void {
         this.selectedTypeIds = [];
         this.selectedStatus = null;
+    }
+
+    private clearSearch(): void {
+        this.searchTerm = '';
+        this.searchControl.setValue('', { emitEvent: false });
     }
 
     private computeShare(part: number | null | undefined): number | null {
@@ -402,7 +463,8 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             sort: this.sort,
             sectorStart: this.selectedSectorStart,
             typeIds: this.selectedTypeIds,
-            status: this.selectedStatus
+            status: this.selectedStatus,
+            search: this.searchTerm
         });
     }
 
@@ -429,8 +491,11 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
         if (request.typeIds.length) {
             params.type = request.typeIds;
         }
+        if (request.search) {
+            params.search = request.search;
+        }
 
-        const isFiltered = request.typeIds.length > 0 || request.status !== null;
+        const isFiltered = request.typeIds.length > 0 || request.status !== null || !!request.search;
 
         return this.ipamOverviewService.getSubnetOverview(request.publicId, params).pipe(
             tap((response: IpamSubnetOverviewResponse) => this.applyOverviewResponse(response, isFiltered)),
