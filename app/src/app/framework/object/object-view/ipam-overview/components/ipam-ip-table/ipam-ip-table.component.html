@@ -60,7 +60,16 @@
 
 <ng-template #assignedToTemplate let-item="item">
   @if (item?.assigned_to?.summary_line) {
-    <span>{{ item.assigned_to.summary_line }}</span>
+    @if (item.assigned_to.public_id != null) {
+      <a
+        class="ipam-assigned-link"
+        [routerLink]="['/', 'framework', 'object', 'view', item.assigned_to.public_id]"
+        [title]="'View ' + item.assigned_to.summary_line">
+        {{ item.assigned_to.summary_line }}
+      </a>
+    } @else {
+      <span>{{ item.assigned_to.summary_line }}</span>
+    }
   } @else {
     <span class="ipam-muted" aria-hidden="true">&ndash;</span>
   }

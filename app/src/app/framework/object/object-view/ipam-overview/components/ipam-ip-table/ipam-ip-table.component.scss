@@ -65,6 +65,22 @@
     color: #9ca3af;
 }
 
+.ipam-assigned-link {
+    color: #2563eb;
+    text-decoration: none;
+    cursor: pointer;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+        border-radius: 0.125rem;
+    }
+}
+
 .ipam-bulk-unassign {
     display: inline-flex;
     align-items: center;
