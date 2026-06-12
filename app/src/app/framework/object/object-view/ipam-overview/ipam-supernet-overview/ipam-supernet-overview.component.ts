@@ -35,6 +35,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
@@ -68,6 +69,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly modalService = inject(NgbModal);
+    private readonly fullscreenModalService = inject(FullscreenModalService);
     private readonly fileSaverService = inject(FileSaverService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
@@ -158,7 +160,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         }
 
         const count = subnetIds.length;
-        const modalRef = this.modalService.open(CoreConfirmationModalComponent, { size: 'lg' });
+        const modalRef = this.fullscreenModalService.open(this.modalService, CoreConfirmationModalComponent, { size: 'lg' });
         modalRef.componentInstance.title = 'Unassign Subnets';
         modalRef.componentInstance.message = count === 1
             ? 'Do you want to unassign the selected subnet from this supernet?'

@@ -178,13 +178,19 @@ export interface IpamSubnetOverviewResponse {
     type_distribution?: IpamTypeDistributionEntry[];
     ip_distribution?: IpamIpDistribution | null;
     vlans?: IpamVlanInfo[];
+    invalid_count?: number;
 }
+
+export type IpamStatusFilter = 'assigned' | 'free';
 
 export interface IpamSubnetOverviewParams {
     page?: number;
     page_size?: number;
     sort?: string;
     order?: number;
+    status?: IpamStatusFilter;
+    type?: number[];
+    search?: string;
 }
 
 export interface IpamSectorRange {
@@ -208,4 +214,27 @@ export interface IpamUnassignIpsResponse {
     ips: string[];
     mode: IpamUnassignMode;
     unassigned_count: number;
+}
+
+
+/* ----------------------------------------------- ASSIGNABLE OBJECTS ----------------------------------------------- */
+
+export interface IpamAssignableObject {
+    public_id: number;
+    type_info: IpamTypeInfo;
+    summary_line: string;
+}
+
+export interface IpamAssignableObjectsParams {
+    page?: number;
+    page_size?: number;
+    search?: string;
+}
+
+export interface IpamAssignableObjectsResponse {
+    page: number;
+    page_size: number;
+    total: number;
+    search: string;
+    rows: IpamAssignableObject[];
 }

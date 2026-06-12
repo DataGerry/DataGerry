@@ -31,6 +31,7 @@ const FREE_TYPE_LABEL = 'free';
 const MIN_SECTOR_ALPHA = 0.2;
 
 interface IpamDistributionLegendItem {
+    id: number | null;
     label: string;
     color: string;
 }
@@ -63,17 +64,39 @@ export class IpamIpDistributionComponent {
     public readonly loading = input(false);
     public readonly title = input('IP Distribution');
     public readonly activeSectorStart = input<string | null>(null);
+    public readonly activeTypeIds = input<number[]>([]);
+    public readonly freeActive = input(false);
 
     public readonly sectorSelect = output<string>();
+    public readonly typeToggle = output<number>();
+    public readonly freeToggle = output<void>();
 
     public readonly rangeViews = computed<IpamDistributionRangeView[]>(() => this.buildRangeViews());
     public readonly hasDistribution = computed(() => this.rangeViews().length > 0);
     public readonly legendItems = computed<IpamDistributionLegendItem[]>(() => this.buildLegend());
+    public readonly activeTypeSet = computed(() => new Set(this.activeTypeIds()));
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onSectorSelect(sector: IpamDistributionSectorView): void {
         this.sectorSelect.emit(sector.key);
+    }
+
+    public onTypeToggle(item: IpamDistributionLegendItem): void {
+        if (item.id == null) {
+            return;
+        }
+        this.typeToggle.emit(item.id);
+    }
+
+    public onFreeToggle(): void {
+        this.freeToggle.emit();
+    }
+
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public isTypeActive(id: number | null): boolean {
+        return id != null && this.activeTypeSet().has(id);
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
@@ -305,6 +328,7 @@ export class IpamIpDistributionComponent {
             seen.add(key);
 
             items.push({
+                id: entry.public_id,
                 label,
                 color: entry.ci_explorer_color || UNKNOWN_TYPE_COLOR
             });

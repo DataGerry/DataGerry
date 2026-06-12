@@ -65,6 +65,7 @@ export class IpamSupernetSubnetTableComponent implements OnInit, OnChanges, OnDe
     @Input() public sort: Sort = { name: 'cidr', order: SortDirection.ASCENDING };
     @Input() public searchMode = false;
     @Input() public invalidMode = false;
+    @Input() public isFullscreen = false;
     @Input() public loading = false;
 
     @Output() public readonly pageChange = new EventEmitter<number>();

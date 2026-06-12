@@ -56,6 +56,9 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     public modalSection: any = {};
     private modalRef: NgbModalRef;
 
+    // Default field values from the type definition, used to repopulate the add-row modal
+    private modalFieldDefaults: { [fieldName: string]: any } = {};
+
     // Summary lines of the current referenced objects (For view mode)
     public currentObjectSummaryLines: any;
 
@@ -371,6 +374,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
             for(let aField of this.fields) {
                 if (aField.name == aSectionFieldName) {
                     this.modalSection['fields'].push(aField);
+                    this.modalFieldDefaults[aField.name] = aField.value;
                     continue;
                 }
             }
@@ -544,8 +548,14 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      */
     resetModalValues(): void {
         for (let aField of this.modalSection.fields) {
-            if("value" in aField){
-                delete aField["value"];
+            const defaultValue = this.modalFieldDefaults[aField.name];
+
+            if (defaultValue === undefined || defaultValue === null || defaultValue === '') {
+                if ("value" in aField) {
+                    delete aField["value"];
+                }
+            } else {
+                aField["value"] = defaultValue;
             }
         }
     }
