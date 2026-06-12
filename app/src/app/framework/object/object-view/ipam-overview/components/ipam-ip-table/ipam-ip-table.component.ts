@@ -53,6 +53,7 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
     @Output() public readonly pageSizeChange = new EventEmitter<number>();
     @Output() public readonly sortChange = new EventEmitter<Sort>();
     @Output() public readonly unassign = new EventEmitter<string[]>();
+    @Output() public readonly assign = new EventEmitter<IpamIpEntry>();
 
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('typeTemplate', { static: true }) public typeTemplate: TemplateRef<unknown>;
@@ -104,6 +105,13 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
         this.unassign.emit([item.ip]);
     }
 
+    public onAssignRow(item: IpamIpEntry): void {
+        if (!this.canAssign(item)) {
+            return;
+        }
+        this.assign.emit(item);
+    }
+
     public onUnassignSelected(): void {
         const ips = this.selectedUnassignableIps;
         if (!ips.length) {
@@ -130,6 +138,10 @@ export class IpamIpTableComponent implements OnInit, OnChanges {
 
     public canUnassign(item: IpamIpEntry): boolean {
         return !!item?.assigned_to;
+    }
+
+    public canAssign(item: IpamIpEntry): boolean {
+        return item?.status === 'free';
     }
 
     public trackByIp(_index: number, item: IpamIpEntry): string {

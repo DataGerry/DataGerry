@@ -215,3 +215,26 @@ export interface IpamUnassignIpsResponse {
     mode: IpamUnassignMode;
     unassigned_count: number;
 }
+
+
+/* ----------------------------------------------- ASSIGNABLE OBJECTS ----------------------------------------------- */
+
+export interface IpamAssignableObject {
+    public_id: number;
+    type_info: IpamTypeInfo;
+    summary_line: string;
+}
+
+export interface IpamAssignableObjectsParams {
+    page?: number;
+    page_size?: number;
+    search?: string;
+}
+
+export interface IpamAssignableObjectsResponse {
+    page: number;
+    page_size: number;
+    total: number;
+    search: string;
+    rows: IpamAssignableObject[];
+}

@@ -22,6 +22,8 @@ import { map } from 'rxjs/operators';
 
 import { ApiCallService, resp } from '../../../../../services/api-call.service';
 import {
+    IpamAssignableObjectsParams,
+    IpamAssignableObjectsResponse,
     IpamSubnetOverviewParams,
     IpamSubnetOverviewResponse,
     IpamSubnetSectorParams,
@@ -223,6 +225,33 @@ export class IpamOverviewService {
                 options
             )
             .pipe(map(response => response?.body as IpamUnassignIpsResponse));
+    }
+
+
+    public getAssignableObjects(
+        params: IpamAssignableObjectsParams = {}
+    ): Observable<IpamAssignableObjectsResponse> {
+        let httpParams = new HttpParams();
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+        if (params.search) {
+            httpParams = httpParams.set('search', params.search);
+        }
+
+        const options = {
+            headers: this.jsonHeaders,
+            params: httpParams,
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamAssignableObjectsResponse>(`${this.servicePrefix}/assignable-objects/`, options)
+            .pipe(map(response => response?.body as IpamAssignableObjectsResponse));
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

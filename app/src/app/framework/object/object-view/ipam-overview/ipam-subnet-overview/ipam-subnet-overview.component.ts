@@ -52,6 +52,7 @@ import {
 } from '../models/ipam-overview.types';
 import { IpamOverviewService } from '../services/ipam-overview.service';
 import { IpamUnassignIpModalComponent } from '../components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
+import { IpamAssignIpModalComponent } from '../components/ipam-assign-ip-modal/ipam-assign-ip-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -278,6 +279,30 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
         modalRef.result.then(
             (mode: IpamUnassignMode) => this.unassignIps(ips, mode),
+            () => {}
+        );
+    }
+
+    public onAssign(item: IpamIpEntry): void {
+        if (this.publicId == null || !item?.ip) {
+            return;
+        }
+
+        const modalRef = this.fullscreenModalService.open(this.modalService, IpamAssignIpModalComponent, {
+            size: 'xl',
+            scrollable: true
+        });
+        modalRef.componentInstance.subnetId = this.publicId;
+        modalRef.componentInstance.subnetCidr = this.subnet?.cidr ?? '';
+        modalRef.componentInstance.ip = item.ip;
+
+        modalRef.result.then(
+            (assigned: boolean) => {
+                if (assigned) {
+                    this.toastService.success('IP address assigned successfully.');
+                    this.dispatchIpsRequest();
+                }
+            },
             () => {}
         );
     }
