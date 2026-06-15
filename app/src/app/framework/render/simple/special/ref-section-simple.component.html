@@ -1,16 +1,31 @@
-<span *ngIf="data && data.value; else noRef">
+@if (data && data.value) {
+<span>
   <i class="{{data?.references?.type_icon}}"></i> #{{data.value}}: {{data.references?.type_label}}
 
-  <span *ngFor="let field of data?.references?.fields; let last = last; let first = first">
-    <ng-template [ngIf]="field.type != 'date'" [ngIfElse]="templateDate">
-      <span *ngIf="first"> - </span>{{field.label}}: <i>{{field.value ? field.value : 'None'}}</i>
-    </ng-template>
-    <ng-template #templateDate>
-      <span *ngIf="first"> - </span>{{field.label}}: <i>{{(field.value !== 'None') ? (field.value | dateFormatter) : ''}}</i>
-    </ng-template>
-    <span *ngIf="!last"> | </span>
+  @for (field of data?.references?.fields; track field; let last = $last; let first = $first) {
+  <span>
+    @if (field.type != 'date') {
+
+    @if (first) {
+    <span> - </span>
+    }{{field.label}}: <i>{{field.value ? field.value : 'None'}}</i>
+
+    } @else {
+
+    @if (first) {
+    <span> - </span>
+    }{{field.label}}: <i>{{(field.value !== 'None') ? (field.value | dateFormatter) : ''}}</i>
+
+    }
+
+    @if (!last) {
+    <span> | </span>
+    }
   </span>
+  }
 </span>
-<ng-template #noRef>
-  <span>No reference set</span>
-</ng-template>
+} @else {
+
+<span>No reference set</span>
+
+}
