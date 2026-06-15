@@ -1,3 +1,5 @@
-<div class="display-4" *ngIf="typeInformation?.icon">
+@if (typeInformation?.icon) {
+<div class="display-4">
   <cmdb-type-label [faIcon]="typeInformation?.icon"></cmdb-type-label>
 </div>
+}

@@ -1,4 +1,5 @@
-<div class="d-flex justify-content-between" *ngIf="publicID">
+@if (publicID) {
+<div class="d-flex justify-content-between">
     <a *permissionLink="'base.framework.object.view';requirements:'READ';acl:acl" 
         [routerLink]="['/', 'framework', 'object', 'view', publicID]"
         title="View object">
@@ -6,7 +7,8 @@
         <i class="far fa-eye spacing-right icon-view"></i>
 
     </a>
-    <ng-container *ngIf="result.type_information?.active">
+    @if (result.type_information?.active) {
+
         <a *permissionLink="'base.framework.object.edit';requirements:'UPDATE';acl:acl" 
             [routerLink]="['/', 'framework', 'object', 'edit', publicID]"
             title="Edit object">
@@ -21,7 +23,8 @@
             <i class="far fa-clone spacing-right icon-copy"></i>
 
         </a>
-    </ng-container>
+    
+}
     <a *permissionLink="'base.framework.object.view';requirements:'READ';acl:acl" 
         class="pointer" 
         (click)="openPreviewModal()"
@@ -30,7 +33,8 @@
         <i class="far fa-file-powerpoint spacing-right icon-preview "></i>
 
     </a>
-    <ng-container *ngIf="result.type_information?.active">
+    @if (result.type_information?.active) {
+
         <a *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl" 
         class="pointer" 
         (click)="handleDelete(publicID)"
@@ -39,5 +43,7 @@
             <i class="far fa-trash-alt spacing-right icon-delete"></i>
 
         </a>
-    </ng-container>
+    
+}
 </div>
+}

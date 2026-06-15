@@ -1,6 +1,7 @@
 
 
-<div class="text-center align-items-center" *ngIf="done && failedChanges?.length === 0; else exceptions">
+@if (done && failedChanges?.length === 0) {
+<div class="text-center align-items-center">
   <div class="card-body">
     <h1 class="display-1 text-success"><fa-icon icon="check-circle"></fa-icon></h1>
   </div>
@@ -9,14 +10,17 @@
     <ng-container *ngTemplateOutlet="changesState"></ng-container>
   </div>
 </div>
+} @else {
 
-<ng-template #exceptions>
   <div class="card-body">
     <ng-container *ngTemplateOutlet="changesState"></ng-container>
     <h3>Failed Changes <fa-icon class="text-danger" icon="exclamation-triangle"></fa-icon></h3>
     <cmdb-object-bulk-change-failed [failedChanges]="failedChanges" ></cmdb-object-bulk-change-failed>
   </div>
-</ng-template>
+
+}
+
+
 
 <ng-template #changesState>
     <h6 class="card-subtitle mb-2">
