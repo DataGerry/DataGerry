@@ -6,13 +6,15 @@
         [disabled]="initialSection.fields.length == 0 || !(isValid$ | async)">Save</button>
 </div>
 
-<div *ngIf="sectionTemplateID > 0 && initialSection.is_global">
+@if (sectionTemplateID > 0 && initialSection.is_global) {
+<div>
     <p id="global-edit-message">
         <i class="fas fa-lightbulb"></i>
         Saving changes to a global template will affect all corresponding types and objects. This action can not be
         undone!
     </p>
 </div>
+}
 
 <div class="row">
     <div id="builder-controls" class="col-3">
@@ -27,7 +29,8 @@
                     <div id="basicControls" class="collapse show" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group">
-                                <div *ngFor="let control of basicControls" [dndType]="control.typeController.dndType"
+                                @for (control of basicControls; track control) {
+                                <div [dndType]="control.typeController.dndType"
                                     [dndDraggable]="control.typeController.content()"
                                     class="list-group-item list-group-item-action">
                                     <div class="d-flex justify-content-between align-items-center">
@@ -40,6 +43,7 @@
                                         </button>
                                     </div>
                                 </div>
+                                }
                             </div>
                         </div>
                     </div> <!-- basicControls-->
@@ -53,7 +57,8 @@
                     <div id="specialControls" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group">
-                                <div *ngFor="let control of specialControls" [dndType]="control.typeController.dndType"
+                                @for (control of specialControls; track control) {
+                                <div [dndType]="control.typeController.dndType"
                                     [dndDraggable]="control.typeController.content()"
                                     class="list-group-item list-group-item-action">
                                     <div class="d-flex justify-content-between align-items-center">
@@ -66,6 +71,7 @@
                                         </button>
                                     </div>
                                 </div>
+                                }
                             </div>
                         </div>
                     </div>
@@ -85,40 +91,36 @@
                     <div class="card-body">
                         <cmdb-section-field-edit [data]="initialSection" [mode]="MODES.Edit"
                             #sectionComponent></cmdb-section-field-edit>
-                        <form [formGroup]="formGroup" class="section-template-options" *ngIf="sectionTemplateID <= 0">
+                        @if (sectionTemplateID <= 0) { <form [formGroup]="formGroup" class="section-template-options">
                             <div class="section-template-option">
-                                <app-toggle
-                                    class="section-template-option-control"
-                                    [id]="'is-multi-data-section-label'"
-                                    [formControlName]="'isMultiDataSection'"
-                                    [ariaLabel]="'Multi Data Section'"
-                                />
+                                <app-toggle class="section-template-option-control" [id]="'is-multi-data-section-label'"
+                                    [formControlName]="'isMultiDataSection'" [ariaLabel]="'Multi Data Section'" />
                                 <span class="section-template-option-label">
                                     Multi Data Section
                                 </span>
                             </div>
                             <div class="section-template-option is-global">
-                                <app-toggle
-                                    class="section-template-option-control"
-                                    [id]="'is-global-label'"
-                                    [formControlName]="'isGlobal'"
-                                    [ariaLabel]="'Global Template'"
-                                />
+                                <app-toggle class="section-template-option-control" [id]="'is-global-label'"
+                                    [formControlName]="'isGlobal'" [ariaLabel]="'Global Template'" />
                                 <span class="section-template-option-label">
                                     Global Template
                                 </span>
                             </div>
-                        </form>
-                        <hr>
-                        <p>Fields:</p>
-                        <div [dndDropzone]="['inputs']" (dndDrop)="onFieldDrop($event)">
-                            <div *ngIf="initialSection.fields.length == 0" class="empty-section"
-                                data-content="Drop controls here">
-                            </div>
-                            <div style="border: 3px green solid; border-radius: 5px; padding: 15px;" dndPlaceholderRef>
-                                Drop field here
-                            </div>
-                            <ng-container *ngFor="let field of initialSection.fields; let y = index">
+                            </form>
+                            }
+                            <hr>
+                            <p>Fields:</p>
+                            <div [dndDropzone]="['inputs']" (dndDrop)="onFieldDrop($event)">
+                                @if (initialSection.fields.length == 0) {
+                                <div class="empty-section" data-content="Drop controls here">
+                                </div>
+                                }
+                                <div style="border: 3px green solid; border-radius: 5px; padding: 15px;"
+                                    dndPlaceholderRef>
+                                    Drop field here
+                                </div>
+                                @for (field of initialSection.fields; track field; let y = $index) {
+
                                 <div dndEffectAllowed="move" dndType="inputs" [dndDraggable]="field"
                                     (dndMoved)="onFieldDragged(field)">
                                     <div class="fields card">
@@ -148,8 +150,9 @@
                                         </div>
                                     </div><!-- fields-card-->
                                 </div>
-                            </ng-container><!-- inner container-->
-                        </div><!-- onFieldDrop-->
+
+                                }<!-- inner container-->
+                            </div><!-- onFieldDrop-->
                     </div><!-- card-body-->
                 </div><!-- id-section-->
             </div><!-- card-->
