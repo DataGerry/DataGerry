@@ -428,6 +428,47 @@ $sb-speed : 200ms;
     }
   }
 
+  /* ── Indent nested sub-categories so tree depth is visible ── */
+  .collapse-element > cmdb-sidebar-category {
+    display: block !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    padding-left: 22px !important;
+
+    /* Corner connector from the trunk to this sub-category's row */
+    &::before {
+      content: '';
+      position: absolute;
+      top: -4px;
+      left: 22px;
+      width: 12px;
+      height: 24px;
+      border-left: 1.5px solid #d1d5db;
+      border-bottom: 1.5px solid #d1d5db;
+      border-bottom-left-radius: 6px;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Vertical trunk continuing down to the next sibling (runs to the left
+       of this sub-category's own children when it is expanded) */
+    &::after {
+      content: '';
+      position: absolute;
+      top: 20px;
+      bottom: -4px;
+      left: 22px;
+      border-left: 1.5px solid #d1d5db;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Last element under the parent has nothing below it to connect to */
+    &:last-child::after {
+      display: none;
+    }
+  }
+
   /* ── STRICT Active State ── */
   cmdb-sidebar-type {
 
