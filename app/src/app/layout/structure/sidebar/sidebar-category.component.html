@@ -1,34 +1,40 @@
-<ng-container *ngIf="categoryNode">
-  <a role="button"
-     class="list-group-item collapsed"
-     [attr.data-bs-toggle]="'collapse'"
-     [attr.data-bs-target]="'#' + categoryNode.category.name"
-     [attr.aria-expanded]="isCollapsed"
-     (click)="isCollapsed = !isCollapsed">
-    <span class="shorten-long-text"
-          data-bs-toggle="tooltip"
-          [attr.title]="categoryNode.category.label">
-      <i [ngClass]="categoryNode.category.meta.icon || 'far fa-folder-open'"></i>
-      {{ categoryNode.category.label }}
-    </span>
-  </a>
-  <ul class="collapse collapse-element" id="{{categoryNode.category.name}}">
-    <ng-template [ngIf]="categoryNode.children">
-      <cmdb-sidebar-category *ngFor="let categoryChild of categoryNode.children;"
-                             [categoryNode]="categoryChild"></cmdb-sidebar-category>
-    </ng-template>
-    <ng-template [ngIf]="isCollapsed">
-      <ng-container *ngFor="let type of categoryNode.types;">
-        <cmdb-sidebar-type *permissionLink="'base.framework.object.view'; acl:type.acl;requirements:'READ'"
-                           [type]="type"></cmdb-sidebar-type>
-      </ng-container>
-    </ng-template>
-    <li class="list-group" *ngIf="categoryNode.types.length == 0 && categoryNode.children.length == 0">
-      <a class="list-group-item d-flex justify-content-between align-items-center disabled">
+@if (categoryNode) {
+
+<a role="button" class="list-group-item collapsed" [attr.data-bs-toggle]="'collapse'"
+  [attr.data-bs-target]="'#' + categoryNode.category.name" [attr.aria-expanded]="isCollapsed"
+  (click)="isCollapsed = !isCollapsed">
+  <span class="shorten-long-text" data-bs-toggle="tooltip" [attr.title]="categoryNode.category.label">
+    <i [ngClass]="categoryNode.category.meta.icon || 'far fa-folder-open'"></i>
+    {{ categoryNode.category.label }}
+  </span>
+</a>
+<ul class="collapse collapse-element" id="{{categoryNode.category.name}}">
+  @if (categoryNode.children) {
+
+  @for (categoryChild of categoryNode.children; track categoryChild) {
+  <cmdb-sidebar-category [categoryNode]="categoryChild"></cmdb-sidebar-category>
+  }
+
+  }
+  @if (isCollapsed) {
+
+  @for (type of categoryNode.types; track type) {
+
+  <cmdb-sidebar-type *permissionLink="'base.framework.object.view'; acl:type.acl;requirements:'READ'"
+    [type]="type"></cmdb-sidebar-type>
+
+  }
+
+  }
+  @if (categoryNode.types.length == 0 && categoryNode.children.length == 0) {
+  <li class="list-group">
+    <a class="list-group-item d-flex justify-content-between align-items-center disabled">
       <span class="shorten-long-text">
         <i class="fas fa-times"></i> No types assigned
       </span>
-      </a>
-    </li>
-  </ul>
-</ng-container>
+    </a>
+  </li>
+  }
+</ul>
+
+}
