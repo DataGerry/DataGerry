@@ -63,14 +63,20 @@ import { ObjectRelationService } from '../../services/object-relation.service';
                 <small id="typeNameInputHelp" class="form-text text-muted">
                     Type in the name of the relation to confirm the deletion.
                 </small>
-                <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="text-end" *ngIf="name.errors.required">
+                @if (name.invalid && (name.dirty || name.touched)) {
+                        <div class="invalid-feedback">
+                    @if (name.errors.required) {
+                        <div class="text-end">
                         Name is required
                     </div>
-                    <div class="text-end" *ngIf="name.errors.notequal">
+}
+                    @if (name.errors.notequal) {
+                        <div class="text-end">
                         Your answer is not equal!
                     </div>
+                }
                 </div>
+            }
                 <div class="clearfix"></div>
             </div>
         </form>
@@ -175,7 +181,7 @@ export class RelationDeleteComponent implements OnInit {
                 this.relationObjectsCounter = Number(response?.count);
             },
             error: (error) => {
-               this.toast.error(error?.error?.message)
+                this.toast.error(error?.error?.message)
             }
         })
     }

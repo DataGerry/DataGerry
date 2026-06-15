@@ -1,5 +1,6 @@
 
-<div *ngIf="mode === CmdbMode.Edit && initialFieldsPresent" class="structural-warning-alert">
+@if (mode === CmdbMode.Edit && initialFieldsPresent) {
+<div class="structural-warning-alert">
     <div class="alert-content">
       <i class="fas fa-exclamation-circle warning-icon"></i>
       <div class="warning-text">
@@ -8,6 +9,7 @@
       </div>
     </div>
   </div>
+}
 <cmdb-builder 
     [relationInstance]="relationInstance"
     [mode]="mode"
