@@ -61,6 +61,9 @@ from cmdb.manager import (
     RiskAssessmentManager,
     ControlMeasureAssignmentManager,
     CachedUserManager,
+    LicenseActivationRequestsManager,
+    ActiveLicenseManager,
+    LicenseService,
 )
 
 from cmdb.models.user_model import CmdbUser
@@ -150,6 +153,9 @@ class ManagerProvider:
             ManagerType.RISK_ASSESSMENT: RiskAssessmentManager,
             ManagerType.CONTROL_MEASURE_ASSIGNMENT: ControlMeasureAssignmentManager,
             ManagerType.CACHED_USER: CachedUserManager,
+            ManagerType.LICENSE_ACTIVATION_REQUESTS: LicenseActivationRequestsManager,
+            ManagerType.ACTIVE_LICENSE: ActiveLicenseManager,
+            ManagerType.LICENSE_SERVICE: LicenseService,
         }
 
         return manager_classes.get(manager_type)

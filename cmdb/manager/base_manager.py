@@ -83,20 +83,22 @@ class BaseManager:
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert(self, data: dict[str, Any], skip_public: bool = False) -> int:
+    def insert(self, data: dict[str, Any], skip_public: bool = False) -> int | None:
         """
         Inserts a single document into the manager's collection
 
         Args:
             data (dict[str, Any]): The document to insert
-            skip_public (bool): If True, skip public_id generation and the counter increment
-                (the document must already carry a public_id). Defaults to False
+            skip_public (bool): If True, skip public_id generation and the counter increment; the
+                document is inserted as-is and may carry no public_id (e.g. a collection keyed by a
+                string id). Defaults to False
 
         Raises:
             BaseManagerInsertError: When the insertion failed
 
         Returns:
-            int: The public_id of the inserted document
+            int | None: The public_id of the inserted document, or None when skip_public is set and
+                the document carries no public_id
         """
         try:
             return self.dbm.insert(self.collection, self.db_name, data, skip_public)
@@ -559,6 +561,39 @@ class BaseManager:
             target_collection = collection if collection else self.collection
 
             return self.dbm.upsert_set(target_collection, self.db_name, data)
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(str(err)) from err
+
+
+    def upsert(
+        self,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+        collection: str | None = None,
+    ) -> UpdateResult:
+        """
+        Inserts or updates a single document matched by arbitrary criteria
+
+        Sets the matched document's fields from `data`; if nothing matches, inserts a new document
+        carrying both the criteria keys and `data`. Unlike `upsert_set` the match is not tied to
+        `public_id`, so this supports `_id`-keyed singletons
+
+        Args:
+            criteria (dict[str, Any]): The filter selecting the document to upsert
+            data (dict[str, Any]): The fields to set on the matched (or newly inserted) document
+            collection (str | None): Collection to upsert into; defaults to this manager's
+                collection when None
+
+        Raises:
+            BaseManagerUpdateError: If an error occurs during the upsert operation
+
+        Returns:
+            UpdateResult: The outcome of the upsert (matched / modified / upserted info)
+        """
+        try:
+            target_collection = collection if collection else self.collection
+
+            return self.dbm.upsert(target_collection, self.db_name, criteria, data)
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(str(err)) from err
 
