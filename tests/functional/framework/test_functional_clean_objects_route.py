@@ -188,3 +188,45 @@ class TestCleanObjectsReportCleanup:
         assert STALE_FIELD_A not in field_names
         assert STALE_FIELD_B not in field_names
         assert KEEP_FIELD in field_names
+
+
+# Fields newly declared by the type that the seeded object is missing; clean must add them
+NEW_FIELD_WITH_DEFAULT: str = 'new-field-default'
+NEW_FIELD_NO_DEFAULT: str = 'new-field-none'
+NEW_FIELD_DEFAULT_VALUE: str = 'preset'
+
+
+class TestCleanObjectsAddsMissingFields:
+    """PUT /objects/clean/<type_id> also adds fields the type now declares but the object lacks."""
+
+    def test_clean_adds_missing_type_fields_with_default_or_none(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Newly declared type fields are added to the object: with the type default, else None."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        # Extend the type with two new fields: one carrying a default value, one without
+        types.update_one(
+            {'public_id': CLEAN_TYPE_ID},
+            {'$push': {'fields': {'$each': [
+                {'type': 'text', 'name': NEW_FIELD_WITH_DEFAULT, 'label': 'New', 'value': NEW_FIELD_DEFAULT_VALUE},
+                {'type': 'text', 'name': NEW_FIELD_NO_DEFAULT, 'label': 'New None'},
+            ]}}},
+        )
+
+        response = rest_api.put(f'{CLEAN_ROUTE_URL}/{CLEAN_TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        object_after = objects.find_one({'public_id': CLEAN_OBJECT_ID})
+        fields_by_name = {field['name']: field for field in object_after['fields']}
+
+        # Both new fields were added as full name+type+value triples
+        assert fields_by_name[NEW_FIELD_WITH_DEFAULT]['value'] == NEW_FIELD_DEFAULT_VALUE
+        assert fields_by_name[NEW_FIELD_WITH_DEFAULT]['type'] == 'text'
+        assert fields_by_name[NEW_FIELD_NO_DEFAULT]['value'] is None
+        assert fields_by_name[NEW_FIELD_NO_DEFAULT]['type'] == 'text'
+
+        # The stale fields are still removed and the declared field is retained in the same run
+        assert STALE_FIELD_A not in fields_by_name
+        assert KEEP_FIELD in fields_by_name

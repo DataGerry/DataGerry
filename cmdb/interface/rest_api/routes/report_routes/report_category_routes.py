@@ -60,7 +60,7 @@ def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) 
     HTTP `POST` route to insert a CmdbReportCategory into the database
 
     Args:
-        data (CmdbReportCategory.SCHEMA): Data of the CmdbReportCategory which should be inserted
+        params (dict[str, Any]): Data of the CmdbReportCategory which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -93,7 +93,7 @@ def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) 
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route to retrieve a single CmdbReportCategory
+    HTTP `GET` route to retrieve a single CmdbReportCategory
 
     Args:
         public_id (int): public_id of the CmdbReportCategory
@@ -175,7 +175,7 @@ def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_
 
     Args:
         public_id (int): public_id of the CmdbReportCategory which should be updated
-        data (CmdbReportCategory.SCHEMA): New CmdbReportCategory data
+        params (dict[str, Any]): New CmdbReportCategory data
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -185,17 +185,21 @@ def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_
         report_categories_manager: ReportCategoriesManager = ManagerProvider.get_manager(
                                                                             ManagerType.REPORT_CATEGORIES,
                                                                             request_user)
-        params['public_id'] = int(params['public_id'])
-        params['predefined'] = params['predefined'] in ["True", "true"]
 
         current_category = report_categories_manager.get_item(public_id)
 
-        if current_category:
-            report_categories_manager.update_item(public_id, params)
+        if not current_category:
+            abort(404, f"The ReportCategory with ID:{public_id} was not found!")
 
-            return UpdateSingleResponse(params).make_response()
+        # Pin the identity to the URL id (never trust a body public_id, which would rewrite the
+        # document's identity) and keep 'predefined' immutable via update - it is set by the
+        # system (create forces it False), not by the client
+        params['public_id'] = public_id
+        params['predefined'] = current_category.predefined
 
-        abort(404, f"The ReportCategory with ID:{public_id} was not found!")
+        report_categories_manager.update_item(public_id, params)
+
+        return UpdateSingleResponse(params).make_response()
     except HTTPException as http_err:
         raise http_err
     except ReportCategoriesManagerGetError as err:
@@ -235,21 +239,23 @@ def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Respo
         if to_delete_report_category.predefined:
             abort(405, "Deletion of a predefined ReportCategory is not allowed!")
 
-        # It is not possbile to delete a category if a report is using it
-        reports_wtih_category = report_categories_manager.get_many_from_other_collection(CmdbReport.COLLECTION,
-                                                                                        report_category_id=public_id)
+        # It is not possible to delete a category if a report is using it
+        reports_with_category = report_categories_manager.get_many_from_other_collection(CmdbReport.COLLECTION,
+                                                                                         report_category_id=public_id)
 
-        if len(reports_wtih_category) > 0:
+        if len(reports_with_category) > 0:
             abort(403, f"ReportCategory with ID: {public_id} can not be deleted because it is used by Reports!")
 
         ack = report_categories_manager.delete_item(public_id)
 
         return DefaultResponse(ack).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ReportCategoriesManagerGetError as err:
         LOGGER.error("[delete_cmdb_report_category] ReportCategoriesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ReportCategory with ID: {public_id} from the database!")
     except ReportCategoriesManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_report_category] ReportCategoriesManagerUpdateError: %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_report_category] ReportCategoriesManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the ReportCategory with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_report_category] Exception: %s. Type: %s", err, type(err), exc_info=True)
