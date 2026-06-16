@@ -64,6 +64,10 @@ from cmdb.models.right_model.oc_rights import (
     OcConnectorRight,
     OcConnectionRight,
 )
+from cmdb.models.right_model.license_rights import (
+    LicenseRight,
+    LicenseActivationRight,
+)
 from cmdb.models.right_model.export_rights import ExportRight, ExportObjectRight, ExportTypeRight
 from cmdb.models.right_model.docapi_rights import DocapiRight, DocapiTemplateRight
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -304,6 +308,20 @@ OC_RIGHTS = (
     )
 )
 
+LICENSE_RIGHTS = (
+    LicenseRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage license rights'),
+    (
+        LicenseRight('view', description='View the active license'),
+        LicenseRight('edit', Levels.SECURE, description='Activate or upload a license'),
+        LicenseRight('delete', Levels.SECURE, description='Remove the active license'),
+        LicenseActivationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage license activation requests'),
+        (
+            LicenseActivationRight('view', description='View and generate license activation requests'),
+            LicenseActivationRight('delete', Levels.SECURE, description='Delete license activation requests'),
+        )
+    )
+)
+
 EXPORT_RIGHTS = (
     ExportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage exports'),
     (
@@ -384,6 +402,7 @@ ALL_RIGHTS = (
     DOCAPI_RIGHTS,
     ISMS_RIGHTS,
     OC_RIGHTS,
+    LICENSE_RIGHTS,
 )
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #

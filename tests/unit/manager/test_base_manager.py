@@ -202,6 +202,36 @@ def test_update_wraps_document_update_error() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                     upsert                                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_upsert_uses_manager_collection_by_default() -> None:
+    """Without a collection arg, the upsert targets this manager's own collection"""
+    mgr = _mock_manager()
+
+    BaseManager.upsert(mgr, {'_id': 'active'}, {'blob': 'x'})
+
+    mgr.dbm.upsert.assert_called_once_with(COLLECTION, DB_NAME, {'_id': 'active'}, {'blob': 'x'})
+
+
+def test_upsert_uses_given_collection_when_set() -> None:
+    """A collection argument overrides the target collection"""
+    mgr = _mock_manager()
+
+    BaseManager.upsert(mgr, {'_id': 'active'}, {'blob': 'x'}, collection='other.collection')
+
+    assert mgr.dbm.upsert.call_args.args[0] == 'other.collection'
+
+
+def test_upsert_wraps_document_update_error() -> None:
+    """A DocumentUpdateError is wrapped in BaseManagerUpdateError"""
+    mgr = _mock_manager()
+    mgr.dbm.upsert.side_effect = DocumentUpdateError('boom')
+
+    with pytest.raises(BaseManagerUpdateError):
+        BaseManager.upsert(mgr, {'_id': 'active'}, {'blob': 'x'})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                     delete                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.mark.parametrize('acknowledged,deleted_count,expected', [

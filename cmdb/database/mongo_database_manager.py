@@ -375,27 +375,30 @@ class MongoDatabaseManager:
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     @retry_operation
-    def insert(self, collection: str, db_name: str, data: dict[str, Any], skip_public: bool = False) -> int:
+    def insert(self, collection: str, db_name: str, data: dict[str, Any], skip_public: bool = False) -> int | None:
         """
         Adds a document to a collection with retry on duplicate public_id.
 
         Args:
             collection (str): Name of the database collection.
             data (dict): Data to be inserted.
-            skip_public (bool): If True, skips public ID creation and counter increment.
+            skip_public (bool): If True, skips public ID creation and counter increment; the
+                                document is inserted as-is and may legitimately carry no public_id
+                                (e.g. a collection keyed by a string id).
 
         Raises:
             DocumentInsertError: If the document could not be created.
             DocumentNetworkError: If a network or timeout error occurs.
             DocumentLockTimeoutError: If a lock or execution timeout occurs.
-        
+
         Returns:
-            int: New public ID of the inserted document.
+            int | None: The document's public_id, or None when skip_public is set and the document
+                        carries no public_id.
         """
         try:
             if skip_public:
                 self.get_collection(collection, db_name).insert_one(data)
-                return data['public_id']
+                return data.get('public_id')
 
             for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
                 if 'public_id' not in data:
@@ -687,6 +690,40 @@ class MongoDatabaseManager:
         except Exception as err:
             LOGGER.error("[upsert_set] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update/create document in '{collection}': {err}") from err
+
+
+    @retry_operation
+    def upsert(
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict[str, Any],
+        data: dict[str, Any],
+    ) -> UpdateResult:
+        """
+        Inserts or updates a single document matched by arbitrary criteria
+
+        The matched document's fields are set from `data` (via `$set`); if no document matches,
+        a new one is inserted carrying both the criteria keys and `data`. Unlike `upsert_set`,
+        the match is not tied to `public_id`, so this also supports `_id`-keyed singletons
+
+        Args:
+            collection (str): The name of the MongoDB collection
+            db_name (str): The target database name
+            criteria (dict[str, Any]): The filter selecting the document to upsert
+            data (dict[str, Any]): The fields to set on the matched (or newly inserted) document
+
+        Raises:
+            DocumentUpdateError: If an error occurs during the upsert operation
+
+        Returns:
+            UpdateResult: The outcome of the upsert (matched / modified / upserted info)
+        """
+        try:
+            return self.get_collection(collection, db_name).update_one(criteria, {'$set': data}, upsert=True)
+        except Exception as err:
+            LOGGER.error("[upsert] Exception: %s. Type: %s", err, type(err))
+            raise DocumentUpdateError(f"Failed to upsert document in '{collection}': {err}") from err
 
 
     @retry_operation
