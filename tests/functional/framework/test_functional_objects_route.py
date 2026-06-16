@@ -32,6 +32,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
+from cmdb.models.location_model.cmdb_location import CmdbLocation
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/objects'
@@ -292,3 +293,541 @@ class TestBulkUpdateObjects:
             stored = CmdbObject.from_data(follow_up.get_json())
             stored_value = next(field['value'] for field in stored.fields if field['name'] == NAME_FIELD)
             assert stored_value == BULK_UPDATED_VALUE
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            MISSING-OBJECT 404s                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMissingObjectReturns404:
+    """state and references routes must answer 404 (not 500) for an unknown object id."""
+
+    def test_state_of_missing_object_returns_404(self, rest_api) -> None:
+        """GET /objects/state/<missing> returns 404 instead of crashing into a 500."""
+        response = rest_api.get(f'{ROUTE_URL}/state/{MISSING_OBJECT_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_references_of_missing_object_returns_404(self, rest_api) -> None:
+        """GET /objects/references/<missing> returns 404 instead of passing None into from_data."""
+        response = rest_api.get(f'{ROUTE_URL}/references/{MISSING_OBJECT_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      DELETE WITH CHILD OBJECTS                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+PARENT_OBJECT_ID: int = 9425
+CHILD_OBJECT_ID: int = 9426
+PARENT_LOCATION_ID: int = 9431
+CHILD_LOCATION_ID: int = 9432
+
+
+class TestDeleteObjectWithChildObjects:
+    """DELETE /objects/<id>/children removes the target AND every child object in its location tree.
+
+    Regression for the bug where the child object ids were re-resolved AFTER the parent's own
+    location had already been deleted, so get_child_locations_object_ids returned nothing and the
+    child objects were silently never deleted.
+    """
+
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Seeds a parent object + child object and a location tree linking the child under the parent."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+
+        objects.insert_one(_object_doc(PARENT_OBJECT_ID, 'parent'))
+        objects.insert_one(_object_doc(CHILD_OBJECT_ID, 'child'))
+
+        locations.insert_one({
+            'public_id': PARENT_LOCATION_ID, 'name': 'parent-loc', 'parent': 1,
+            'object_id': PARENT_OBJECT_ID, 'type_id': TYPE_ID, 'type_label': TYPE_NAME,
+        })
+        locations.insert_one({
+            'public_id': CHILD_LOCATION_ID, 'name': 'child-loc', 'parent': PARENT_LOCATION_ID,
+            'object_id': CHILD_OBJECT_ID, 'type_id': TYPE_ID, 'type_label': TYPE_NAME,
+        })
+
+    def _cleanup(self, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Removes the seeded objects and locations regardless of test outcome."""
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(
+            {'public_id': {'$in': [PARENT_OBJECT_ID, CHILD_OBJECT_ID]}}
+        )
+        database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
+            {'public_id': {'$in': [PARENT_LOCATION_ID, CHILD_LOCATION_ID]}}
+        )
+
+    def test_child_objects_are_deleted(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """After deleting the parent with its children, both parent and child objects report 404."""
+        self._seed(database_manager, database_name)
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/{PARENT_OBJECT_ID}/children')
+
+            assert response.status_code == HTTPStatus.OK
+            assert rest_api.get(f'{ROUTE_URL}/native/{PARENT_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+            assert rest_api.get(f'{ROUTE_URL}/native/{CHILD_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+        finally:
+            self._cleanup(database_manager, database_name)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        GAP-FILL: shared helpers + ids                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+EXTRA_FIELD: str = 'extra-field'
+
+RENDERED_GET_ID: int = 9440
+COUNT_DELTA_ID: int = 9441
+COUNT_TYPE_IDS: list[int] = [9442, 9443]
+MDS_REF_ID: int = 9444
+CLEAN_PROBE_CLEAN_ID: int = 9445
+CLEAN_PROBE_DIRTY_ID: int = 9446
+STATE_TOGGLE_ID: int = 9447
+STATE_NOOP_ID: int = 9448
+STATE_NONBOOL_ID: int = 9449
+STATE_GET_ACTIVE_ID: int = 9450
+STATE_GET_INACTIVE_ID: int = 9451
+REFERENCES_HAPPY_ID: int = 9452
+LOC_PARENT_OBJECT_ID: int = 9453
+LOC_CHILD_OBJECT_ID: int = 9454
+DELETE_MANY_IDS: list[int] = [9455, 9456]
+DELETE_MANY_LOCATED_ID: int = 9457
+
+LOCATIONS_KEEP_PARENT_LOC: int = 9481
+LOCATIONS_KEEP_CHILD_LOC: int = 9482
+DELETE_MANY_LOCATION_ID: int = 9483
+
+# A second type carrying a ref field that points at TYPE_ID, used to exercise the references route
+REF_TYPE_ID: int = 9402
+REF_FIELD: str = 'ref-field'
+REF_TARGET_OBJECT_ID: int = 9460
+REF_SOURCE_OBJECT_ID: int = 9461
+
+
+def _ref_type_doc() -> dict[str, Any]:
+    """Builds a CmdbType doc whose single field is a ref pointing at TYPE_ID."""
+    return {
+        'public_id': REF_TYPE_ID,
+        'name': f'ref-type-{REF_TYPE_ID}',
+        'label': 'Ref Type',
+        'author_id': SEED_AUTHOR_ID,
+        'active': True,
+        'fields': [{'type': 'ref', 'name': REF_FIELD, 'label': 'Ref', 'ref_types': [TYPE_ID]}],
+        'render_meta': {
+            'icon': 'fa-cube',
+            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [REF_FIELD]}],
+            'summary': {'fields': [REF_FIELD]},
+        },
+        'acl': {'activated': False, 'groups': {'includes': None}},
+        'version': SEED_VERSION,
+        'creation_time': datetime.now(timezone.utc),
+    }
+
+
+def _referencing_object_doc(public_id: int, target_id: int) -> dict[str, Any]:
+    """Builds a CmdbObject of REF_TYPE_ID whose ref field points at the given target object id."""
+    return {
+        'public_id': public_id,
+        'type_id': REF_TYPE_ID,
+        'active': True,
+        'author_id': SEED_AUTHOR_ID,
+        'version': SEED_VERSION,
+        'fields': [{'type': 'ref', 'name': REF_FIELD, 'value': target_id}],
+        'creation_time': datetime.now(timezone.utc),
+    }
+
+
+# A type whose ref field lives inside a multi-data section, to exercise the MDS reference path
+MDS_REF_TYPE_ID: int = 9403
+MDS_REF_FIELD: str = 'mds-ref'
+MDS_REF_TARGET_ID: int = 9462
+MDS_REF_SOURCE_ID: int = 9463
+
+
+def _mds_ref_type_doc() -> dict[str, Any]:
+    """Builds a CmdbType whose ref field (pointing at TYPE_ID) is part of a multi-data section."""
+    return {
+        'public_id': MDS_REF_TYPE_ID,
+        'name': f'mds-ref-type-{MDS_REF_TYPE_ID}',
+        'label': 'MDS Ref Type',
+        'author_id': SEED_AUTHOR_ID,
+        'active': True,
+        'fields': [{'type': 'ref', 'name': MDS_REF_FIELD, 'label': 'MDS Ref', 'ref_types': [TYPE_ID]}],
+        'render_meta': {
+            'icon': 'fa-cube',
+            'sections': [{
+                'type': 'multi-data-section', 'name': 'mds-section', 'label': 'MDS', 'fields': [MDS_REF_FIELD],
+            }],
+            'summary': {'fields': []},
+        },
+        'acl': {'activated': False, 'groups': {'includes': None}},
+        'version': SEED_VERSION,
+        'creation_time': datetime.now(timezone.utc),
+    }
+
+
+def _mds_referencing_object_doc(public_id: int, target_id: int) -> dict[str, Any]:
+    """Builds a CmdbObject whose multi-data-section row holds a ref field pointing at target_id."""
+    return {
+        'public_id': public_id,
+        'type_id': MDS_REF_TYPE_ID,
+        'active': True,
+        'author_id': SEED_AUTHOR_ID,
+        'version': SEED_VERSION,
+        'fields': [],
+        'multi_data_sections': [{
+            'section_id': 'mds-section',
+            'values': [{
+                'multi_data_id': 1,
+                'data': [{'type': 'ref', 'name': MDS_REF_FIELD, 'value': target_id}],
+            }],
+        }],
+        'creation_time': datetime.now(timezone.utc),
+    }
+
+
+def _dirty_object_doc(public_id: int) -> dict[str, Any]:
+    """A CmdbObject doc carrying an extra field the type does not declare (structurally dirty)."""
+    doc = _object_doc(public_id, ORIGINAL_VALUE)
+    doc['fields'].append({'type': 'text', 'name': EXTRA_FIELD, 'value': 'x'})
+    return doc
+
+
+def _inactive_object_doc(public_id: int) -> dict[str, Any]:
+    """A CmdbObject doc with active=False, for the state read/toggle tests."""
+    doc = _object_doc(public_id, ORIGINAL_VALUE)
+    doc['active'] = False
+    return doc
+
+
+def _insert_location(
+    database_manager: MongoDatabaseManager,
+    database_name: str,
+    location_id: int,
+    object_id: int,
+    parent: int,
+) -> None:
+    """Inserts a CmdbLocation doc linking the given object under the given parent location id."""
+    database_manager.get_collection(CmdbLocation.COLLECTION, database_name).insert_one({
+        'public_id': location_id, 'name': f'loc-{location_id}', 'parent': parent,
+        'object_id': object_id, 'type_id': TYPE_ID, 'type_label': TYPE_NAME,
+    })
+
+
+def _location_exists(database_manager: MongoDatabaseManager, database_name: str, location_id: int) -> bool:
+    """True when a CmdbLocation with the given public_id is still present."""
+    collection = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+    return collection.find_one({'public_id': location_id}) is not None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        READ: rendered single + counts                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetRenderedObject:
+    """GET /objects/<id> returns the rendered single-object representation."""
+
+    def test_get_rendered_single_object(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A GET for a seeded object returns 200 and a body carrying its object_id."""
+        _insert_object_doc(database_manager, database_name, RENDERED_GET_ID, ORIGINAL_VALUE)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/{RENDERED_GET_ID}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert str(RENDERED_GET_ID) in response.get_data(as_text=True)
+        finally:
+            _drop_object(database_manager, database_name, RENDERED_GET_ID)
+
+    def test_get_rendered_missing_returns_404(self, rest_api) -> None:
+        """A GET for a missing id returns 404."""
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestObjectCounts:
+    """GET /objects/count and /objects/count/<type_id> return increasing integer counts."""
+
+    def test_global_count_increases_after_insert(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Inserting one object raises the global count by exactly one."""
+        before = rest_api.get(f'{ROUTE_URL}/count').get_json()
+        _insert_object_doc(database_manager, database_name, COUNT_DELTA_ID, ORIGINAL_VALUE)
+        try:
+            after = rest_api.get(f'{ROUTE_URL}/count')
+            assert after.status_code == HTTPStatus.OK
+            assert after.get_json() == before + 1
+        finally:
+            _drop_object(database_manager, database_name, COUNT_DELTA_ID)
+
+    def test_count_for_type_increases_by_inserted(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The per-type count rises by the number of objects inserted for that type."""
+        before = rest_api.get(f'{ROUTE_URL}/count/{TYPE_ID}').get_json()
+        for public_id in COUNT_TYPE_IDS:
+            _insert_object_doc(database_manager, database_name, public_id, ORIGINAL_VALUE)
+        try:
+            after = rest_api.get(f'{ROUTE_URL}/count/{TYPE_ID}')
+            assert after.status_code == HTTPStatus.OK
+            assert after.get_json() == before + len(COUNT_TYPE_IDS)
+        finally:
+            for public_id in COUNT_TYPE_IDS:
+                _drop_object(database_manager, database_name, public_id)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        READ: MDS references + dirty probe                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMdsReferenceRoutes:
+    """GET /objects/<id>/mds_reference[s] render the MDS reference summary for an object."""
+
+    def test_single_mds_reference(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A seeded object returns 200 for its MDS reference summary."""
+        _insert_object_doc(database_manager, database_name, MDS_REF_ID, ORIGINAL_VALUE)
+        try:
+            assert rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_reference').status_code == HTTPStatus.OK
+        finally:
+            _drop_object(database_manager, database_name, MDS_REF_ID)
+
+    def test_single_mds_reference_missing_returns_404(self, rest_api) -> None:
+        """A missing object returns 404 for the MDS reference summary."""
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/mds_reference').status_code == HTTPStatus.NOT_FOUND
+
+    def test_multi_mds_references_keyed_by_id(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The multi route returns 200 and a mapping that includes the requested id."""
+        _insert_object_doc(database_manager, database_name, MDS_REF_ID, ORIGINAL_VALUE)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_references')
+
+            assert response.status_code == HTTPStatus.OK
+            assert str(MDS_REF_ID) in response.get_json()
+        finally:
+            _drop_object(database_manager, database_name, MDS_REF_ID)
+
+
+class TestUnstructuredObjectsProbe:
+    """GET /objects/clean/<type_id> reports how many objects no longer match the type fields."""
+
+    def test_probe_counts_only_dirty_objects(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """With one clean and one dirty object, the probe's X-Total-Count is 1."""
+        _insert_object_doc(database_manager, database_name, CLEAN_PROBE_CLEAN_ID, ORIGINAL_VALUE)
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(
+            _dirty_object_doc(CLEAN_PROBE_DIRTY_ID)
+        )
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/clean/{TYPE_ID}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert int(response.headers['X-Total-Count']) == 1
+        finally:
+            _drop_object(database_manager, database_name, CLEAN_PROBE_CLEAN_ID)
+            _drop_object(database_manager, database_name, CLEAN_PROBE_DIRTY_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        READ + UPDATE: active state                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestObjectState:
+    """GET/PUT /objects/state/<id> read and toggle the active flag."""
+
+    def test_get_state_reflects_active_flag(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The state GET returns True for an active object and False for an inactive one."""
+        _insert_object_doc(database_manager, database_name, STATE_GET_ACTIVE_ID, ORIGINAL_VALUE)
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(
+            _inactive_object_doc(STATE_GET_INACTIVE_ID)
+        )
+        try:
+            assert rest_api.get(f'{ROUTE_URL}/state/{STATE_GET_ACTIVE_ID}').get_json() is True
+            assert rest_api.get(f'{ROUTE_URL}/state/{STATE_GET_INACTIVE_ID}').get_json() is False
+        finally:
+            _drop_object(database_manager, database_name, STATE_GET_ACTIVE_ID)
+            _drop_object(database_manager, database_name, STATE_GET_INACTIVE_ID)
+
+    def test_put_state_toggles_active_flag(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Toggling an active object to False is accepted (202) and reflected on a follow-up read."""
+        _insert_object_doc(database_manager, database_name, STATE_TOGGLE_ID, ORIGINAL_VALUE)
+        try:
+            response = rest_api.put(f'{ROUTE_URL}/state/{STATE_TOGGLE_ID}', json=False)
+
+            assert response.status_code == HTTPStatus.ACCEPTED
+            assert rest_api.get(f'{ROUTE_URL}/state/{STATE_TOGGLE_ID}').get_json() is False
+        finally:
+            _drop_object(database_manager, database_name, STATE_TOGGLE_ID)
+
+    def test_put_state_unchanged_returns_false(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Setting the state to its current value is a no-op that returns False with 200."""
+        _insert_object_doc(database_manager, database_name, STATE_NOOP_ID, ORIGINAL_VALUE)
+        try:
+            response = rest_api.put(f'{ROUTE_URL}/state/{STATE_NOOP_ID}', json=True)
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json() is False
+        finally:
+            _drop_object(database_manager, database_name, STATE_NOOP_ID)
+
+    def test_put_state_non_boolean_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A non-boolean state body is rejected with 400."""
+        _insert_object_doc(database_manager, database_name, STATE_NONBOOL_ID, ORIGINAL_VALUE)
+        try:
+            response = rest_api.put(f'{ROUTE_URL}/state/{STATE_NONBOOL_ID}', json='not-a-bool')
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_object(database_manager, database_name, STATE_NONBOOL_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        READ: references happy path                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestObjectReferencesHappyPath:
+    """GET /objects/references/<id> returns a paged envelope for an existing object."""
+
+    def test_references_of_existing_object_returns_envelope(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An object with no referrers returns 200 and an empty results list (not a 500/404)."""
+        _insert_object_doc(database_manager, database_name, REFERENCES_HAPPY_ID, ORIGINAL_VALUE)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/references/{REFERENCES_HAPPY_ID}')
+
+            assert response.status_code == HTTPStatus.OK
+            body = response.get_json()
+            assert 'results' in body
+            assert body['results'] == []
+        finally:
+            _drop_object(database_manager, database_name, REFERENCES_HAPPY_ID)
+
+    def test_references_returns_referencing_object(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An object pointed at by another object's ref field appears in its references list."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        types.insert_one(_ref_type_doc())
+        objects.insert_one(_object_doc(REF_TARGET_OBJECT_ID, ORIGINAL_VALUE))
+        objects.insert_one(_referencing_object_doc(REF_SOURCE_OBJECT_ID, REF_TARGET_OBJECT_ID))
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/references/{REF_TARGET_OBJECT_ID}')
+
+            assert response.status_code == HTTPStatus.OK
+            result_ids = [result['public_id'] for result in response.get_json()['results']]
+            assert REF_SOURCE_OBJECT_ID in result_ids
+        finally:
+            objects.delete_many({'public_id': {'$in': [REF_TARGET_OBJECT_ID, REF_SOURCE_OBJECT_ID]}})
+            types.delete_one({'public_id': REF_TYPE_ID})
+
+    def test_references_returns_mds_referencing_object(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An object referencing the target via a multi-data-section ref field is also returned."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        types.insert_one(_mds_ref_type_doc())
+        objects.insert_one(_object_doc(MDS_REF_TARGET_ID, ORIGINAL_VALUE))
+        objects.insert_one(_mds_referencing_object_doc(MDS_REF_SOURCE_ID, MDS_REF_TARGET_ID))
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/references/{MDS_REF_TARGET_ID}')
+
+            assert response.status_code == HTTPStatus.OK
+            result_ids = [result['public_id'] for result in response.get_json()['results']]
+            assert MDS_REF_SOURCE_ID in result_ids
+        finally:
+            objects.delete_many({'public_id': {'$in': [MDS_REF_TARGET_ID, MDS_REF_SOURCE_ID]}})
+            types.delete_one({'public_id': MDS_REF_TYPE_ID})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  DELETE: with-child-locations + bulk delete                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestDeleteObjectWithChildLocations:
+    """DELETE /objects/<id>/locations removes the object + child locations but KEEPS child objects.
+
+    This is the behavioural distinction from DELETE /<id>/children (which also deletes the child
+    objects); the test locks that difference in.
+    """
+
+    def test_child_objects_are_kept(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The target and its child locations are removed, but the child object survives."""
+        _insert_object_doc(database_manager, database_name, LOC_PARENT_OBJECT_ID, 'parent')
+        _insert_object_doc(database_manager, database_name, LOC_CHILD_OBJECT_ID, 'child')
+        _insert_location(database_manager, database_name, LOCATIONS_KEEP_PARENT_LOC, LOC_PARENT_OBJECT_ID, 1)
+        _insert_location(
+            database_manager, database_name, LOCATIONS_KEEP_CHILD_LOC, LOC_CHILD_OBJECT_ID, LOCATIONS_KEEP_PARENT_LOC,
+        )
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/{LOC_PARENT_OBJECT_ID}/locations')
+
+            assert response.status_code == HTTPStatus.OK
+            # Target object deleted
+            assert rest_api.get(f'{ROUTE_URL}/native/{LOC_PARENT_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+            # Child OBJECT kept (only its location was removed)
+            assert rest_api.get(f'{ROUTE_URL}/native/{LOC_CHILD_OBJECT_ID}').status_code == HTTPStatus.OK
+            assert _location_exists(database_manager, database_name, LOCATIONS_KEEP_CHILD_LOC) is False
+        finally:
+            database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(
+                {'public_id': {'$in': [LOC_PARENT_OBJECT_ID, LOC_CHILD_OBJECT_ID]}}
+            )
+            database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
+                {'public_id': {'$in': [LOCATIONS_KEEP_PARENT_LOC, LOCATIONS_KEEP_CHILD_LOC]}}
+            )
+
+
+class TestDeleteManyObjects:
+    """DELETE /objects/delete/<ids> bulk-deletes location-free objects and refuses located ones."""
+
+    def test_bulk_delete_removes_all_targets(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Every listed (location-free) object is deleted and reported under 'successfully'."""
+        for public_id in DELETE_MANY_IDS:
+            _insert_object_doc(database_manager, database_name, public_id, ORIGINAL_VALUE)
+        try:
+            ids = ','.join(str(public_id) for public_id in DELETE_MANY_IDS)
+            response = rest_api.delete(f'{ROUTE_URL}/delete/{ids}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert sorted(response.get_json()['successfully']) == sorted(DELETE_MANY_IDS)
+            for public_id in DELETE_MANY_IDS:
+                assert rest_api.get(f'{ROUTE_URL}/native/{public_id}').status_code == HTTPStatus.NOT_FOUND
+        finally:
+            for public_id in DELETE_MANY_IDS:
+                _drop_object(database_manager, database_name, public_id)
+
+    def test_bulk_delete_refused_when_a_target_has_a_location(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The whole bulk delete is refused with 400 when any target has a location."""
+        _insert_object_doc(database_manager, database_name, DELETE_MANY_LOCATED_ID, ORIGINAL_VALUE)
+        _insert_location(database_manager, database_name, DELETE_MANY_LOCATION_ID, DELETE_MANY_LOCATED_ID, 1)
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/delete/{DELETE_MANY_LOCATED_ID}')
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            # The object must still exist since the delete was refused
+            assert rest_api.get(f'{ROUTE_URL}/native/{DELETE_MANY_LOCATED_ID}').status_code == HTTPStatus.OK
+        finally:
+            _drop_object(database_manager, database_name, DELETE_MANY_LOCATED_ID)
+            database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
+                {'public_id': DELETE_MANY_LOCATION_ID}
+            )

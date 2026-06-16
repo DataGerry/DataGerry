@@ -37,5 +37,15 @@ class ReportCategoriesManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Set the database connection for the ReportCategoriesManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+
+        Raises:
+            ReportCategoriesManagerInitError: If the ReportCategoriesManager could not be initialised
+        """
         super().__init__(dbm, CmdbReportCategory, REPORT_CATEGORIES_MANAGER_ERRORS, database)
