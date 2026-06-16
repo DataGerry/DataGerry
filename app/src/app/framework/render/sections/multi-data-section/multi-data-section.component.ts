@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Inject, Input, OnDestroy, OnInit, Optional, TemplateRef, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, Inject, Input, OnDestroy, OnInit, Optional, TemplateRef, ViewChild } from '@angular/core';
 import { displayPassword, maskPassword, PasswordVisibilityMap, togglePasswordVisibility as toggleVis, ensureVisibilityBucket as ensureBucket, refreshItemsReference, getRawValueForFieldFromMds } from './password-cell.util';
 import { UntypedFormControl } from '@angular/forms';
 import { Observable, combineLatest, of } from 'rxjs';
@@ -99,6 +99,8 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
     // Table Template: Password cell with eye icon
     @ViewChild('passwordTemplate', { static: true }) passwordTemplate: TemplateRef<any>;
+    // Table Template: Reference cell rendered as a navigable link (view mode)
+    @ViewChild('refTemplate', { static: true }) refTemplate: TemplateRef<any>;
 
     /**
      * Validator handles for every {@link MdsRowValidator} that opted in for this section.
@@ -114,6 +116,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     constructor(
         private modalService: NgbModal,
         private objectService: ObjectService,
+        private cdr: ChangeDetectorRef,
         @Optional() @Inject(MDS_ROW_VALIDATORS) private rowValidators: ReadonlyArray<MdsRowValidator> | null
     ) {
         super();
@@ -173,6 +176,9 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 if(this.mode == CmdbMode.View || this.mode == CmdbMode.Edit) {
                     this.initTableValuesFromFormatedDataSection();
                 }
+                // The async response lands outside the OnPush parent's check, so the rows
+                // would not paint until an unrelated event (e.g. scroll). Mark for check here.
+                this.cdr.markForCheck();
             });
         } else {
             if(this.mode == CmdbMode.View || this.mode == CmdbMode.Edit) {
@@ -327,6 +333,11 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
             // Use a custom template for password fields
             if (aField.type === 'password' && this.passwordTemplate) {
                 fieldColumn.template = this.passwordTemplate;
+            }
+
+            // In view mode, render reference fields as links to the referenced object
+            if (aField.type === 'ref' && this.mode == CmdbMode.View && this.refTemplate) {
+                fieldColumn.template = this.refTemplate;
             }
 
             this.multiDataColumns.push(fieldColumn);
@@ -791,8 +802,23 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     }
 
     /**
+     * Resolves the referenced object_id for a reference field in a given table row.
+     * Used by the view-mode reference template to build the navigation link.
+     *
+     * @param row the table row data
+     * @param fieldName name of the reference field
+     * @returns the referenced object_id, or undefined when no reference is set
+     */
+    getRefObjectId(row: any, fieldName: string): number | undefined {
+        const rowId = row?.['dg-multiDataRowIndex'];
+        const rawValue = getRawValueForFieldFromMds(this.formatedDataSection, rowId, fieldName);
+        return rawValue ? rawValue : undefined;
+    }
+
+
+    /**
      * Retrives field information for a field with the given fieldName
-     * 
+     *
      * @param fieldName name of the target field
      * @returns Dict with the field information
      */
