@@ -1,7 +1,7 @@
 <div
     [cmdbSubnetNetworkRangeValidator]="typeInstance"
     [cmdbSubnetNetworkRangeValidatorForm]="renderForm"
-    [cmdbSubnetNetworkRangeValidatorObjectId]="objectID ?? null"
+    [cmdbSubnetNetworkRangeValidatorObjectId]="renderResult?.object_information?.object_id ?? null"
     [cmdbSupernetNetworkRangeValidator]="typeInstance"
     [cmdbSupernetNetworkRangeValidatorForm]="renderForm">
     <div id="renderModeWrapper" *ngIf="renderResult; then renderResultTemplate else mergeBlockTemplate"></div>
