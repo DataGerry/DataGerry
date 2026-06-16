@@ -38,7 +38,7 @@ button.ipam-subnet-card {
 }
 
 .ipam-subnet-card--clickable {
-    cursor: pointer;
+    cursor: pointer !important;
 }
 
 .ipam-subnet-card--clickable:hover {
@@ -73,7 +73,7 @@ button.ipam-subnet-card {
 }
 
 .ipam-subnet-card--clickable .ipam-subnet-card__vlan-list {
-    cursor: pointer;
+    cursor: pointer !important;
 }
 
 .ipam-subnet-card__label {
@@ -138,7 +138,7 @@ button.ipam-subnet-card {
     align-items: center;
     flex-wrap: wrap;
     gap: 0.35rem;
-    cursor: default;
+    cursor: default !important;
     max-width: 100%;
 }
 
