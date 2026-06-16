@@ -1,9 +1,10 @@
-<span class="dropdown-toggle input-group-text btn" data-bs-toggle="dropdown"
-      [ngbTooltip]="'Preset Rights'">
+<span class="dropdown-toggle input-group-text btn" data-bs-toggle="dropdown" [ngbTooltip]="'Preset Rights'">
   <fa-icon icon="pencil-alt"></fa-icon>
 </span>
 <ul class="dropdown-menu dropdown-menu-end p-0">
-  <li class="btn btn-react dropdown-entry m-0 pt-3" *ngFor="let preset of presetList" (click)="insertSelectedRights(preset.value)">
+  @for (preset of presetList; track preset) {
+  <li class="btn btn-react dropdown-entry m-0 pt-3" (click)="insertSelectedRights(preset.value)">
     <p>{{preset.name}}</p>
   </li>
+  }
 </ul>
