@@ -317,4 +317,46 @@ export class AuthService<T = any> implements ApiServicePrefix {
             size: 'lg'
         };
     }
+
+    /* ------------------------------------------------- ENTRA ID SECTION ------------------------------------------------ */
+
+    /**
+     * Check if Entra ID authentication is enabled on the backend
+     * @returns Observable with enabled status
+     */
+    public getEntraIdStatus(): Observable<{ enabled: boolean }> {
+        return this.http.get<{ enabled: boolean }>(
+            `${this.connectionService.getApiBaseUrl()}/${this.restPrefix}/${this.servicePrefix}/entraid/status`
+        );
+    }
+
+
+    /**
+     * Initiates the Entra ID OAuth2 login flow
+     * Redirects the browser to Microsoft's login page
+     */
+    public initiateEntraIdLogin(): void {
+        window.location.href = `${this.connectionService.getApiBaseUrl()}/${this.restPrefix}/${this.servicePrefix}/entraid/login`;
+    }
+
+
+    /**
+     * Handle Entra ID callback token from URL parameters
+     * Called when returning from Microsoft OAuth flow
+     * @param token The JWT token from the callback URL
+     * @param expires Token expiration timestamp
+     */
+    public handleEntraIdCallback(token: string, expires: number): void {
+        const tokenObj: Token = {
+            token: token,
+            issued: Math.floor(Date.now() / 1000),
+            expire: expires
+        };
+
+        localStorage.setItem('access-token', JSON.stringify(tokenObj));
+        this.currentUserTokenSubject.next(tokenObj);
+
+        // Fetch user info using the token
+        // The user will be fetched on next authenticated request
+    }
 }

@@ -31,6 +31,7 @@ from cmdb.security.auth.base_authentication_provider import BaseAuthenticationPr
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
+from cmdb.security.auth.providers.entraid_auth_provider import EntraIdAuthenticationProvider
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 
 from cmdb.errors.provider import (
@@ -53,7 +54,8 @@ class AuthModule:
 
     __pre_installed_providers: list[BaseAuthenticationProvider] = [
         LocalAuthenticationProvider,
-        LdapAuthenticationProvider
+        LdapAuthenticationProvider,
+        EntraIdAuthenticationProvider
     ]
 
     __installed_providers: list[BaseAuthenticationProvider] = __pre_installed_providers

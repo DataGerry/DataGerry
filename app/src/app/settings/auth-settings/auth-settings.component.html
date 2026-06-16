@@ -1,5 +1,5 @@
 <h1>Authentication Config</h1>
-<hr/>
+<hr />
 
 <div class="row">
     <div class="col-md-9">
@@ -10,12 +10,8 @@
                 </div>
                 <div class="col-sm-9">
                     <div class="form-check">
-                        <input
-                            class="custom-control-input"
-                            type="checkbox"
-                            id="enable-external-input"
-                            formControlName="enable_external"
-                        >
+                        <input class="custom-control-input" type="checkbox" id="enable-external-input"
+                            formControlName="enable_external">
                         <label class="custom-control-label" for="enable-external-input"></label>
                     </div>
                 </div>
@@ -26,12 +22,8 @@
                 </label>
                 <div class="col-sm-9">
                     <div class="input-group">
-                        <input
-                            class="form-control"
-                            type="number"
-                            id="token-lifetime-input"
-                            formControlName="token_lifetime"
-                        >
+                        <input class="form-control" type="number" id="token-lifetime-input"
+                            formControlName="token_lifetime">
                     </div>
                     <small class="description form-text text-muted">
                         How long should the token be valid?
@@ -39,26 +31,20 @@
                 </div>
             </div>
             <div *ngIf="authSettings" id="providerSettings">
-                <ng-container
-                    formArrayName="providers"
-                    *ngFor="let providerSettings of authSettings.providers; index as i"
-                >
+                <ng-container formArrayName="providers"
+                    *ngFor="let providerSettings of authSettings.providers; index as i">
                     <div class="card mb-3" [ngSwitch]="providerSettings.class_name">
-                        <cmdb-local-authentication-provider-form
-                            [provider]="providerSettings"
-                            [parent]="providersArray"
-                            *ngSwitchCase="'LocalAuthenticationProvider'"
-                        />
-                        <cmdb-ldap-authentication-provider-form
-                            [provider]="providerSettings"
-                            [parent]="providersArray"
-                            [groups]="groups"
-                            *ngSwitchCase="'LdapAuthenticationProvider'"
-                        />
+                        <cmdb-local-authentication-provider-form [provider]="providerSettings" [parent]="providersArray"
+                            *ngSwitchCase="'LocalAuthenticationProvider'" />
+                        <cmdb-ldap-authentication-provider-form [provider]="providerSettings" [parent]="providersArray"
+                            [groups]="groups" *ngSwitchCase="'LdapAuthenticationProvider'" />
+                        <cmdb-entraid-authentication-provider-form [provider]="providerSettings"
+                            [parent]="providersArray" [groups]="groups"
+                            *ngSwitchCase="'EntraIdAuthenticationProvider'" />
                     </div>
                 </ng-container>
             </div>
-            <hr/>
+            <hr />
             <button type="submit" class="btn btn-success text-end" [disabled]="!authConfigForm.valid">
                 <i class="far fa-save"></i> Save
             </button>
