@@ -31,23 +31,14 @@
 </div>
 
 <!-- ­───────── TABLE ───────── -->
-<cmdb-table
-  [items]="viewRows"
-  [columns]="columns"
-  [initialVisibleColumns]="initialVisibleColumns"
-  [page]="page"
-  [pageSize]="limit"
-  [totalItems]="totalItems"
-  [loading]="loading"
-  (pageChange)="onPageChange($event)"
-  (pageSizeChange)="onPageSizeChange($event)"
-  (sortChange)="onSortChange($event)">
+<cmdb-table [items]="viewRows" [columns]="columns" [initialVisibleColumns]="initialVisibleColumns" [page]="page"
+  [pageSize]="limit" [totalItems]="totalItems" [loading]="loading" (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)">
 
   <!-- templates -->
   <ng-template #riskBox let-val="val" let-col="col">
-    <div class="risk-box"
-         [style.background-color]="val?.color || '#777'"
-         [style.color]="getTextColor(val?.color || '#777')">
+    <div class="risk-box" [style.background-color]="val?.color || '#777'"
+      [style.color]="getTextColor(val?.color || '#777')">
       {{ val?.value ?? '-' }}
     </div>
   </ng-template>
@@ -71,30 +62,45 @@
 
 
   <ng-template #controlsTpl let-item="item">
-    <ng-container *ngIf="item.control_measures?.length; else none">
-      <ul class="mb-0">
-        <li *ngFor="let c of item.control_measures">
-          {{ c }}
-        </li>
-      </ul>
-    </ng-container>
+    @if (item.control_measures?.length) {
+
+    <ul class="mb-0">
+      @for (c of item.control_measures; track c) {
+      <li>
+        {{ c }}
+      </li>
+      }
+    </ul>
+
+    } @else {
+    -
+    }
     <ng-template #none>-</ng-template>
   </ng-template>
-  
+
 </cmdb-table>
 
 <!-- ­───────── LOADER ───────── -->
-<app-loading-popup
-  [isVisible]="isLoading$ | async"
-  message="Loading risk-treatment data…">
+<app-loading-popup [isVisible]="isLoading$ | async" message="Loading risk-treatment data…">
 </app-loading-popup>
 
 <style>
-  .risk-box{
-    display:flex; justify-content:center; align-items:center;
-    height:26px; min-width:60px; padding:0 1px;
-    border-radius:2px; font-weight:600;
+  .risk-box {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 26px;
+    min-width: 60px;
+    padding: 0 1px;
+    border-radius: 2px;
+    font-weight: 600;
   }
-  .gap-2{ gap:.5rem }
-  .toolbar .btn i{ pointer-events:none }
+
+  .gap-2 {
+    gap: .5rem
+  }
+
+  .toolbar .btn i {
+    pointer-events: none
+  }
 </style>
