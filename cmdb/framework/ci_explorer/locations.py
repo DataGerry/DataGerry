@@ -35,12 +35,15 @@ Two bug fixes against the original route (audited in Phase 2):
 from typing import Any
 
 from cmdb.manager import LocationsManager, ObjectsManager
+
+from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CHILD_LOCATION_REL_COLOR: str = '#C084FC'
 PARENT_LOCATION_REL_COLOR: str = '#A855F7'
 
-ROOT_LOCATION_SENTINEL_PARENT: int = 1
+# A location whose parent is the root id is a top-level location (the root is not a real node)
+ROOT_LOCATION_SENTINEL_PARENT: int = RootLocationDefault.PUBLIC_ID
 
 
 def collect_location_parent_object(

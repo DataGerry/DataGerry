@@ -1,5 +1,8 @@
-<div [cmdbSubnetNetworkRangeValidator]="typeInstance" [cmdbSubnetNetworkRangeValidatorForm]="renderForm"
-    [cmdbSubnetNetworkRangeValidatorObjectId]="objectID ?? null" [cmdbSupernetNetworkRangeValidator]="typeInstance"
+<div
+    [cmdbSubnetNetworkRangeValidator]="typeInstance"
+    [cmdbSubnetNetworkRangeValidatorForm]="renderForm"
+    [cmdbSubnetNetworkRangeValidatorObjectId]="renderResult?.object_information?.object_id ?? null"
+    [cmdbSupernetNetworkRangeValidator]="typeInstance"
     [cmdbSupernetNetworkRangeValidatorForm]="renderForm">
     @if (renderResult) {
 

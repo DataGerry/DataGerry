@@ -56,13 +56,14 @@ class LocationsManager(BaseManager):
     Extends: BaseManager
     """
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
         """
         Set the database connection for the LocationsManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str | None): Name of the database to which the 'dbm' should connect.
+                                   Only used in CLOUD_MODE
 
         Raises:
             LocationsManagerInitError: If the LocationsManager could not be initialised
@@ -70,7 +71,7 @@ class LocationsManager(BaseManager):
         try:
             super().__init__(CmdbLocation.COLLECTION, dbm, database)
         except Exception as err:
-            raise LocationsManagerInitError(err) from err
+            raise LocationsManagerInitError(str(err)) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -93,10 +94,10 @@ class LocationsManager(BaseManager):
 
             return self.insert(location)
         except (BaseManagerInsertError, CmdbLocationToJsonError) as err:
-            raise LocationsManagerInsertError(err) from err
+            raise LocationsManagerInsertError(str(err)) from err
         except Exception as err:
             LOGGER.error("[insert_location] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerInsertError(err) from err
+            raise LocationsManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -111,7 +112,7 @@ class LocationsManager(BaseManager):
             LocationsManagerIterationError: When the iteration failed
 
         Returns:
-            IterationResult[CmdbRelation]: All CmdbLocations matching the filter
+            IterationResult[CmdbLocation]: All CmdbLocations matching the filter
         """
         try:
             aggregation_result, total = self.iterate_query(builder_params)
@@ -120,13 +121,13 @@ class LocationsManager(BaseManager):
 
             return result
         except BaseManagerIterationError as err:
-            raise LocationsManagerIterationError(err) from err
+            raise LocationsManagerIterationError(str(err)) from err
         except Exception as err:
             LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerIterationError(err) from err
+            raise LocationsManagerIterationError(str(err)) from err
 
 
-    def get_location(self, public_id: int) -> dict | None:
+    def get_location(self, public_id: int) -> dict[str, Any] | None:
         """
         Retrieves a CmdbLocation from the database
 
@@ -137,12 +138,12 @@ class LocationsManager(BaseManager):
             LocationsManagerGetError: When a CmdbLocation could not be retrieved
 
         Returns:
-            dict | None: A dictionary representation of the CmdbLocation if successful, otherwise None
+            dict[str, Any] | None: A dictionary representation of the CmdbLocation if successful, otherwise None
         """
         try:
             return self.get_one(public_id)
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(err) from err
+            raise LocationsManagerGetError(str(err)) from err
 
 
     def get_location_for_object(self, object_id: int) -> dict[str, Any] | None:
@@ -164,12 +165,12 @@ class LocationsManager(BaseManager):
             raise LocationsManagerGetError(str(err)) from err
 
 
-    def get_locations_by(self, **requirements: dict) -> list[CmdbLocation]:
+    def get_locations_by(self, **requirements: Any) -> list[CmdbLocation]:
         """
         Retrieves all CmdbLocations matching the key-value pairs
 
         Args:
-            requirements (dict): Filter for CmdbLocations
+            **requirements (Any): Key-value pairs used to filter the CmdbLocations
 
         Raises:
             LocationsManagerGetError: If CmdbLocation could not be retrieved
@@ -191,89 +192,88 @@ class LocationsManager(BaseManager):
             raise LocationsManagerGetError(str(err)) from err
 
 
-    def get_all_locations_excluding_root(self) -> list[dict[str, Any]]:
+    def get_all_descendant_locations(self, public_id: int) -> list[dict[str, Any]]:
         """
-        Returns all locations except the root (public_id = 1)
-        """
-        try:
-            build_params = BuilderParameters([{"$match": {"public_id": {"$gt": 1}}}])
+        Retrieves every descendant CmdbLocation beneath the given CmdbLocation
 
-            iteration_result: IterationResult[CmdbLocation] = self.iterate(build_params)
-
-            return [location_.__dict__ for location_ in iteration_result.results]
-        except Exception as err:
-            LOGGER.error("[get_all_locations_excluding_root] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
-
-
-    def get_all_children(
-            self,
-            public_id: int,
-            all_locations: list[dict[str,Any]],
-            visited: set = None
-        ) -> list[dict[str, Any]]:
-        """
-        Retrieves all children for a given CmdbLocation with the public_id
+        Resolves the full subtree in a single ``$graphLookup`` aggregation (following
+        ``parent`` -> ``public_id`` edges) instead of loading the whole collection and walking
+        it in Python. ``$graphLookup`` detects cycles internally, so a malformed parent chain
+        cannot cause infinite recursion. Requires MongoDB 3.4+ (well within the 7.0 floor)
 
         Args:
-            public_id (int): public_id of the parent CmdbLocation
-            all_locations (list[dict[str,Any]]): all CmdbLocations
-            visited (set): Set of already visited public_ids
+            public_id (int): public_id of the CmdbLocation whose descendants should be retrieved
+
+        Raises:
+            LocationsManagerChildrenError: If the descendant CmdbLocations could not be retrieved
 
         Returns:
-            list[dict[str, Any]]: Returns all child CmdbLocations
+            list[dict[str, Any]]: All descendant CmdbLocations (the location itself is excluded)
         """
         try:
-            if visited is None:
-                visited = set()
+            pipeline: list[dict[str, Any]] = [
+                {"$match": {"public_id": public_id}},
+                {
+                    "$graphLookup": {
+                        "from": CmdbLocation.COLLECTION,
+                        "startWith": "$public_id",
+                        "connectFromField": "public_id",
+                        "connectToField": "parent",
+                        "as": "descendants",
+                    }
+                },
+                {"$project": {"_id": 0, "descendants": 1}},
+            ]
 
-            # Add the current public_id to the visited set to avoid infinite recursion
-            visited.add(public_id)
+            result: list[dict[str, Any]] = list(self.aggregate(pipeline))
 
-            # Initialize the list of children with direct children
-            children: list[dict[str, Any]] = [location for location in all_locations if location['parent'] == public_id]
+            if not result:
+                return []
 
-            # Now recursively find and add all children of each direct child, but skip already visited ones
-            for child in children[:]:  # Iterate over a copy of the list to avoid modifying it during iteration
-                if child['public_id'] not in visited:
-                    children.extend(self.get_all_children(child['public_id'], all_locations, visited))
-
-            return children
+            return result[0].get("descendants", [])
+        except BaseManagerIterationError as err:
+            raise LocationsManagerChildrenError(str(err)) from err
         except Exception as err:
-            LOGGER.error("[get_all_children] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_all_descendant_locations] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerChildrenError(str(err)) from err
 
 
-    def get_child_locations_object_ids(self, public_id: int) -> list[int]:
-        """TODO: document"""
-        target_location = self.get_location_for_object(public_id)
+    def get_child_locations_object_ids(self, object_id: int) -> list[int]:
+        """
+        Retrieves the object_ids of every CmdbLocation beneath the given CmdbObject's location
+
+        Args:
+            object_id (int): public_id of the CmdbObject whose location subtree should be inspected
+
+        Raises:
+            LocationsManagerChildrenError: If the descendant CmdbLocations could not be retrieved
+
+        Returns:
+            list[int]: object_ids of all descendant CmdbLocations; empty when the object has no
+                       location or no children beneath it
+        """
+        target_location: dict[str, Any] | None = self.get_location_for_object(object_id)
 
         if not target_location:
             return []
 
-        all_locations: list[dict[str, Any]] = self.get_all_locations_excluding_root()
-        all_children: list[dict[str, Any]] = self.get_all_children(target_location['public_id'], all_locations)
+        descendant_locations: list[dict[str, Any]] = self.get_all_descendant_locations(target_location['public_id'])
 
-        if not all_children:
-            return []
-
-        childen_public_ids: list[int] = [
-            child["object_id"]
-            for child in all_children
-            if child.get("object_id") is not None
+        return [
+            location["object_id"]
+            for location in descendant_locations
+            if location.get("object_id") is not None
         ]
-
-        return childen_public_ids
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_location(self, object_id:int, data: CmdbLocation | dict, per_object: bool = True) -> None:
+    def update_location(self, object_id: int, data: CmdbLocation | dict) -> None:
         """
-        Updates a CmdbLocation in the database
+        Updates the CmdbLocation linked to the given CmdbObject
 
         Args:
             object_id (int): object_id of the CmdbLocation which should be updated
-            data: (CmdbLocation | dict): The new data for the CmdbLocation
+            data (CmdbLocation | dict): The new data for the CmdbLocation
 
         Raises:
             LocationsManagerUpdateError: When the update operation fails
@@ -282,9 +282,7 @@ class LocationsManager(BaseManager):
             if isinstance(data, CmdbLocation):
                 data = CmdbLocation.to_json(data)
 
-            update_key: str = 'object_id' if per_object else 'public_id'
-
-            self.update({update_key: object_id}, data)
+            self.update({'object_id': object_id}, data)
         except Exception as err:
             LOGGER.error("[update_location] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerUpdateError(str(err)) from err
@@ -336,7 +334,10 @@ class LocationsManager(BaseManager):
         Deletes all given locations
 
         Args:
-            public_ids (list[dict[str, Any]]): list of CmdbLocations which should be deleted
+            locations (list[dict[str, Any]]): list of CmdbLocations which should be deleted
+
+        Raises:
+            LocationsManagerDeleteError: When the delete operation fails
         """
         try:
             location_ids: list[int] = [location['public_id'] for location in locations]

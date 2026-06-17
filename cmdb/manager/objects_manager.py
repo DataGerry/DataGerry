@@ -17,10 +17,11 @@
 This module contains the implementation of the ObjectsManager
 """
 from logging import Logger, getLogger
+import copy
 import json
 from typing import Any
 
-from bson import Regex, json_util
+from bson import json_util
 from pymongo import UpdateOne
 from pymongo.command_cursor import CommandCursor
 
@@ -30,9 +31,17 @@ from cmdb.manager.query_builder import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
-from cmdb.models.object_model import CmdbObject, CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.models.object_model import (
+    CmdbObject,
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+)
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskAssessment
 from cmdb.security.acl.helpers import verify_access
@@ -42,7 +51,6 @@ from cmdb.framework.results import IterationResult
 from cmdb.errors.manager import (
     BaseManagerGetError,
     BaseManagerIterationError,
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
 )
 from cmdb.errors.manager.objects_manager import (
@@ -54,7 +62,6 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerUpdateError,
     ObjectsManagerIterationError,
     ObjectsManagerMdsReferencesError,
-    ObjectsManagerCheckError,
     ObjectsManagerSummaryLineError,
 )
 from cmdb.errors.models.cmdb_object import (
@@ -145,7 +152,7 @@ class ObjectsManager(BaseManager):
             updated_objects (list[CmdbObject]): Objects that have modified multi_data_sections.
 
         Raises:
-            BaseManagerUpdateError: If the bulk write fails.
+            ObjectsManagerUpdateError: If the bulk write fails.
         """
         try:
             if not updated_objects:
@@ -162,7 +169,7 @@ class ObjectsManager(BaseManager):
             self.bulk_write(operations)
         except Exception as err:
             LOGGER.error("[bulk_update_multi_data_sections] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerInsertError(str(err)) from err
+            raise ObjectsManagerUpdateError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -271,17 +278,22 @@ class ObjectsManager(BaseManager):
             valid_objects = []
 
             objects = self.get_many(sort=sort, direction=direction, **requirements)
+            cmdb_objects: list[CmdbObject] = [CmdbObject.from_data(obj) for obj in objects]
 
-            for obj in objects:
-                cur_object = CmdbObject.from_data(obj)
+            # Batch-load the types once instead of one get_object_type call per object (no N+1):
+            # a type query for thousands of same-type objects collapses to a single lookup
+            types_lookup: dict[int, CmdbType] = self._load_types_lookup(
+                list({cur_object.type_id for cur_object in cmdb_objects})
+            )
 
-                cur_type = self.get_object_type(cur_object.type_id)
+            for cur_object in cmdb_objects:
+                cur_type = types_lookup.get(cur_object.type_id)
 
                 try:
                     verify_access(cur_type, user, permission)
                     valid_objects.append(cur_object)
-                except Exception:
-                    # Skip objects that the user doesn't have access to
+                except AccessDeniedError:
+                    # Skip objects the user does not have access to (other errors propagate)
                     continue
 
             return valid_objects
@@ -346,8 +358,8 @@ class ObjectsManager(BaseManager):
                     cur_type = self.get_object_type(cur_object.type_id)
                     verify_access(cur_type, user, permission)
                     grouped_objects.append(obj)
-                except Exception:
-                    # If access verification fails, skip this object
+                except AccessDeniedError:
+                    # If access verification fails, skip this object (other errors propagate)
                     continue
 
             return grouped_objects
@@ -474,7 +486,6 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
 
-    #TODO: REFACTOR-FIX
     def get_mds_references_for_object(self,
                                       referenced_object: CmdbObject,
                                       query_filter: dict | list) -> list[dict]:
@@ -501,21 +512,25 @@ class ObjectsManager(BaseManager):
 
             query_pipeline = []
 
+            # Work on a copy: the caller (references()) shares this filter with its own query, so
+            # the type_id -> public_id swap below must not mutate the caller's filter in place
+            query_filter = copy.deepcopy(query_filter)
+
             if isinstance(query_filter, dict):
                 query_pipeline.append(query_filter)
             elif isinstance(query_filter, list):
                 for filter_item in query_filter:
                     if "$match" in filter_item and filter_item["$match"]:
-                        if "type_id" in filter_item["$match"]:
-                            filter_type_id = filter_item["$match"]["type_id"]
-                            del filter_item["$match"]["type_id"]
-                            filter_item["$match"]["public_id"] = filter_type_id
+                        if CmdbObjectKey.TYPE_ID.value in filter_item["$match"]:
+                            filter_type_id = filter_item["$match"][CmdbObjectKey.TYPE_ID.value]
+                            del filter_item["$match"][CmdbObjectKey.TYPE_ID.value]
+                            filter_item["$match"][CmdbObjectKey.PUBLIC_ID.value] = filter_type_id
 
                 query_pipeline += query_filter
 
             # Get all types which reference this type
             query_pipeline.append({'$match': {"$and": [
-                                        {"fields.type": "ref"},
+                                        {"fields.type": FieldType.REFERENCE.value},
                                         {"fields.ref_types": object_type_id}
                                     ]}
                         })
@@ -548,35 +563,92 @@ class ObjectsManager(BaseManager):
 
             results = list(self.aggregate_from_other_collection(CmdbType.COLLECTION, query_pipeline))
 
-            matching_results = []
-
-            # Check if the mds data references the current object
-            for result in results:
-                try:
-                    for mds_entry in result.get("multi_data_sections", []):
-                        for value in mds_entry.get("values", []):
-                            data_set: dict
-                            for data_set in value.get("data", []):
-                                if (
-                                    self.is_ref_field(data_set["name"], result)
-                                    and "value" in data_set
-                                    and data_set["value"] == referenced_object.public_id
-                                ):
-                                    matching_results.append(result)
-                                    # this result is a match => go back to outer loop
-                                    raise StopIteration()
-                except StopIteration:
-                    pass
-                except ObjectsManagerCheckError as err:
-                    raise BaseManagerIterationError(err) from err
-
-            return matching_results
+            return self._filter_mds_results_referencing(results, referenced_object.public_id)
         except Exception as err:
             LOGGER.error("[get_mds_references_for_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
 
 
-    #TODO: REFACTOR-FIX
+    def _ref_field_names_by_type(self, type_ids: list[int]) -> dict[int, set[str]]:
+        """
+        Resolves the set of 'ref'-type field names for each given CmdbType, in one batch
+
+        Replaces a per-row type lookup with a single batched load so MDS-reference checking does
+        not round-trip to the database for every candidate object
+
+        Args:
+            type_ids (list[int]): The CmdbType public_ids to resolve
+
+        Returns:
+            dict[int, set[str]]: Mapping of type public_id to the names of its 'ref'-type fields
+        """
+        types_lookup: dict[int, CmdbType] = self._load_types_lookup(type_ids)
+
+        return {
+            type_id: {
+                field[CmdbObjectFieldKey.NAME.value]
+                for field in cmdb_type.fields
+                if field.get(CmdbObjectFieldKey.TYPE.value) == FieldType.REFERENCE.value
+            }
+            for type_id, cmdb_type in types_lookup.items()
+        }
+
+
+    def _filter_mds_results_referencing(self, results: list[dict], referenced_public_id: int) -> list[dict]:
+        """
+        Keeps only the result objects whose MDS rows reference the given object via a ref field
+
+        Args:
+            results (list[dict]): Candidate CmdbObject documents (must carry multi_data_sections)
+            referenced_public_id (int): public_id the MDS ref field must point at
+
+        Returns:
+            list[dict]: The subset of results that reference the given object in their MDS data
+        """
+        # Pre-resolve the ref-field names per type once instead of per MDS row (no N+1 type fetch)
+        result_type_ids: list[int] = list({
+            result.get(CmdbObjectKey.TYPE_ID.value)
+            for result in results
+            if isinstance(result.get(CmdbObjectKey.TYPE_ID.value), int)
+        })
+        ref_field_names_by_type: dict[int, set[str]] = self._ref_field_names_by_type(result_type_ids)
+
+        matching_results: list[dict] = []
+
+        for result in results:
+            ref_field_names: set[str] = ref_field_names_by_type.get(result.get(CmdbObjectKey.TYPE_ID.value), set())
+
+            if self._mds_rows_reference(result, ref_field_names, referenced_public_id):
+                matching_results.append(result)
+
+        return matching_results
+
+
+    @staticmethod
+    def _mds_rows_reference(result: dict, ref_field_names: set[str], referenced_public_id: int) -> bool:
+        """
+        Reports whether any MDS row of the object holds a ref field pointing at the given id
+
+        Args:
+            result (dict): A CmdbObject document carrying multi_data_sections
+            ref_field_names (set[str]): Names of the object type's 'ref'-type fields
+            referenced_public_id (int): public_id the ref field must point at
+
+        Returns:
+            bool: True if any MDS ref field references the given object
+        """
+        for mds_entry in result.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value, []):
+            for value in mds_entry.get(CmdbObjectMdsKey.VALUES.value, []):
+                for data_set in value.get(CmdbObjectMdsRowKey.DATA.value, []):
+                    if (
+                        data_set.get(CmdbObjectFieldKey.NAME.value) in ref_field_names
+                        and data_set.get(CmdbObjectFieldKey.VALUE.value) == referenced_public_id
+                    ):
+                        return True
+
+        return False
+
+
     def references(
         self,
         object_: CmdbObject,
@@ -626,21 +698,8 @@ class ObjectsManager(BaseManager):
             query.append(Builder.lookup_(_from='framework.types', _local='type_id', _foreign='public_id', _as='type'))
             query.append(Builder.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True}))
 
-            # Define reference conditions for both field-based and section-based references
-            field_ref_query = {
-                    'type.fields.type': 'ref',
-                    '$or': [
-                        {'type.fields.ref_types': Regex(f'.*{object_.type_id}.*', 'i')},
-                        {'type.fields.ref_types': object_.type_id}
-                    ]
-            }
-
-            section_ref_query = {
-                    'type.render_meta.sections.type': 'ref-section',
-                    'type.render_meta.sections.reference.type_id': object_.type_id
-            }
-
-            query.append(Builder.match_(Builder.or_([field_ref_query, section_ref_query])))
+            # Keep only objects whose type references object_'s type and which point at its public_id
+            query.append(Builder.match_(Builder.or_(self._build_reference_match_queries(object_))))
             query.append(Builder.match_({'fields.value': object_.public_id}))
 
             builder_params = BuilderParameters(criteria=query, sort=sort, order=order)
@@ -659,6 +718,34 @@ class ObjectsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
+
+
+    @staticmethod
+    def _build_reference_match_queries(object_: CmdbObject) -> list[dict[str, Any]]:
+        """
+        Builds the field-based and section-based reference match queries for ``references()``
+
+        Both match against the joined 'type' document. ref_types is always a list of integer type
+        public_ids, so an exact match is correct (the former substring-regex alternative never
+        matched a numeric field anyway)
+
+        Args:
+            object_ (CmdbObject): The object whose referencing objects are being searched
+
+        Returns:
+            list[dict[str, Any]]: The field-ref and section-ref match queries, for an `$or`
+        """
+        field_ref_query: dict[str, Any] = {
+            'type.fields.type': FieldType.REFERENCE.value,
+            'type.fields.ref_types': object_.type_id,
+        }
+
+        section_ref_query: dict[str, Any] = {
+            'type.render_meta.sections.type': SectionType.REF_SECTION.value,
+            'type.render_meta.sections.reference.type_id': object_.type_id,
+        }
+
+        return [field_ref_query, section_ref_query]
 
 
     def get_object_field_name_sets_by_type(self, type_ids: list[int]) -> dict[int, list[set[str]]]:
@@ -689,7 +776,7 @@ class ObjectsManager(BaseManager):
             {'$match': {CmdbObjectKey.TYPE_ID.value: {'$in': type_ids}}},
             {'$group': {
                 '_id': f'${CmdbObjectKey.TYPE_ID.value}',
-                # $sortArray (MongoDB 6.0) makes the signature order-independent so $addToSet dedups
+                # $sortArray makes the signature order-independent so $addToSet dedups (fine on the 7.0 floor)
                 'signatures': {'$addToSet': {
                     '$sortArray': {'input': {'$ifNull': [field_names_path, []]}, 'sortBy': 1},
                 }},
@@ -706,7 +793,17 @@ class ObjectsManager(BaseManager):
 
 
     def get_objects_lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
-        """TODO: document"""
+        """
+        Batch-loads the CmdbObjects for the given public_ids and returns them keyed by public_id
+
+        Issues a single query over all ids instead of one lookup per id
+
+        Args:
+            public_ids (list[int]): The CmdbObject public_ids to load
+
+        Returns:
+            dict[int, CmdbObject]: Mapping of public_id to its CmdbObject for every id that resolved
+        """
         all_objects: list[CmdbObject] = self.find_objects(criteria={"public_id": {"$in": public_ids}})
 
         return {obj.public_id: obj for obj in all_objects}
@@ -739,6 +836,9 @@ class ObjectsManager(BaseManager):
 
             object_type = self.get_object_type(instance.get('type_id'))
 
+            if not object_type:
+                raise ObjectsManagerUpdateError("CmdbType of CmdbObject not found in database!")
+
             if not object_type.active:
                 raise AccessDeniedError(
                     f'Objects cannot be updated because type `{object_type.name}` is deactivated.'
@@ -750,25 +850,6 @@ class ObjectsManager(BaseManager):
             raise err
         except Exception as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerUpdateError(err) from err
-
-
-    def update_many_objects(self, query: dict, update: dict, add_to_set: bool = False) -> None:
-        """
-        Update multiple CmdbObjects that match the given filter
-
-        Args:
-            query (dict): The filter criteria to select the CmdbObjects to update
-            update (dict): The changes to apply to the matching CmdbObjects
-            add_to_set (bool): If True, uses `$addToSet` to append unique values 
-                                         to an array field instead of overwriting. Defaults to False
-
-        Raises:
-            ObjectsManagerUpdateError: If an error occurs during the update operation
-        """
-        try:
-            self.update_many(criteria=query, update=update, add_to_set=add_to_set)
-        except BaseManagerUpdateError as err:
             raise ObjectsManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -793,7 +874,9 @@ class ObjectsManager(BaseManager):
             bool: True if the CmdbObject was successfully deleted, False otherwise
         """
         try:
-            to_delete_object = self.get_object(public_id)
+            # get_one (raw) instead of get_object: get_object would fetch the type internally for
+            # its own access check, so we'd resolve the type twice. We fetch it once below
+            to_delete_object = self.get_one(public_id)
 
             if not to_delete_object:
                 return False
@@ -801,6 +884,9 @@ class ObjectsManager(BaseManager):
             type_id = CmdbObject.from_data(to_delete_object).type_id
 
             object_type = self.get_object_type(type_id)
+
+            if not object_type:
+                raise ObjectsManagerDeleteError("CmdbType of CmdbObject not found in database!")
 
             if not object_type.active:
                 raise AccessDeniedError(
@@ -852,22 +938,25 @@ class ObjectsManager(BaseManager):
         Also removes references inside multi_data_sections.
         """
         try:
-            if not public_ids:
-                raise ObjectsManagerUpdateError("No public ids provided to delete from references!")
-
             if isinstance(public_ids, list):
+                # An empty list is a no-op rather than an error (nothing to scrub)
                 if not public_ids:
                     return
 
                 ids_filter: dict[str, list[int]] = {"$in": public_ids}
-            else:
+            elif public_ids:
                 ids_filter: int = public_ids
+            else:
+                raise ObjectsManagerUpdateError("No public ids provided to delete from references!")
+
+            # Both plain ref fields and ref-section fields hold object references
+            ref_field_types: list[str] = [FieldType.REFERENCE.value, FieldType.REF_SECTION.value]
 
             # Remove from normal fields
             filter_query: dict[str, Any] = {
                 "fields": {
                     "$elemMatch": {
-                        "type": {"$in": ["ref", "ref-section-field"]},
+                        "type": {"$in": ref_field_types},
                         "value": ids_filter,
                     }
                 }
@@ -881,7 +970,7 @@ class ObjectsManager(BaseManager):
 
             array_filters: list[dict[str, Any]] = [
                 {
-                    "f.type": {"$in": ["ref", "ref-section-field"]},
+                    "f.type": {"$in": ref_field_types},
                     "f.value": ids_filter,
                 }
             ]
@@ -896,7 +985,7 @@ class ObjectsManager(BaseManager):
             filter_query_multi: dict[str, Any] = {
                 "multi_data_sections.values.data": {
                     "$elemMatch": {
-                        "type": {"$in": ["ref", "ref-section-field"]},
+                        "type": {"$in": ref_field_types},
                         "value": ids_filter,
                     }
                 }
@@ -910,7 +999,7 @@ class ObjectsManager(BaseManager):
 
             array_filters_multi: list[dict[str, Any]] = [
                 {
-                    "f.type": {"$in": ["ref", "ref-section-field"]},
+                    "f.type": {"$in": ref_field_types},
                     "f.value": ids_filter,
                 }
             ]
@@ -924,76 +1013,20 @@ class ObjectsManager(BaseManager):
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(str(err)) from err
 
-    # def delete_all_object_references(self, public_ids: int | list[int]) -> None:
-    #     """
-    #     Remove one or multiple public_id references from all objects. Only fields with type 'ref' or
-    #     'ref-section-field' are affected
-
-    #     Args:
-    #         public_ids(int | list[int]): public_id or list of public_ids which should be removed from references
-
-    #     Raises:
-    #         ObjectsManagerUpdateError: When no public_ids are provided
-    #         ObjectsManagerUpdateError: If the removal of the referenced public_ids failed
-    #     """
-    #     try:
-    #         if not public_ids:
-    #             raise ObjectsManagerUpdateError("No public ids provided to delete from references!")
-
-    #         if isinstance(public_ids, list):
-    #             if not public_ids:
-    #                 return
-
-    #             ids_filter: dict[str, list[int]] = {"$in": public_ids}
-    #         else:
-    #             ids_filter: int = public_ids
-
-    #         filter_query: dict[str, Any] = {
-    #             "fields": {
-    #                 "$elemMatch": {
-    #                     "type": {"$in": ["ref", "ref-section-field"]},
-    #                     "value": ids_filter,
-    #                 }
-    #             }
-    #         }
-
-    #         update: dict[str, Any] = {
-    #             "$set": {
-    #                 "fields.$[f].value": ""
-    #             }
-    #         }
-
-    #         array_filters: list[dict[str, Any]] = [
-    #             {
-    #                 "f.type": {"$in": ["ref", "ref-section-field"]},
-    #                 "f.value": ids_filter,
-    #             }
-    #         ]
-
-    #         self.update_many_raw(
-    #             filter_query=filter_query,
-    #             update=update,
-    #             array_filters=array_filters,
-    #         )
-    #     except Exception as err:
-    #         LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
-    #         raise ObjectsManagerUpdateError(str(err)) from err
-
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
     def delete_object_from_risk_assessment_cascade(self, deleted_object_id: int) -> None:
         """
-        Deletes all RiskAssessments and their associated ControlMeasureAssignments that reference 
-        the given CmdbObjectGroup.
+        Deletes all RiskAssessments and their ControlMeasureAssignments that reference an Object
 
-        This function performs the following steps:
-        1. Finds all RiskAssessments where 'object_id_ref_type' is 'OBJECT_GROUP' and 
-        'object_id' matches the deleted group ID
-        2. Deletes these RiskAssessments
-        3. Deletes all ControlMeasureAssignments referencing the deleted RiskAssessments
+        Performed in three steps:
+        1. Find all RiskAssessments whose 'object_id_ref_type' is OBJECT and whose 'object_id'
+           matches the deleted object's public_id
+        2. Delete those RiskAssessments
+        3. Delete all ControlMeasureAssignments referencing the deleted RiskAssessments
 
         Args:
-            deleted_group_id (int): The public_id of the deleted CmdbObjectGroup
+            deleted_object_id (int): The public_id of the deleted CmdbObject
         """
         # Find all RiskAssessments referencing this Object
         risk_assessment_query: dict[str, Any] = {
@@ -1087,35 +1120,6 @@ class ObjectsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[__merge_mds_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerMdsReferencesError(err) from err
-
-
-    def is_ref_field(self, field_name: str, ref_object: dict) -> bool:
-        """
-        Checks if the given field in the referenced object is of type 'ref'
-
-        Args:
-            field_name (str): The name of the field to check
-            referenced_object (dict): The referenced object containing the field's information
-
-        Raises:
-            ObjectsManagerCheckError: If the field could not be checked
-
-        Returns:
-            bool: True if the field is a reference field, otherwise False
-        """
-        try:
-            ref_type = self.get_object_type(ref_object["type_id"])
-
-            for field in ref_type.fields:
-                if field["name"] == field_name and field["type"] == "ref":
-                    return True
-
-            return False
-        except ObjectsManagerGetError as err:
-            raise ObjectsManagerCheckError(err) from err
-        except Exception as err:
-            LOGGER.error("[is_ref_field] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerCheckError(err) from err
 
 
     def _compose_summary_line(
@@ -1320,12 +1324,3 @@ class ObjectsManager(BaseManager):
             result[doc_id] = self._compose_summary_line(doc, doc_type, with_type=with_type)
 
         return result
-
-
-    # def get_reference_field_names_from_type(self, type_schema: dict) -> set[str]:
-    #     """TODO: document"""
-    #     return {
-    #         field["name"]
-    #         for field in type_schema.get("fields", [])
-    #         if field.get("type") in {"ref", "ref-section-field"}
-    #     }

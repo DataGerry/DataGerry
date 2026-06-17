@@ -106,3 +106,10 @@ class NoValidSubscriptionError(SecurityError):
     """
     Raised when no subscription matches the given API-KEY
     """
+
+
+class LicenseDecryptionError(SecurityError):
+    """
+    Raised when a license blob cannot be decrypted or parsed (bad Base64, wrong ciphertext length,
+    malformed PKCS#1 padding or invalid JSON); the verification chain degrades to Community on this
+    """

@@ -29,8 +29,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.manager.objects_manager import (
+    ObjectsManagerGetError,
+    ObjectsManagerUpdateError,
+    ObjectsManagerDeleteError,
+)
+from cmdb.errors.security import AccessDeniedError
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -357,7 +364,7 @@ def test_get_summary_lines_lookup_with_object_docs_filters_to_requested_ids() ->
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  find_objects                                                         #
+#                                                  find_objects                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_find_objects_rejects_projection_without_as_dict() -> None:
     """A projection on the CmdbObject-deserialising path is a caller error"""
@@ -401,3 +408,186 @@ def test_find_objects_without_projection_issues_plain_find() -> None:
 
     assert result == [doc]
     assert 'projection' not in mock_self.find.call_args.kwargs
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        _build_reference_match_queries                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_build_reference_match_queries_uses_exact_type_id_match() -> None:
+    """The field-ref query matches ref_types by exact type_id (no substring regex) plus a section query"""
+    object_ = MagicMock()
+    object_.type_id = OWNER_TYPE_ID
+
+    field_query, section_query = ObjectsManager._build_reference_match_queries(object_)
+
+    assert field_query == {
+        'type.fields.type': FieldType.REFERENCE.value,
+        'type.fields.ref_types': OWNER_TYPE_ID,
+    }
+    # No leftover regex/$or branch
+    assert '$or' not in field_query
+    assert section_query == {
+        'type.render_meta.sections.type': SectionType.REF_SECTION.value,
+        'type.render_meta.sections.reference.type_id': OWNER_TYPE_ID,
+    }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              _mds_rows_reference                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _mds_doc(field_name: str, value: Any) -> dict[str, Any]:
+    """A CmdbObject doc with one multi-data-section row carrying a single field."""
+    return {
+        'multi_data_sections': [
+            {'values': [{'data': [{'type': 'ref', 'name': field_name, 'value': value}]}]}
+        ]
+    }
+
+
+def test_mds_rows_reference_true_when_ref_field_points_at_target() -> None:
+    """Returns True when a ref-named MDS field holds the referenced public_id"""
+    result = _mds_doc('mds-ref', OWNER_OBJECT_ID)
+
+    assert ObjectsManager._mds_rows_reference(result, {'mds-ref'}, OWNER_OBJECT_ID) is True
+
+
+def test_mds_rows_reference_false_when_field_not_a_ref_field() -> None:
+    """A matching value in a non-ref field name is ignored"""
+    result = _mds_doc('not-a-ref', OWNER_OBJECT_ID)
+
+    assert ObjectsManager._mds_rows_reference(result, {'mds-ref'}, OWNER_OBJECT_ID) is False
+
+
+def test_mds_rows_reference_false_when_value_differs() -> None:
+    """A ref field pointing at a different id does not match"""
+    result = _mds_doc('mds-ref', OTHER_OWNER_OBJECT_ID)
+
+    assert ObjectsManager._mds_rows_reference(result, {'mds-ref'}, OWNER_OBJECT_ID) is False
+
+
+def test_mds_rows_reference_false_when_no_sections() -> None:
+    """An object without multi_data_sections never matches"""
+    assert ObjectsManager._mds_rows_reference({}, {'mds-ref'}, OWNER_OBJECT_ID) is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            _ref_field_names_by_type                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_ref_field_names_by_type_collects_only_ref_fields() -> None:
+    """Only fields of type 'ref' contribute names, keyed by type public_id"""
+    type_mock = MagicMock()
+    type_mock.fields = [
+        {'name': 'r1', 'type': FieldType.REFERENCE.value},
+        {'name': 't1', 'type': FieldType.TEXT.value},
+        {'name': 'r2', 'type': FieldType.REFERENCE.value},
+    ]
+    mock_self = MagicMock()
+    mock_self._load_types_lookup.return_value = {OWNER_TYPE_ID: type_mock}
+
+    result = ObjectsManager._ref_field_names_by_type(mock_self, [OWNER_TYPE_ID])
+
+    assert result == {OWNER_TYPE_ID: {'r1', 'r2'}}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        _filter_mds_results_referencing                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_filter_mds_results_referencing_keeps_only_matching_rows() -> None:
+    """Keeps results whose MDS rows reference the target and resolves ref names in one batch"""
+    keep = {'public_id': 1, 'type_id': OWNER_TYPE_ID}
+    drop = {'public_id': 2, 'type_id': OWNER_TYPE_ID}
+    mock_self = MagicMock()
+    mock_self._ref_field_names_by_type.return_value = {OWNER_TYPE_ID: {'mds-ref'}}
+    mock_self._mds_rows_reference.side_effect = [True, False]
+
+    result = ObjectsManager._filter_mds_results_referencing(mock_self, [keep, drop], OWNER_OBJECT_ID)
+
+    assert result == [keep]
+    # The type ref-field names are resolved exactly once (batched), not per row
+    mock_self._ref_field_names_by_type.assert_called_once_with([OWNER_TYPE_ID])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          delete_all_object_references                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_delete_all_object_references_empty_list_is_noop() -> None:
+    """An empty list scrubs nothing and issues no update"""
+    mock_self = MagicMock()
+
+    ObjectsManager.delete_all_object_references(mock_self, [])
+
+    mock_self.update_many_raw.assert_not_called()
+
+
+def test_delete_all_object_references_falsy_non_list_raises() -> None:
+    """A falsy non-list id (e.g. 0/None) is rejected"""
+    mock_self = MagicMock()
+
+    with pytest.raises(ObjectsManagerUpdateError):
+        ObjectsManager.delete_all_object_references(mock_self, 0)
+
+
+def test_delete_all_object_references_runs_two_scrubs_for_valid_ids() -> None:
+    """A valid id list scrubs both the flat fields and the multi-data-section fields"""
+    mock_self = MagicMock()
+
+    ObjectsManager.delete_all_object_references(mock_self, [OWNER_OBJECT_ID])
+
+    assert mock_self.update_many_raw.call_count == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      get_objects_by (batch + ACL skip)                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_objects_by_batches_types_and_skips_access_denied() -> None:
+    """Types are resolved in one batch; objects failing the ACL check are skipped, others kept"""
+    obj_a = MagicMock()
+    obj_a.type_id = OWNER_TYPE_ID
+    obj_b = MagicMock()
+    obj_b.type_id = OTHER_OWNER_TYPE_ID
+
+    mock_self = MagicMock()
+    mock_self.get_many.return_value = [{'public_id': 1}, {'public_id': 2}]
+    mock_self._load_types_lookup.return_value = {
+        OWNER_TYPE_ID: MagicMock(), OTHER_OWNER_TYPE_ID: MagicMock(),
+    }
+
+    with patch(f'{PATH}.CmdbObject.from_data', side_effect=[obj_a, obj_b]), \
+         patch(f'{PATH}.verify_access', side_effect=[None, AccessDeniedError('nope')]):
+        result = ObjectsManager.get_objects_by(mock_self)
+
+    assert result == [obj_a]
+    # A single batched type load, not one per object
+    mock_self._load_types_lookup.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      update_object / delete_object null type                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_update_object_raises_when_type_missing() -> None:
+    """A missing CmdbType surfaces as ObjectsManagerUpdateError, not an AttributeError"""
+    mock_self = MagicMock()
+    mock_self.get_object_type.return_value = None
+
+    with pytest.raises(ObjectsManagerUpdateError):
+        ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []})
+
+
+def test_delete_object_returns_false_for_missing_object() -> None:
+    """A missing object short-circuits to False before any type/permission work"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = None
+
+    assert ObjectsManager.delete_object(mock_self, MISSING := 9999) is False
+    mock_self.get_object_type.assert_not_called()
+
+
+def test_delete_object_raises_when_type_missing() -> None:
+    """A present object whose type is gone surfaces as ObjectsManagerDeleteError, not AttributeError"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
+    mock_self.get_object_type.return_value = None
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
+        with pytest.raises(ObjectsManagerDeleteError):
+            ObjectsManager.delete_object(mock_self, OWNER_OBJECT_ID)

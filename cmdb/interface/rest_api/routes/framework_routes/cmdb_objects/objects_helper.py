@@ -25,6 +25,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.database.database_utils import default
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.rendering.render_list import RenderList
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     WebhooksManager,
@@ -39,6 +40,8 @@ from cmdb.manager import (
 )
 
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
@@ -47,11 +50,44 @@ from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def render_or_native(
+        view: str,
+        results: list[CmdbObject],
+        request_user: CmdbUser,
+    ) -> list[dict[str, Any]]:
+    """
+    Serialises a list of CmdbObjects according to the requested ``view`` mode
+
+    Shared by the object list and the object reference routes so both apply the same
+    native / render dispatch and the same 400 on an unknown view
+
+    Args:
+        view (str): The requested view mode (see ObjectViewMode); 'native' returns the stored
+            documents, 'render' returns their rendered representation
+        results (list[CmdbObject]): The CmdbObjects to serialise
+        request_user (CmdbUser): The CmdbUser making the request (used by the renderer)
+
+    Returns:
+        list[dict[str, Any]]: One serialised entry per CmdbObject
+
+    Raises:
+        HTTPException: Aborts with 400 when ``view`` is not a known ObjectViewMode value
+    """
+    if view == ObjectViewMode.NATIVE:
+        return [object_.__dict__ for object_ in results]
+
+    if view == ObjectViewMode.RENDER:
+        return RenderList(results, request_user, True).render_result_list(raw=True)
+
+    abort(400, "Invalid or unprovided 'view' parameter!")
+
 
 def delete_one_cascade(
         request_user: CmdbUser,
@@ -59,7 +95,19 @@ def delete_one_cascade(
         objects_manager: ObjectsManager,
         log_action: LogAction
     ) -> None:
-    """TODO: document"""
+    """
+    Runs the follow-up cleanup after a single CmdbObject was deleted
+
+    Removes the object from static object groups, deletes its now-invalid CmdbObjectRelations,
+    emits a delete webhook event, writes a deletion log and (in cloud mode) syncs the ConfigItem
+    count. Each step is best-effort and isolated, so a failure in one does not block the others
+
+    Args:
+        request_user (CmdbUser): The CmdbUser that performed the deletion
+        deleted_object (CmdbObject): The CmdbObject that was deleted
+        objects_manager (ObjectsManager): Manager used to recount objects in cloud mode
+        log_action (LogAction): The log action to record for the deletion
+    """
     # Remove the object from all static object groups
     handle_delete_from_object_groups(request_user, deleted_object.get_public_id())
 
@@ -70,7 +118,7 @@ def delete_one_cascade(
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
 
     # Create ObjectLog of the deletion
-    handle_creat_object_log(request_user, deleted_object, log_action)
+    handle_create_object_log(request_user, deleted_object, log_action)
 
     # Sync config item count in CLOUD_MODE
     if current_app.cloud_mode:
@@ -83,29 +131,41 @@ def sync_select_field_options(
         target_object: CmdbObject,
         object_type: CmdbType
     ) -> None:
-    """TODO: document"""
+    """
+    Adds any new free-text select values entered on an object back into its CmdbType
+
+    Walks the object's select fields (both the regular fields and the multi-data-section rows),
+    collects values not yet present in the type's select options and appends them to the type so
+    the option becomes selectable for every object of that type. The type is only persisted when
+    at least one new option was added
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        target_object (CmdbObject): The CmdbObject whose select values are inspected
+        object_type (CmdbType): The CmdbType to extend with newly seen select options
+    """
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-    type_select_fields: dict[str, dict[str, Any]] = object_type.get_fields_with_type("select")
+    type_select_fields: dict[str, dict[str, Any]] = object_type.get_fields_with_type(FieldType.SELECT)
 
     new_options = {}
 
     def process_field(field: dict[str, Any]) -> None:
-        """TODO: document"""
-        if field.get("type") != "select":
+        """Records a not-yet-known value of a single select field for later insertion"""
+        if field.get(FieldKey.TYPE) != FieldType.SELECT:
             return
 
-        value = field.get("value")
+        value = field.get(FieldKey.VALUE)
 
         if value in (None, "", [], {}):
             return
 
-        field_name = field.get("name")
+        field_name = field.get(FieldKey.NAME)
 
         if field_name not in type_select_fields:
             return
 
-        options = type_select_fields[field_name].get("options", [])
+        options = type_select_fields[field_name].get(FieldKey.OPTIONS, [])
 
         existing_names = {opt["name"] for opt in options}
 
@@ -129,15 +189,15 @@ def sync_select_field_options(
     updated = False
 
     for field in object_type.fields:
-        fname = field["name"]
+        fname = field[FieldKey.NAME]
 
         if fname not in new_options:
             continue
 
-        field.setdefault("options", [])
+        field.setdefault(FieldKey.OPTIONS, [])
 
         for value in new_options[fname]:
-            field["options"].append({
+            field[FieldKey.OPTIONS].append({
                 "name": value,
                 "label": value
             })
@@ -149,7 +209,16 @@ def sync_select_field_options(
 
 
 def is_special_type_changed(st_old: str, st_new: str) -> bool:
-    """TODO: document"""
+    """
+    Reports whether an object's special_type would change between two values
+
+    Args:
+        st_old (str): The object's current special_type
+        st_new (str): The special_type supplied in the update payload
+
+    Returns:
+        bool: True when the two special_type values differ
+    """
     return st_old != st_new
 
 
@@ -158,7 +227,17 @@ def handle_notify_webhooks(
         target_object: CmdbObject,
         event_type: WebhookEventType
     ) -> None:
-    """TODO: document"""
+    """
+    Emits a CREATE or DELETE webhook event for a CmdbObject
+
+    Failures are caught and logged so a webhook problem never blocks the surrounding object
+    operation
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        target_object (CmdbObject): The CmdbObject the event is about
+        event_type (WebhookEventType): The webhook event type to emit (CREATE or DELETE)
+    """
     try:
         webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
@@ -168,15 +247,25 @@ def handle_notify_webhooks(
         if event_type == WebhookEventType.DELETE:
             webhooks_manager.send_webhook_event(event_type, object_before=CmdbObject.to_json(target_object))
     except Exception as err:
-        LOGGER.error("[handle_webhooks] Send Webhook Event Exception: %s, Type:%s", err, type(err))
+        LOGGER.error("[handle_notify_webhooks] Send Webhook Event Exception: %s, Type:%s", err, type(err))
 
 
-def handle_creat_object_log(
+def handle_create_object_log(
         request_user: CmdbUser,
         target_object: CmdbObject,
         log_action: LogAction
     ) -> None:
-    """TODO: document"""
+    """
+    Writes a CmdbObjectLog entry for a created or deleted CmdbObject
+
+    Renders the object to capture its render_state in the log. Failures are caught and logged so
+    a logging problem never blocks the surrounding object operation
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        target_object (CmdbObject): The CmdbObject the log entry is about
+        log_action (LogAction): The log action to record (CREATE or DELETE)
+    """
     try:
         rendered_object: RenderResult = CmdbMultiRender(
             [target_object],
@@ -201,11 +290,24 @@ def handle_creat_object_log(
 
         logs_manager.insert_log(action=log_action, log_type=CmdbObjectLog.__name__, **log_data)
     except Exception as err:
-        LOGGER.error("[handle_logs] Failed to create ObjectLog. Error: %s", err)
+        LOGGER.error("[handle_create_object_log] Failed to create ObjectLog. Error: %s", err)
 
 
 def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> None:
-    """TODO: document"""
+    """
+    Deletes the CmdbLocation of an object, refusing when that location has children
+
+    Looks up the object's location; if it exists and is not the parent of other locations it is
+    deleted, otherwise the request aborts with 405
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        public_id (int): public_id of the CmdbObject whose location should be removed
+
+    Raises:
+        HTTPException: 405 when the object's location is a parent of other locations, or 500 on an
+            unexpected error
+    """
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
@@ -223,13 +325,22 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
         raise http_err
     except Exception as error:
         LOGGER.error(
-            "[delete_cmdb_object] Locations Exception: %s. Type: %s", error, type(error), exc_info=True
+            "[handle_delete_object_location] Locations Exception: %s. Type: %s", error, type(error), exc_info=True
         )
         abort(500, "An internal server error occured while handling Locations of this Object!")
 
 
 def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id: int) -> None:
-    """TODO: document"""
+    """
+    Deletes the CmdbLocation of an object together with every location beneath it
+
+    A no-op when the object has no location. Child locations are resolved from the full location
+    tree and removed before the object's own location
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        public_id (int): public_id of the CmdbObject whose location subtree should be removed
+    """
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
     # check if location for this object exists
@@ -238,12 +349,9 @@ def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id
     if not object_location:
         return
 
-    # get all child locations for this location
-    all_locations: list[dict[str, Any]] = locations_manager.get_all_locations_excluding_root()
-
-    all_child_locations: list[dict[str, Any]] = locations_manager.get_all_children(
-        object_location['public_id'],
-        all_locations
+    # get all child locations for this location (resolved server-side via $graphLookup)
+    all_child_locations: list[dict[str, Any]] = locations_manager.get_all_descendant_locations(
+        object_location['public_id']
     )
 
     # delete all child locations
@@ -255,19 +363,41 @@ def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id
 
 
 def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | list[int]) -> None:
-    """TODO: document"""
+    """
+    Removes one or more CmdbObjects from every static CmdbObjectGroup
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        public_ids (int | list[int]): A single object public_id or a list of them to remove
+    """
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
 
     object_groups_manager.remove_ids_from_groups(public_ids, ObjectGroupMode.STATIC)
 
 
 def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int) -> None:
-    """TODO: document"""
+    """
+    Syncs the current ConfigItem count to the DataGerry service portal (cloud mode)
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        config_item_count (int): The current number of CmdbObjects to report
+    """
     DgServicePortalManager().sync_config_items(request_user, config_item_count)
 
 
 def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: int) -> None:
-    """TODO: document"""
+    """
+    Deletes the CmdbObjectRelations of a removed object and logs each deletion
+
+    Removes every relation in which the object appears as parent or child in a single bulk delete,
+    then writes one CmdbObjectRelationLog per removed relation. A no-op when the object has no
+    relations; per-relation log-prep failures are caught and logged
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        public_id (int): public_id of the deleted CmdbObject whose relations should be removed
+    """
     object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
         ManagerType.OBJECT_RELATIONS,
         request_user
@@ -300,7 +430,8 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
 
             logs_to_create.append(log_entry)
         except Exception as error:
-            LOGGER.error("[handle_invalid_object_relations] Failed to prepare log. Error: %s", error, exc_info=True)
+            LOGGER.error("[handle_delete_invalid_object_relations] Failed to prepare log. Error: %s",
+                         error, exc_info=True)
 
     if not logs_to_create:
         return
@@ -317,24 +448,35 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
 
 def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
     """
-    Validates that all object fields exist in the type schema
-    and fills missing 'type' properties.
+    Validates an object's fields against its CmdbType and fills missing 'type' properties
 
-    This includes:
-    - object.fields[]
-    - multi_data_sections[].values[].data[]
+    Ensures every field carried by the object (in 'fields' and in every multi-data-section row)
+    is declared by the object's type, and backfills the field's 'type' from the type schema when
+    the payload omitted it
+
+    Args:
+        objects_manager (ObjectsManager): Manager used to resolve the CmdbType schema
+        object_data (dict[str, Any]): The object payload to validate and complete in place
+
+    Raises:
+        HTTPException: 400 when type_id is missing, the type cannot be found, a field has no name,
+            or a field is not declared by the type
     """
-
     type_id: int | None = object_data.get("type_id")
     if not type_id:
         abort(400, "Missing type_id in object data!")
 
     type_schema: dict[str, Any] | None = objects_manager.get_object_type(type_id, as_dict=True)
-    type_field_map = {f["name"]: f["type"] for f in type_schema["fields"]}
+
+    if not type_schema:
+        abort(400, f"Type with ID {type_id} of the Object was not found!")
+
+    type_field_map = {f[FieldKey.NAME]: f[FieldKey.TYPE] for f in type_schema["fields"]}
 
     def validate_field_list(fields: list[dict[str, Any]]) -> None:
+        """Validates every field in a list against the type and backfills missing 'type' keys"""
         for field in fields:
-            field_name: str | None = field.get("name")
+            field_name: str | None = field.get(FieldKey.NAME)
 
             if not field_name:
                 abort(400, "One of the fields is missing a 'name' property!")
@@ -342,8 +484,8 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
             if field_name not in type_field_map:
                 abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
 
-            if "type" not in field or not field["type"]:
-                field["type"] = type_field_map[field_name]
+            if FieldKey.TYPE not in field or not field[FieldKey.TYPE]:
+                field[FieldKey.TYPE] = type_field_map[field_name]
 
     # Validate normal object fields
     validate_field_list(object_data.get("fields", []))

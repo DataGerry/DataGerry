@@ -59,6 +59,15 @@ from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     CategoryBodyKey,
     CategoryMetaKey,
 )
+from cmdb.security.license.license_constants import (
+    LicenseTier,
+    LicenseFeature,
+    ActivationRequestStatus,
+    ActivationRequestKey,
+    LicenseEntitlementKey,
+    LicenseVerificationStatus,
+    PlatformName,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Pinned member-name -> string-value contract for every string enum whose value crosses a
@@ -178,6 +187,49 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'CREATION_TIME': 'creation_time',
     }),
     (CategoryMetaKey, {'ICON': 'icon', 'ORDER': 'order'}),
+    # License feature enums: the tier 'type' discriminator and the activation-request /
+    # entitlement keys are OpenCelium wire-format contracts (must match byte-for-byte); the
+    # platform tokens mirror platform.system() output the fingerprint resolvers branch on.
+    (LicenseTier, {'FREE': 'free', 'CORE': 'core', 'BUSINESS': 'business', 'CORPORATE': 'corporate'}),
+    (LicenseFeature, {
+        'API_ACCESS': 'api_access',
+        'WEBHOOKS': 'webhooks',
+        'IPAM': 'ipam',
+        'ISMS': 'isms',
+        'AI_DOC_GENERATION': 'ai_doc_generation',
+        'AUTOMATIONS': 'automations',
+    }),
+    (ActivationRequestStatus, {'PENDING': 'PENDING', 'ACTIVATED': 'ACTIVATED'}),
+    (LicenseVerificationStatus, {
+        'VALID': 'valid',
+        'DECRYPT_FAILED': 'decrypt_failed',
+        'SCHEMA_INVALID': 'schema_invalid',
+        'NO_ACTIVATION_REQUEST': 'no_activation_request',
+        'BINDING_MISMATCH': 'binding_mismatch',
+        'NOT_YET_VALID': 'not_yet_valid',
+        'EXPIRED': 'expired',
+    }),
+    (ActivationRequestKey, {
+        'ID': 'id',
+        'HMAC': 'hmac',
+        'TTL': 'ttl',
+        'STATUS': 'status',
+        'MACHINE_UUID': 'machineUuid',
+        'MAC_ADDRESS': 'macAddress',
+        'SYSTEM_UUID': 'systemUUID',
+        'COMPUTER_NAME': 'computerName',
+    }),
+    (LicenseEntitlementKey, {
+        'HMAC': 'hmac',
+        'START_DATE': 'startDate',
+        'END_DATE': 'endDate',
+        'SUB_ID': 'subId',
+        'LICENSE_ID': 'licenseId',
+        'OPERATION_USAGE': 'operationUsage',
+        'DURATION': 'duration',
+        'TYPE': 'type',
+    }),
+    (PlatformName, {'WINDOWS': 'Windows', 'LINUX': 'Linux', 'DARWIN': 'Darwin'}),
 ]
 
 

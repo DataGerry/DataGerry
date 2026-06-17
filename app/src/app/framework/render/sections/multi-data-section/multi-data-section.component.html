@@ -31,4 +31,15 @@
 
 </ng-template>
 
+<ng-template #refTemplate let-item="item" let-column="column">
+    @if (getRefObjectId(item, column.name); as refObjectId) {
+        <a class="mds-ref-link"
+           [routerLink]="'/framework/object/view/' + refObjectId">
+            {{ item[column.name] || refObjectId }}
+        </a>
+    } @else {
+        <span>{{ item[column.name] }}</span>
+    }
+</ng-template>
+
 <hr />
