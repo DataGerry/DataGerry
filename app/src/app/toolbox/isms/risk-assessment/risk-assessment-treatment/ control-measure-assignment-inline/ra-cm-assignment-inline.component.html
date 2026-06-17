@@ -1,9 +1,11 @@
 <!-- ─── Add button ─────────────────────────────────────── -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>Assigned Controls</h3>
-  <button class="btn btn-sm btn-success" (click)="openModal()" *ngIf="createMode">
+  @if (createMode) {
+  <button class="btn btn-sm btn-success" (click)="openModal()">
     <i class="fas fa-plus"></i> Add
   </button>
+  }
 </div>
 
 <!-- ─── Table ──────────────────────────────────────────── -->
@@ -16,9 +18,12 @@
 <!-- ─── Row actions template ───────────────────────────── -->
 <ng-template #cmActionsTpl let-row="item">
   <i class="far fa-eye icon-margin icon-view spacing-right" title="View" (click)="onViewRow(row)"></i>
-  <i class="far fa-edit icon-margin icon-edit spacing-right" title="Edit" (click)="onEditRow(row)"
-    *ngIf="createMode"></i>
-  <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteRow(row)" *ngIf="createMode"></i>
+  @if (createMode) {
+  <i class="far fa-edit icon-margin icon-edit spacing-right" title="Edit" (click)="onEditRow(row)"></i>
+  }
+  @if (createMode) {
+  <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteRow(row)"></i>
+  }
 </ng-template>
 
 <!-- ─── Modal ──────────────────────────────────────────── -->
@@ -80,15 +85,19 @@
   </div>
 
   <!-- footer (add / edit) -->
-  <div class="modal-footer" *ngIf="modalMode!=='view'">
+  @if (modalMode!=='view') {
+  <div class="modal-footer">
     <button class="btn btn-secondary" (click)="closeModal()">Close</button>
     <button class="btn btn-success" [disabled]="modalForm.invalid" (click)="saveAssignment()">
       {{ modalMode==='edit' ? 'Save Changes' : 'Add control' }}
     </button>
   </div>
+  }
 
   <!-- footer (view) -->
-  <div class="modal-footer" *ngIf="modalMode==='view'">
+  @if (modalMode==='view') {
+  <div class="modal-footer">
     <button class="btn btn-secondary" (click)="closeModal()">Close</button>
   </div>
+  }
 </ng-template>

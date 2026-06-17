@@ -25,10 +25,12 @@
           placeholder="Select category..." formControlName="category_id" class="flex-grow-1">
         </ng-select>
 
-        <button type="button" class="btn btn-outline-secondary btn-sm" style="padding: 7px;" (click)="openCategoryManager()"
-          *ngIf="!isViewMode">
+        @if (!isViewMode) {
+        <button type="button" class="btn btn-outline-secondary btn-sm" style="padding: 7px;"
+          (click)="openCategoryManager()">
           Manage Categories
         </button>
+        }
       </div>
     </div>
 
@@ -46,22 +48,28 @@
     </div>
 
     <!-- Threats (Multi-select) Shown if risk_type = THREAT_X_VULNERABILITY or THREAT -->
-    <div class="form-group mt-3" *ngIf="showThreats()">
-      <app-form-select label="Threats:" [items]="threatOptions" bindLabel="name" bindValue="public_id" [multiple]="true" [required]="true"
-        placeholder="Select one or more threats..." formControlName="threats"></app-form-select>
+    @if (showThreats()) {
+    <div class="form-group mt-3">
+      <app-form-select label="Threats:" [items]="threatOptions" bindLabel="name" bindValue="public_id" [multiple]="true"
+        [required]="true" placeholder="Select one or more threats..." formControlName="threats"></app-form-select>
     </div>
+    }
 
     <!-- Vulnerabilities (Multi-select) Shown if risk_type = THREAT_X_VULNERABILITY -->
-    <div class="form-group mt-3" *ngIf="showVulnerabilities()">
-      <app-form-select label="Vulnerabilities:" [items]="vulnerabilityOptions" bindLabel="name" bindValue="public_id" [required]="true"
-        [multiple]="true" placeholder="Select one or more vulnerabilities..."
+    @if (showVulnerabilities()) {
+    <div class="form-group mt-3">
+      <app-form-select label="Vulnerabilities:" [items]="vulnerabilityOptions" bindLabel="name" bindValue="public_id"
+        [required]="true" [multiple]="true" placeholder="Select one or more vulnerabilities..."
         formControlName="vulnerabilities"></app-form-select>
     </div>
+    }
 
 
     <!-- Consequences (Textarea) Shown if risk_type = THREAT or EVENT -->
-    <app-form-textarea formControlName="consequences" label="Consequences:" [rows]="4" [required]="isEventType()"
-      *ngIf="showConsequences()"></app-form-textarea>
+    @if (showConsequences()) {
+    <app-form-textarea formControlName="consequences" label="Consequences:" [rows]="4"
+      [required]="isEventType()"></app-form-textarea>
+    }
 
     <!-- Description (Textarea) -->
     <app-form-textarea formControlName="description" label="Description:" [rows]="4" [required]="isEventType()">
@@ -71,13 +79,14 @@
     <div class="form-group mt-3">
       <label class="mb-2">Affected Protection Goals:</label>
       <div class="d-flex flex-wrap  flex-column">
-        <ng-container *ngFor="let pg of protectionGoalOptions">
-          <app-checkbox [id]="'pg-' + pg.public_id" [label]="pg.name"
-            [checked]="selectedProtectionGoals.includes(pg.public_id)"
-            [disabled]="isViewMode"
-            (checkedChange)="onProtectionGoalChange(pg.public_id, $event)">
-          </app-checkbox>
-        </ng-container>
+        @for (pg of protectionGoalOptions; track pg) {
+
+        <app-checkbox [id]="'pg-' + pg.public_id" [label]="pg.name"
+          [checked]="selectedProtectionGoals.includes(pg.public_id)" [disabled]="isViewMode"
+          (checkedChange)="onProtectionGoalChange(pg.public_id, $event)">
+        </app-checkbox>
+
+        }
       </div>
     </div>
 
@@ -85,27 +94,34 @@
     <!-- Footer Buttons -->
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
-      <app-button *ngIf="!isViewMode" label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
+      @if (!isViewMode) {
+      <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
         (clicked)="onCancel()"></app-button>
+      }
 
       <!-- Submit Button -->
-       <div *permissionLink="['base.isms.risk.add', 'base.isms.risk.edit']">
+      <div *permissionLink="['base.isms.risk.add', 'base.isms.risk.edit']">
+        @if (!isViewMode) {
         <app-button [label]="isEditMode ? 'Save Changes' : 'Create Risk'" type="submit" [bootstrapClass]="'btn-success'"
-        *ngIf="!isViewMode" [disabled]="riskForm.invalid"></app-button>
-       </div>
+          [disabled]="riskForm.invalid"></app-button>
+        }
+      </div>
     </div>
   </form>
 
-  <div id="object-view-footer" class="col-12" *ngIf="isViewMode">
+  @if (isViewMode) {
+  <div id="object-view-footer" class="col-12">
     <cmdb-risks-footer [riskName]="riskForm.get('name')?.value" [riskId]="risk.public_id"></cmdb-risks-footer>
   </div>
+  }
 </div>
 
 
-<app-extendable-option-manager *ngIf="showCategoryManager" [options]="categoryOptions" [optionType]="'RISK'"
-  [modalTitle]="'Manage Categories'" [itemLabel]="'Category'" [itemLabelPlural]="'Categories'"
-  (close)="closeCategoryManager()">
+@if (showCategoryManager) {
+<app-extendable-option-manager [options]="categoryOptions" [optionType]="'RISK'" [modalTitle]="'Manage Categories'"
+  [itemLabel]="'Category'" [itemLabelPlural]="'Categories'" (close)="closeCategoryManager()">
 </app-extendable-option-manager>
+}
 
 <!-- Loading Spinner -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
