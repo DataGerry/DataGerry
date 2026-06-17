@@ -85,13 +85,16 @@ def activation_request_blob(request: LicenseActivationRequest) -> str:
     """
     Renders an activation request to its downloadable Base64+JSON blob
 
+    The blob carries only the request-file fields (id, hmac + the four machine fields); the
+    lifecycle fields (ttl, status) are storage-only and excluded (see to_blob_dict)
+
     Args:
         request (LicenseActivationRequest): The activation request to encode
 
     Returns:
-        str: The Base64-encoded JSON of the request's wire document
+        str: The Base64-encoded JSON of the request-file document
     """
-    return encode_json(LicenseActivationRequest.to_json(request))
+    return encode_json(LicenseActivationRequest.to_blob_dict(request))
 
 
 def is_request_expired(created_at: int, ttl: int, now: int | None = None) -> bool:

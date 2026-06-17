@@ -16,10 +16,10 @@
 """
 Functional tests for the license activation-request route (GET /license/activation-request)
 
-Drives the route over HTTP with an authenticated admin: it returns 200 with both the activation
-request document and its downloadable blob, the blob decodes back to that document, and the
-returned hmac is the machine-binding HMAC over the issued fingerprint and id. The deeper crypto /
-persistence behaviour is asserted at the unit / integration tiers
+Drives the route over HTTP with an authenticated admin: it returns the activation request as a
+downloadable text/plain .txt attachment whose Base64 body decodes to the six request-file fields
+(no ttl/status), and the returned hmac is the machine-binding HMAC over the issued fingerprint and
+id. The deeper crypto / persistence behaviour is asserted at the unit / integration tiers
 """
 from http import HTTPStatus
 
@@ -32,14 +32,20 @@ from cmdb.security.license.license_constants import ActivationRequestKey
 from cmdb.security.license.transport import decode_json
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     ACTIVATION_REQUEST_ROUTE,
-    LicenseActivationResponseKey,
+    ACTIVATION_REQUEST_FILENAME,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = f'/license{ACTIVATION_REQUEST_ROUTE}'
 
-# Envelope key wrapping a GetSingleResponse payload
-RESULT_KEY: str = 'result'
+REQUEST_FILE_KEYS: set[str] = {
+    ActivationRequestKey.ID.value,
+    ActivationRequestKey.HMAC.value,
+    ActivationRequestKey.MACHINE_UUID.value,
+    ActivationRequestKey.MAC_ADDRESS.value,
+    ActivationRequestKey.SYSTEM_UUID.value,
+    ActivationRequestKey.COMPUTER_NAME.value,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -49,46 +55,41 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     database_manager.get_collection(LicenseActivationRequestsManager.COLLECTION, database_name).delete_many({})
 
 
-def test_get_activation_request_returns_request_and_blob(rest_api) -> None:
-    """The route returns 200 with the activation request document and its downloadable blob"""
+def test_get_returns_downloadable_txt_attachment(rest_api) -> None:
+    """The route returns 200 with a text/plain .txt attachment (Content-Disposition)"""
     response = rest_api.get(ROUTE_URL)
 
     assert response.status_code == HTTPStatus.OK
-    envelope = response.json[RESULT_KEY]
-    payload = envelope[LicenseActivationResponseKey.ACTIVATION_REQUEST.value]
-    blob = envelope[LicenseActivationResponseKey.BLOB.value]
-
-    assert payload[ActivationRequestKey.STATUS.value] == 'PENDING'
-    assert set(payload) == {key.value for key in ActivationRequestKey}
-    assert isinstance(blob, str) and blob != ''
+    assert response.mimetype == 'text/plain'
+    disposition = response.headers['Content-Disposition']
+    assert 'attachment' in disposition
+    assert ACTIVATION_REQUEST_FILENAME in disposition
 
 
-def test_blob_decodes_back_to_the_request_document(rest_api) -> None:
-    """The returned blob is the Base64+JSON encoding of the returned activation-request document"""
+def test_txt_body_decodes_to_the_six_request_file_fields(rest_api) -> None:
+    """The Base64 body decodes to exactly the six request-file fields (no ttl/status)"""
     response = rest_api.get(ROUTE_URL)
 
-    envelope = response.json[RESULT_KEY]
-    payload = envelope[LicenseActivationResponseKey.ACTIVATION_REQUEST.value]
-    blob = envelope[LicenseActivationResponseKey.BLOB.value]
+    decoded = decode_json(response.get_data(as_text=True))
 
-    assert decode_json(blob) == payload
+    assert set(decoded) == REQUEST_FILE_KEYS
 
 
 def test_returned_hmac_binds_the_fingerprint(rest_api) -> None:
-    """The returned hmac is the machine-binding HMAC over the request's fingerprint and id"""
+    """The hmac in the downloaded file is the machine-binding HMAC over its fingerprint and id"""
     response = rest_api.get(ROUTE_URL)
 
-    payload = response.json[RESULT_KEY][LicenseActivationResponseKey.ACTIVATION_REQUEST.value]
+    decoded = decode_json(response.get_data(as_text=True))
     fingerprint = {
-        ActivationRequestKey.MACHINE_UUID: payload[ActivationRequestKey.MACHINE_UUID.value],
-        ActivationRequestKey.MAC_ADDRESS: payload[ActivationRequestKey.MAC_ADDRESS.value],
-        ActivationRequestKey.SYSTEM_UUID: payload[ActivationRequestKey.SYSTEM_UUID.value],
-        ActivationRequestKey.COMPUTER_NAME: payload[ActivationRequestKey.COMPUTER_NAME.value],
+        ActivationRequestKey.MACHINE_UUID: decoded[ActivationRequestKey.MACHINE_UUID.value],
+        ActivationRequestKey.MAC_ADDRESS: decoded[ActivationRequestKey.MAC_ADDRESS.value],
+        ActivationRequestKey.SYSTEM_UUID: decoded[ActivationRequestKey.SYSTEM_UUID.value],
+        ActivationRequestKey.COMPUTER_NAME: decoded[ActivationRequestKey.COMPUTER_NAME.value],
     }
 
-    expected = machine_binding_hmac(fingerprint, payload[ActivationRequestKey.ID.value])
+    expected = machine_binding_hmac(fingerprint, decoded[ActivationRequestKey.ID.value])
 
-    assert payload[ActivationRequestKey.HMAC.value] == expected
+    assert decoded[ActivationRequestKey.HMAC.value] == expected
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

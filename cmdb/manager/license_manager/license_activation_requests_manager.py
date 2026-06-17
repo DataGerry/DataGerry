@@ -16,11 +16,13 @@
 """
 Implementation of LicenseActivationRequestsManager (license feature part P9, persistence)
 
-Persists offline activation requests in the `license.activationRequests` collection. It issues a
-fresh request (the P9 lifecycle build + a stored creation timestamp), looks one up by id or by hmac
-(the latter is the P11 findByHmac binding step), and evaluates lazy TTL expiry against the stored
-timestamp. The stored document is the activation request's wire dict plus a storage-only
-`created_at` (the downloadable blob never carries it)
+Persists offline activation requests in the `license.activationRequestRecords` collection (keyed by
+an integer public_id). It issues a fresh request - superseding any still-pending one so only the
+newest request is PENDING - looks one up by id or by hmac (the latter is the P11 findByHmac binding
+step), and evaluates lazy TTL expiry against a storage-only `created_at`. The stored document is the
+activation request's full wire dict (id, hmac, ttl, status + machine fields) plus `created_at`; the
+downloadable request file is the trimmed 6-field projection (no ttl / status / created_at). Expiry
+runs without a scheduler: superseded at create time, and flipped on read for a lone stale request
 """
 from logging import Logger, getLogger
 import time
@@ -36,7 +38,7 @@ from cmdb.security.license.activation_lifecycle import (
     is_request_expired,
     new_request_id,
 )
-from cmdb.security.license.license_constants import ActivationRequestKey
+from cmdb.security.license.license_constants import ActivationRequestKey, ActivationRequestStatus
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -53,7 +55,7 @@ class LicenseActivationRequestsManager(BaseManager):
 
     Extends: BaseManager
     """
-    COLLECTION: str = 'license.activationRequests'
+    COLLECTION: str = 'license.activationRequestRecords'
 
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
@@ -74,8 +76,9 @@ class LicenseActivationRequestsManager(BaseManager):
         """
         Builds, persists and returns a fresh PENDING activation request
 
-        Generates a new request id, binds the request to the fingerprint (HMAC), and stores its wire
-        document together with a storage-only creation timestamp for lazy TTL
+        Any still-pending requests are first superseded (bulk-marked EXPIRED) so at most one PENDING
+        request is ever live. The new request is then bound to the fingerprint (HMAC) and stored with
+        an integer public_id and a storage-only creation timestamp for lazy TTL
 
         Args:
             fingerprint (dict[str, str]): The machine fingerprint (get_machine_fingerprint shape)
@@ -84,16 +87,29 @@ class LicenseActivationRequestsManager(BaseManager):
         Returns:
             LicenseActivationRequest: The persisted activation request
         """
+        self._supersede_pending_requests()
+
         request = build_activation_request(fingerprint, new_request_id(), ttl)
 
         document = LicenseActivationRequest.to_json(request)
         document[ACTIVATION_CREATED_AT_KEY] = int(time.time())
 
-        # skip_public: this collection is keyed by the string request id, not an integer public_id,
-        # so the document is inserted as-is without public_id generation
-        self.insert(document, skip_public=True)
+        self.insert(document)
 
         return request
+
+
+    def _supersede_pending_requests(self) -> None:
+        """
+        Marks every still-PENDING activation request as EXPIRED
+
+        The create-time half of the no-scheduler expiry strategy: invoked before a new request is
+        stored so only the newest request can be PENDING
+        """
+        self.update_many(
+            {ActivationRequestKey.STATUS: ActivationRequestStatus.PENDING.value},
+            {ActivationRequestKey.STATUS: ActivationRequestStatus.EXPIRED.value},
+        )
 
 
     def get_by_request_id(self, request_id: str) -> dict[str, Any] | None:
@@ -152,3 +168,30 @@ class LicenseActivationRequestsManager(BaseManager):
             document[ActivationRequestKey.TTL],
             now,
         )
+
+
+    def expire_if_stale(self, document: dict[str, Any], now: int | None = None) -> dict[str, Any]:
+        """
+        Persists EXPIRED status on a PENDING request that has aged past its TTL (write-on-read)
+
+        The read-time half of the no-scheduler expiry strategy: a lone PENDING request that was never
+        superseded but whose TTL has elapsed is flipped to EXPIRED in the database the next time it is
+        read. Non-pending or still-valid documents are returned unchanged
+
+        Args:
+            document (dict[str, Any]): A stored activation-request document
+            now (int | None): Epoch seconds to evaluate against; defaults to the current time
+
+        Returns:
+            dict[str, Any]: The document, with status updated to EXPIRED when it had gone stale
+        """
+        is_pending = document.get(ActivationRequestKey.STATUS) == ActivationRequestStatus.PENDING.value
+
+        if is_pending and self.is_document_expired(document, now):
+            self.update(
+                {ActivationRequestKey.ID: document[ActivationRequestKey.ID]},
+                {ActivationRequestKey.STATUS: ActivationRequestStatus.EXPIRED.value},
+            )
+            document[ActivationRequestKey.STATUS] = ActivationRequestStatus.EXPIRED.value
+
+        return document

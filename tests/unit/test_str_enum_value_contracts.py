@@ -199,7 +199,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'AI_DOC_GENERATION': 'ai_doc_generation',
         'AUTOMATIONS': 'automations',
     }),
-    (ActivationRequestStatus, {'PENDING': 'PENDING', 'ACTIVATED': 'ACTIVATED'}),
+    (ActivationRequestStatus, {'PENDING': 'PENDING', 'PROCESSED': 'PROCESSED', 'EXPIRED': 'EXPIRED'}),
     (LicenseVerificationStatus, {
         'VALID': 'valid',
         'DECRYPT_FAILED': 'decrypt_failed',

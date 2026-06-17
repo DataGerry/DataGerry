@@ -89,14 +89,23 @@ def test_build_activation_request_matches_opencelium_sample() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          activation_request_blob                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_activation_request_blob_round_trips_to_wire_dict() -> None:
-    """The blob decodes back to the request's eight-field camelCase wire dict"""
+def test_activation_request_blob_contains_only_the_request_file_fields() -> None:
+    """The downloadable blob decodes to the six request-file fields, excluding ttl and status"""
     request = lc.build_activation_request(FINGERPRINT, 'req-1', ttl=TTL)
 
     decoded = decode_json(lc.activation_request_blob(request))
 
-    assert decoded == LicenseActivationRequest.to_json(request)
-    assert set(decoded) == {key.value for key in ActivationRequestKey}
+    assert decoded == LicenseActivationRequest.to_blob_dict(request)
+    assert set(decoded) == {
+        ActivationRequestKey.ID.value,
+        ActivationRequestKey.HMAC.value,
+        ActivationRequestKey.MACHINE_UUID.value,
+        ActivationRequestKey.MAC_ADDRESS.value,
+        ActivationRequestKey.SYSTEM_UUID.value,
+        ActivationRequestKey.COMPUTER_NAME.value,
+    }
+    assert ActivationRequestKey.TTL.value not in decoded
+    assert ActivationRequestKey.STATUS.value not in decoded
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
