@@ -14,21 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for CmdbLocations
-"""
-from .cmdb_location_errors import (
-    CmdbLocationError,
-    CmdbLocationInitError,
-    CmdbLocationInitFromDataError,
-    CmdbLocationToJsonError,
-    LocationNodeInitError,
-)
-# -------------------------------------------------------------------------------------------------------------------- #
+REST API routes for the CmdbLocation domain
 
-__all__: list[str] = [
-    'CmdbLocationError',
-    'CmdbLocationInitError',
-    'CmdbLocationInitFromDataError',
-    'CmdbLocationToJsonError',
-    'LocationNodeInitError',
-]
+Gathers everything backing the ``/rest/locations`` endpoints in one place, mirroring the
+``cmdb_objects`` and ``cmdb_types`` route packages:
+
+    location_routes.py      ``location_blueprint`` - the CmdbLocation CRUD endpoints
+    location_helper.py      route-level helpers shared by the CRUD handlers
+    location_constants.py   string constants used by those routes
+
+The CRUD handlers delegate their domain logic to ``LocationsManager``.
+"""

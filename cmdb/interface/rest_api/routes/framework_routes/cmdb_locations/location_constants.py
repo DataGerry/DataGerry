@@ -14,21 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for CmdbLocations
+String constants used by the CmdbLocation REST routes
 """
-from .cmdb_location_errors import (
-    CmdbLocationError,
-    CmdbLocationInitError,
-    CmdbLocationInitFromDataError,
-    CmdbLocationToJsonError,
-    LocationNodeInitError,
-)
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'CmdbLocationError',
-    'CmdbLocationInitError',
-    'CmdbLocationInitFromDataError',
-    'CmdbLocationToJsonError',
-    'LocationNodeInitError',
-]
+# Fallback name template applied when a CmdbLocation has no explicit name and the linked
+# CmdbObject yields no usable summary line. Format with the object's public_id.
+OBJECT_ID_NAME_TEMPLATE: str = 'ObjectID: {object_id}'
