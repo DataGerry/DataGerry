@@ -1,4 +1,5 @@
-<div class="container" *ngIf="controlMeasureForm" [formGroup]="controlMeasureForm">
+@if (controlMeasureForm) {
+<div class="container" [formGroup]="controlMeasureForm">
   <h2 class="mb-3">
     {{ isViewMode ? 'View Control' : isEditMode ? 'Edit Control' : 'Add Control' }} </h2>
 
@@ -39,15 +40,19 @@
           </button> -->
 
           <!-- Source Manage Button -->
+          @if (!isViewMode) {
           <app-button [bootstrapClass]="'btn-outline-secondary'" [padding]="'4.5px'" size="sm" label="Manage Sources"
-            (clicked)="openSourceManager()" type="button" *ngIf="!isViewMode">
+            (clicked)="openSourceManager()" type="button">
           </app-button>
+          }
         </div>
       </div>
 
-      <div class="invalid-feedback d-block mt-1" *ngIf="hasError('source','required')">
+      @if (hasError('source','required')) {
+      <div class="invalid-feedback d-block mt-1">
         Source is required
       </div>
+      }
     </div>
 
 
@@ -78,56 +83,65 @@
             [dropdownDirection]="'top'"></app-form-select>
         </div>
         <div>
-          <!-- <button type="button" class="btn btn-outline-secondary btn-sm" (click)="openImplementationStateManager()">
-            Manage Implementation States
-          </button> -->
 
           <!-- Implementation State Manage Button -->
+          @if (!isViewMode) {
           <app-button [bootstrapClass]="'btn-outline-secondary'" size="sm" label="Manage Implementation States"
-            [padding]="'4.5px'" (clicked)="openImplementationStateManager()" type="button" *ngIf="!isViewMode">
+            [padding]="'4.5px'" (clicked)="openImplementationStateManager()" type="button">
           </app-button>
+          }
         </div>
       </div>
 
-      <div class="invalid-feedback d-block mt-1" *ngIf="hasError('implementation_state','required')">
+      @if (hasError('implementation_state','required')) {
+      <div class="invalid-feedback d-block mt-1">
         Implementation State is required
       </div>
+      }
     </div>
 
     <!-- Footer Buttons -->
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
-      <!-- <button class="btn btn-secondary me-2" type="button" (click)="onCancel()">
-        Cancel
-      </button> -->
-      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()"
-        *ngIf="!isViewMode">
+
+      @if (!isViewMode) {
+      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
       </app-button>
+      }
       <div *permissionLink="['base.isms.controlMeasure.add', 'base.isms.controlMeasure.edit']">
         <!-- Submit Button -->
-        <app-button [bootstrapClass]="'btn-success'" [disabled]="controlMeasureForm.invalid" *ngIf="!isViewMode"
+        @if (!isViewMode) {
+        <app-button [bootstrapClass]="'btn-success'" [disabled]="controlMeasureForm.invalid"
           [label]="isEditMode ? 'Save Changes' : 'Create Control'" type="submit">
         </app-button>
+        }
       </div>
     </div>
   </form>
-  <div class="mt-3" *ngIf="isViewMode">
+  @if (isViewMode) {
+  <div class="mt-3">
     <cmdb-control-measure-footer [controlMeasureName]="controlMeasure.title"
       [currentID]="controlMeasure.public_id"></cmdb-control-measure-footer>
   </div>
+  }
 
 </div>
+}
 
 <!-- Manage Source Modal -->
-<app-extendable-option-manager *ngIf="showSourceManager" [options]="sourceOptions" [optionType]="'CONTROL_MEASURE'"
+@if (showSourceManager) {
+<app-extendable-option-manager [options]="sourceOptions" [optionType]="'CONTROL_MEASURE'"
   [modalTitle]="'Manage Control Measure Sources'" [itemLabel]="'Control Measure Source'"
   [itemLabelPlural]="'Control Measure Sources'" (close)="closeSourceManager()"></app-extendable-option-manager>
+}
 
 <!-- Manage Implementation State Modal -->
-<app-extendable-option-manager *ngIf="showImplementationStateManager" [options]="implementationStateOptions"
-  [optionType]="'IMPLEMENTATION_STATE'" [modalTitle]="'Manage Implementation States'"
-  [itemLabel]="'Implementation State'" [itemLabelPlural]="'Implementation States'"
+@if (showImplementationStateManager) {
+<app-extendable-option-manager [options]="implementationStateOptions" [optionType]="'IMPLEMENTATION_STATE'"
+  [modalTitle]="'Manage Implementation States'" [itemLabel]="'Implementation State'"
+  [itemLabelPlural]="'Implementation States'"
   (close)="closeImplementationStateManager()"></app-extendable-option-manager>
+}
 
 <!-- Loading Spinner -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="Saving...">
