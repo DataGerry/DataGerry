@@ -73,15 +73,17 @@ class LicenseFeature(BaseStrEnum):
 
 class ActivationRequestStatus(BaseStrEnum):
     """
-    Lifecycle status of an activation request
+    Lifecycle status of a stored activation request
 
+    A DB-only field tracking the request lifecycle; it is NOT part of the downloaded request file.
     PENDING is the status of a freshly built activation request the admin downloads and of the
-    embedded default request (it is the value carried by the real OpenCelium sample). ACTIVATED
-    marks a request whose matching license has been applied. The string values are the exact
-    wire-format tokens
+    embedded default request. PROCESSED marks a request whose matching license has been applied.
+    EXPIRED marks a request that has aged past its TTL or was superseded by a newer request (set in
+    bulk when a new request is created, or lazily on read). The string values are uppercase tokens
     """
     PENDING = 'PENDING'
-    ACTIVATED = 'ACTIVATED'
+    PROCESSED = 'PROCESSED'
+    EXPIRED = 'EXPIRED'
 
 
 class LicenseVerificationStatus(BaseStrEnum):

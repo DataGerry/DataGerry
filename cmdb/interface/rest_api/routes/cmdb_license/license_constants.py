@@ -33,16 +33,8 @@ LICENSE_VIEW_RIGHT: str = 'base.license.view'
 LICENSE_EDIT_RIGHT: str = 'base.license.edit'
 LICENSE_DELETE_RIGHT: str = 'base.license.delete'
 
-
-class LicenseActivationResponseKey(BaseStrEnum):
-    """
-    Keys of the activation-request route's JSON response payload
-
-    ACTIVATION_REQUEST carries the activation-request wire document; BLOB carries the Base64+JSON
-    blob the admin downloads and hands to the license generator
-    """
-    ACTIVATION_REQUEST = 'activation_request'
-    BLOB = 'blob'
+# Filename of the downloadable activation-request .txt the admin hands to the license portal
+ACTIVATION_REQUEST_FILENAME: str = 'datagerry_activation_request.txt'
 
 
 class LicenseUploadKey(BaseStrEnum):

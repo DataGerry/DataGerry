@@ -61,6 +61,25 @@ def test_to_json_uses_camelcase_wire_keys() -> None:
     assert set(LicenseActivationRequest.to_json(request)) == set(ActivationRequestKey)
 
 
+def test_to_blob_dict_excludes_lifecycle_fields() -> None:
+    """to_blob_dict emits only the six request-file fields, omitting ttl and status"""
+    request = LicenseActivationRequest.from_data(VALID_REQUEST)
+
+    blob = LicenseActivationRequest.to_blob_dict(request)
+
+    assert set(blob) == {
+        ActivationRequestKey.ID,
+        ActivationRequestKey.HMAC,
+        ActivationRequestKey.MACHINE_UUID,
+        ActivationRequestKey.MAC_ADDRESS,
+        ActivationRequestKey.SYSTEM_UUID,
+        ActivationRequestKey.COMPUTER_NAME,
+    }
+    assert ActivationRequestKey.TTL not in blob
+    assert ActivationRequestKey.STATUS not in blob
+    assert blob[ActivationRequestKey.ID] == VALID_REQUEST[ActivationRequestKey.ID]
+
+
 def test_to_json_survives_base64_json_transport() -> None:
     """The enum-keyed to_json dict serializes through P5 transport to plain camelCase string keys"""
     request = LicenseActivationRequest.from_data(VALID_REQUEST)

@@ -108,7 +108,10 @@ class LicenseActivationRequest:
     @classmethod
     def to_json(cls, instance: "LicenseActivationRequest") -> dict[str, Any]:
         """
-        Converts a LicenseActivationRequest into its camelCase wire dict
+        Converts a LicenseActivationRequest into its full camelCase document
+
+        This is the storage representation (it carries the lifecycle fields ttl and status); the
+        downloadable request file is the trimmed projection produced by to_blob_dict
 
         Args:
             instance (LicenseActivationRequest): The instance to serialize
@@ -121,6 +124,30 @@ class LicenseActivationRequest:
             ActivationRequestKey.HMAC: instance.hmac,
             ActivationRequestKey.TTL: instance.ttl,
             ActivationRequestKey.STATUS: instance.status,
+            ActivationRequestKey.MACHINE_UUID: instance.machine_uuid,
+            ActivationRequestKey.MAC_ADDRESS: instance.mac_address,
+            ActivationRequestKey.SYSTEM_UUID: instance.system_uuid,
+            ActivationRequestKey.COMPUTER_NAME: instance.computer_name,
+        }
+
+    @classmethod
+    def to_blob_dict(cls, instance: "LicenseActivationRequest") -> dict[str, Any]:
+        """
+        Converts a LicenseActivationRequest into the downloadable request-file document
+
+        Emits only the fields the license portal needs: the request id, the machine-binding HMAC
+        and the four machine fingerprint fields. The lifecycle fields (ttl, status) and the
+        server-side created_at are storage-only and deliberately excluded from the file
+
+        Args:
+            instance (LicenseActivationRequest): The instance to serialize
+
+        Returns:
+            dict[str, Any]: The request-file document keyed by ActivationRequestKey (6 fields)
+        """
+        return {
+            ActivationRequestKey.ID: instance.request_id,
+            ActivationRequestKey.HMAC: instance.hmac,
             ActivationRequestKey.MACHINE_UUID: instance.machine_uuid,
             ActivationRequestKey.MAC_ADDRESS: instance.mac_address,
             ActivationRequestKey.SYSTEM_UUID: instance.system_uuid,
