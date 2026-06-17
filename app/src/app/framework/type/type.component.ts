@@ -175,13 +175,13 @@ export class TypeComponent implements OnInit, OnDestroy {
                 display: 'Public ID',
                 name: 'public_id',
                 data: 'public_id',
-                searchable: true,
+                searchable: false,
                 sortable: true
             },
             {
                 display: 'Type',
                 name: 'name',
-                data: 'name',
+                data: 'label',
                 searchable: true,
                 sortable: true,
                 template: this.typeNameTemplate,
@@ -190,7 +190,7 @@ export class TypeComponent implements OnInit, OnDestroy {
                 display: 'Author',
                 name: 'author_id',
                 data: 'author_id',
-                searchable: true,
+                searchable: false,
                 sortable: true,
                 template: this.userTemplate
             },
@@ -207,7 +207,7 @@ export class TypeComponent implements OnInit, OnDestroy {
                 name: 'editor_id',
                 data: 'editor_id',
                 sortable: true,
-                searchable: true,
+                searchable: false,
                 template: this.userTemplate
             },
             {
@@ -298,29 +298,12 @@ export class TypeComponent implements OnInit, OnDestroy {
             // Searchable Columns
             for (const column of searchableColumns) {
                 const regex: any = {};
-                regex[column.name] = {
+                regex[column.data] = {
                     $regex: String(this.filter),
-                    $options: 'ismx'
+                    $options: 'ims'
                 };
                 or.push(regex);
             }
-
-            query.push({
-                $addFields: {
-                    public_id: { $toString: '$public_id' }
-                }
-            });
-
-            or.push({
-                public_id: {
-                    $elemMatch: {
-                        value: {
-                            $regex: String(this.filter),
-                            $options: 'ismx'
-                        }
-                    }
-                }
-            });
 
             query.push({ $match: { $or: or } });
         }
