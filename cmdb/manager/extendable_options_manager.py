@@ -19,7 +19,6 @@ This module contains the implementation of the ExtendableOptionsManager
 from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.extendable_option_model import CmdbExtendableOption

@@ -349,12 +349,9 @@ def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id
     if not object_location:
         return
 
-    # get all child locations for this location
-    all_locations: list[dict[str, Any]] = locations_manager.get_all_locations_excluding_root()
-
-    all_child_locations: list[dict[str, Any]] = locations_manager.get_all_children(
-        object_location['public_id'],
-        all_locations
+    # get all child locations for this location (resolved server-side via $graphLookup)
+    all_child_locations: list[dict[str, Any]] = locations_manager.get_all_descendant_locations(
+        object_location['public_id']
     )
 
     # delete all child locations
