@@ -30,7 +30,8 @@
           <cmdb-search-bar></cmdb-search-bar>
         </div>
 
-        <div *ngIf="isCloudMode" class="col-auto d-flex align-items-center justify-content-center px-3">
+        @if (isCloudMode) {
+        <div class="col-auto d-flex align-items-center justify-content-center px-3">
           <div class="progress-container w-100">
             <div class="progress-label">
               <span class="label-text">Objects {{ usedObjects }} / {{ totalObjects }}</span>
@@ -45,6 +46,7 @@
             </div>
           </div>
         </div>
+        }
 
         <div class="col-auto ms-auto pe-0">
           <ul
@@ -168,12 +170,14 @@
                           <span>ISMS</span>
                         </a>
                       </div>
-                      <div class="col" *ngIf="featurePreviewMode">
+                      @if (featurePreviewMode) {
+                      <div class="col">
                         <a class="dropdown-icon-item" (click)="goToAiPromptPage()">
                           <i class="fas fa-robot"></i>
                           <span>AI Assistant</span>
                         </a>
                       </div>
+                      }
                       <div class="col">
                         <a class="dropdown-icon-item" data-bs-toggle="modal" data-bs-target="#feedback-modal"
                           (click)="feedback()">
@@ -200,9 +204,11 @@
                   aria-label="Open notifications" [attr.aria-expanded]="isNotificationDrawerOpen"
                   (click)="toggleNotificationDrawer()">
                   <i class="fas fa-bell hover-trigger"></i>
-                  <span class="notification-badge" *ngIf="(notificationCount$ | async) as count">
+                  @if ((notificationCount$ | async); as count) {
+                  <span class="notification-badge">
                     {{ formatNotificationCount(count) }}
                   </span>
+                  }
                 </button>
               </li>
               <p class="hover-trigger">Notifications</p>
@@ -231,7 +237,8 @@
                   </a>
 
                   <!-- Other System Items: Shown only when !isCloudMode -->
-                  <div *ngIf="!isCloudMode">
+                  @if (!isCloudMode) {
+                  <div>
                     <a class="dropdown-item" *permissionLink="'base.system.view'" [routerLink]="['/settings/system']">
                       <i class="fas fa-info-circle"></i> System Information
                     </a>
@@ -243,6 +250,7 @@
                       <i class="fas fa-database"></i> Database Properties
                     </a>
                   </div>
+                  }
 
                   <!-- Always-Visible User Management Header -->
                   <div class="dropdown-header" *permissionLink="[
@@ -303,25 +311,35 @@
                 </span>
               </a>
               <div class="dropdown-menu dropdown-menu-end" aria-labelledby="topbar-userdrop">
-                <div class="dropdown-header" *ngIf="!isCloudMode">
+                @if (!isCloudMode) {
+                <div class="dropdown-header">
                   My Account
                 </div>
-                <a routerLink="/management/users/view/" class="dropdown-item pt-1" *ngIf="!isCloudMode">
-                  <i class="fas fa-user-edit" *ngIf="!isCloudMode"></i> Settings
+                }
+                @if (!isCloudMode) {
+                <a routerLink="/management/users/view/" class="dropdown-item pt-1">
+                  @if (!isCloudMode) {
+                  <i class="fas fa-user-edit"></i>
+                  } Settings
                 </a>
+                }
                 <div class="dropdown-header">Services</div>
                 <a class="dropdown-item pt-1" [routerLink]="['/info/about']">
                   <i class="fas fa-cube"></i> About DataGerry
                 </a>
-                <a class="dropdown-item" href="https://service.datagerry.com" target="_blank" *ngIf="isCloudMode">
+                @if (isCloudMode) {
+                <a class="dropdown-item" href="https://service.datagerry.com" target="_blank">
                   <i class="fas fa-solid fa-circle-info"></i> DataGerry Service Portal
                 </a>
+                }
                 <a class="dropdown-item" href="https://docs.datagerry.com" target="_blank">
                   <i class="fas fa-book"></i> Documentation
                 </a>
-                <a class="dropdown-item" [routerLink]="['/info/license']" *ngIf="!isCloudMode">
+                @if (!isCloudMode) {
+                <a class="dropdown-item" [routerLink]="['/info/license']">
                   <i class="fas fa-lock-open"></i> License
                 </a>
+                }
                 <div class="dropdown-header">Goodbye</div>
                 <a class="dropdown-item pb-1" (click)="logout()">
                   <i class="fas fa-sign-out-alt"></i> Logout

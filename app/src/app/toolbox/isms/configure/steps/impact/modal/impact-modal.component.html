@@ -13,16 +13,12 @@
       <label for="impactName" class="form-label">
         Name <span class="text-danger">*</span>
       </label>
-      <input
-        id="impactName"
-        type="text"
-        class="form-control"
-        formControlName="name"
-        placeholder="Enter a name..."
-      />
-      <div *ngIf="form.get('name')?.touched && form.get('name')?.invalid" class="invalid-feedback d-block">
+      <input id="impactName" type="text" class="form-control" formControlName="name" placeholder="Enter a name..." />
+      @if (form.get('name')?.touched && form.get('name')?.invalid) {
+      <div class="invalid-feedback d-block">
         Name is required.
       </div>
+      }
     </div>
 
     <!-- Description (required) -->
@@ -30,16 +26,13 @@
       <label for="impactDescription" class="form-label">
         Description
       </label>
-      <textarea
-        id="impactDescription"
-        class="form-control"
-        formControlName="description"
-        rows="3"
-        placeholder="Enter a description..."
-      ></textarea>
-      <div *ngIf="form.get('description')?.touched && form.get('description')?.invalid" class="invalid-feedback d-block">
+      <textarea id="impactDescription" class="form-control" formControlName="description" rows="3"
+        placeholder="Enter a description..."></textarea>
+      @if (form.get('description')?.touched && form.get('description')?.invalid) {
+      <div class="invalid-feedback d-block">
         Description is required.
       </div>
+      }
     </div>
 
     <!-- Calculation Basis (required, exactly one decimal digit, no duplicates) -->
@@ -48,49 +41,47 @@
         Calculation Basis <span class="text-danger">*</span>
       </label>
       <!-- type="text" so we keep trailing zero in the string -->
-      <input
-        id="calculation_basis"
-        type="text"
-        class="form-control"
-        formControlName="calculation_basis"
-        placeholder="E.g., 2.0, 3.5, 9.9"
-      />
+      <input id="calculation_basis" type="text" class="form-control" formControlName="calculation_basis"
+        placeholder="E.g., 2.0, 3.5, 9.9" />
 
       <!-- Required error -->
-      <div
-        *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.required"
-        class="invalid-feedback d-block"
-      >
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.required) {
+      <div class="invalid-feedback d-block">
         Calculation Basis is required.
       </div>
+      }
 
       <!-- Pattern error -->
-      <div
-        *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.pattern"
-        class="invalid-feedback d-block"
-      >
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.pattern) {
+      <div class="invalid-feedback d-block">
         Please enter exactly one digit after the decimal (e.g. 2.0, 3.1).
       </div>
+      }
 
       <!-- Duplicate error -->
-      <div
-        *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.duplicateCalculationBasis"
-        class="invalid-feedback d-block"
-      >
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.duplicateCalculationBasis) {
+      <div class="invalid-feedback d-block">
         This calculation basis already exists.
       </div>
+      }
 
-      <div *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.zeroNotAllowed" class="invalid-feedback d-block">
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.zeroNotAllowed) {
+      <div class="invalid-feedback d-block">
         Calculation Basis cannot be zero.
       </div>
-      
+      }
+
     </div>
 
     <div class="modal-footer">
       <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
       <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        <span *ngIf="!isSubmitting">{{ isEditMode ? 'Save Changes' : 'Add Impact' }}</span>
-        <span *ngIf="isSubmitting" class="spinner-border spinner-border-sm"></span>
+        @if (!isSubmitting) {
+        <span>{{ isEditMode ? 'Save Changes' : 'Add Impact' }}</span>
+        }
+        @if (isSubmitting) {
+        <span class="spinner-border spinner-border-sm"></span>
+        }
       </button>
     </div>
   </form>

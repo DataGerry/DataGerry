@@ -36,27 +36,35 @@
     </ul>
 
     <div [formGroup]="form">
-        <cmdb-docapi-page-margins-options *ngIf="activeTab === 'margins'" [marginsForm]="form" />
+        @if (activeTab === 'margins') {
+        <cmdb-docapi-page-margins-options [marginsForm]="form" />
+        }
 
-        <cmdb-docapi-page-cover-options *ngIf="activeTab === 'cover'" [coverForm]="form"
-            [editorConfig]="coverEditorConfig" />
+        @if (activeTab === 'cover') {
+        <cmdb-docapi-page-cover-options [coverForm]="form" [editorConfig]="coverEditorConfig" />
+        }
 
-        <cmdb-docapi-page-header-options *ngIf="activeTab === 'header'" [headerForm]="form"
-            [editorConfig]="headerEditorConfig" [activationToggleId]="'headerActivatedInput'"
-            [contentHelpText]="pageSectionHeightConstraintHint" />
+        @if (activeTab === 'header') {
+        <cmdb-docapi-page-header-options [headerForm]="form" [editorConfig]="headerEditorConfig"
+            [activationToggleId]="'headerActivatedInput'" [contentHelpText]="pageSectionHeightConstraintHint" />
+        }
 
-        <cmdb-docapi-page-header-options *ngIf="activeTab === 'footer'" [headerForm]="form"
-            [editorConfig]="footerEditorConfig" [activatedControlName]="'footer_activated'"
-            [activationToggleId]="'footerActivatedInput'"
+        @if (activeTab === 'footer') {
+        <cmdb-docapi-page-header-options [headerForm]="form" [editorConfig]="footerEditorConfig"
+            [activatedControlName]="'footer_activated'" [activationToggleId]="'footerActivatedInput'"
             [contentControlName]="'footer_content'" [activationLabel]="'Activate footer'"
-            [contentLabel]="'Footer Content'"
-            [contentHelpText]="pageSectionHeightConstraintHint" />
+            [contentLabel]="'Footer Content'" [contentHelpText]="pageSectionHeightConstraintHint" />
+        }
 
-        <cmdb-docapi-page-toc-options *ngIf="activeTab === 'toc'" [tocForm]="form" />
+        @if (activeTab === 'toc') {
+        <cmdb-docapi-page-toc-options [tocForm]="form" />
+        }
 
-        <div *ngIf="validationError" class="validation-error">
+        @if (validationError) {
+        <div class="validation-error">
             {{ validationError }}
         </div>
+        }
     </div>
 </div>
 
@@ -65,6 +73,7 @@
     <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
     </app-button>
 
-    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled" (clicked)="apply()">
+    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled"
+        (clicked)="apply()">
     </app-button>
 </div>

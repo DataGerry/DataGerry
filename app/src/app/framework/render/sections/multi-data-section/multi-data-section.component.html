@@ -2,34 +2,21 @@
     <legend>{{section?.label}}</legend>
 
     @if(showAddButton()) {
-        <button type="button"
-                class="btn btn-success btn-sm me-1 add-row-button"
-                (click)="onAddRowClicked()">
-            <i class="fas fa-plus"></i> Add
-        </button>
+    <button type="button" class="btn btn-success btn-sm me-1 add-row-button" (click)="onAddRowClicked()">
+        <i class="fas fa-plus"></i> Add
+    </button>
     }
 
-    <cmdb-table
-        *ngIf="!updateRequired"
-        [columns]="multiDataColumns"
-        [items]="currentMultiDataValues"
-        [page]="currentPage"
-        [pageSizeEnabled]="false"
-        [totalItems]="tableMultiDataValues.length"
-        [searchEnabled]="false"
-        [pageSize]="pageSizeLimit"
-        [paginationEnabled]="showPagination()"
-        (pageChange)="onPageChange($event)"
-    />
+    @if (!updateRequired) {
+    <cmdb-table [columns]="multiDataColumns" [items]="currentMultiDataValues" [page]="currentPage"
+        [pageSizeEnabled]="false" [totalItems]="tableMultiDataValues.length" [searchEnabled]="false"
+        [pageSize]="pageSizeLimit" [paginationEnabled]="showPagination()" (pageChange)="onPageChange($event)" />
+    }
 </fieldset>
 
 <ng-template #actionsTemplate let-item="item">
-    <cmdb-multi-data-actions
-        [data]="item"
-        (previewRowEmitter)="onRowPreview($event)"
-        (editRowEmitter)="onRowEdit($event)"
-        (deleteRowEmitter)="onRowDelete($event)"
-    />
+    <cmdb-multi-data-actions [data]="item" (previewRowEmitter)="onRowPreview($event)"
+        (editRowEmitter)="onRowEdit($event)" (deleteRowEmitter)="onRowDelete($event)" />
 </ng-template>
 
 <ng-template #passwordTemplate let-item="item" let-column="column">
@@ -55,4 +42,4 @@
     }
 </ng-template>
 
-<hr/>
+<hr />

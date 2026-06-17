@@ -3,136 +3,129 @@
     <div class="search-section">
         <div class="search-box">
             <i class="fas fa-search search-icon"></i>
-            <input
-                id="ipam-search"
-                class="search-input"
-                type="text"
-                placeholder="Search networks..."
-                [(ngModel)]="searchString"
-                autocomplete="off">
-            <button
-                class="clear-button"
-                *ngIf="searchString"
-                (click)="handleSearchReset()"
-                type="button"
-                aria-label="Clear search">
+            <input id="ipam-search" class="search-input" type="text" placeholder="Search networks..."
+                [(ngModel)]="searchString" autocomplete="off">
+            @if (searchString) {
+            <button class="clear-button" (click)="handleSearchReset()" type="button" aria-label="Clear search">
                 <i class="fas fa-times"></i>
             </button>
+            }
         </div>
     </div>
 
     <!-- Tree -->
     <div class="tree-scroll-area" [class.expanded-mode]="isExpanded">
-        <button
-            *ngIf="showSidebarExpandButton"
-            class="sidebar-expand-button"
-            (click)="onSidebarExpandClicked()"
+        @if (showSidebarExpandButton) {
+        <button class="sidebar-expand-button" (click)="onSidebarExpandClicked()"
             [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
             title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
-            <i class="fas fa-expand" *ngIf="!isExpanded"></i>
-            <i class="fas fa-compress" *ngIf="isExpanded"></i>
+            @if (!isExpanded) {
+            <i class="fas fa-expand"></i>
+            }
+            @if (isExpanded) {
+            <i class="fas fa-compress"></i>
+            }
         </button>
+        }
 
         <!-- Loading state: initial tree fetch -->
-        <div *ngIf="isLoadingTree" class="loading-message">
+        @if (isLoadingTree) {
+        <div class="loading-message">
             <i class="fas fa-spinner fa-spin"></i>
             <span>Loading networks...</span>
         </div>
+        }
 
         <!-- Empty state: no IPAM data configured -->
-        <div *ngIf="!isLoadingTree && !hasSupernets && !hasUnassigned" class="empty-state-message">
+        @if (!isLoadingTree && !hasSupernets && !hasUnassigned) {
+        <div class="empty-state-message">
             <i class="fas fa-network-wired"></i>
             <span>No IPAM data was configured</span>
         </div>
+        }
 
         <!-- Empty state: no search results -->
-        <div *ngIf="!isLoadingTree && (hasSupernets || hasUnassigned) && searchString && !hasSearchResults"
-            class="empty-state-message">
+        @if (!isLoadingTree && (hasSupernets || hasUnassigned) && searchString && !hasSearchResults) {
+        <div class="empty-state-message">
             <i class="fas fa-search"></i>
             <span>No network found.</span>
         </div>
+        }
 
-        <ng-container *ngIf="!isLoadingTree && (!searchString || hasSearchResults)">
+        @if (!isLoadingTree && (!searchString || hasSearchResults)) {
 
-            <!-- Supernets -->
-            <ng-container *ngIf="hasSupernets && (!searchString || hasVisibleSupernets)">
-                <p class="ipam-section-label">Supernets</p>
 
-                <mat-tree
-                    [dataSource]="supernetDataSource"
-                    [treeControl]="treeControl"
-                    class="ipam-tree">
+        <!-- Supernets -->
+        @if (hasSupernets && (!searchString || hasVisibleSupernets)) {
 
-                    <!-- Leaf Node -->
-                    <mat-tree-node
-                        *matTreeNodeDef="let node"
-                        [style.display]="filterLeafNode(node) ? 'none' : 'block'"
-                        class="tree-node leaf-node"
-                        [class.is-selected]="node.public_id === selectedNodeId">
-                        <div class="node-wrapper">
-                            <div class="node-indent"></div>
-                            <div class="node-content" (click)="onNodeClicked(node.public_id)">
-                                <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
-                            </div>
-                        </div>
-                    </mat-tree-node>
+        <p class="ipam-section-label">Supernets</p>
 
-                    <!-- Parent Node (lazy-loaded children) -->
-                    <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
-                        <div
-                            class="tree-node parent-node"
-                            [style.display]="filterParentNode(node) ? 'none' : 'block'"
-                            [class.is-selected]="node.public_id === selectedNodeId"
-                            [class.is-expanded]="treeControl.isExpanded(node)">
-                            <div class="node-wrapper">
-                                <button
-                                    class="expand-toggle"
-                                    type="button"
-                                    [attr.aria-label]="'Toggle ' + node.name"
-                                    [attr.aria-expanded]="treeControl.isExpanded(node)"
-                                    (click)="onToggleSupernet(node)">
-                                    <i class="fas fa-spinner fa-spin" *ngIf="isNodeLoading(node)"></i>
-                                    <svg *ngIf="!isNodeLoading(node)" class="chevron-icon" width="16" height="16"
-                                        viewBox="0 0 16 16" fill="none">
-                                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5"
-                                            stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                </button>
-                                <div class="node-content" (click)="onNodeClicked(node.public_id)">
-                                    <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
-                                </div>
-                            </div>
-                        </div>
-                        <div
-                            class="children-wrapper"
-                            [class.is-collapsed]="!treeControl.isExpanded(node)"
-                            role="group">
-                            <ng-container matTreeNodeOutlet></ng-container>
-                        </div>
-                    </mat-nested-tree-node>
-                </mat-tree>
-            </ng-container>
+        <mat-tree [dataSource]="supernetDataSource" [treeControl]="treeControl" class="ipam-tree">
 
-            <!-- Unassigned -->
-            <ng-container *ngIf="hasUnassigned && filteredUnassigned.length">
-                <p class="ipam-section-label">Unassigned</p>
+            <!-- Leaf Node -->
+            <mat-tree-node *matTreeNodeDef="let node" [style.display]="filterLeafNode(node) ? 'none' : 'block'"
+                class="tree-node leaf-node" [class.is-selected]="node.public_id === selectedNodeId">
+                <div class="node-wrapper">
+                    <div class="node-indent"></div>
+                    <div class="node-content" (click)="onNodeClicked(node.public_id)">
+                        <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
+                    </div>
+                </div>
+            </mat-tree-node>
 
-                <div class="ipam-tree">
-                    <div
-                        *ngFor="let node of filteredUnassigned"
-                        class="tree-node leaf-node"
-                        [class.is-selected]="node.public_id === selectedNodeId">
-                        <div class="node-wrapper">
-                            <div class="node-indent"></div>
-                            <div class="node-content" (click)="onNodeClicked(node.public_id)">
-                                <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
-                            </div>
+            <!-- Parent Node (lazy-loaded children) -->
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
+                <div class="tree-node parent-node" [style.display]="filterParentNode(node) ? 'none' : 'block'"
+                    [class.is-selected]="node.public_id === selectedNodeId"
+                    [class.is-expanded]="treeControl.isExpanded(node)">
+                    <div class="node-wrapper">
+                        <button class="expand-toggle" type="button" [attr.aria-label]="'Toggle ' + node.name"
+                            [attr.aria-expanded]="treeControl.isExpanded(node)" (click)="onToggleSupernet(node)">
+                            @if (isNodeLoading(node)) {
+                            <i class="fas fa-spinner fa-spin"></i>
+                            }
+                            @if (!isNodeLoading(node)) {
+                            <svg class="chevron-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                            </svg>
+                            }
+                        </button>
+                        <div class="node-content" (click)="onNodeClicked(node.public_id)">
+                            <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
                         </div>
                     </div>
                 </div>
-            </ng-container>
+                <div class="children-wrapper" [class.is-collapsed]="!treeControl.isExpanded(node)" role="group">
+                    <ng-container matTreeNodeOutlet></ng-container>
+                </div>
+            </mat-nested-tree-node>
+        </mat-tree>
 
-        </ng-container>
+        }
+
+        <!-- Unassigned -->
+        @if (hasUnassigned && filteredUnassigned.length) {
+
+        <p class="ipam-section-label">Unassigned</p>
+
+        <div class="ipam-tree">
+            @for (node of filteredUnassigned; track node) {
+            <div class="tree-node leaf-node" [class.is-selected]="node.public_id === selectedNodeId">
+                <div class="node-wrapper">
+                    <div class="node-indent"></div>
+                    <div class="node-content" (click)="onNodeClicked(node.public_id)">
+                        <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
+                    </div>
+                </div>
+            </div>
+            }
+        </div>
+
+        }
+
+
+        }
     </div>
 </div>
 

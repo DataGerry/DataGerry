@@ -1,8 +1,8 @@
-<div class="modal-content" *ngIf="isUsable; else notUsableModal">
+@if (isUsable) {
+<div class="modal-content">
   <div class="modal-body">
 
-    <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50"
-           alt="DATAGERRY"/>
+    <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50" alt="DATAGERRY" />
 
     <div class="card text-center border-0">
       <div class="card-body">
@@ -11,12 +11,13 @@
         <p class="card-text text-muted">
           <!-- Take a short spin through your DATAGERRY CMDB.<br>
           See how DATAGERRY is making life a bit easier for you. -->
-          The assistant can help you setup up your initial structure for DataGerry in a few simple steps.<br/>
-          Try it out by clicking the <b>'Start Assistant'</b>-button.<br/>
+          The assistant can help you setup up your initial structure for DataGerry in a few simple steps.<br />
+          Try it out by clicking the <b>'Start Assistant'</b>-button.<br />
           Click the <b>Cancel</b>-button to start with an empty data model to define your own.
           <br />
           <br />
-          The Assistant can also be started by pressing " <i class="fas fa-th"></i><b> => Assistant</b>" in the top right corner.
+          The Assistant can also be started by pressing " <i class="fas fa-th"></i><b> => Assistant</b>" in the top
+          right corner.
         </p>
       </div>
     </div>
@@ -26,16 +27,17 @@
     <button type="button" class="btn btn-primary p-2" (click)="activeModal.close(true)">Start Assistant</button>
   </div>
 </div>
+} @else {
 
-<ng-template #notUsableModal>
-    <div class="modal-content">
-        <div class="modal-body">
-          <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50" alt="DATAGERRY"/>
-          <br>
-            The assistant is only usable when no categories, types and objects exist in the database.
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-warning" (click)="activeModal.close(false)">Close</button>
-        </div>
-    </div>
-</ng-template>
+<div class="modal-content">
+  <div class="modal-body">
+    <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50" alt="DATAGERRY" />
+    <br>
+    The assistant is only usable when no categories, types and objects exist in the database.
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-warning" (click)="activeModal.close(false)">Close</button>
+  </div>
+</div>
+
+}

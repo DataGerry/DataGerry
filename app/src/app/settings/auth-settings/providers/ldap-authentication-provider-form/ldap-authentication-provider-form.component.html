@@ -1,32 +1,27 @@
 <div class="card-header">
   <ul class="nav nav-tabs card-header-tabs">
     <li class="nav-item">
-      <a class="nav-link active" data-bs-toggle="tab" href="#ldap-global-panel"
-         role="tab">
+      <a class="nav-link active" data-bs-toggle="tab" href="#ldap-global-panel" role="tab">
         LDAP Authentication Provider
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-bs-toggle="tab" href="#ldap-server-panel"
-         role="tab">
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-server-panel" role="tab">
         Server Config
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-bs-toggle="tab" href="#ldap-connection-panel"
-         role="tab">
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-connection-panel" role="tab">
         Connection Config
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-bs-toggle="tab" href="#ldap-search-panel"
-         role="tab">
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-search-panel" role="tab">
         Search
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" data-bs-toggle="tab" href="#ldap-group-mapping-panel"
-         role="tab">
+      <a class="nav-link" data-bs-toggle="tab" href="#ldap-group-mapping-panel" role="tab">
         Groups Mapping
       </a>
     </li>
@@ -39,8 +34,8 @@
         <div class="col-sm-3">Active:</div>
         <div class="col-sm-9">
           <div class="form-check">
-            <input class="custom-control-input" type="checkbox"
-                   formControlName="active" id="ldap-provider-active-input">
+            <input class="custom-control-input" type="checkbox" formControlName="active"
+              id="ldap-provider-active-input">
             <label class="custom-control-label" for="ldap-provider-active-input"></label>
           </div>
         </div>
@@ -50,8 +45,9 @@
         <div class="col-sm-9">
           <div class="input-group">
             <select class="form-select" id="default-group-input" formControlName="default_group">
-              <option *ngFor="let group of groups"
-                      [value]="group.public_id">{{group.label ? group.label : group.name}}</option>
+              @for (group of groups; track group) {
+              <option [value]="group.public_id">{{group.label ? group.label : group.name}}</option>
+              }
             </select>
           </div>
         </div>
@@ -78,8 +74,7 @@
         <div class="col-sm-3">Use SSL:</div>
         <div class="col-sm-9">
           <div class="form-check">
-            <input class="custom-control-input" type="checkbox"
-                   formControlName="use_ssl" id="ssl-input">
+            <input class="custom-control-input" type="checkbox" formControlName="use_ssl" id="ssl-input">
             <label class="custom-control-label" for="ssl-input"></label>
           </div>
         </div>
@@ -135,8 +130,8 @@
         <div class="col-sm-3">Active:</div>
         <div class="col-sm-9">
           <div class="form-check">
-            <input class="custom-control-input" type="checkbox"
-                   formControlName="active" id="ldap-provider-group-mapping-active-input">
+            <input class="custom-control-input" type="checkbox" formControlName="active"
+              id="ldap-provider-group-mapping-active-input">
             <label class="custom-control-label" for="ldap-provider-group-mapping-active-input"></label>
           </div>
           <small class="description form-text text-muted">
@@ -146,17 +141,17 @@
       </div>
       <div class="form-group row mb-3">
         <label class="col-sm-3 col-form-label"
-               for="ldap-provider-group-mapping-search-filter-input">Searchfilter:</label>
+          for="ldap-provider-group-mapping-search-filter-input">Searchfilter:</label>
         <div class="col-sm-9">
           <div class="input-group">
             <input class="form-control" type="text" id="ldap-provider-group-mapping-search-filter-input"
-                   formControlName="searchfiltergroup" placeholder="(memberUid=%username%)">
+              formControlName="searchfiltergroup" placeholder="(memberUid=%username%)">
           </div>
           <small class="description form-text text-muted">%username% will be inserted from the login data</small>
         </div>
       </div>
-      <cmdb-ldap-provider-form-group-mapping
-        [groups]="groups" [mappingForm]="groupMappingControl"></cmdb-ldap-provider-form-group-mapping>
+      <cmdb-ldap-provider-form-group-mapping [groups]="groups"
+        [mappingForm]="groupMappingControl"></cmdb-ldap-provider-form-group-mapping>
     </div>
   </div>
 </div>

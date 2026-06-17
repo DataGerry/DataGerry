@@ -2,21 +2,24 @@
   <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
     <i class="fas fa-table"></i> Columns
   </button>
-  <div class="dropdown-menu" *ngIf="columns.length > 0">
-    <button *ngFor="let column of columns" type="button" class="dropdown-item"
-            [ngClass]="{'disabled': column.fixed}"
-            (click)="toggleColumn(column, $event)">
-        <span class="form-check">
-          <input class="form-check-input" type="checkbox" [checked]="!column.hidden" [disabled]="column.fixed"
-                 title="toggle-{{column.name}}">
-          <label class="form-check-label">
-            {{column.display ? column.display : column.name}}
-          </label>
-        </span>
+  @if (columns.length > 0) {
+  <div class="dropdown-menu">
+    @for (column of columns; track column) {
+    <button type="button" class="dropdown-item" [ngClass]="{'disabled': column.fixed}"
+      (click)="toggleColumn(column, $event)">
+      <span class="form-check">
+        <input class="form-check-input" type="checkbox" [checked]="!column.hidden" [disabled]="column.fixed"
+          title="toggle-{{column.name}}">
+        <label class="form-check-label">
+          {{column.display ? column.display : column.name}}
+        </label>
+      </span>
     </button>
+    }
     <div class="dropdown-divider"></div>
     <button type="button" class="dropdown-item btn text-center" (click)="columnsReset.emit()">
       <i class="fas fa-redo"></i> Reset
     </button>
   </div>
+  }
 </div>

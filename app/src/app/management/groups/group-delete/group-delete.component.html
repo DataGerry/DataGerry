@@ -1,5 +1,5 @@
 <h1>Delete group: <strong>{{group?.label}}</strong></h1>
-<hr/>
+<hr />
 
 <form [formGroup]="deleteForm" (ngSubmit)="delete()">
 
@@ -10,13 +10,15 @@
         <div class="col-sm-2">
           <div class="custom-control custom-radio">
             <input formControlName="deleteGroupAction" id="moveUsers" type="radio" name="deleteGroupAction" value="MOVE"
-                   class="custom-control-input">
+              class="custom-control-input">
             <label class="custom-control-label" for="moveUsers"></label>
           </div>
         </div>
         <div class="col-sm-10">
           <select class="custom-select" formControlName="deleteGroupOption">
-            <option *ngFor="let g of groups | groupSelect: group.public_id" [value]="g.public_id">{{g.label}}</option>
+            @for (g of groups | groupSelect: group.public_id; track g) {
+            <option [value]="g.public_id">{{g.label}}</option>
+            }
           </select>
         </div>
       </div>
@@ -28,20 +30,18 @@
     <div class="col-sm-9">
       <div class="custom-control custom-radio">
         <input formControlName="deleteGroupAction" id="deleteUsers" type="radio" name="deleteGroupAction" value="DELETE"
-               class="custom-control-input">
+          class="custom-control-input">
         <label class="custom-control-label" for="deleteUsers"></label>
       </div>
     </div>
   </div>
-  <hr/>
+  <hr />
   <div class="d-flex flex-row-reverse">
     <button type="submit" class="btn btn-primary" [disabled]="deleteForm.invalid">Delete</button>
-    <button [routerLink]="['/', 'management', 'groups']" type="button" class="btn ms-2 btn-outline-danger">Cancel</button>
+    <button [routerLink]="['/', 'management', 'groups']" type="button"
+      class="btn ms-2 btn-outline-danger">Cancel</button>
   </div>
 
 </form>
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

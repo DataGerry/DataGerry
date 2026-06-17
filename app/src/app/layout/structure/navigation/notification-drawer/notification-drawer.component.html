@@ -1,5 +1,7 @@
-<div *ngIf="open" class="notification-drawer-backdrop" (click)="onClose()" aria-hidden="true">
+@if (open) {
+<div class="notification-drawer-backdrop" (click)="onClose()" aria-hidden="true">
 </div>
+}
 
 <aside class="notification-drawer" [@drawerState]="open ? 'open' : 'closed'" [attr.aria-hidden]="!open"
   [attr.aria-modal]="open" role="dialog">
@@ -17,40 +19,49 @@
   </header>
 
   <section class="notification-drawer__content">
-    <ng-container *ngIf="selectedFilter$ | async as selectedFilter">
-      <div class="notification-filter" role="group" aria-label="Filter notifications by type">
-        <button
-          *ngFor="let option of filterOptions"
-          type="button"
-          class="btn btn-sm notification-filter__button"
-          [class.notification-filter__button--active]="selectedFilter === option.value"
-          (click)="setFilter(option.value)">
-          {{ option.label }}
-        </button>
-      </div>
-    </ng-container>
+    @if (selectedFilter$ | async; as selectedFilter) {
 
-    <ng-container *ngIf="filteredNotifications$ | async as notifications">
-      <ng-container *ngIf="selectedFilter$ | async as selectedFilter">
-        <p *ngIf="notifications.length === 0" class="notification-drawer__empty mb-0">
-          {{ selectedFilter === 'all' ? 'No notifications yet.' : 'No notifications for the selected type.' }}
-        </p>
-      </ng-container>
+    <div class="notification-filter" role="group" aria-label="Filter notifications by type">
+      @for (option of filterOptions; track option) {
+      <button type="button" class="btn btn-sm notification-filter__button"
+        [class.notification-filter__button--active]="selectedFilter === option.value" (click)="setFilter(option.value)">
+        {{ option.label }}
+      </button>
+      }
+    </div>
 
-      <ul *ngIf="notifications.length > 0" class="notification-list mb-0">
-        <li *ngFor="let notification of notifications; trackBy: trackById" class="notification-list__item"
-          [ngClass]="'notification-list__item--' + notification.type">
-          <div class="notification-list__meta">
-            <span class="notification-type" [ngClass]="'notification-type--' + notification.type">
-              {{ notification.type | titlecase }}
-            </span>
-            <time class="notification-time">
-              {{ notification.timestamp | date: 'medium' }}
-            </time>
-          </div>
-          <p class="notification-list__message mb-0">{{ notification.message }}</p>
-        </li>
-      </ul>
-    </ng-container>
+    }
+
+    @if (filteredNotifications$ | async; as notifications) {
+
+    @if (selectedFilter$ | async; as selectedFilter) {
+
+    @if (notifications.length === 0) {
+    <p class="notification-drawer__empty mb-0">
+      {{ selectedFilter === 'all' ? 'No notifications yet.' : 'No notifications for the selected type.' }}
+    </p>
+    }
+
+    }
+
+    @if (notifications.length > 0) {
+    <ul class="notification-list mb-0">
+      @for (notification of notifications; track trackById($index, notification)) {
+      <li class="notification-list__item" [ngClass]="'notification-list__item--' + notification.type">
+        <div class="notification-list__meta">
+          <span class="notification-type" [ngClass]="'notification-type--' + notification.type">
+            {{ notification.type | titlecase }}
+          </span>
+          <time class="notification-time">
+            {{ notification.timestamp | date: 'medium' }}
+          </time>
+        </div>
+        <p class="notification-list__message mb-0">{{ notification.message }}</p>
+      </li>
+      }
+    </ul>
+    }
+
+    }
   </section>
 </aside>

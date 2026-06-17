@@ -10,91 +10,92 @@
       </div>
 
       <div class="modal-body" #modalBody>
-        <div *ngIf="loading" class="loading-state">
+        @if (loading) {
+        <div class="loading-state">
           <div class="spinner-border text-primary" role="status"></div>
           <span class="loading-text">Loading configuration...</span>
         </div>
+        }
 
-        <div class="modal-layout" *ngIf="!loading">
+        @if (!loading) {
+        <div class="modal-layout">
           <aside class="modal-sidebar">
             <form class="relation-configuration" [formGroup]="form">
-              <section class="config-section parent-config" *ngIf="chosenRole === 'parent' || chosenRole === 'both'">
+              @if (chosenRole === 'parent' || chosenRole === 'both') {
+              <section class="config-section parent-config">
                 <h5 class="config-heading"><i class="fas fa-project-diagram"></i>Parent Settings</h5>
                 <div class="config-content">
                   <div class="mb-3">
                     <label class="form-label">Parent Object</label>
-                    <input class="form-control parent-id" type="text" [disabled]="true" [value]="'Object #' + form.get('parent')?.value" />
+                    <input class="form-control parent-id" type="text" [disabled]="true"
+                      [value]="'Object #' + form.get('parent')?.value" />
                   </div>
                   <div class="mb-3">
                     <label class="form-label">Child Selection</label>
-                    <ng-select
-                      #childSelect
-                      class="child-select"
-                      [items]="flatChildOptions"
-                      [groupBy]="'group'"
-                      bindLabel="label"
-                      bindValue="value"
-                      formControlName="child"
-                      placeholder="Select child object"
-                      [searchable]="true"
-                      [readonly]="mode === CmdbMode.View"
-                      [loading]="childIsLoading"
-                      (scrollToEnd)="onChildScrollToEnd()"
-                      (search)="onChildSearch($event.term)"
+                    <ng-select #childSelect class="child-select" [items]="flatChildOptions" [groupBy]="'group'"
+                      bindLabel="label" bindValue="value" formControlName="child" placeholder="Select child object"
+                      [searchable]="true" [readonly]="mode === CmdbMode.View" [loading]="childIsLoading"
+                      (scrollToEnd)="onChildScrollToEnd()" (search)="onChildSearch($event.term)"
                       [typeahead]="childSearchSubject">
                       <ng-template ng-header-tmp>
                         <small class="text-muted">
                           Loaded {{ flatChildOptions.length }} items
-                          <span *ngIf="childHasMoreData"> • Scroll to load more</span>
+                          @if (childHasMoreData) {
+                          <span> • Scroll to load more</span>
+                          }
                         </small>
                       </ng-template>
-                      <ng-template ng-notfound-tmp><div class="no-options">No child objects found</div></ng-template>
+                      <ng-template ng-notfound-tmp>
+                        <div class="no-options">No child objects found</div>
+                      </ng-template>
                     </ng-select>
-                    <div class="selection-error" *ngIf="flatChildOptions.length === 0">
+                    @if (flatChildOptions.length === 0) {
+                    <div class="selection-error">
                       <i class="fas fa-exclamation-triangle"></i>No available child objects
                     </div>
+                    }
                   </div>
                 </div>
               </section>
+              }
 
-              <section class="config-section child-config" *ngIf="chosenRole === 'child' || chosenRole === 'both'">
+              @if (chosenRole === 'child' || chosenRole === 'both') {
+              <section class="config-section child-config">
                 <h5 class="config-heading"><i class="fas fa-sitemap"></i>Child Settings</h5>
                 <div class="config-content">
                   <div class="mb-3">
                     <label class="form-label">Child Object</label>
-                    <input class="form-control child-id" type="text" [disabled]="true" [value]="'Object #' + form.get('child')?.value" />
+                    <input class="form-control child-id" type="text" [disabled]="true"
+                      [value]="'Object #' + form.get('child')?.value" />
                   </div>
                   <div class="mb-3">
                     <label class="form-label">Parent Selection</label>
-                    <ng-select
-                      #parentSelect
-                      class="parent-select"
-                      [items]="flatParentOptions"
-                      [groupBy]="'group'"
-                      bindLabel="label"
-                      bindValue="value"
-                      formControlName="parent"
-                      placeholder="Select parent object"
-                      [searchable]="true"
-                      [readonly]="mode === CmdbMode.View"
-                      [loading]="parentIsLoading"
-                      (scrollToEnd)="onParentScrollToEnd()"
-                      (search)="onParentSearch($event.term)"
+                    <ng-select #parentSelect class="parent-select" [items]="flatParentOptions" [groupBy]="'group'"
+                      bindLabel="label" bindValue="value" formControlName="parent" placeholder="Select parent object"
+                      [searchable]="true" [readonly]="mode === CmdbMode.View" [loading]="parentIsLoading"
+                      (scrollToEnd)="onParentScrollToEnd()" (search)="onParentSearch($event.term)"
                       [typeahead]="parentSearchSubject">
                       <ng-template ng-header-tmp>
                         <small class="text-muted">
                           Loaded {{ flatParentOptions.length }} items
-                          <span *ngIf="parentHasMoreData"> • Scroll to load more</span>
+                          @if (parentHasMoreData) {
+                          <span> • Scroll to load more</span>
+                          }
                         </small>
                       </ng-template>
-                      <ng-template ng-notfound-tmp><div class="no-options">No parent objects found</div></ng-template>
+                      <ng-template ng-notfound-tmp>
+                        <div class="no-options">No parent objects found</div>
+                      </ng-template>
                     </ng-select>
-                    <div class="selection-error" *ngIf="flatParentOptions.length === 0">
+                    @if (flatParentOptions.length === 0) {
+                    <div class="selection-error">
                       <i class="fas fa-exclamation-triangle"></i>No available parent objects
                     </div>
+                    }
                   </div>
                 </div>
               </section>
+              }
             </form>
           </aside>
 
@@ -104,26 +105,36 @@
               dgResizeAnchor="right" aria-hidden="true" title="Drag to resize">
               <span class="resize-grip" aria-hidden="true"></span>
             </div>
-            <hr *ngIf="sections.length > 0">
-            <form class="renderForm" [formGroup]="relationForm"
-              *ngIf="sections.length > 0 || (relationInstance?.field_values && relationInstance.field_values.length > 0); else noAttributes">
-              <fieldset *ngFor="let section of sections" class="form-fieldset">
+            @if (sections.length > 0) {
+            <hr>
+            }
+            @if (sections.length > 0 || (relationInstance?.field_values && relationInstance.field_values.length > 0)) {
+            <form class="renderForm" [formGroup]="relationForm">
+              @for (section of sections; track section) {
+              <fieldset class="form-fieldset">
                 <legend class="form-legend">{{ section?.label }}</legend>
-                <div *ngFor="let fieldName of section.fields" class="form-field">
+                @for (fieldName of section.fields; track fieldName) {
+                <div class="form-field">
                   <cmdb-render-element [useInitialValueFromParent]="true" [mode]="getViewMode()"
                     [parentFormGroup]="relationForm" [data]="getFieldObject(fieldName)"></cmdb-render-element>
                 </div>
+                }
               </fieldset>
+              }
             </form>
-            <ng-template #noAttributes>
-              <div class="empty-attributes-state">
-                <div class="empty-icon"><i class="fas fa-info-circle"></i></div>
-                <h4>No Configurable Attributes for This Relation</h4>
-                <p class="text-muted">This relation has no attributes available for configuration.</p>
-              </div>
-            </ng-template>
+            } @else {
 
-            <section class="bidirectional-section" *ngIf="chosenRole === 'both' && isBidirectional()">
+            <div class="empty-attributes-state">
+              <div class="empty-icon"><i class="fas fa-info-circle"></i></div>
+              <h4>No Configurable Attributes for This Relation</h4>
+              <p class="text-muted">This relation has no attributes available for configuration.</p>
+            </div>
+
+            }
+
+
+            @if (chosenRole === 'both' && isBidirectional()) {
+            <section class="bidirectional-section">
               <fieldset class="relation-status">
                 <legend class="status-legend"><i class="fas fa-exchange-alt"></i>Connection Status</legend>
                 <div class="status-content">
@@ -138,21 +149,22 @@
                 </div>
               </fieldset>
             </section>
+            }
           </main>
         </div>
+        }
       </div>
 
       <div class="modal-footer">
         <button class="btn btn-secondary" (click)="back()">Cancel</button>
-        <button class="btn btn-success" (click)="confirm()" [disabled]="isConfirmDisabled()" *ngIf="mode !== CmdbMode.View">
+        @if (mode !== CmdbMode.View) {
+        <button class="btn btn-success" (click)="confirm()" [disabled]="isConfirmDisabled()">
           {{ mode === CmdbMode.Edit ? 'Update' : 'Confirm' }}
         </button>
+        }
       </div>
     </div>
   </div>
 </div>
 
-<app-loading-popup 
-[isVisible]="isLoading$ | async"
-message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

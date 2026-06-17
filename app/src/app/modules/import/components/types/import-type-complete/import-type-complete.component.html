@@ -1,45 +1,46 @@
 <div id="uploadfileform">
-    <div *ngIf="!done && errorHandling.length === 0">
-        <div class="card-body text-center align-items-center">
-            <h5>waiting for import</h5>
-            <div class="progress">
-                <div
-                    class="progress-bar progress-bar-animated progress-bar-striped"
-                    role="progressbar"
-                    [ngClass]="done ? 'bg-success' : 'bg-primary'"
-                    aria-valuenow="40"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    style="width:100%"
-                >
-                </div>
-            </div>
+  @if (!done && errorHandling.length === 0) {
+  <div>
+    <div class="card-body text-center align-items-center">
+      <h5>waiting for import</h5>
+      <div class="progress">
+        <div class="progress-bar progress-bar-animated progress-bar-striped" role="progressbar"
+          [ngClass]="done ? 'bg-success' : 'bg-primary'" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100"
+          style="width:100%">
         </div>
+      </div>
     </div>
+  </div>
+  }
 
-    <div *ngIf="done && errorHandling.length === 0">
-        <div class="card-body text-center align-items-center">
-            <h1 class="display-1 text-success"><fa-icon icon="check-circle"></fa-icon></h1>
-            <h6 class="card-subtitle mb-2"> Uploaded file was imported successfully. </h6>
-        </div>
+  @if (done && errorHandling.length === 0) {
+  <div>
+    <div class="card-body text-center align-items-center">
+      <h1 class="display-1 text-success"><fa-icon icon="check-circle"></fa-icon></h1>
+      <h6 class="card-subtitle mb-2"> Uploaded file was imported successfully. </h6>
     </div>
+  </div>
+  }
 
-    <div *ngIf="done && errorHandling.length > 0">
-        <div class="card-body text-center align-items-center">
-            <h1 class="display-1 text-danger"><fa-icon icon="exclamation-triangle"></fa-icon></h1>
-            <h6 class="card-subtitle mb-2"> Oops, something went wrong.</h6>
-            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-target="#msgerrhandling">
-                Open info
-            </button>
-        </div>
+  @if (done && errorHandling.length > 0) {
+  <div>
+    <div class="card-body text-center align-items-center">
+      <h1 class="display-1 text-danger"><fa-icon icon="exclamation-triangle"></fa-icon></h1>
+      <h6 class="card-subtitle mb-2"> Oops, something went wrong.</h6>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-target="#msgerrhandling">
+        Open info
+      </button>
     </div>
+  </div>
+  }
 </div>
 
-<hr/>
+<hr />
 <button class="btn btn-primary next" routerLink="/framework/type/" type="button" [disabled]="!done"> Done </button>
 
 
-<div class="modal fade" id="msgerrhandling" tabindex="-1" role="dialog" aria-labelledby="msgerrlabel" aria-hidden="true">
+<div class="modal fade" id="msgerrhandling" tabindex="-1" role="dialog" aria-labelledby="msgerrlabel"
+  aria-hidden="true">
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header">
@@ -49,9 +50,11 @@
         </button>
       </div>
       <div class="modal-body">
-        <pre *ngFor="let data of errorHandling">
+        @for (data of errorHandling; track data) {
+        <pre>
           {{data | json}}
         </pre>
+        }
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>

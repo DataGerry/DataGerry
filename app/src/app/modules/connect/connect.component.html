@@ -1,7 +1,7 @@
 <div class="container-fluid">
     <div id="connection-header" class="row">
         <div id="connection-logo" class="offset-3 col-6">
-            <img src="assets/img/datagerry_logo.svg" alt="DATAGERRY - Logo"/>
+            <img src="assets/img/datagerry_logo.svg" alt="DATAGERRY - Logo" />
         </div>
         <div class="col-12">
             <div class="alert alert-warning alert-dismissible fade show" role="alert">
@@ -20,7 +20,8 @@
                     Connection details
                 </div>
                 <div class="card-body">
-                    <form [formGroup]="connectionForm" (ngSubmit)="checkConnection()" class="needs-validation" novalidate>
+                    <form [formGroup]="connectionForm" (ngSubmit)="checkConnection()" class="needs-validation"
+                        novalidate>
                         <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
@@ -28,15 +29,8 @@
                                         Host
                                     </div>
                                 </div>
-                                <input
-                                    formControlName="host"
-                                    id="host"
-                                    name="host"
-                                    placeholder="127.0.0.1"
-                                    type="text"
-                                    required="required"
-                                    class="form-control"
-                                >
+                                <input formControlName="host" id="host" name="host" placeholder="127.0.0.1" type="text"
+                                    required="required" class="form-control">
                             </div>
                             <span id="hostHelpBlock" class="form-text text-muted">
                                 Backend server address
@@ -49,13 +43,8 @@
                                         Port
                                     </div>
                                 </div>
-                                <input
-                                    formControlName="port"
-                                    id="port" name="port"
-                                    type="text"
-                                    required="required"
-                                    class="form-control"
-                                >
+                                <input formControlName="port" id="port" name="port" type="text" required="required"
+                                    class="form-control">
                             </div>
                             <span id="portHelpBlock" class="form-text text-muted">
                                 Port of the backend server
@@ -68,24 +57,15 @@
                                         Protocol
                                     </div>
                                 </div>
-                                <select
-                                    formControlName="protocol"
-                                    id="protocol"
-                                    name="protocol"
-                                    required="required"
-                                    class="form-control"
-                                >
+                                <select formControlName="protocol" id="protocol" name="protocol" required="required"
+                                    class="form-control">
                                     <option value="http" selected>HTTP</option>
                                     <option value="https" selected>HTTPS</option>
                                 </select>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <button
-                                name="connect"
-                                type="submit"
-                                class="btn btn-primary w-100"
-                            >
+                            <button name="connect" type="submit" class="btn btn-primary w-100">
                                 Try to connect
                             </button>
                         </div>
@@ -96,7 +76,7 @@
         <div class="col-6">
             <div class="card">
                 <div class="card-header">
-                Connection status
+                    Connection status
                 </div>
                 <div class="card-body">
                     <div class="row">
@@ -104,7 +84,8 @@
                             DATAGERRY connection status:
                         </div>
                         <div class="col-8">
-                            <div *ngIf="connectionTest; else disconnected">
+                            @if (connectionTest) {
+                            <div>
                                 <span class="badge bg-success">
                                     CONNECTED
                                 </span>
@@ -117,19 +98,18 @@
                                     <dd class="col-sm-9">{{connectionResponse.connected}}</dd>
                                 </dl>
                             </div>
-                            <ng-template #disconnected>
-                                <span class="badge bg-danger">DISCONNECTED</span>
-                            </ng-template>
+                            } @else {
+
+                            <span class="badge bg-danger">DISCONNECTED</span>
+
+                            }
+
                         </div>
                     </div>
                 </div>
                 <div class="card-footer">
-                    <button
-                        type="button"
-                        class="btn btn-sm w-100 btn-success"
-                        [disabled]="!connectionTest"
-                        (click)="useConnection()"
-                    >
+                    <button type="button" class="btn btn-sm w-100 btn-success" [disabled]="!connectionTest"
+                        (click)="useConnection()">
                         Use connection
                     </button>
                 </div>

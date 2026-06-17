@@ -1,34 +1,17 @@
-<ng-container *ngFor="let section of sections">
-    <ng-container [ngSwitch]="section.type">
-        <cmdb-reference-section
-            *ngSwitchCase="'ref-section'"
-            [mode]="mode"
-            [form]="form"
-            [changeForm]="changeForm"
-            [section]="section"
-            [fields]="fields"
-            [values]="values"
-        />
-        <cmdb-multi-data-section
-            *ngSwitchCase="'multi-data-section'"
-            [mode]="mode"
-            [form]="form"
-            [changeForm]="changeForm"
-            [section]="section"
-            [fields]="fields"
-            [values]="values"
-            [typeInstance]="typeInstance"
-            [renderResult]="renderResult"
-        />
-        <cmdb-field-section
-            *ngSwitchDefault
-            [mode]="mode"
-            [form]="form"
-            [changeForm]="changeForm"
-            [section]="section"
-            [fields]="fields"
-            [values]="values"
-            [objectID]="objectID"
-        />
-    </ng-container>
-</ng-container>
+@for (section of sections; track section) {
+
+@switch (section.type) {
+@case ('ref-section') {
+<cmdb-reference-section [mode]="mode" [form]="form" [changeForm]="changeForm" [section]="section" [fields]="fields"
+        [values]="values" />
+}
+@case ('multi-data-section') {
+<cmdb-multi-data-section [mode]="mode" [form]="form" [changeForm]="changeForm" [section]="section" [fields]="fields"
+        [values]="values" [typeInstance]="typeInstance" [renderResult]="renderResult" />
+}
+@default {
+<cmdb-field-section [mode]="mode" [form]="form" [changeForm]="changeForm" [section]="section" [fields]="fields"
+        [values]="values" [objectID]="objectID" />
+}
+}
+}

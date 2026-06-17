@@ -1,8 +1,10 @@
-<span *ngIf="locationData; else noRef">
-    <i class="{{locationData.type_icon}}"></i> {{locationData.type_label}} #{{locationData.object_id}} - {{locationData.name}}
+@if (locationData) {
+<span>
+    <i class="{{locationData.type_icon}}"></i> {{locationData.type_label}} #{{locationData.object_id}} -
+    {{locationData.name}}
 </span>
+} @else {
 
-<ng-template #noRef>
-    <span>No location set</span>
-</ng-template>
-  
+<span>No location set</span>
+
+}

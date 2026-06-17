@@ -4,61 +4,63 @@
     <aw-wizard-step [stepTitle]="'Risk Classes'" [canExit]="true"></aw-wizard-step>
     <aw-wizard-step [stepTitle]="'Likelihood'" [canExit]="true"></aw-wizard-step>
     <aw-wizard-step [stepTitle]="'Impact'" [canExit]="true"></aw-wizard-step>
-    <aw-wizard-step [stepTitle]="'Impact Categories'" [canEnter]="validationStatus.impacts" [canExit]="true"></aw-wizard-step>
+    <aw-wizard-step [stepTitle]="'Impact Categories'" [canEnter]="validationStatus.impacts"
+      [canExit]="true"></aw-wizard-step>
     <aw-wizard-step [stepTitle]="'Protection Goals'" [canExit]="true"></aw-wizard-step>
     <aw-wizard-step [stepTitle]="'Risk Calculation'" [canExit]="true"></aw-wizard-step>
   </aw-wizard>
 
   <!-- Step Content -->
-  <div class="step-content" [ngSwitch]="wizard.currentStepIndex">
-    <app-isms-risk-classes *ngSwitchCase="0" [config]="ismsConfig"
+  <div class="step-content">
+    @switch (wizard.currentStepIndex) {
+    @case (0) {
+    <app-isms-risk-classes [config]="ismsConfig"
       (riskClassesCountChange)="onRiskClassesCountChange($event)"></app-isms-risk-classes>
-    <app-isms-likelihood *ngSwitchCase="1" [config]="ismsConfig"
+    }
+    @case (1) {
+    <app-isms-likelihood [config]="ismsConfig"
       (likelihoodCountChange)="onLikelihoodCountChange($event)"></app-isms-likelihood>
-    <app-isms-impact *ngSwitchCase="2" [config]="ismsConfig"
-      (impactCountChange)="onImpactCountChange($event)"></app-isms-impact>
-    <app-isms-impact-categories *ngSwitchCase="3" [config]="ismsConfig"
+    }
+    @case (2) {
+    <app-isms-impact [config]="ismsConfig" (impactCountChange)="onImpactCountChange($event)"></app-isms-impact>
+    }
+    @case (3) {
+    <app-isms-impact-categories [config]="ismsConfig"
       (impactCategoriesCountChange)="onImpactCategoriesCountChange($event)"></app-isms-impact-categories>
-    <app-isms-protection-goals *ngSwitchCase="4" [config]="ismsConfig"></app-isms-protection-goals>
-    <app-isms-risk-calculation *ngSwitchCase="5" [config]="ismsConfig"
-      (configChange)="ismsConfig = $event"></app-isms-risk-calculation>
+    }
+    @case (4) {
+    <app-isms-protection-goals [config]="ismsConfig"></app-isms-protection-goals>
+    }
+    @case (5) {
+    <app-isms-risk-calculation [config]="ismsConfig" (configChange)="ismsConfig = $event"></app-isms-risk-calculation>
+    }
+    }
   </div>
 
-  <!-- <div class="navigation-buttons d-flex justify-content-between mt-3">
-    <button *ngIf="wizard.currentStepIndex > 0" class="btn btn-secondary" (click)="previousStep()">Previous
-      Step</button>
-    <button *ngIf="wizard.currentStepIndex < totalSteps - 1" class="btn btn-primary" [disabled]="!isStepValid()"
-      (click)="nextStep()">
-      Next Step
-    </button>
-  </div> -->
-
   <!-- Navigation Buttons with dynamic classes -->
-  <div class="navigation-buttons d-flex mt-3"
-     [ngClass]="{
+  <div class="navigation-buttons d-flex mt-3" [ngClass]="{
        'justify-content-between': wizard.currentStepIndex > 0 && wizard.currentStepIndex < totalSteps,
        'justify-content-end': wizard.currentStepIndex === 0 || wizard.currentStepIndex === totalSteps - 1
      }">
-  
-  <button *ngIf="wizard.currentStepIndex > 0" 
-          class="btn btn-secondary" 
-          (click)="previousStep()">Previous Step</button>
 
-  <ng-container *ngIf="wizard.currentStepIndex === totalSteps - 1">
-    <button class="btn btn-success" 
-            (click)="onSaveConfigurations()" 
-            *permissionLink="'base.isms.riskMatrix.edit'"
-            [disabled]=" !riskCalculationComponent?.hasChanges || !riskCalculationComponent?.isMatrixComplete()">
+    @if (wizard.currentStepIndex > 0) {
+    <button class="btn btn-secondary" (click)="previousStep()">Previous Step</button>
+    }
+
+    @if (wizard.currentStepIndex === totalSteps - 1) {
+
+    <button class="btn btn-success" (click)="onSaveConfigurations()" *permissionLink="'base.isms.riskMatrix.edit'"
+      [disabled]=" !riskCalculationComponent?.hasChanges || !riskCalculationComponent?.isMatrixComplete()">
       Save Configuration
     </button>
-  </ng-container>
 
-  <ng-container *ngIf="wizard.currentStepIndex < totalSteps - 1">
-    <button class="btn btn-primary" 
-            [disabled]="!isStepValid()" 
-            (click)="nextStep()">
+    }
+
+    @if (wizard.currentStepIndex < totalSteps - 1) { <button class="btn btn-primary" [disabled]="!isStepValid()"
+      (click)="nextStep()">
       Next Step
-    </button>
-  </ng-container>
-</div>
+      </button>
+
+      }
+  </div>
 </div>

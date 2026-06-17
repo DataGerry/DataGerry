@@ -12,14 +12,20 @@
                  [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched), 'is-invalid': name.invalid && (name.dirty || name.touched)}">
           <small class="form-text text-muted text-start">Unique name with which the category can be
             identified</small>
-          <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-            <div class="text-end" *ngIf="name.errors.required">
+          @if (name.invalid && (name.dirty || name.touched)) {
+<div class="invalid-feedback">
+            @if (name.errors.required) {
+<div class="text-end">
               This field is required
             </div>
-            <div class="text-end" *ngIf="name.errors.categoryExists">
+}
+            @if (name.errors.categoryExists) {
+<div class="text-end">
               A category with this name already exists
             </div>
+}
           </div>
+}
           <div class="clearfix"></div>
         </div>
         <div class="mb-3">

@@ -1,30 +1,39 @@
 <div class="cmdb-toast-region right fixed">
-    <div *ngFor="let toast of toastService.toastsright" [@simpleFadeAnimation]="'in'">
-      <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
-    </div>
+  @for (toast of toastService.toastsright; track toast) {
+  <div [@simpleFadeAnimation]="'in'">
+    <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
   </div>
-  
-  <div class="cmdb-toast-region left fixed">
-    <div *ngFor="let toast of toastService.toastsleft" [@simpleFadeAnimation]="'in'">
-      <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
-    </div>
+  }
+</div>
+
+<div class="cmdb-toast-region left fixed">
+  @for (toast of toastService.toastsleft; track toast) {
+  <div [@simpleFadeAnimation]="'in'">
+    <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
   </div>
-  
-  <div class="cmdb-toast-region bottom right fixed">
-    <div *ngFor="let toast of toastService.toastsdownright" [@simpleFadeAnimation]="'in'">
-      <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
-    </div>
+  }
+</div>
+
+<div class="cmdb-toast-region bottom right fixed">
+  @for (toast of toastService.toastsdownright; track toast) {
+  <div [@simpleFadeAnimation]="'in'">
+    <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
   </div>
-  
-  <div class="cmdb-toast-region bottom left fixed">
-    <div *ngFor="let toast of toastService.toastsdownleft" [@simpleFadeAnimation]="'in'">
-      <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
-    </div>
+  }
+</div>
+
+<div class="cmdb-toast-region bottom left fixed">
+  @for (toast of toastService.toastsdownleft; track toast) {
+  <div [@simpleFadeAnimation]="'in'">
+    <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
   </div>
-  
-  <div class="cmdb-toast-region center fixed">
-    <div *ngFor="let toast of toastService.toastscenter" [@simpleFadeAnimation]="'in'">
-      <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
-    </div>
+  }
+</div>
+
+<div class="cmdb-toast-region center fixed">
+  @for (toast of toastService.toastscenter; track toast) {
+  <div [@simpleFadeAnimation]="'in'">
+    <cmdb-toast-component [toast]="toast"></cmdb-toast-component>
   </div>
-  
+  }
+</div>

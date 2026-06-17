@@ -44,15 +44,21 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
                  id="categoryNameInput" required>
           <small id="categoryNameInputHelp" class="form-text text-muted">Type in the name of the category to confirm the
             deletion.</small>
-          <div *ngIf="name.invalid && (name.dirty || name.touched)"
+          @if (name.invalid && (name.dirty || name.touched)) {
+<div
                class="invalid-feedback">
-            <div class="text-end" *ngIf="name.errors.required">
+            @if (name.errors.required) {
+<div class="text-end">
               Name is required
             </div>
-            <div class="text-end" *ngIf="name.errors.notequal">
+}
+            @if (name.errors.notequal) {
+<div class="text-end">
               Your answer is not equal!
             </div>
+}
           </div>
+}
           <div class="clearfix"></div>
         </div>
       </form>
