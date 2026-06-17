@@ -1,81 +1,61 @@
 <div class="mt-3">
     <div class="row">
         <div class="col">
-            <form
-                [formGroup]="settingsForm"
-                id="settingsForm"
-                class="needs-validation"
-                novalidate
-                autocomplete="off"
-            >
+            <form [formGroup]="settingsForm" id="settingsForm" class="needs-validation" novalidate autocomplete="off">
                 <div class="mb-3">
                     <label>Active by default: <span class="required">*</span></label>
                     <div class="form-check form-switch mt-2">
-                        <input type="checkbox" formControlName="active" class="form-check-input" id="docActiveInput"/>
+                        <input type="checkbox" formControlName="active" class="form-check-input" id="docActiveInput" />
                         <label class="form-check-label" for="docActiveInput"></label>
                     </div>
                 </div>
 
                 <div class="mb-3">
                     <label class="mb-2" for="docLabelInput">Label: <span class="required">*</span></label>
-                    <input
-                        type="text"
-                        formControlName="label"
-                        class="form-control"
-                        [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
-                                     'is-invalid': label.invalid && (label.dirty || label.touched)}"
-                        id="docLabelInput"
-                        aria-describedby="docLabelInputHelp"
-                        required
-                    >
-                    <div
-                        *ngIf="label.invalid && (label.dirty || label.touched)"
-                        class="invalid-feedback"
-                    >
-                        <div class="text-end" *ngIf="label.errors.required">
+                    <input type="text" formControlName="label" class="form-control" [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
+                                     'is-invalid': label.invalid && (label.dirty || label.touched)}" id="docLabelInput"
+                        aria-describedby="docLabelInputHelp" required>
+                    @if (label.invalid && (label.dirty || label.touched)) {
+                    <div class="invalid-feedback">
+                        @if (label.errors.required) {
+                        <div class="text-end">
                             Label is required
                         </div>
+                        }
                     </div>
+                    }
                     <small id="docLabelInputHelp" class="form-text text-muted">Display name</small>
                     <div class="clearfix"></div>
                 </div>
 
                 <div class="mb-3">
                     <label class="mb-2" for="docNameInput">Name: <span class="required">*</span></label>
-                    <input
-                        type="text"
-                        formControlName="name"
-                        class="form-control name-input-disabled-vibe"
-                        [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
-                                    'is-invalid': name.invalid && (name.dirty || name.touched) }"
-                        id="docNameInput"
-                        
-                        disable
-                        lowercase
-                        required
-                    >
+                    <input type="text" formControlName="name" class="form-control name-input-disabled-vibe" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
+                                    'is-invalid': name.invalid && (name.dirty || name.touched) }" id="docNameInput"
+                        disable lowercase required>
                     <small id="docNameInputHelp" class="form-text text-muted">
                         Template name must be unique
                     </small>
-                    <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                        <div class="text-end" *ngIf="name.errors.required">
+                    @if (name.invalid && (name.dirty || name.touched)) {
+                    <div class="invalid-feedback">
+                        @if (name.errors.required) {
+                        <div class="text-end">
                             Name is required
                         </div>
-                        <div class="text-end" *ngIf="name.errors.nameAlreadyTaken">
+                        }
+                        @if (name.errors.nameAlreadyTaken) {
+                        <div class="text-end">
                             A type with this name already exists
                         </div>
+                        }
                     </div>
+                    }
                 </div>
 
                 <div class="mb-3">
                     <label class="mb-2" for="docDescriptionInput">Description:</label>
-                    <textarea
-                        class="form-control"
-                        formControlName="description"
-                        id="docDescriptionInput"
-                        rows="3"
-                        aria-describedby="docDescriptionInputHelp"
-                    ></textarea>
+                    <textarea class="form-control" formControlName="description" id="docDescriptionInput" rows="3"
+                        aria-describedby="docDescriptionInputHelp"></textarea>
                     <small id="docDescriptionInputHelp" class="form-text text-muted">
                         Small description of the template
                     </small>

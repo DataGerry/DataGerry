@@ -1,4 +1,5 @@
-<div class="margin-layout" *ngIf="marginsForm" [formGroup]="marginsForm">
+@if (marginsForm) {
+<div class="margin-layout" [formGroup]="marginsForm">
     <section class="preview-pane" aria-label="Margin preview">
         <div class="a4-page">
             <div class="a4-content-area" [style.top.%]="previewTopPercent" [style.bottom.%]="previewBottomPercent"
@@ -20,23 +21,20 @@
     <section class="controls-pane">
         <div class="mb-3">
             <label class="form-label" for="pageMarginTop">Margin: top (mm)</label>
-            <input id="pageMarginTop" type="number" step="0.1" min="0" formControlName="top"
-                class="form-control">
+            <input id="pageMarginTop" type="number" step="0.1" min="0" formControlName="top" class="form-control">
         </div>
         <div class="mb-3">
             <label class="form-label" for="pageMarginBottom">Margin: bottom (mm)</label>
-            <input id="pageMarginBottom" type="number" step="0.1" min="0" formControlName="bottom"
-                class="form-control">
+            <input id="pageMarginBottom" type="number" step="0.1" min="0" formControlName="bottom" class="form-control">
         </div>
         <div class="mb-3">
             <label class="form-label" for="pageMarginLeft">Margin: left (mm)</label>
-            <input id="pageMarginLeft" type="number" step="0.1" min="0" formControlName="left"
-                class="form-control">
+            <input id="pageMarginLeft" type="number" step="0.1" min="0" formControlName="left" class="form-control">
         </div>
         <div class="mb-0">
             <label class="form-label" for="pageMarginRight">Margin: right (mm)</label>
-            <input id="pageMarginRight" type="number" step="0.1" min="0" formControlName="right"
-                class="form-control">
+            <input id="pageMarginRight" type="number" step="0.1" min="0" formControlName="right" class="form-control">
         </div>
     </section>
 </div>
+}
