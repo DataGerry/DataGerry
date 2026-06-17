@@ -4,9 +4,11 @@
         <div class="text-end">
             <form [formGroup]="previewIndexSelectionForm">
                 <select formControlName="indexSelection" class="form-select form-select-sm">
-                    <option *ngFor="let _ of parsedData?.entries; let idx = index" [value]="idx">
+                    @for (_ of parsedData?.entries; track _; let idx = $index) {
+                    <option [value]="idx">
                         Row: {{idx}}
                     </option>
+                    }
                 </select>
             </form>
         </div>
@@ -16,20 +18,26 @@
         <thead>
             <tr>
                 <th>Identifier</th>
-                <th *ngIf="parserConfig?.header">Header</th>
-                <th *ngIf="!parserConfig?.header">Index</th>
+                @if (parserConfig?.header) {
+                <th>Header</th>
+                }
+                @if (!parserConfig?.header) {
+                <th>Index</th>
+                }
                 <th>Example</th>
             </tr>
         </thead>
         <tbody>
-            <tr *ngFor="let _ of [].constructor(parsedData?.entry_length); let idx = index">
-                <td
-                    dndDropzone [dndEffectAllowed]="allowedEffect"
-                    (dndDrop)="onDrop($event, currentMapping, idx, mappingControls)"
-                >
-                    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            @for (_ of [].constructor(parsedData?.entry_length); track _; let idx = $index) {
+            <tr>
+                <td dndDropzone [dndEffectAllowed]="allowedEffect"
+                    (dndDrop)="onDrop($event, currentMapping, idx, mappingControls)">
+                    <div
+                        class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
                         <span>
-                            <strong *ngIf="currentMapping[idx]?.ref_name">{{currentMapping[idx]?.type_name}}: </strong>
+                            @if (currentMapping[idx]?.ref_name) {
+                            <strong>{{currentMapping[idx]?.type_name}}: </strong>
+                            }
                             {{currentMapping[idx]?.label}}
                         </span>
                         <button (click)="onRemove(idx, currentMapping, mappingControls)" type="button" class="close">
@@ -37,10 +45,15 @@
                         </button>
                     </div>
                 </td>
-                <th *ngIf="parserConfig?.header">{{parsedData?.header[idx]}}</th>
-                <th *ngIf="!parserConfig?.header">{{idx}}</th>
+                @if (parserConfig?.header) {
+                <th>{{parsedData?.header[idx]}}</th>
+                }
+                @if (!parserConfig?.header) {
+                <th>{{idx}}</th>
+                }
                 <td>{{parsedData?.entries[previewIndex][idx]}}</td>
             </tr>
+            }
         </tbody>
     </table>
 </div>

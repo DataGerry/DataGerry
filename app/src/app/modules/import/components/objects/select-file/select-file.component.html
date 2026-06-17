@@ -1,4 +1,4 @@
-<hr/>
+<hr />
 
 <form [formGroup]="fileForm">
     <div class="mb-3">
@@ -7,27 +7,23 @@
         </label>
         <select formControlName="fileFormat" class="form-select">
             <option></option>
-            <option *ngFor="let importer of importerTypes" value="{{importer.name}}">
+            @for (importer of importerTypes; track importer) {
+            <option value="{{importer.name}}">
                 {{importer.name | uppercase}}
             </option>
+            }
         </select>
     </div>
 
     <div class="mb-3">
         <label for="formFile" class="form-label">File:</label>
-        <input
-          [disabled]="fileFormat.invalid"
-          (change)="selectFile($event.target.files)"
-          class="form-control"
-          type="file"
-          id="formFile"
-          [accept]="selectedFileFormat"
-        >
-      </div>
-      
+        <input [disabled]="fileFormat.invalid" (change)="selectFile($event.target.files)" class="form-control"
+            type="file" id="formFile" [accept]="selectedFileFormat">
+    </div>
+
 </form>
 
-<hr/>
+<hr />
 <button class="btn btn-primary next" type="button" awNextStep [disabled]="fileForm.invalid">
     Next Step <i class="fas fa-angle-double-right"></i>
 </button>
