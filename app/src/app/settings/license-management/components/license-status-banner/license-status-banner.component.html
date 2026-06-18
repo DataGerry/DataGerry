@@ -1,0 +1,37 @@
+<div
+  class="license-strip"
+  [class.license-strip--community]="edition === LicenseEdition.Community"
+  [class.license-strip--self-hosted]="edition === LicenseEdition.SelfHosted"
+  [class.license-strip--expired]="edition === LicenseEdition.Expired">
+
+  <span class="license-strip__icon" aria-hidden="true">
+    @switch (edition) {
+      @case (LicenseEdition.SelfHosted) { <i class="fas fa-shield-halved"></i> }
+      @case (LicenseEdition.Expired) { <i class="fas fa-triangle-exclamation"></i> }
+      @default { <i class="fas fa-cube"></i> }
+    }
+  </span>
+
+  <cmdb-license-status-badge [edition]="edition"></cmdb-license-status-badge>
+
+  <span class="license-strip__description">{{ description }}</span>
+
+  <span class="license-strip__meta">
+    @switch (edition) {
+      @case (LicenseEdition.SelfHosted) {
+        <i class="fas fa-clock me-1" aria-hidden="true"></i>
+        @if (entitlement?.endDate) {
+          Valid until {{ entitlement?.endDate | date: 'mediumDate' }} · {{ remainingLabel }}
+        } @else {
+          Perpetual license
+        }
+      }
+      @case (LicenseEdition.Expired) {
+        <i class="fas fa-circle-exclamation me-1" aria-hidden="true"></i>Re-import a license to restore access
+      }
+      @default {
+        <i class="fas fa-arrow-up-right-dots me-1" aria-hidden="true"></i>Self-Hosted Edition upgrade available
+      }
+    }
+  </span>
+</div>

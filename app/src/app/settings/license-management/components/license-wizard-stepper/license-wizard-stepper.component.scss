@@ -1,0 +1,156 @@
+$marker-size: 2.25rem;
+$accent: #e94d18;
+$done: #198754;
+$muted: #adb5bd;
+
+.wizard-stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  &__item {
+    position: relative;
+    padding-bottom: 1.5rem;
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+  }
+
+  // Connector line between markers.
+  &__line {
+    position: absolute;
+    left: calc(#{$marker-size} / 2);
+    top: $marker-size;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-1px);
+    background-color: #e5e7eb;
+  }
+
+  &__item.is-completed &__line {
+    background-color: $done;
+  }
+
+  &__button {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: default;
+  }
+
+  &__item.is-clickable &__button {
+    cursor: pointer;
+  }
+
+  &__marker {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: $marker-size;
+    height: $marker-size;
+    border-radius: 50%;
+    border: 2px solid #e5e7eb;
+    background-color: #fff;
+    color: $muted;
+    font-size: 0.9rem;
+    transition: all 150ms ease;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__index {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #9ca3af;
+  }
+
+  &__title {
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: #6b7280;
+  }
+
+  // Completed
+  &__item.is-completed &__marker {
+    border-color: $done;
+    background-color: $done;
+    color: #fff;
+  }
+
+  &__item.is-completed &__title {
+    color: #374151;
+  }
+
+  // Active
+  &__item.is-active &__marker {
+    border-color: $accent;
+    background-color: rgba(233, 77, 24, 0.1);
+    color: $accent;
+  }
+
+  &__item.is-active &__title {
+    color: #1f2937;
+    font-weight: 600;
+  }
+
+  &__button:focus-visible {
+    outline: none;
+  }
+
+  &__button:focus-visible &__marker {
+    box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.3);
+  }
+}
+
+// Horizontal layout on small screens so the stepper sits above the content.
+@media (max-width: 767.98px) {
+  .wizard-stepper {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.25rem;
+
+    &__item {
+      flex: 1 1 0;
+      padding-bottom: 0;
+      text-align: center;
+    }
+
+    &__line {
+      left: 50%;
+      top: calc(#{$marker-size} / 2);
+      right: -50%;
+      bottom: auto;
+      width: auto;
+      height: 2px;
+      transform: none;
+    }
+
+    &__button {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    &__index {
+      display: none;
+    }
+
+    &__title {
+      font-size: 0.78rem;
+    }
+  }
+}
