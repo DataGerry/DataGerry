@@ -22,6 +22,7 @@ decrypts back to the same entitlement through decrypt_license_blob(). Also cover
 the entitlement assembly, and PEM loading round-trip. Pure tests (one shared keypair, tmp_path)
 """
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -89,8 +90,18 @@ def test_build_entitlement_uses_wire_keys_and_overrides() -> None:
 
 
 def test_build_entitlement_defaults_to_free() -> None:
-    """The default entitlement is the free/Community tier"""
-    assert gen.build_entitlement()[LicenseEntitlementKey.TYPE] == LicenseTier.FREE.value
+    """The default entitlement is the free/Community tier with no features"""
+    entitlement = gen.build_entitlement()
+
+    assert entitlement[LicenseEntitlementKey.TYPE] == LicenseTier.FREE.value
+    assert entitlement[LicenseEntitlementKey.FEATURES] == []
+
+
+def test_build_entitlement_carries_features() -> None:
+    """build_entitlement embeds the requested feature keys"""
+    entitlement = gen.build_entitlement(features=['ipam', 'webhooks'])
+
+    assert entitlement[LicenseEntitlementKey.FEATURES] == ['ipam', 'webhooks']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -136,3 +147,34 @@ def test_mint_produces_valid_json_under_the_encryption(rsa_keypair: RsaKey) -> N
     recovered = decrypt_license_blob(blob, public_key_pem=public_pem)
 
     assert recovered == json.loads(json.dumps(entitlement))
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          CLI entry point                                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_main_mints_blob_with_features_from_cli(
+    rsa_keypair: RsaKey,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """main() mints a blob carrying the --type/--hmac/--features given on the command line"""
+    private_pem = tmp_path / 'priv.pem'
+    private_pem.write_bytes(rsa_keypair.export_key())
+    out_path = tmp_path / 'license.txt'
+    monkeypatch.setattr(sys, 'argv', [
+        'license_generator',
+        '--private-key', str(private_pem),
+        '--type', LicenseTier.CORE.value,
+        '--hmac', 'cli-bind',
+        '--features', 'ipam', 'webhooks',
+        '--out', str(out_path),
+    ])
+
+    gen.main()
+
+    public_pem = rsa_keypair.publickey().export_key().decode('utf-8')
+    entitlement = decrypt_license_blob(out_path.read_text(encoding='utf-8'), public_key_pem=public_pem)
+
+    assert entitlement[LicenseEntitlementKey.TYPE] == LicenseTier.CORE.value
+    assert entitlement[LicenseEntitlementKey.HMAC] == 'cli-bind'
+    assert entitlement[LicenseEntitlementKey.FEATURES] == ['ipam', 'webhooks']

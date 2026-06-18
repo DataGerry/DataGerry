@@ -22,11 +22,12 @@ JSON transport) so the same Service Portal tech can issue DataGerry licenses. Li
 applies to the on-premise deployment only - never the cloud version or its --local test mode.
 
 This package is built incrementally; it currently exposes the license constants/enums (P1), the
-tier->feature matrix (P2), the machine fingerprint utility (P3), the HMAC binding primitive (P4),
-the Base64+JSON transport helpers (P5), the RSA public-key decrypt primitive (P6), the
-activation-request model (P8), the activation-request lifecycle helpers (P9), the license
-entitlement model (P10), the verification chain (P11) and the free/default fallback (P12). Import
-these names from the package path, not the inner modules
+machine fingerprint utility (P3), the HMAC binding primitive (P4), the Base64+JSON transport
+helpers (P5), the RSA public-key decrypt primitive (P6), the activation-request model (P8), the
+activation-request lifecycle helpers (P9), the license entitlement model (P10), the verification
+chain (P11) and the free/default fallback (P12). What a license unlocks is carried by the
+entitlement's `features` list (the sole gating source), not derived from `type`. Import these names
+from the package path, not the inner modules
 """
 from cmdb.security.license.license_constants import (
     FINGERPRINT_FALLBACK,
@@ -39,13 +40,6 @@ from cmdb.security.license.license_constants import (
     LicenseTier,
     LicenseVerificationStatus,
     PlatformName,
-)
-from cmdb.security.license.feature_matrix import (
-    TIER_FEATURES,
-    TIER_FEATURE_ADDITIONS,
-    TIER_ORDER,
-    features_for,
-    tier_has_feature,
 )
 from cmdb.security.license.machine_fingerprint import get_machine_fingerprint
 from cmdb.security.license.hmac_binding import (
@@ -93,11 +87,6 @@ __all__: list[str] = [
     'LicenseTier',
     'LicenseVerificationStatus',
     'PlatformName',
-    'TIER_FEATURES',
-    'TIER_FEATURE_ADDITIONS',
-    'TIER_ORDER',
-    'features_for',
-    'tier_has_feature',
     'get_machine_fingerprint',
     'compute_hmac',
     'constant_time_equals',

@@ -71,10 +71,11 @@ def default_entitlement() -> LicenseEntitlement:
     """
     Builds the embedded free (Community) entitlement
 
-    A fresh instance is returned on each call so callers never share mutable state
+    A fresh instance is returned on each call so callers never share mutable state. The free tier
+    unlocks no subscription features, so its features list is empty
 
     Returns:
-        LicenseEntitlement: The free-tier entitlement, bound by DEFAULT_HMAC
+        LicenseEntitlement: The free-tier entitlement, bound by DEFAULT_HMAC, with no features
     """
     return LicenseEntitlement(
         hmac=DEFAULT_HMAC,
@@ -82,6 +83,7 @@ def default_entitlement() -> LicenseEntitlement:
         start_date=FREE_START_DATE,
         end_date=FREE_END_DATE,
         operation_usage=FREE_OPERATION_USAGE,
+        features=[],
     )
 
 

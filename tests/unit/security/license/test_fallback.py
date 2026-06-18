@@ -46,6 +46,7 @@ def test_default_entitlement_is_free_tier() -> None:
     assert entitlement.start_date == fallback.FREE_START_DATE
     assert entitlement.end_date == fallback.FREE_END_DATE
     assert entitlement.operation_usage == fallback.FREE_OPERATION_USAGE
+    assert entitlement.features == []
 
 
 def test_default_entitlement_validates_against_schema() -> None:

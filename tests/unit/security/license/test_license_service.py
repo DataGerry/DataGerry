@@ -92,8 +92,12 @@ def test_no_license_runs_on_free_default() -> None:
 #                                          valid stored license                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_valid_license_exposes_tier_and_features(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A VALID verification exposes its entitlement's tier and unlocked features"""
-    entitlement = LicenseEntitlement(hmac='bind', license_type=LicenseTier.BUSINESS.value)
+    """A VALID verification exposes its entitlement's tier and the features it lists"""
+    entitlement = LicenseEntitlement(
+        hmac='bind',
+        license_type=LicenseTier.BUSINESS.value,
+        features=[LicenseFeature.ISMS.value, LicenseFeature.IPAM.value],
+    )
     _patch_verify(monkeypatch, LicenseVerificationResult(LicenseVerificationStatus.VALID, entitlement))
     service = _service(STORED_BLOB)
 
@@ -102,6 +106,7 @@ def test_valid_license_exposes_tier_and_features(monkeypatch: pytest.MonkeyPatch
     assert service.current_tier() == LicenseTier.BUSINESS.value
     assert service.has_feature(LicenseFeature.ISMS) is True
     assert service.has_feature(LicenseFeature.IPAM) is True
+    assert service.has_feature(LicenseFeature.AUTOMATIONS) is False
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

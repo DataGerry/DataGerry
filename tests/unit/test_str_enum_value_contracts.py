@@ -228,6 +228,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'OPERATION_USAGE': 'operationUsage',
         'DURATION': 'duration',
         'TYPE': 'type',
+        'FEATURES': 'features',
     }),
     (PlatformName, {'WINDOWS': 'Windows', 'LINUX': 'Linux', 'DARWIN': 'Darwin'}),
 ]

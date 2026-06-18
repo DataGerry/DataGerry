@@ -19,9 +19,10 @@ Implementation of LicenseService (license feature part P13)
 The single entry point the rest of the backend asks "what is licensed right now". It resolves the
 active license on demand: read the stored blob (ActiveLicenseManager), verify it (P11 against the
 activation requests), and degrade to the free entitlement on any failure or when none is stored
-(P12). From the resolved entitlement it answers the current tier, has_feature() via the P2 matrix,
-is_active() and the operation-usage limit; activate() verifies-then-stores an uploaded blob and
-deactivate() reverts to free.
+(P12). From the resolved entitlement it answers the current tier (display-only), has_feature()
+straight off the entitlement's features list (the sole gating source), is_active() and the
+operation-usage limit; activate() verifies-then-stores an uploaded blob and deactivate() reverts to
+free.
 
 Resolution is on demand rather than cached at startup: gunicorn runs multiple workers and the lazy
 approach (mirroring the activation-request TTL) avoids stale per-worker caches; verification cost is
@@ -38,11 +39,9 @@ from cmdb.manager.license_manager.license_activation_requests_manager import Lic
 
 from cmdb.security.license.entitlement import LicenseEntitlement
 from cmdb.security.license.fallback import default_entitlement, entitlement_or_default
-from cmdb.security.license.feature_matrix import tier_has_feature
 from cmdb.security.license.license_constants import (
     LICENSE_PUBLIC_KEY_PEM,
     LicenseFeature,
-    LicenseTier,
     LicenseVerificationStatus,
 )
 from cmdb.security.license.verification import LicenseVerificationResult, verify_license
@@ -168,15 +167,18 @@ class LicenseService:
 
     def has_feature(self, feature: LicenseFeature) -> bool:
         """
-        Whether the current tier unlocks a feature
+        Whether the current license unlocks a feature
+
+        Reads straight off the entitlement's features list - the sole source of truth. A feature the
+        license does not list (including every feature on the free default) is not unlocked
 
         Args:
             feature (LicenseFeature): The feature to check
 
         Returns:
-            bool: True if the current tier unlocks the feature
+            bool: True if the current entitlement lists the feature
         """
-        return tier_has_feature(LicenseTier(self.current_tier()), feature)
+        return feature.value in self.current_entitlement().features
 
 
     def operation_usage_limit(self) -> int:
