@@ -191,6 +191,13 @@ class TestProfileCrud:
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
             assert collection.find_one({'public_id': PROFILE_FOR_DELETE}) is None
+            # The deleted profile is returned in the canonical to_json shape (not the model __dict__)
+            deleted = response.json['raw']
+            assert deleted['public_id'] == PROFILE_FOR_DELETE
+            assert set(deleted) == {
+                'public_id', 'name', 'types_filter', 'relations_filter',
+                'with_locations', 'with_ipam_relations',
+            }
         finally:
             collection.delete_one({'public_id': PROFILE_FOR_DELETE})
 

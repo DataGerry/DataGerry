@@ -18,7 +18,7 @@ Functional tests for the ``/report_categories`` REST routes
 
 Pins the route-layer behaviour: create forces a server id + predefined=False, the missing-id 404s,
 the GET-list envelope, the update path (identity pinned to the URL id, predefined immutable), and
-the delete guards - missing -> 404, predefined -> 405, in-use-by-report -> 403, otherwise 200. The
+the delete guards - missing -> 404, predefined -> 403, in-use-by-report -> 403, otherwise 200. The
 create/update routes read their data from the query string (parse_request_parameters)
 """
 from http import HTTPStatus
@@ -129,6 +129,17 @@ class TestReadReportCategory:
         assert response.status_code == HTTPStatus.OK
         assert 'results' in response.get_json()
 
+    def test_list_authenticates_before_parsing_params(self, rest_api) -> None:
+        """Auth runs before collection-param parsing (decorator order).
+
+        An unauthorized request whose collection params would fail to parse (``filter`` is not JSON)
+        is rejected with 401 by ``@insert_request_user`` - not the 400 the parse decorator raised
+        when it sat outside the auth decorators.
+        """
+        response = rest_api.get(f'{ROUTE_URL}/?filter=notjson', unauthorized=True)
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      UPDATE                                                          #
@@ -169,7 +180,7 @@ class TestUpdateReportCategory:
 #                                                      DELETE                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteReportCategory:
-    """DELETE guards: success 200, missing 404, predefined 405, in-use 403 (none leak as 500)."""
+    """DELETE guards: success 200, missing 404, predefined 403, in-use 403 (none leak as 500)."""
 
     def test_delete_removes_category(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -186,15 +197,15 @@ class TestDeleteReportCategory:
         """Deleting a missing id returns 404 (not a 500 from the generic handler)."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_CATEGORY_ID}/').status_code == HTTPStatus.NOT_FOUND
 
-    def test_delete_predefined_returns_405(
+    def test_delete_predefined_returns_403(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Deleting a predefined category is rejected with 405."""
+        """Deleting a predefined category is rejected with 403 (a business-rule rejection, not 405)."""
         _categories(database_manager, database_name).insert_one(
             _category_doc(CATEGORY_ID_PREDEFINED, 'System', predefined=True)
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}/').status_code == HTTPStatus.METHOD_NOT_ALLOWED
+        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}/').status_code == HTTPStatus.FORBIDDEN
 
     def test_delete_in_use_returns_403(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,

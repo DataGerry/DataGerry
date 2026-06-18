@@ -82,9 +82,9 @@ reports_blueprint = APIBlueprint('reports', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @reports_blueprint.route('/', methods=['POST'])
-@reports_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.parse_request_parameters()
 def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates a CmdbReport in the database
@@ -163,9 +163,9 @@ def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @reports_blueprint.route('/', methods=['GET', 'HEAD'])
-@reports_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.parse_collection_parameters()
 def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Returns all CmdbReports based on the params
@@ -287,9 +287,9 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @reports_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
-@reports_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.parse_request_parameters()
 def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Updates a CmdbReport
@@ -368,7 +368,8 @@ def delete_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
-        report_instance = reports_manager.get_item(public_id)
+        # Only an existence check is needed here, so fetch the lightweight raw dict (no model build)
+        report_instance = reports_manager.get_item(public_id, as_dict=True)
 
         if not report_instance:
             abort(404, f"The Report with ID:{public_id} was not found!")

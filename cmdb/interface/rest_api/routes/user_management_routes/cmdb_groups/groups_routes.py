@@ -36,7 +36,7 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
-from cmdb.models.group_model import CmdbUserGroup, GroupDeleteMode
+from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.interface.blueprints import APIBlueprint
@@ -67,6 +67,16 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerUpdateError,
     UsersManagerDeleteError,
 )
+
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
+    GROUP_ADD_RIGHT,
+    GROUP_VIEW_RIGHT,
+    GROUP_EDIT_RIGHT,
+    GROUP_DELETE_RIGHT,
+    GROUPS_COLLECTION_ROUTE,
+    GROUP_ITEM_ROUTE,
+)
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import resolve_move_target
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -75,10 +85,10 @@ groups_blueprint = APIBlueprint('groups', __name__)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-@groups_blueprint.route('/', methods=['POST'])
+@groups_blueprint.route(GROUPS_COLLECTION_ROUTE, methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@groups_blueprint.protect(auth=True, right='base.user-management.group.add')
+@groups_blueprint.protect(auth=True, right=GROUP_ADD_RIGHT)
 @groups_blueprint.validate(CmdbUserGroup.SCHEMA)
 def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -117,18 +127,19 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
         LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
         abort(400, "Failed to insert the new UserGroup in the database!")
     except GroupsManagerGetError as err:
+        # The group was created; failing to re-read it is a server-side problem, not a client error
         LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created UserGroup from the database!")
+        abort(500, "Failed to retrieve the created UserGroup from the database!")
     except Exception as err:
         LOGGER.error("[insert_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while creating the new UserGroup!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-@groups_blueprint.route('/', methods=['GET', 'HEAD'])
+@groups_blueprint.route(GROUPS_COLLECTION_ROUTE, methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@groups_blueprint.protect(auth=True, right='base.user-management.group.view')
+@groups_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
 @groups_blueprint.parse_collection_parameters()
 def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -171,10 +182,10 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
         abort(500, "An internal server error occured while iterating UserGroups!")
 
 
-@groups_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
+@groups_blueprint.route(GROUP_ITEM_ROUTE, methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@groups_blueprint.protect(auth=True, right='base.user-management.group.view')
+@groups_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
 def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP ``GET`` / ``HEAD`` route to retrieve a single CmdbUserGroup by id
@@ -215,10 +226,10 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-@groups_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
+@groups_blueprint.route(GROUP_ITEM_ROUTE, methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@groups_blueprint.protect(auth=True, right='base.user-management.group.edit')
+@groups_blueprint.protect(auth=True, right=GROUP_EDIT_RIGHT)
 @groups_blueprint.validate(CmdbUserGroup.SCHEMA)
 def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -273,10 +284,10 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@groups_blueprint.route('/<int:public_id>', methods=['DELETE'])
+@groups_blueprint.route(GROUP_ITEM_ROUTE, methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@groups_blueprint.protect(auth=True, right='base.user-management.group.delete')
+@groups_blueprint.protect(auth=True, right=GROUP_DELETE_RIGHT)
 @groups_blueprint.parse_parameters(GroupDeletionParameters)
 def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, request_user: CmdbUser) -> Response:
     """
@@ -319,14 +330,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         if groups_manager.is_protected_group(public_id):
             abort(400, f"Deletion of the UserGroup with ID:{public_id} is not allowed!")
 
-        if params.action == GroupDeleteMode.MOVE:
-            if not params.group_id:
-                abort(400, "The target group for moving users was not provided!")
-
-            target_group: CmdbUserGroup | None = groups_manager.get_group(params.group_id)
-
-            if not target_group:
-                abort(404, f"The target UserGroup for moving users with ID:{params.group_id} was not found!")
+        # For a MOVE this validates the target id is present and the target group exists (400 / 404)
+        resolve_move_target(groups_manager, params.action, params.group_id)
 
         if params.action is not None:
             users_manager.handle_users_on_group_delete(public_id, params.action, params.group_id)

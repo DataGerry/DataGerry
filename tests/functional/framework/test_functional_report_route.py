@@ -202,6 +202,17 @@ class TestGetReport:
         assert 'results' in body
         assert len(body['results']) == int(response.headers['X-Total-Count'])
 
+    def test_list_authenticates_before_parsing_params(self, rest_api) -> None:
+        """Auth runs before collection-param parsing (decorator order).
+
+        An unauthorized request whose collection params would fail to parse (``filter`` is not JSON)
+        is rejected with 401 by ``@insert_request_user`` - not the 400 the parse decorator raised
+        when it sat outside the auth decorators.
+        """
+        response = rest_api.get(f'{ROUTE_URL}/?filter=notjson', unauthorized=True)
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    RUN / COUNT                                                       #

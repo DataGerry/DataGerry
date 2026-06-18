@@ -16,11 +16,11 @@
 """
 Unit tests for cmdb.manager.groups_manager.GroupsManager
 
-Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``delete_group``)
-and the rights-cache init are exercised against a MagicMock standing in for the manager
-instance. The one-line delegations ``iterate`` and ``update_group`` are intentionally outside
-the scope - they are covered transitively by the GenericManager unit suite and the integration
-tests in tests/integration/management
+Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``update_group``,
+``delete_group``) and the rights-cache init are exercised against a MagicMock standing in for the
+manager instance. The one-line delegation ``iterate`` is intentionally outside the scope - it is
+covered transitively by the GenericManager unit suite and the integration tests in
+tests/integration/management
 """
 # pylint: disable=protected-access
 from typing import Any
@@ -138,21 +138,22 @@ class TestGetGroup:
     """``get_group`` returns a hydrated ``CmdbUserGroup`` or None, surfacing failures as Get errors."""
 
     def test_returns_cmdb_user_group_hydrated_with_cached_rights(self) -> None:
-        """A present id is rehydrated via ``from_data(data, self.rights)``."""
+        """A present id (fetched via ``get_item``) is rehydrated via ``from_data(data, self.rights)``."""
         mgr = _mock_manager()
-        mgr.get_one.return_value = SAMPLE_GROUP_DICT
+        mgr.get_item.return_value = SAMPLE_GROUP_DICT
         sentinel_group = MagicMock(spec=CmdbUserGroup)
 
         with patch.object(CmdbUserGroup, 'from_data', return_value=sentinel_group) as from_data_mock:
             result = GroupsManager.get_group(mgr, NEW_GROUP_PUBLIC_ID)
 
+        mgr.get_item.assert_called_once_with(NEW_GROUP_PUBLIC_ID, as_dict=True)
         from_data_mock.assert_called_once_with(SAMPLE_GROUP_DICT, mgr.rights)
         assert result is sentinel_group
 
     def test_returns_none_when_id_not_present(self) -> None:
         """A missing id returns None without invoking ``from_data``."""
         mgr = _mock_manager()
-        mgr.get_one.return_value = None
+        mgr.get_item.return_value = None
 
         with patch.object(CmdbUserGroup, 'from_data') as from_data_mock:
             result = GroupsManager.get_group(mgr, MISSING_GROUP_PUBLIC_ID)
@@ -160,13 +161,14 @@ class TestGetGroup:
         assert result is None
         from_data_mock.assert_not_called()
 
-    def test_unexpected_error_wraps_as_get_error(self) -> None:
-        """A generic exception during retrieval is wrapped as ``GroupsManagerGetError``."""
+    def test_from_data_failure_wraps_as_get_error(self) -> None:
+        """A failure while rehydrating the fetched document is wrapped as ``GroupsManagerGetError``."""
         mgr = _mock_manager()
-        mgr.get_one.side_effect = RuntimeError('db down')
+        mgr.get_item.return_value = SAMPLE_GROUP_DICT
 
-        with pytest.raises(GroupsManagerGetError):
-            GroupsManager.get_group(mgr, NEW_GROUP_PUBLIC_ID)
+        with patch.object(CmdbUserGroup, 'from_data', side_effect=RuntimeError('bad rights')):
+            with pytest.raises(GroupsManagerGetError):
+                GroupsManager.get_group(mgr, NEW_GROUP_PUBLIC_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -203,6 +205,36 @@ class TestHydrateGroup:
         from_data_mock.assert_called_once_with(SAMPLE_GROUP_DICT, mgr.rights)
         to_json_mock.assert_called_once_with(sentinel_group, True)
         assert result is SERIALIZED_GROUP_DICT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                      update_group                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUpdateGroup:
+    """``update_group`` serializes models insert-mode, pins the identity, and delegates to update_item."""
+
+    def test_dict_pins_public_id_to_the_arg_and_delegates(self) -> None:
+        """A payload public_id is overwritten with the arg before the update is delegated."""
+        mgr = _mock_manager()
+        payload: dict[str, Any] = {'public_id': 999, 'name': 'g', 'rights': []}  # wrong/forged id
+
+        GroupsManager.update_group(mgr, NEW_GROUP_PUBLIC_ID, payload)
+
+        assert payload['public_id'] == NEW_GROUP_PUBLIC_ID
+        mgr.update_item.assert_called_once_with(NEW_GROUP_PUBLIC_ID, payload)
+
+    def test_model_is_serialised_insert_mode_then_pinned(self) -> None:
+        """A model is serialized via ``to_json(group, True)`` and the result's identity is pinned."""
+        mgr = _mock_manager()
+        instance = MagicMock(spec=CmdbUserGroup)
+        serialized: dict[str, Any] = {'public_id': 999, 'name': 'g', 'rights': ['r']}
+
+        with patch.object(CmdbUserGroup, 'to_json', return_value=serialized) as to_json_mock:
+            GroupsManager.update_group(mgr, NEW_GROUP_PUBLIC_ID, instance)
+
+        to_json_mock.assert_called_once_with(instance, True)
+        assert serialized['public_id'] == NEW_GROUP_PUBLIC_ID
+        mgr.update_item.assert_called_once_with(NEW_GROUP_PUBLIC_ID, serialized)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

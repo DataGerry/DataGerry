@@ -35,12 +35,14 @@ from cmdb.errors.manager.groups_manager import (
     GroupsManagerGetError,
     GroupsManagerDeleteError,
 )
-from cmdb.errors.models.cmdb_user_group import CmdbUserGroupToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 PROTECTED_GROUP_IDS: tuple[int, int] = (1, 2)
+
+# Document field carrying the CmdbUserGroup identity (pinned on update so a payload can never rewrite it)
+PUBLIC_ID_FIELD: str = 'public_id'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 GroupsManager - CLASS                                                #
@@ -99,8 +101,6 @@ class GroupsManager(GenericManager):
                 group = CmdbUserGroup.to_json(group, True)
 
             return self.insert(group)
-        except CmdbUserGroupToJsonError as err:
-            raise GroupsManagerInsertError(err) from err
         except Exception as err:
             LOGGER.error("[insert_group] Exception: %s. Type: %s", err, type(err))
             raise GroupsManagerInsertError(err) from err
@@ -111,8 +111,9 @@ class GroupsManager(GenericManager):
         """
         Get a single CmdbUserGroup by its public_id
 
-        Overrides the generic get path because ``CmdbUserGroup.from_data`` needs the cached
-        right tree to resolve right names into BaseRight instances
+        Reuses the generic ``get_item`` for the raw fetch (and its error wrapping), then runs the
+        group-specific deserialization: ``CmdbUserGroup.from_data`` needs the cached right tree to
+        resolve right names into BaseRight instances
 
         Args:
             public_id (int): public_id of the CmdbUserGroup
@@ -123,12 +124,12 @@ class GroupsManager(GenericManager):
         Returns:
             CmdbUserGroup | None: The requested CmdbUserGroup, or None if no group has that id
         """
+        requested_group = self.get_item(public_id, as_dict=True)
+
+        if not requested_group:
+            return None
+
         try:
-            requested_group = self.get_one(public_id)
-
-            if not requested_group:
-                return None
-
             return CmdbUserGroup.from_data(requested_group, self.rights)
         except Exception as err:
             LOGGER.error("[get_group] Exception: %s. Type: %s", err, type(err))
@@ -175,6 +176,11 @@ class GroupsManager(GenericManager):
         """
         Update an existing CmdbUserGroup via the generic update path
 
+        A model instance is serialized with ``insert_mode=True`` (rights stored as name strings,
+        matching how groups are persisted on insert). The document identity is pinned to
+        ``public_id`` so a payload ``public_id`` can never rewrite the stored id. Updating an id
+        that does not exist is a no-op (the underlying update does not upsert)
+
         Args:
             public_id (int): public_id of the CmdbUserGroup which should be updated
             group (CmdbUserGroup | dict[str, Any]): New data for the CmdbUserGroup
@@ -182,6 +188,12 @@ class GroupsManager(GenericManager):
         Raises:
             GroupsManagerUpdateError: When the update operation failed
         """
+        if isinstance(group, CmdbUserGroup):
+            group = CmdbUserGroup.to_json(group, True)
+
+        # Pin the identity: a payload public_id can never rewrite the document's id
+        group[PUBLIC_ID_FIELD] = public_id
+
         self.update_item(public_id, group)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #

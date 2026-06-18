@@ -70,6 +70,7 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants imp
     CiExplorerParam,
     CiExplorerField,
 )
+from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import apply_ci_explorer_field
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -275,19 +276,14 @@ def update_tooltip(public_id: int, request_user: CmdbUser) -> Response:
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        to_update_object: dict[str, Any] = objects_manager.get_object(public_id)
-
-        if not to_update_object:
-            abort(404, f"The Object with ID:{public_id} was not found!")
-
-        tooltip = (request.get_json(silent=True) or {}).get(CiExplorerField.TOOLTIP)
-
-        if tooltip is None:
-            abort(400, f"Missing '{CiExplorerField.TOOLTIP.value}' in the request body!")
-
-        to_update_object[CiExplorerField.TOOLTIP.value] = tooltip
-
-        objects_manager.update_object(public_id, to_update_object)
+        tooltip = apply_ci_explorer_field(
+            objects_manager.get_object,
+            objects_manager.update_object,
+            public_id,
+            CiExplorerField.TOOLTIP,
+            request.get_json(silent=True),
+            "Object",
+        )
 
         return DefaultResponse({CiExplorerField.TOOLTIP.value: tooltip}).make_response()
     except HTTPException as http_err:
@@ -321,19 +317,14 @@ def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        to_update_type: dict[str, Any] = types_manager.get_type(public_id)
-
-        if not to_update_type:
-            abort(404, f"The Type with ID:{public_id} was not found!")
-
-        label = (request.get_json(silent=True) or {}).get(CiExplorerField.LABEL)
-
-        if label is None:
-            abort(400, f"Missing '{CiExplorerField.LABEL.value}' in the request body!")
-
-        to_update_type[CiExplorerField.LABEL.value] = label
-
-        types_manager.update_type(public_id, to_update_type)
+        label = apply_ci_explorer_field(
+            types_manager.get_type,
+            types_manager.update_type,
+            public_id,
+            CiExplorerField.LABEL,
+            request.get_json(silent=True),
+            "Type",
+        )
 
         return DefaultResponse({CiExplorerField.LABEL.value: label}).make_response()
     except HTTPException as http_err:
@@ -370,7 +361,10 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
                                                                             request_user
                                                                          )
 
-        to_update_explorer_profile: CmdbCiExplorerProfile = ci_explorer_profile_manager.get_item(public_id)
+        # Only an existence check is needed here, so fetch the lightweight raw dict (no model build)
+        to_update_explorer_profile: dict[str, Any] | None = ci_explorer_profile_manager.get_item(
+            public_id, as_dict=True
+        )
 
         if not to_update_explorer_profile:
             abort(404, f"The CiExplorer Profile with ID:{public_id} was not found!")
@@ -426,7 +420,7 @@ def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser) -> R
 
         ci_explorer_profile_manager.delete_item(public_id)
 
-        return DeleteSingleResponse(to_delete_explorer_profile).make_response()
+        return DeleteSingleResponse(CmdbCiExplorerProfile.to_json(to_delete_explorer_profile)).make_response()
     except HTTPException as http_err:
         raise http_err
     except CiExplorerProfileManagerDeleteError as err:
