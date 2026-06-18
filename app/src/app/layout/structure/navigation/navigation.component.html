@@ -239,6 +239,11 @@
                   <!-- Other System Items: Shown only when !isCloudMode -->
                   @if (!isCloudMode) {
                   <div>
+                    <!-- License Management: on-premise only -->
+                    <a class="dropdown-item" *permissionLink="'base.license.view'"
+                      [routerLink]="['/settings/license']">
+                      <i class="fas fa-certificate"></i> License Management
+                    </a>
                     <a class="dropdown-item" *permissionLink="'base.system.view'" [routerLink]="['/settings/system']">
                       <i class="fas fa-info-circle"></i> System Information
                     </a>

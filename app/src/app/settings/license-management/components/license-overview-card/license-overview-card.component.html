@@ -1,0 +1,69 @@
+<div class="card license-summary h-100" [class.license-summary--complete]="isComplete">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span class="fw-semibold">
+      @if (isComplete) {
+        <i class="fas fa-circle-check text-success me-2" aria-hidden="true"></i>
+      } @else if (isExpired) {
+        <i class="fas fa-triangle-exclamation text-warning me-2" aria-hidden="true"></i>
+      } @else {
+        <i class="fas fa-certificate me-2" aria-hidden="true"></i>
+      }
+      {{ heading }}
+    </span>
+    <span class="badge bg-light text-dark border">{{ tierLabel }}</span>
+  </div>
+
+  <div class="card-body">
+    @if (isComplete) {
+      <p class="text-muted mb-3">
+        Your license has been verified and all licensed features are now active on this instance.
+      </p>
+    }
+
+    @if (entitlement) {
+      <dl class="row mb-0 license-summary__details">
+        <dt class="col-sm-4">Edition</dt>
+        <dd class="col-sm-8">{{ tierLabel }}</dd>
+
+        <dt class="col-sm-4">Subscription ID</dt>
+        <dd class="col-sm-8">{{ entitlement.subId || '—' }}</dd>
+
+        <dt class="col-sm-4">License ID</dt>
+        <dd class="col-sm-8">{{ entitlement.licenseId || '—' }}</dd>
+
+        <dt class="col-sm-4">Operation usage</dt>
+        <dd class="col-sm-8">{{ entitlement.operationUsage | number }}</dd>
+
+        <dt class="col-sm-4">Valid from</dt>
+        <dd class="col-sm-8">{{ entitlement.startDate | date: 'mediumDate' }}</dd>
+
+        <dt class="col-sm-4">Expires</dt>
+        <dd class="col-sm-8">
+          @if (entitlement.endDate) {
+            {{ entitlement.endDate | date: 'mediumDate' }}
+          } @else {
+            No expiry
+          }
+        </dd>
+
+        <dt class="col-sm-4">Remaining</dt>
+        <dd class="col-sm-8">{{ remainingLabel }}</dd>
+
+        <dt class="col-sm-4">Enabled features</dt>
+        <dd class="col-sm-8">
+          @if (features.length) {
+            <span class="license-summary__features">
+              @for (feature of features; track feature) {
+                <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">
+                  <i class="fas fa-check me-1" aria-hidden="true"></i>{{ featureLabel(feature) }}
+                </span>
+              }
+            </span>
+          } @else {
+            <span class="text-muted">No additional features</span>
+          }
+        </dd>
+      </dl>
+    }
+  </div>
+</div>

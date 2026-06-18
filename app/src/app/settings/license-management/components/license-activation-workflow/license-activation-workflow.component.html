@@ -1,0 +1,124 @@
+<div class="card license-wizard">
+  <div class="card-header fw-semibold">
+    <i class="fas fa-key me-2" aria-hidden="true"></i>Activate Self-Hosted features
+  </div>
+
+  <div class="license-wizard__grid">
+    <aside class="license-wizard__aside">
+      <cmdb-license-wizard-stepper
+        [steps]="steps"
+        [current]="currentStep"
+        (stepSelected)="onStepSelected($event)">
+      </cmdb-license-wizard-stepper>
+    </aside>
+
+    <section class="license-wizard__content">
+      @switch (currentStep) {
+
+        <!-- Step 1: Generate activation request -->
+        @case (stepGenerate) {
+          <h3 class="license-wizard__title">Generate the activation request</h3>
+          <p class="text-muted">
+            DATAGerry builds a request bound to this machine and downloads it as a file. You will
+            upload that file to the service portal in the next step.
+          </p>
+
+          @if (generated) {
+            <div class="alert alert-success d-flex align-items-center" role="status">
+              <i class="fas fa-circle-check me-2" aria-hidden="true"></i>
+              <span>Activation request generated and downloaded to your computer.</span>
+            </div>
+          }
+
+          <div class="license-wizard__actions">
+            <button type="button" class="btn btn-primary" (click)="onGenerate()">
+              <i class="fas fa-download me-1" aria-hidden="true"></i>
+              {{ generated ? 'Download again' : 'Generate activation request' }}
+            </button>
+            <button type="button" class="btn btn-outline-secondary" (click)="onNext()">
+              Continue<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
+            </button>
+          </div>
+        }
+
+        <!-- Step 2: Service portal -->
+        @case (stepPortal) {
+          <h3 class="license-wizard__title">Upload it to the service portal</h3>
+          <p class="text-muted">This step happens outside DATAGerry.</p>
+          <ol class="license-wizard__hints">
+            <li>Open the external service portal in your browser.</li>
+            <li>Upload the activation request file you just downloaded.</li>
+            <li>The portal verifies it and generates your license file.</li>
+            <li>Download the generated license file, then return here.</li>
+          </ol>
+
+          <div class="license-wizard__actions">
+            <button type="button" class="btn btn-outline-secondary" (click)="onBack()">
+              <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>Back
+            </button>
+            <button type="button" class="btn btn-primary" (click)="onNext()">
+              I have my license file<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
+            </button>
+          </div>
+        }
+
+        <!-- Step 3: Import license -->
+        @case (stepImport) {
+          <h3 class="license-wizard__title">Import the license file</h3>
+          <p class="text-muted">Import the license file you received from the service portal.</p>
+
+          @if (selectedFile) {
+            <div class="license-wizard__file" role="status">
+              <i class="fas fa-file-lines license-wizard__file-icon" aria-hidden="true"></i>
+              <div class="license-wizard__file-meta">
+                <span class="fw-semibold text-truncate">{{ selectedFile.name }}</span>
+                <span class="text-muted small">{{ fileSize(selectedFile.size) }} · ready to activate</span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-sm btn-link text-secondary"
+                (click)="onClearFile()"
+                [disabled]="importing"
+                aria-label="Remove selected file">
+                <i class="fas fa-xmark" aria-hidden="true"></i>
+              </button>
+            </div>
+          } @else {
+            <cmdb-license-import (fileSelected)="onFileSelected($event)"></cmdb-license-import>
+          }
+
+          <div class="license-wizard__actions">
+            <button type="button" class="btn btn-outline-secondary" [disabled]="importing" (click)="onBack()">
+              <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>Back
+            </button>
+            <button type="button" class="btn btn-primary" [disabled]="!selectedFile || importing" (click)="onActivate()">
+              @if (importing) {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Activating…
+              } @else {
+                <i class="fas fa-bolt me-1" aria-hidden="true"></i>Activate license
+              }
+            </button>
+          </div>
+        }
+
+        <!-- Step 4: Activation complete -->
+        @case (stepComplete) {
+          @if (activatedEntitlement) {
+            <cmdb-license-overview-card
+              variant="complete"
+              [edition]="LicenseEdition.SelfHosted"
+              [entitlement]="activatedEntitlement"
+              [features]="features">
+            </cmdb-license-overview-card>
+          }
+
+          <div class="license-wizard__actions license-wizard__actions--end">
+            <button type="button" class="btn btn-success" (click)="onFinish()">
+              <i class="fas fa-check me-1" aria-hidden="true"></i>Finish
+            </button>
+          </div>
+        }
+      }
+    </section>
+  </div>
+</div>

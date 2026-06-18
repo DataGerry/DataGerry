@@ -1,0 +1,25 @@
+.license-summary {
+  border-radius: 0.75rem;
+
+  &--complete {
+    border-color: #198754;
+  }
+
+  &__details {
+    dt {
+      font-weight: 600;
+      color: #374151;
+    }
+
+    dd {
+      margin-bottom: 0.65rem;
+      word-break: break-word;
+    }
+  }
+
+  &__features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+}
