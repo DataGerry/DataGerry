@@ -17,9 +17,11 @@
 Validation schema for LicenseEntitlement
 
 A LicenseEntitlement is the decrypted license payload: the OpenCelium
-`{hmac, startDate, endDate, subId, licenseId, operationUsage, duration, type}` document. The keys
-are the camelCase wire-format names (named by LicenseEntitlementKey) and `type` is constrained to
-the known license tiers.
+`{hmac, startDate, endDate, subId, licenseId, operationUsage, duration, type}` document plus a
+`features` list. The keys are the camelCase wire-format names (named by LicenseEntitlementKey) and
+`type` is constrained to the known license tiers. `features` is a required list of non-empty
+strings (it may be empty for the free tier); its items are NOT constrained to the known feature
+keys, so a portal can ship a feature the backend does not yet recognise and the backend ignores it.
 
 This module is the single source of the document's Cerberus validation schema, consumed as
 LicenseEntitlement.SCHEMA.
@@ -71,9 +73,14 @@ def get_license_entitlement_schema() -> dict[str, Any]:
             'required': True,
             'min': 0,
         },
-        LicenseEntitlementKey.TYPE: {  # Feature-gating tier discriminator (a LicenseTier value)
+        LicenseEntitlementKey.TYPE: {  # Display-only tier label (a LicenseTier value); does not drive gating
             'type': 'string',
             'required': True,
             'allowed': [tier.value for tier in LicenseTier],
+        },
+        LicenseEntitlementKey.FEATURES: {  # Unlocked feature keys; sole gating source, may be empty, unknowns ignored
+            'type': 'list',
+            'required': True,
+            'schema': {'type': 'string', 'empty': False},
         },
     }

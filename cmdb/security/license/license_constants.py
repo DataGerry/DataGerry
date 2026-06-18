@@ -55,13 +55,15 @@ class LicenseTier(BaseStrEnum):
 
 class LicenseFeature(BaseStrEnum):
     """
-    The individually gated features a license tier can unlock
+    The individually gated features a license can unlock
 
-    Each member names one feature whose availability is decided by the active license tier (see
-    the tier->feature matrix in part P2). Any feature NOT listed here belongs to Community and is
-    always available. API_ACCESS reserves the external-API channel for the tier that will own it
-    (the UI-vs-external channel split is deferred); the remaining members map one-to-one onto the
-    DataGerry features the tiers grant
+    Each member names one feature whose availability is decided by the active license: a feature is
+    unlocked only when the entitlement's `features` list contains its value (the list is the sole
+    source of truth; `type` is display-only). Any feature NOT listed here belongs to Community and
+    is always available. The backend gates on the members it knows and ignores any unknown feature
+    string a license carries, so a portal can ship a feature ahead of backend support. API_ACCESS
+    reserves the external-API channel for a future license (the UI-vs-external channel split is
+    deferred); the remaining members map one-to-one onto the DataGerry features a license grants
     """
     API_ACCESS = 'api_access'
     WEBHOOKS = 'webhooks'
@@ -132,11 +134,12 @@ class LicenseEntitlementKey(BaseStrEnum):
     Keys of the decrypted license entitlement JSON
 
     Names every field of the `{hmac, startDate, endDate, subId, licenseId, operationUsage,
-    duration, type}` entitlement recovered by decrypting the license blob with the public key.
-    TYPE carries a LicenseTier value (the feature-gating discriminator); HMAC must equal the
-    activation request's hmac (the machine-binding check); START_DATE / END_DATE are epoch
-    milliseconds with END_DATE 0 meaning no expiry; OPERATION_USAGE is the metered quota. The
-    camelCase spelling is the OpenCelium wire format and must not be renamed
+    duration, type, features}` entitlement recovered by decrypting the license blob with the public
+    key. FEATURES is the list of unlocked feature keys (LicenseFeature values) and is the SOLE
+    source of truth for what the license grants; TYPE only labels the license for display and does
+    NOT drive gating. HMAC must equal the activation request's hmac (the machine-binding check);
+    START_DATE / END_DATE are epoch milliseconds with END_DATE 0 meaning no expiry; OPERATION_USAGE
+    is the metered quota. The camelCase spelling is the OpenCelium wire format and must not be renamed
     """
     HMAC = 'hmac'
     START_DATE = 'startDate'
@@ -146,6 +149,7 @@ class LicenseEntitlementKey(BaseStrEnum):
     OPERATION_USAGE = 'operationUsage'
     DURATION = 'duration'
     TYPE = 'type'
+    FEATURES = 'features'
 
 
 class PlatformName(BaseStrEnum):

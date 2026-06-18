@@ -67,16 +67,27 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     database_manager.get_collection(LicenseActivationRequestsManager.COLLECTION, database_name).delete_many({})
 
 
-def _bound_blob(service: LicenseService, rsa_keypair: RsaKey, tier: str) -> str:
+def _bound_blob(
+    service: LicenseService,
+    rsa_keypair: RsaKey,
+    tier: str,
+    features: list[str] | None = None,
+) -> str:
     """Creates an activation request via the service and mints a license bound to it"""
     request = service.activation_requests_manager.create_activation_request(FINGERPRINT)
-    entitlement = build_entitlement(license_type=tier, hmac_value=request.hmac, start_date=PAST_MS, end_date=NO_EXPIRY)
+    entitlement = build_entitlement(
+        license_type=tier,
+        hmac_value=request.hmac,
+        start_date=PAST_MS,
+        end_date=NO_EXPIRY,
+        features=features,
+    )
     return mint_license_blob(entitlement, rsa_keypair)
 
 
 def test_activate_makes_license_the_live_tier(service: LicenseService, rsa_keypair: RsaKey) -> None:
-    """Activating a valid license makes it the live tier with its features unlocked"""
-    blob = _bound_blob(service, rsa_keypair, LicenseTier.BUSINESS.value)
+    """Activating a valid license makes it the live tier with the features it lists unlocked"""
+    blob = _bound_blob(service, rsa_keypair, LicenseTier.BUSINESS.value, features=[LicenseFeature.ISMS.value])
 
     result = service.activate(blob)
 
@@ -84,6 +95,7 @@ def test_activate_makes_license_the_live_tier(service: LicenseService, rsa_keypa
     assert service.is_active() is True
     assert service.current_tier() == LicenseTier.BUSINESS.value
     assert service.has_feature(LicenseFeature.ISMS) is True
+    assert service.has_feature(LicenseFeature.AUTOMATIONS) is False
 
 
 def test_unbound_license_is_rejected_and_not_stored(service: LicenseService, rsa_keypair: RsaKey) -> None:

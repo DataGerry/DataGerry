@@ -25,7 +25,7 @@ import pytest
 from cerberus import Validator
 
 from cmdb.security.license.entitlement import LicenseEntitlement
-from cmdb.security.license.license_constants import LicenseEntitlementKey, LicenseTier
+from cmdb.security.license.license_constants import LicenseEntitlementKey, LicenseFeature, LicenseTier
 from cmdb.security.license.transport import decode_json, encode_json
 from cmdb.security.license.tooling.license_generator import build_entitlement
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -40,6 +40,7 @@ VALID_ENTITLEMENT: dict = {
     LicenseEntitlementKey.OPERATION_USAGE: 25000,
     LicenseEntitlementKey.DURATION: 0,
     LicenseEntitlementKey.TYPE: LicenseTier.CORE.value,
+    LicenseEntitlementKey.FEATURES: [LicenseFeature.API_ACCESS.value, LicenseFeature.IPAM.value],
 }
 
 
@@ -54,10 +55,17 @@ def test_from_data_to_json_round_trip() -> None:
 
 
 def test_to_json_uses_camelcase_wire_keys() -> None:
-    """to_json emits exactly the eight camelCase entitlement keys"""
+    """to_json emits exactly the camelCase entitlement keys"""
     entitlement = LicenseEntitlement.from_data(VALID_ENTITLEMENT)
 
     assert set(LicenseEntitlement.to_json(entitlement)) == set(LicenseEntitlementKey)
+
+
+def test_from_data_carries_features() -> None:
+    """from_data preserves the features list (the sole gating source)"""
+    entitlement = LicenseEntitlement.from_data(VALID_ENTITLEMENT)
+
+    assert entitlement.features == [LicenseFeature.API_ACCESS.value, LicenseFeature.IPAM.value]
 
 
 def test_to_json_survives_base64_json_transport() -> None:
@@ -79,6 +87,7 @@ def test_from_data_applies_defaults() -> None:
     assert entitlement.start_date == 0
     assert entitlement.end_date == 0
     assert entitlement.sub_id == ''
+    assert entitlement.features == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -89,6 +98,14 @@ def test_schema_accepts_valid_document() -> None:
     assert Validator(LicenseEntitlement.SCHEMA).validate(VALID_ENTITLEMENT) is True
 
 
+def test_schema_accepts_empty_features() -> None:
+    """An empty features list is accepted (the free tier unlocks nothing)"""
+    document = dict(VALID_ENTITLEMENT)
+    document[LicenseEntitlementKey.FEATURES] = []
+
+    assert Validator(LicenseEntitlement.SCHEMA).validate(document) is True
+
+
 @pytest.mark.parametrize('mutation,reason', [
     ({LicenseEntitlementKey.HMAC: None}, 'missing required hmac'),
     ({LicenseEntitlementKey.HMAC: ''}, 'empty hmac'),
@@ -96,6 +113,9 @@ def test_schema_accepts_valid_document() -> None:
     ({LicenseEntitlementKey.START_DATE: 'soon'}, 'startDate wrong type'),
     ({LicenseEntitlementKey.END_DATE: -1}, 'endDate below minimum'),
     ({LicenseEntitlementKey.OPERATION_USAGE: -5}, 'operationUsage below minimum'),
+    ({LicenseEntitlementKey.FEATURES: None}, 'missing required features'),
+    ({LicenseEntitlementKey.FEATURES: 'ipam'}, 'features not a list'),
+    ({LicenseEntitlementKey.FEATURES: ['']}, 'features holds an empty string'),
 ])
 def test_schema_rejects_malformed_document(mutation: dict, reason: str) -> None:
     """The SCHEMA rejects each malformed entitlement shape"""

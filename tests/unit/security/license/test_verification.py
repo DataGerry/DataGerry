@@ -31,6 +31,7 @@ from Crypto.PublicKey.RSA import RsaKey
 from cmdb.security.license.hmac_binding import machine_binding_hmac
 from cmdb.security.license.license_constants import (
     ActivationRequestKey,
+    LicenseFeature,
     LicenseTier,
     LicenseVerificationStatus,
 )
@@ -100,6 +101,17 @@ def test_valid_license(rsa_keypair: RsaKey) -> None:
     assert result.status == LicenseVerificationStatus.VALID
     assert result.is_valid is True
     assert result.entitlement.license_type == LicenseTier.CORE.value
+
+
+def test_valid_license_carries_its_features(rsa_keypair: RsaKey) -> None:
+    """The features the license lists survive the chain onto the verified entitlement"""
+    features = [LicenseFeature.IPAM.value, LicenseFeature.WEBHOOKS.value]
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY, features=features)
+
+    result = verify_license(blob, _store_with_binding(), now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair))
+
+    assert result.status == LicenseVerificationStatus.VALID
+    assert result.entitlement.features == features
 
 
 def test_no_expiry_when_end_date_zero(rsa_keypair: RsaKey) -> None:

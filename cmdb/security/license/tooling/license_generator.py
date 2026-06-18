@@ -115,6 +115,7 @@ def private_encrypt(plaintext: bytes, private_key: RsaKey) -> bytes:
     return bytes(ciphertext)
 
 
+# pylint: disable=too-many-arguments, too-many-positional-arguments
 def build_entitlement(
     license_type: str = DEFAULT_LICENSE_TYPE,
     hmac_value: str = DEFAULT_HMAC,
@@ -124,12 +125,13 @@ def build_entitlement(
     license_id: str = DEFAULT_LICENSE_ID,
     operation_usage: int = DEFAULT_OPERATION_USAGE,
     duration: int = DEFAULT_DURATION,
+    features: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Assembles a license entitlement dict keyed by the wire-format entitlement keys
 
     Args:
-        license_type (str): The tier discriminator (a LicenseTier value)
+        license_type (str): The display-only tier label (a LicenseTier value)
         hmac_value (str): The machine-binding HMAC this license is bound to (must equal the
             activation request's hmac for the binding check to pass)
         start_date (int): Validity start, epoch milliseconds
@@ -138,6 +140,8 @@ def build_entitlement(
         license_id (str): License id
         operation_usage (int): Metered operation quota
         duration (int): License duration
+        features (list[str] | None): The unlocked feature keys (LicenseFeature values); the sole
+            source of truth for what the license grants. Defaults to none (Community/free)
 
     Returns:
         dict[str, Any]: The entitlement, ready for mint_license_blob
@@ -151,6 +155,7 @@ def build_entitlement(
         LicenseEntitlementKey.OPERATION_USAGE: operation_usage,
         LicenseEntitlementKey.DURATION: duration,
         LicenseEntitlementKey.TYPE: license_type,
+        LicenseEntitlementKey.FEATURES: list(features) if features else [],
     }
 
 
@@ -194,11 +199,13 @@ def main() -> None:
     parser.add_argument('--private-key', default=DEFAULT_PRIVATE_KEY_PATH, help="Path to the PEM private key")
     parser.add_argument('--type', dest='license_type', default=DEFAULT_LICENSE_TYPE, help="License tier (type)")
     parser.add_argument('--hmac', default=DEFAULT_HMAC, help="Machine-binding HMAC to embed in the license")
+    parser.add_argument('--features', nargs='*', default=[], metavar='FEATURE',
+                        help="Feature keys to unlock (LicenseFeature values), space separated")
     parser.add_argument('--out', default=DEFAULT_LICENSE_OUTPUT_PATH, help="Output path for the license blob")
     args = parser.parse_args()
 
     private_key = load_private_key(args.private_key)
-    entitlement = build_entitlement(license_type=args.license_type, hmac_value=args.hmac)
+    entitlement = build_entitlement(license_type=args.license_type, hmac_value=args.hmac, features=args.features)
     blob = mint_license_blob(entitlement, private_key)
 
     out_path = Path(args.out)

@@ -53,9 +53,9 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     database_manager.get_collection(ActiveLicenseManager.COLLECTION, database_name).delete_many({})
 
 
-def _force_valid(monkeypatch: pytest.MonkeyPatch, tier: str) -> None:
+def _force_valid(monkeypatch: pytest.MonkeyPatch, tier: str, features: list[str] | None = None) -> None:
     """Makes the service's verify_license accept any blob as a license of the given tier"""
-    entitlement = LicenseEntitlement(hmac='bind', license_type=tier)
+    entitlement = LicenseEntitlement(hmac='bind', license_type=tier, features=features)
     result = LicenseVerificationResult(LicenseVerificationStatus.VALID, entitlement)
     monkeypatch.setattr(svc_module, 'verify_license', lambda *args, **kwargs: result)
 
@@ -102,12 +102,14 @@ def test_activate_rejects_missing_blob(rest_api) -> None:
 
 def test_activate_current_delete_cycle(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
     """Activating a (forced-valid) license makes it live; deleting it reverts to free"""
-    _force_valid(monkeypatch, LicenseTier.BUSINESS.value)
+    _force_valid(monkeypatch, LicenseTier.BUSINESS.value, features=['isms', 'ipam'])
 
     activate = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
     assert activate.status_code == HTTPStatus.OK
     assert activate.json[RESULT_KEY][CurrentLicenseResponseKey.IS_ACTIVE.value] is True
-    assert activate.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]['type'] == LicenseTier.BUSINESS.value
+    entitlement = activate.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]
+    assert entitlement['type'] == LicenseTier.BUSINESS.value
+    assert entitlement['features'] == ['isms', 'ipam']
 
     current = rest_api.get(CURRENT_URL)
     assert current.json[RESULT_KEY][CurrentLicenseResponseKey.IS_ACTIVE.value] is True
