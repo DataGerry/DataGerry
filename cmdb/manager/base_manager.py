@@ -241,6 +241,29 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
+    def count_from_other_collection(self, collection: str, criteria: dict[str, Any] | None = None) -> int:
+        """
+        Counts the documents in another collection that match the given criteria
+
+        The cross-collection counterpart of count_documents (which targets this manager's own
+        collection); used to test for referencing documents without loading them
+
+        Args:
+            collection (str): The name of the collection to count in
+            criteria (dict[str, Any] | None): Filter selecting which documents to count. Defaults to None
+
+        Raises:
+            BaseManagerGetError: When the count operation fails
+
+        Returns:
+            int: The number of documents in the other collection matching the criteria
+        """
+        try:
+            return self.dbm.count(collection, self.db_name, criteria)
+        except DocumentGetError as err:
+            raise BaseManagerGetError(str(err)) from err
+
+
     def get_many_from_other_collection(
             self,
             collection: str,
@@ -534,7 +557,10 @@ class BaseManager:
         try:
             collection = col if col else self.collection
 
-            return self.dbm.update(collection, self.db_name, criteria, data, *args, add_to_set, plain, **kwargs)
+            return self.dbm.update(
+                collection, self.db_name, criteria, data, *args,
+                add_to_set=add_to_set, plain=plain, **kwargs
+            )
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(str(err)) from err
 

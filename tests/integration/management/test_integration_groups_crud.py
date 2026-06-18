@@ -43,12 +43,15 @@ GROUP_ID_FOR_DELETE: int = 9803
 GROUP_ID_FOR_INSERT: int = 9804
 GROUP_IDS_FOR_ITERATE: list[int] = [9811, 9812, 9813]
 MISSING_GROUP_ID: int = 9899
+FORGED_GROUP_ID: int = 9898
 
 ALL_SEEDED_IDS: list[int] = [
     GROUP_ID_FOR_GET,
     GROUP_ID_FOR_UPDATE,
     GROUP_ID_FOR_DELETE,
     GROUP_ID_FOR_INSERT,
+    MISSING_GROUP_ID,
+    FORGED_GROUP_ID,
     *GROUP_IDS_FOR_ITERATE,
 ]
 
@@ -163,6 +166,36 @@ class TestUpdateGroup:
             assert stored.label == UPDATED_LABEL
         finally:
             _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+
+    def test_update_missing_id_does_not_upsert(self, groups_manager: GroupsManager) -> None:
+        """Updating a non-existent id is a no-op and must not silently insert a new doc."""
+        groups_manager.update_group(MISSING_GROUP_ID, _group_data(MISSING_GROUP_ID, UPDATED_LABEL))
+
+        assert groups_manager.get_group(MISSING_GROUP_ID) is None
+
+    def test_update_does_not_rewrite_public_id(
+        self,
+        groups_manager: GroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A forged payload public_id cannot rewrite the stored id (identity is pinned to the arg)."""
+        try:
+            groups_manager.insert_group(_group_data(GROUP_ID_FOR_UPDATE))
+
+            forged = _group_data(GROUP_ID_FOR_UPDATE, UPDATED_LABEL)
+            forged['public_id'] = FORGED_GROUP_ID  # attacker-supplied mismatched id
+
+            groups_manager.update_group(GROUP_ID_FOR_UPDATE, forged)
+
+            # The real doc kept its id and got the new label; the forged id never came into existence
+            stored = groups_manager.get_group(GROUP_ID_FOR_UPDATE)
+            assert stored is not None
+            assert stored.label == UPDATED_LABEL
+            assert groups_manager.get_group(FORGED_GROUP_ID) is None
+        finally:
+            _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+            _delete_group_by_id(database_manager, database_name, FORGED_GROUP_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

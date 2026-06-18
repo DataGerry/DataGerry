@@ -579,6 +579,8 @@ def test_delete_removes_report(flask_app: Flask) -> None:
          flask_app.test_request_context('/7/', method='DELETE'):
         _unwrap(delete_cmdb_report)(public_id=7, request_user=MagicMock())
 
+    # The existence check fetches the lightweight raw dict, not a built model
+    mgr.get_item.assert_called_once_with(7, as_dict=True)
     mgr.delete_item.assert_called_once_with(7)
     response_ctor.assert_called_once_with(True)
 

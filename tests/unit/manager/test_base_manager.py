@@ -99,6 +99,30 @@ def test_insert_many_wraps_failure() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                          count_from_other_collection                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_count_from_other_collection_delegates_to_other_collection() -> None:
+    """Counts against the GIVEN collection (not the manager's own) with the manager's db + criteria"""
+    mgr = _mock_manager()
+    mgr.dbm.count.return_value = 3
+    criteria = {'report_category_id': 5}
+
+    result = BaseManager.count_from_other_collection(mgr, 'framework.reports', criteria)
+
+    assert result == 3
+    mgr.dbm.count.assert_called_once_with('framework.reports', DB_NAME, criteria)
+
+
+def test_count_from_other_collection_wraps_failure() -> None:
+    """A DocumentGetError from the count is wrapped in BaseManagerGetError"""
+    mgr = _mock_manager()
+    mgr.dbm.count.side_effect = DocumentGetError('boom')
+
+    with pytest.raises(BaseManagerGetError):
+        BaseManager.count_from_other_collection(mgr, 'framework.reports', {'x': 1})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  iterate_query                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_iterate_query_returns_results_and_total() -> None:
@@ -175,12 +199,18 @@ def test_find_wraps_document_get_error() -> None:
 #                                                     update                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_update_uses_manager_collection_by_default() -> None:
-    """Without col, the update targets this manager's own collection"""
+    """Without col, the update targets this manager's own collection.
+
+    add_to_set/plain are forwarded as KEYWORDS, never as trailing positionals - otherwise they
+    would land in dbm.update's *args and reach update_one() as upsert=True (a silent-upsert bug)
+    """
     mgr = _mock_manager()
 
     BaseManager.update(mgr, {'public_id': 1}, {'name': 'x'})
 
-    mgr.dbm.update.assert_called_once_with(COLLECTION, DB_NAME, {'public_id': 1}, {'name': 'x'}, True, False)
+    mgr.dbm.update.assert_called_once_with(
+        COLLECTION, DB_NAME, {'public_id': 1}, {'name': 'x'}, add_to_set=True, plain=False
+    )
 
 
 def test_update_uses_given_collection_when_col_set() -> None:

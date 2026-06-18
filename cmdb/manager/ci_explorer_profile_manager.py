@@ -23,10 +23,17 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 
-from cmdb.errors.manager.ci_explorer_profile_manager import CI_EXPLORER_PROFILE_MANAGER_ERRORS
+from cmdb.errors.manager.ci_explorer_profile_manager import (
+    CI_EXPLORER_PROFILE_MANAGER_ERRORS,
+    CiExplorerProfileManagerUpdateError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# CiExplorerProfile filter-array fields a deleted type / relation id is pulled from
+TYPES_FILTER_FIELD: str = 'types_filter'
+RELATIONS_FILTER_FIELD: str = 'relations_filter'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            CiExplorerProfileManager - CLASS                                          #
@@ -49,14 +56,36 @@ class CiExplorerProfileManager(GenericManager):
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
+    def _remove_id_from_filter(self, filter_field: str, id_value: int) -> None:
+        """
+        Pulls an id out of the given filter-array field across all CiExplorerProfiles
+
+        Args:
+            filter_field (str): The CiExplorerProfile array field to pull from
+                (TYPES_FILTER_FIELD or RELATIONS_FILTER_FIELD)
+            id_value (int): The public_id to remove from that field on every profile
+
+        Raises:
+            CiExplorerProfileManagerUpdateError: When the pull operation fails
+        """
+        try:
+            self.update_many_pull({filter_field: id_value}, {filter_field: id_value})
+        except Exception as err:
+            LOGGER.error("[_remove_id_from_filter] Exception: %s. Type: %s", err, type(err))
+            raise CiExplorerProfileManagerUpdateError(err) from err
+
+
     def remove_type_from_profiles(self, type_id: int) -> None:
         """
         Removes a type_id from the 'types_filter' of all CiExplorerProfiles
 
         Args:
             type_id(int): public_id of the CmdbType which should be removed from all CiExplorerProfiles
+
+        Raises:
+            CiExplorerProfileManagerUpdateError: When the pull operation fails
         """
-        self.update_many_pull({'types_filter': type_id}, {'types_filter': type_id})
+        self._remove_id_from_filter(TYPES_FILTER_FIELD, type_id)
 
 
     def remove_relation_from_profiles(self, relation_id: int) -> None:
@@ -65,5 +94,8 @@ class CiExplorerProfileManager(GenericManager):
 
         Args:
             relation_id(int): public_id of the CmdbRelation which should be removed from all CiExplorerProfiles
+
+        Raises:
+            CiExplorerProfileManagerUpdateError: When the pull operation fails
         """
-        self.update_many_pull({'relations_filter': relation_id}, {'relations_filter': relation_id})
+        self._remove_id_from_filter(RELATIONS_FILTER_FIELD, relation_id)
