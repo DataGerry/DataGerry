@@ -17,22 +17,11 @@
 Implementation of all API routes for CmdbExtendableOptions
 """
 from logging import Logger, getLogger
-from typing import Any
 
 from flask import request, abort
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import (
-    ExtendableOptionsManager,
-    ThreatManager,
-    VulnerabilityManager,
-    ObjectGroupsManager,
-    ControlMeasureManager,
-    RiskManager,
-    RiskAssessmentManager,
-    ControlMeasureAssignmentManager,
-)
-
+from cmdb.manager import ExtendableOptionsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -50,6 +39,13 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
     UpdateSingleResponse,
     DeleteSingleResponse,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_constants import (
+    ExtendableOptionRight,
+    ExtendableOptionKey,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
+    is_extendable_option_used,
 )
 
 from cmdb.errors.manager.extendable_options_manager import (
@@ -70,7 +66,7 @@ extendable_option_blueprint = APIBlueprint('extendable_options', __name__)
 @extendable_option_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@extendable_option_blueprint.protect(auth=True, right='base.framework.extendableOption.add')
+@extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.ADD.value)
 @extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
 def insert_cmdb_extendable_option(data: dict, request_user: CmdbUser):
     """
@@ -89,18 +85,21 @@ def insert_cmdb_extendable_option(data: dict, request_user: CmdbUser):
                                                                     request_user
                                                                 )
 
-        if data.get('predefined'):
+        if data.get(ExtendableOptionKey.PREDEFINED):
             abort(400, "Predefined ExtendableOptions cannot be created via API!")
 
         # Validate the OptionType
-        if not OptionType.is_valid(data.get('option_type')):
-            abort(400, f"Invalid OptionType provided: {data.get('option_type')}")
+        if not OptionType.is_valid(data.get(ExtendableOptionKey.OPTION_TYPE)):
+            abort(400, f"Invalid OptionType provided: {data.get(ExtendableOptionKey.OPTION_TYPE)}")
 
-        # Validate that the ExtendableOption does not exist
-        existing_extendable_option = extendable_options_manager.get_one_by(data)
+        # Validate that no ExtendableOption with the same value + option_type already exists
+        existing_extendable_option = extendable_options_manager.get_one_by({
+            ExtendableOptionKey.VALUE: data.get(ExtendableOptionKey.VALUE),
+            ExtendableOptionKey.OPTION_TYPE: data.get(ExtendableOptionKey.OPTION_TYPE),
+        })
 
         if existing_extendable_option:
-            abort(400, f"An Option with the value already exists: {data.get('value')}")
+            abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
 
         result_id: int = extendable_options_manager.insert_item(data)
 
@@ -127,7 +126,7 @@ def insert_cmdb_extendable_option(data: dict, request_user: CmdbUser):
 @extendable_option_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@extendable_option_blueprint.protect(auth=True, right='base.framework.extendableOption.view')
+@extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.VIEW.value)
 @extendable_option_blueprint.parse_collection_parameters()
 def get_cmdb_extendable_options(params: CollectionParameters, request_user: CmdbUser):
     """
@@ -174,7 +173,7 @@ def get_cmdb_extendable_options(params: CollectionParameters, request_user: Cmdb
 @extendable_option_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@extendable_option_blueprint.protect(auth=True, right='base.framework.extendableOption.view')
+@extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.VIEW.value)
 def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbExtendableOption
@@ -195,7 +194,7 @@ def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
         extendable_option = extendable_options_manager.get_item(public_id, as_dict=True)
 
         if extendable_option:
-            return GetSingleResponse(extendable_option, body = request.method == 'HEAD').make_response()
+            return GetSingleResponse(extendable_option, body=request.method == 'HEAD').make_response()
 
         abort(404, f"The ExtendableOption with ID:{public_id} was not found!")
     except HTTPException as http_err:
@@ -212,7 +211,7 @@ def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
 @extendable_option_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@extendable_option_blueprint.protect(auth=True, right='base.framework.extendableOption.edit')
+@extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.EDIT.value)
 @extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
 def update_cmdb_extendable_option(public_id: int, data: dict, request_user: CmdbUser):
     """
@@ -232,8 +231,8 @@ def update_cmdb_extendable_option(public_id: int, data: dict, request_user: Cmdb
                                                                     request_user
                                                                 )
         # Validate the OptionType
-        if not OptionType.is_valid(data.get('option_type')):
-            abort(400, f"Invalid OptionType provided: {data.get('option_type')}")
+        if not OptionType.is_valid(data.get(ExtendableOptionKey.OPTION_TYPE)):
+            abort(400, f"Invalid OptionType provided: {data.get(ExtendableOptionKey.OPTION_TYPE)}")
 
         to_update_extendable_option: CmdbExtendableOption = extendable_options_manager.get_item(public_id)
 
@@ -244,21 +243,24 @@ def update_cmdb_extendable_option(public_id: int, data: dict, request_user: Cmdb
             abort(400, "It is not possible to edit a predefined ExtendableOption!")
 
         # Predefined cannot be changed
-        if data.get('predefined') != to_update_extendable_option.predefined:
-            abort(404, "The 'predefined' property of an ExtendableOption cannot be changed!")
+        if data.get(ExtendableOptionKey.PREDEFINED) != to_update_extendable_option.predefined:
+            abort(400, "The 'predefined' property of an ExtendableOption cannot be changed!")
 
         # Validate that the OptionType is not changed
-        if data['option_type'] != to_update_extendable_option.option_type:
+        if data[ExtendableOptionKey.OPTION_TYPE] != to_update_extendable_option.option_type:
             abort(400, "The OptionType of an ExtendableOption can not be changed!")
 
         # Validate that the ExtendableOption with the updated values does not exist
         existing_extendable_option = extendable_options_manager.get_one_by({
-                                                            'value': data.get('value'),
-                                                            'option_type': data.get('option_type')
-                                                        })
+            ExtendableOptionKey.VALUE: data.get(ExtendableOptionKey.VALUE),
+            ExtendableOptionKey.OPTION_TYPE: data.get(ExtendableOptionKey.OPTION_TYPE),
+        })
 
         if existing_extendable_option:
-            abort(400, f"An Option with the value already exists: {data.get('value')}")
+            abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
+
+        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
+        data[ExtendableOptionKey.PUBLIC_ID] = public_id
 
         extendable_options_manager.update_item(public_id, CmdbExtendableOption.from_data(data))
 
@@ -280,7 +282,7 @@ def update_cmdb_extendable_option(public_id: int, data: dict, request_user: Cmdb
 @extendable_option_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@extendable_option_blueprint.protect(auth=True, right='base.framework.extendableOption.delete')
+@extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.DELETE.value)
 def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
     """
     HTTP `DELETE` route to delete a single CmdbExtendableOption
@@ -304,7 +306,7 @@ def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
             abort(404, f"The ExtendableOption with ID:{public_id} was not found!")
 
         # Predefined is undeletable
-        if to_delete_extendable_option['predefined']:
+        if to_delete_extendable_option[ExtendableOptionKey.PREDEFINED]:
             abort(400, "A predefined ExtendableOption cannot be deleted!")
 
         if is_extendable_option_used(to_delete_extendable_option, request_user):
@@ -324,62 +326,3 @@ def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
     except Exception as err:
         LOGGER.error("[delete_cmdb_extendable_option] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the ExtendableOption with ID: {public_id}!")
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-def is_extendable_option_used(extendable_option: dict[str, Any], request_user: CmdbUser) -> bool:
-    """
-    Checks if a CmdbExtendableOption is used in other collections before deletion
-
-    Args:
-        extendable_option (dict): The public_id of the CmdbExtendableOption to check.
-        request_user (str): User requesting the check
-
-    Returns:
-        bool: True if the option is used, False otherwise.
-    """
-    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
-    vulnerability_manager: VulnerabilityManager = ManagerProvider.get_manager(ManagerType.VULNERABILITY, request_user)
-    object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
-    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                   request_user)
-    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
-    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(ManagerType.RISK_ASSESSMENT,
-                                                                                   request_user)
-    c_m_assignment_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
-                                                                                ManagerType.CONTROL_MEASURE_ASSIGNMENT,
-                                                                                request_user
-                                                                            )
-
-    if extendable_option.get('option_type') == OptionType.THREAT_VULNERABILITY:
-        return threat_manager.count_documents({"source": extendable_option.get('public_id')}) > 0
-
-    if extendable_option.get('option_type') == OptionType.THREAT_VULNERABILITY:
-        return vulnerability_manager.count_documents({"source": extendable_option.get('public_id')}) > 0
-
-    if extendable_option.get('option_type') == OptionType.OBJECT_GROUP:
-        return object_groups_manager.count_documents({"categories": extendable_option.get('public_id')}) > 0
-
-    if extendable_option.get('option_type') == OptionType.CONTROL_MEASURE:
-        return control_measure_manager.count_documents({"source": extendable_option.get('public_id')}) > 0
-
-    if extendable_option.get('option_type') == OptionType.IMPLEMENTATION_STATE:
-        control_measures_used = control_measure_manager.count_documents(
-                                    {"implementation_state": extendable_option.get('public_id')}
-                                ) > 0
-
-        risk_assessment_used = risk_assessment_manager.count_documents(
-                                        {"implementation_status": extendable_option.get('public_id')}
-                                ) > 0
-
-        c_m_assignment_used = c_m_assignment_manager.count_documents(
-                                        {"implementation_status": extendable_option.get('public_id')}
-                                ) > 0
-
-        return control_measures_used or risk_assessment_used or c_m_assignment_used
-
-    if extendable_option.get('option_type') == OptionType.RISK:
-        return risk_manager.count_documents({"category_id": extendable_option.get('public_id')}) > 0
-
-    # If option_type is not recognized
-    return False

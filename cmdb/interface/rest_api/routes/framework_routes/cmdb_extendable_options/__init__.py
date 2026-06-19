@@ -14,13 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module prove all APIBluerpints for the Framework section of DataGerry
+REST API routes for the CmdbExtendableOption domain
+
+Gathers everything backing the ``/rest/extendable_options`` endpoints in one place, mirroring the
+``cmdb_categories`` / ``cmdb_types`` route packages:
+
+    extendable_option_routes.py     ``extendable_option_blueprint`` - the CmdbExtendableOption CRUD endpoints
+    extendable_options_constants.py ACL rights + request/document keys + referencing-collection field names
+    extendable_options_helper.py    ``is_extendable_option_used`` - the in-use guard run before deletion
+
+The CRUD handlers delegate their domain logic to ``ExtendableOptionsManager``; the deletion in-use
+check lives in the helper so it stays unit-testable.
 """
-from .cmdb_extendable_options import extendable_option_blueprint
-from .object_groups_routes import object_group_blueprint
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_option_routes import (
+    extendable_option_blueprint,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'extendable_option_blueprint',
-    'object_group_blueprint',
 ]

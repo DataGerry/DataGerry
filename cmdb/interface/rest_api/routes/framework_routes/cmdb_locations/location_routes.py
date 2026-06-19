@@ -46,6 +46,7 @@ from cmdb.interface.rest_api.responses import (
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     resolve_location_name,
     build_location_forest,
+    parse_required_int,
 )
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -89,9 +90,9 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
 
         location_creation_params: dict[str, Any] = {}
 
-        location_creation_params['object_id'] = int(data['object_id'])
-        location_creation_params['parent'] = int(data['parent'])
-        location_creation_params['type_id'] = int(data['type_id'])
+        location_creation_params['object_id'] = parse_required_int(data, 'object_id')
+        location_creation_params['parent'] = parse_required_int(data, 'parent')
+        location_creation_params['type_id'] = parse_required_int(data, 'type_id')
 
         object_type = types_manager.get_type(location_creation_params['type_id'])
 
@@ -153,7 +154,8 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
         iteration_result: IterationResult[CmdbLocation] = locations_manager.iterate(builder_params)
 
-        location_list: list[dict] = [CmdbLocation.to_json(location) for location in iteration_result.results]
+        location_list: list[dict[str, Any]] = [CmdbLocation.to_json(location)
+                                               for location in iteration_result.results]
 
         api_response = GetMultiResponse(location_list,
                                         iteration_result.total,
@@ -349,6 +351,8 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
             children = [CmdbLocation.to_json(child) for child in child_locations]
 
         return DefaultResponse(children).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_children] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Location for Object with ID: {object_id} from the database!")
@@ -383,8 +387,8 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
         location_update_params: dict[str, Any] = {}
 
-        object_id = int(data['object_id'])
-        location_update_params['parent'] = int(data['parent'])
+        object_id = parse_required_int(data, 'object_id')
+        location_update_params['parent'] = parse_required_int(data, 'parent')
 
         to_update_location = locations_manager.get_location_for_object(object_id)
 
@@ -439,6 +443,11 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
             abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
 
         location_public_id = to_delete_location['public_id']
+
+        # A location with child locations must not be deleted - it would orphan the whole subtree
+        if locations_manager.location_has_children(location_public_id):
+            abort(403, f"The Location linked to Object with ID: {object_id} has child Locations and "
+                       "cannot be deleted!")
 
         ack = locations_manager.delete_location(location_public_id)
 

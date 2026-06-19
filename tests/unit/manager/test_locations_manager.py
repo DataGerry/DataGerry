@@ -324,6 +324,36 @@ class TestGetChildLocationsObjectIds:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                location_has_children                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestLocationHasChildren:
+    """``location_has_children`` reports whether any location has this one as its parent."""
+
+    def test_true_when_children_exist(self) -> None:
+        """A positive child count scoped to the parent field reports True."""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = 2
+
+        assert LocationsManager.location_has_children(mgr, LOCATION_PUBLIC_ID) is True
+        mgr.count_documents.assert_called_once_with({'parent': LOCATION_PUBLIC_ID})
+
+    def test_false_when_no_children(self) -> None:
+        """A zero child count reports False."""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = 0
+
+        assert LocationsManager.location_has_children(mgr, LOCATION_PUBLIC_ID) is False
+
+    def test_get_error_wraps_as_locations_get_error(self) -> None:
+        """A ``BaseManagerGetError`` from the count is wrapped as ``LocationsManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.count_documents.side_effect = BaseManagerGetError('db down')
+
+        with pytest.raises(LocationsManagerGetError):
+            LocationsManager.location_has_children(mgr, LOCATION_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                    update_location                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestUpdateLocation:

@@ -211,12 +211,18 @@ class BaseQueryBuilder(Builder):
             }
         }})
 
+        # Only the existence of the referenced object matters here, so the lookup sub-pipeline
+        # caps at a single id-only document instead of hauling each full object into memory
         query.append({
             "$lookup": {
                 "from": "framework.objects",
                 "localField": "object_id",
                 "foreignField": "public_id",
-                "as": "object"
+                "as": "object",
+                "pipeline": [
+                    {"$limit": 1},
+                    {"$project": {"_id": 1}},
+                ],
             }
         })
 

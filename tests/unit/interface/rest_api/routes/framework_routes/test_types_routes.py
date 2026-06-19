@@ -453,6 +453,26 @@ class TestUpdateCmdbType:
 
         response_ctor.assert_called_once_with(final_doc)
 
+    def test_update_pins_public_id_to_the_url(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A forged body public_id is overwritten with the URL id before the type is persisted."""
+        del patched_manager_provider
+        final_doc = {**SAMPLE_TYPE_DICT, 'label': 'updated'}
+        mgr.get_type.side_effect = [SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID), final_doc]
+        forged_payload: dict[str, Any] = {**SAMPLE_TYPE_DICT, 'public_id': 999}
+
+        with patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
+            for ctx in self._patches():
+                ctx.start()
+            try:
+                self._call(flask_app, forged_payload)
+            finally:
+                patch.stopall()
+
+        # The body public_id (999) was pinned back to the URL id before from_data / persist
+        assert forged_payload['public_id'] == TYPE_PUBLIC_ID
+
     def test_special_type_change_maps_to_400(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:

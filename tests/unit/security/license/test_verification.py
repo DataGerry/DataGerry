@@ -105,7 +105,7 @@ def test_valid_license(rsa_keypair: RsaKey) -> None:
 
 def test_valid_license_carries_its_features(rsa_keypair: RsaKey) -> None:
     """The features the license lists survive the chain onto the verified entitlement"""
-    features = [LicenseFeature.IPAM.value, LicenseFeature.WEBHOOKS.value]
+    features = [LicenseFeature.IPAM.value, LicenseFeature.ISMS.value]
     blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY, features=features)
 
     result = verify_license(blob, _store_with_binding(), now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair))

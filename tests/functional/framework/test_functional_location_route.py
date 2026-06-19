@@ -396,3 +396,22 @@ class TestDeleteLocation:
         response = rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/object')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_location_with_children_returns_403(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A location that still has child locations cannot be deleted (403) and survives."""
+        _insert_location(database_manager, database_name, _location_doc(
+            ROOT_LOCATION_ID, ROOT_OBJECT_ID, ROOT_PARENT_ID,
+        ))
+        _insert_location(database_manager, database_name, _location_doc(
+            CHILD_LOCATION_ID, CHILD_OBJECT_ID, ROOT_LOCATION_ID,
+        ))
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object')
+
+            assert response.status_code == HTTPStatus.FORBIDDEN
+            # the parent location still exists
+            assert rest_api.get(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object').status_code == HTTPStatus.OK
+        finally:
+            _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, CHILD_LOCATION_ID])

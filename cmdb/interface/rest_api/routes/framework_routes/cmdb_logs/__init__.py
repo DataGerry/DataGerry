@@ -14,13 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module prove all APIBluerpints for the Framework section of DataGerry
+REST API routes for the CmdbLog domain
+
+Gathers everything backing the ``/rest/logs`` endpoints in one place, mirroring the
+``cmdb_objects`` and ``cmdb_locations`` route packages:
+
+    logs_routes.py      ``logs_blueprint`` - the CmdbLog read/delete endpoints
+    logs_helper.py      route-level helpers shared by the list handlers
+    logs_constants.py   ACL rights, document keys and query operators used by those routes
+
+The handlers delegate their domain logic to ``LogsManager``.
 """
-from .cmdb_extendable_options import extendable_option_blueprint
-from .object_groups_routes import object_group_blueprint
+from .logs_routes import logs_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'extendable_option_blueprint',
-    'object_group_blueprint',
+    'logs_blueprint',
 ]

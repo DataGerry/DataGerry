@@ -14,13 +14,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module prove all APIBluerpints for the Framework section of DataGerry
+Constants used by the CmdbLog REST routes
+
+Centralises the ACL rights each endpoint guards on, the document keys the route queries read, and
+the MongoDB operator literals used when assembling those queries - so the routes and helper carry
+no bare string literals.
 """
-from .cmdb_extendable_options import extendable_option_blueprint
-from .object_groups_routes import object_group_blueprint
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'extendable_option_blueprint',
-    'object_group_blueprint',
-]
+
+class LogRight(BaseStrEnum):
+    """Per-endpoint ACL rights checked by the CmdbLog route ``protect`` decorators."""
+    VIEW = 'base.framework.log.view'
+    DELETE = 'base.framework.log.delete'
+
+
+class LogKey(BaseStrEnum):
+    """Document keys of a CmdbLog read or matched by the routes."""
+    PUBLIC_ID = 'public_id'
+    LOG_TYPE = 'log_type'
+    OBJECT_ID = 'object_id'
+    ACTION = 'action'
+
+
+class LogQueryOperator(BaseStrEnum):
+    """MongoDB operator literals used when assembling CmdbLog queries."""
+    NOR = '$nor'

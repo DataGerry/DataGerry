@@ -220,8 +220,8 @@ def test_create_malformed_fields_json_maps_to_400(
     assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
-def test_create_insert_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-    """A SectionTemplatesManagerInsertError is translated to HTTP 500"""
+def test_create_insert_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+    """A SectionTemplatesManagerInsertError is translated to HTTP 400 (a failed insert operation)"""
     del patched_manager_provider
     mgr.get_one_by.return_value = None
     mgr.get_next_public_id.return_value = TEMPLATE_PUBLIC_ID
@@ -230,7 +230,7 @@ def test_create_insert_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patch
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params())
 
-    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -244,16 +244,17 @@ def test_get_all_returns_multi_response(flask_app: Flask, mgr: MagicMock, patche
     with flask_app.test_request_context('/', method='GET'), \
          patch(f'{ROUTE_PATH}.BuilderParameters'), \
          patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}), \
+         patch(f'{ROUTE_PATH}.CmdbSectionTemplate.to_json', return_value={'public_id': 1}), \
          patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor:
         _unwrap(get_all_section_templates)(params=MagicMock(), request_user=MagicMock())
 
     response_ctor.assert_called_once()
 
 
-def test_get_all_iteration_error_maps_to_500(
+def test_get_all_iteration_error_maps_to_400(
     flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
 ) -> None:
-    """A SectionTemplatesManagerIterationError is translated to HTTP 500"""
+    """A SectionTemplatesManagerIterationError is translated to HTTP 400 (a failed iterate operation)"""
     del patched_manager_provider
     mgr.iterate.side_effect = SectionTemplatesManagerIterationError('boom')
 
@@ -263,7 +264,7 @@ def test_get_all_iteration_error_maps_to_500(
         with pytest.raises(HTTPException) as excinfo:
             _unwrap(get_all_section_templates)(params=MagicMock(), request_user=MagicMock())
 
-    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -293,8 +294,8 @@ def test_get_missing_template_maps_to_404(flask_app: Flask, mgr: MagicMock, patc
     assert excinfo.value.code == HTTP_NOT_FOUND
 
 
-def test_get_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-    """A SectionTemplatesManagerGetError is translated to HTTP 500"""
+def test_get_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+    """A SectionTemplatesManagerGetError is translated to HTTP 400 (a failed get operation)"""
     del patched_manager_provider
     mgr.get_section_template.side_effect = SectionTemplatesManagerGetError('boom')
 
@@ -302,7 +303,7 @@ def test_get_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patched
         with pytest.raises(HTTPException) as excinfo:
             _unwrap(get_section_template)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
 
-    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -366,15 +367,30 @@ def test_update_missing_template_maps_to_404(flask_app: Flask, mgr: MagicMock, p
     mgr.update_section_template.assert_not_called()
 
 
-def test_update_changing_predefined_maps_to_400(
+def test_update_predefined_template_not_editable_maps_to_400(
     flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
 ) -> None:
-    """Changing the immutable 'predefined' property aborts 400 (not swallowed into 500)"""
+    """A predefined template cannot be edited via the API: any update aborts 400 without persisting"""
     del patched_manager_provider
     mgr.get_section_template.return_value = MagicMock(predefined=True, type='section')
 
+    # predefined='true' matches the stored flag, so this isolates the not-editable guard
     with pytest.raises(HTTPException) as excinfo:
-        _call_update(flask_app, _update_params(predefined='false'))
+        _call_update(flask_app, _update_params(predefined='true'))
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.update_section_template.assert_not_called()
+
+
+def test_update_changing_predefined_maps_to_400(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """Turning a non-predefined template into a predefined one aborts 400 (immutable flag)"""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = MagicMock(predefined=False, type='section')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params(predefined='true'))
 
     assert excinfo.value.code == HTTP_BAD_REQUEST
 
@@ -417,8 +433,8 @@ def test_update_missing_label_maps_to_400(
     mgr.update_section_template.assert_not_called()
 
 
-def test_update_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-    """A SectionTemplatesManagerUpdateError is translated to HTTP 500"""
+def test_update_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+    """A SectionTemplatesManagerUpdateError is translated to HTTP 400 (a failed update operation)"""
     del patched_manager_provider
     mgr.get_section_template.return_value = MagicMock(predefined=False, type='section')
     mgr.update_section_template.side_effect = SectionTemplatesManagerUpdateError('boom')
@@ -426,7 +442,7 @@ def test_update_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patc
     with pytest.raises(HTTPException) as excinfo:
         _call_update(flask_app, _update_params())
 
-    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -487,8 +503,8 @@ def test_delete_missing_template_maps_to_404(flask_app: Flask, mgr: MagicMock, p
     assert excinfo.value.code == HTTP_NOT_FOUND
 
 
-def test_delete_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-    """A SectionTemplatesManagerDeleteError is translated to HTTP 500 (not 400)"""
+def test_delete_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+    """A SectionTemplatesManagerDeleteError is translated to HTTP 400 (a failed delete operation)"""
     del patched_manager_provider
     mgr.get_section_template.return_value = MagicMock(predefined=False, is_global=False)
     mgr.delete_section_template.side_effect = SectionTemplatesManagerDeleteError('boom')
@@ -496,4 +512,4 @@ def test_delete_manager_error_maps_to_500(flask_app: Flask, mgr: MagicMock, patc
     with pytest.raises(HTTPException) as excinfo:
         _call_delete(flask_app)
 
-    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert excinfo.value.code == HTTP_BAD_REQUEST

@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -13,14 +13,4 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""
-This module prove all APIBluerpints for the Framework section of DataGerry
-"""
-from .cmdb_extendable_options import extendable_option_blueprint
-from .object_groups_routes import object_group_blueprint
-# -------------------------------------------------------------------------------------------------------------------- #
-
-__all__: list[str] = [
-    'extendable_option_blueprint',
-    'object_group_blueprint',
-]
+"""Unit tests for the CmdbLog REST route package."""
