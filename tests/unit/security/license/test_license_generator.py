@@ -99,9 +99,9 @@ def test_build_entitlement_defaults_to_free() -> None:
 
 def test_build_entitlement_carries_features() -> None:
     """build_entitlement embeds the requested feature keys"""
-    entitlement = gen.build_entitlement(features=['ipam', 'webhooks'])
+    entitlement = gen.build_entitlement(features=['ipam', 'isms'])
 
-    assert entitlement[LicenseEntitlementKey.FEATURES] == ['ipam', 'webhooks']
+    assert entitlement[LicenseEntitlementKey.FEATURES] == ['ipam', 'isms']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -166,7 +166,7 @@ def test_main_mints_blob_with_features_from_cli(
         '--private-key', str(private_pem),
         '--type', LicenseTier.CORE.value,
         '--hmac', 'cli-bind',
-        '--features', 'ipam', 'webhooks',
+        '--features', 'ipam', 'isms',
         '--out', str(out_path),
     ])
 
@@ -177,4 +177,4 @@ def test_main_mints_blob_with_features_from_cli(
 
     assert entitlement[LicenseEntitlementKey.TYPE] == LicenseTier.CORE.value
     assert entitlement[LicenseEntitlementKey.HMAC] == 'cli-bind'
-    assert entitlement[LicenseEntitlementKey.FEATURES] == ['ipam', 'webhooks']
+    assert entitlement[LicenseEntitlementKey.FEATURES] == ['ipam', 'isms']

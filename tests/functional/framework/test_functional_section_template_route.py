@@ -151,6 +151,17 @@ class TestGetSectionTemplate:
         assert 'results' in body
         assert len(body['results']) == int(response.headers['X-Total-Count'])
 
+    def test_list_authenticates_before_parsing_params(self, rest_api) -> None:
+        """Auth runs before collection-param parsing (decorator order).
+
+        An unauthorized request whose collection params would fail to parse (``filter`` is not JSON)
+        is rejected with 401 by ``@insert_request_user`` - not the 400 the parse decorator raised
+        when it sat outside the auth decorators.
+        """
+        response = rest_api.get(f'{ROUTE_URL}/?filter=notjson', unauthorized=True)
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       UPDATE                                                         #
@@ -180,6 +191,34 @@ class TestPutSectionTemplate:
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
             stored = collection.find_one({'public_id': TEMPLATE_ID_FOR_UPDATE})
             assert stored['label'] == UPDATED_LABEL
+        finally:
+            collection.delete_one({'public_id': TEMPLATE_ID_FOR_UPDATE})
+
+    def test_predefined_template_not_editable_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A predefined template cannot be edited via PUT (400) and is left unchanged."""
+        collection = _collection(database_manager, database_name)
+        predefined_doc = _template_doc(TEMPLATE_ID_FOR_UPDATE, 'func-sectpl-predef')
+        predefined_doc['predefined'] = True
+        collection.insert_one(predefined_doc)
+        try:
+            params = {
+                'public_id': str(TEMPLATE_ID_FOR_UPDATE),
+                'name': 'func-sectpl-predef',
+                'label': UPDATED_LABEL,
+                'type': SectionType.SECTION.value,
+                'is_global': 'false',
+                'predefined': 'true',
+                'fields': '[]',
+            }
+
+            response = rest_api.put(f'{ROUTE_URL}/', query_string=params)
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            # the predefined template is left untouched
+            stored = collection.find_one({'public_id': TEMPLATE_ID_FOR_UPDATE})
+            assert stored['label'] == ORIGINAL_LABEL
         finally:
             collection.delete_one({'public_id': TEMPLATE_ID_FOR_UPDATE})
 

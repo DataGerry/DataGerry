@@ -349,6 +349,14 @@ class TestGetAllDescendantLocations:
 
         assert set(child_object_ids) == {CHAIN_MID_OBJECT_ID, CHAIN_LEAF_OBJECT_ID}
 
+    def test_location_has_children_true_for_a_parent(self, locations_manager: LocationsManager) -> None:
+        """A location with a direct child reports has-children True."""
+        assert locations_manager.location_has_children(CHAIN_ROOT_ID) is True
+
+    def test_location_has_children_false_for_a_leaf(self, locations_manager: LocationsManager) -> None:
+        """A leaf location reports has-children False."""
+        assert locations_manager.location_has_children(CHAIN_LEAF_ID) is False
+
 
 class TestGetAllDescendantLocationsCycleSafety:
     """A malformed parent cycle must not hang $graphLookup; it terminates with a finite set."""

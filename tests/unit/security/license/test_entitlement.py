@@ -40,7 +40,7 @@ VALID_ENTITLEMENT: dict = {
     LicenseEntitlementKey.OPERATION_USAGE: 25000,
     LicenseEntitlementKey.DURATION: 0,
     LicenseEntitlementKey.TYPE: LicenseTier.CORE.value,
-    LicenseEntitlementKey.FEATURES: [LicenseFeature.API_ACCESS.value, LicenseFeature.IPAM.value],
+    LicenseEntitlementKey.FEATURES: [LicenseFeature.REST_API.value, LicenseFeature.IPAM.value],
 }
 
 
@@ -65,7 +65,7 @@ def test_from_data_carries_features() -> None:
     """from_data preserves the features list (the sole gating source)"""
     entitlement = LicenseEntitlement.from_data(VALID_ENTITLEMENT)
 
-    assert entitlement.features == [LicenseFeature.API_ACCESS.value, LicenseFeature.IPAM.value]
+    assert entitlement.features == [LicenseFeature.REST_API.value, LicenseFeature.IPAM.value]
 
 
 def test_to_json_survives_base64_json_transport() -> None:

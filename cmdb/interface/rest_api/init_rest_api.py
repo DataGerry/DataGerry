@@ -202,7 +202,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_object_routes import exporter_blueprint
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_routes import type_export_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.logs_routes import logs_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs import logs_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.setting_routes import settings_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.import_routes import importer_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.docapi_routes import docapi_blueprint, docs_blueprint

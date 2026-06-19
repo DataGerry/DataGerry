@@ -31,6 +31,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     resolve_location_name,
     build_location_forest,
+    parse_required_int,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -43,6 +44,7 @@ EXPLICIT_NAME: str = 'Server Room A'
 RENDERED_SUMMARY: str = 'Rendered Summary Line'
 FALLBACK_NAME: str = f'ObjectID: {OBJECT_ID}'
 
+HTTP_BAD_REQUEST: int = 400
 HTTP_NOT_FOUND: int = 404
 
 PARENT_ID: int = 10
@@ -66,6 +68,34 @@ def _location(public_id: int, parent: int) -> dict[str, Any]:
         'type_icon': 'fas fa-cube',
         'object_id': public_id + 100,
     }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  parse_required_int                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestParseRequiredInt:
+    """``parse_required_int`` coerces a required body field to int or aborts 400."""
+
+    def test_returns_int_for_valid_value(self, flask_app: Flask) -> None:
+        """A present, numeric value is coerced to int."""
+        with flask_app.test_request_context():
+            assert parse_required_int({'object_id': '42'}, 'object_id') == 42
+
+    def test_missing_key_aborts_400(self, flask_app: Flask) -> None:
+        """A missing key aborts 400 instead of raising a KeyError."""
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException) as excinfo:
+                parse_required_int({}, 'object_id')
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_non_integer_value_aborts_400(self, flask_app: Flask) -> None:
+        """A non-integer value aborts 400 instead of raising a ValueError."""
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException) as excinfo:
+                parse_required_int({'object_id': 'not-an-int'}, 'object_id')
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

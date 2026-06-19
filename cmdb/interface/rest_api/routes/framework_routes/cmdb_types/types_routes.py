@@ -405,6 +405,8 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
+        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
+        data[TypeSchemaKey.PUBLIC_ID] = public_id
         new_type: CmdbType = CmdbType.from_data(data)
 
         if not special_type_is_unchanged(old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE)):

@@ -33,6 +33,29 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_con
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+def parse_required_int(data: dict[str, Any], key: str) -> int:
+    """
+    Reads a required integer field from a request body, aborting 400 when missing or malformed
+
+    Keeps a bad/missing client parameter a 400 (client error) instead of letting the KeyError /
+    ValueError fall through to the route's generic handler and surface as a 500
+
+    Args:
+        data (dict[str, Any]): The parsed request body
+        key (str): The required field name to read and coerce to int
+
+    Raises:
+        HTTPException: 400 when the key is absent or its value is not an integer
+
+    Returns:
+        int: The integer value of ``data[key]``
+    """
+    try:
+        return int(data[key])
+    except (KeyError, ValueError, TypeError):
+        abort(400, f"Missing or malformed Location parameter: '{key}'!")
+
+
 def resolve_location_name(
         raw_name: str | None,
         object_id: int,

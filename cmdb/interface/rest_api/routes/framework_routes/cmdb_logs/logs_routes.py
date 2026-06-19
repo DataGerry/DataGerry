@@ -14,7 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Definition of all routes for Logs
+REST API endpoints for the ``/logs`` resource (CmdbObjectLog read + delete)
+
+Exposes the single-log read, the list endpoints (logs by object, deleted-action logs, and the
+object-still-exists vs object-deleted split via the framework.objects join) plus the
+corresponding-edit-log lookup and single-log delete. Every handler delegates its query work to
+``LogsManager``; the list handlers share ``logs_helper.build_object_logs_response``.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -27,13 +32,19 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import LogsManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.log_model.log_action_enum import  LogAction
+from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
+from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
+    LogRight,
+    LogKey,
+    LogQueryOperator,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import build_object_logs_response
 
 from cmdb.errors.manager import BaseManagerIterationError, BaseManagerGetError, BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -47,16 +58,21 @@ logs_blueprint = APIBlueprint('logs', __name__)
 @logs_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.view')
+@logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 def get_log(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Retrives a single log from the database
+    HTTP `GET` route to retrieve a single log by its public_id
 
     Args:
         public_id (int): public_id of the requested log
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 if no log has the given public_id, 400 on a database read error,
+                       500 on any unexpected failure
 
     Returns:
-        dict[str, Any]: The log with the given public_id
+        Response: A DefaultResponse wrapping the requested log document
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
@@ -80,33 +96,28 @@ def get_log(public_id: int, request_user: CmdbUser) -> Response:
 @logs_blueprint.route('/object/exists', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.view')
+@logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
 def get_logs_with_existing_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    Retrieves all logs of objects which still exist
+    HTTP `GET`/`HEAD` route for object logs whose referenced object still exists
 
     Args:
-        params (CollectionParameters): parameters for query
+        params (CollectionParameters): Pagination/sort parameters for the query
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 on a database iteration error, 500 on any unexpected failure
+
     Returns:
-        GetMultiResponse: with all logs of exisiting objects
+        Response: A GetMultiResponse with the object logs whose object still exists
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
         query = logs_manager.query_builder.prepare_log_query()
-        builder_params = BuilderParameters(query, params.limit, params.skip, params.sort, params.order)
 
-        object_logs = logs_manager.iterate(builder_params)
-        logs = [CmdbObjectLog.to_json(_) for _ in object_logs.results]
-
-        api_response = GetMultiResponse(logs,
-                                        object_logs.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
-
-        return api_response.make_response()
+        return build_object_logs_response(logs_manager, query, params, request)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_logs_with_existing_objects] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve existing ObjectLogs from database!")
@@ -118,33 +129,28 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
 @logs_blueprint.route('/object/notexists', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.view')
+@logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
-def get_logs_with_deleted_objects(params: CollectionParameters, request_user: CmdbUser):
+def get_logs_with_deleted_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    Retrieves all logs of objects which are deleted
+    HTTP `GET`/`HEAD` route for object logs whose referenced object has been deleted
 
     Args:
-        params (CollectionParameters): parameters for query
+        params (CollectionParameters): Pagination/sort parameters for the query
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 on a database iteration error, 500 on any unexpected failure
+
     Returns:
-        GetMultiResponse: with all logs of deleted objects
+        Response: A GetMultiResponse with the object logs whose object no longer exists
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
         query = logs_manager.query_builder.prepare_log_query(False)
-        builder_params = BuilderParameters(query, params.limit, params.skip, params.sort, params.order)
 
-        object_logs = logs_manager.iterate(builder_params)
-        logs = [CmdbObjectLog.to_json(_) for _ in object_logs.results]
-
-        api_response = GetMultiResponse(logs,
-                                        object_logs.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
-
-        return api_response.make_response()
+        return build_object_logs_response(logs_manager, query, params, request)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_logs_with_deleted_objects]BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Logs of deleted Objects from database!")
@@ -156,36 +162,31 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
 @logs_blueprint.route('/object/deleted', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.view')
+@logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
 def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    Retrives all logs of objects being deleted
+    HTTP `GET`/`HEAD` route for logs recording an object deletion (action DELETE)
 
     Args:
-        params (CollectionParameters): filter for documents
+        params (CollectionParameters): Pagination/sort parameters for the query
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 on a database iteration error, 500 on any unexpected failure
+
     Returns:
-        GetMultiResponse: with all object deleted logs
+        Response: A GetMultiResponse with the object logs whose action is DELETE
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
         query: dict[str, Any] = {
-            'log_type': CmdbObjectLog.__name__,
-            'action': LogAction.DELETE.value
+            LogKey.LOG_TYPE.value: CmdbObjectLog.__name__,
+            LogKey.ACTION.value: LogAction.DELETE.value,
         }
 
-        builder_params = BuilderParameters(query, params.limit, params.skip, params.sort, params.order)
-        object_logs = logs_manager.iterate(builder_params)
-        logs = [CmdbObjectLog.to_json(_) for _ in object_logs.results]
-
-        api_response = GetMultiResponse(logs,
-                                        object_logs.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
-
-        return api_response.make_response()
+        return build_object_logs_response(logs_manager, query, params, request)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_object_delete_logs] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the deleted object logs from database!")
@@ -197,37 +198,29 @@ def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser)
 @logs_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.view')
+@logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
 def get_logs_by_object(object_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    Retrieves logs for an object with the given public_id
+    HTTP `GET`/`HEAD` route for all logs belonging to a single object
 
     Args:
-        object_id (int): public_id of the object
-        params (CollectionParameters): Filter for documents
+        object_id (int): public_id of the object whose logs are requested
+        params (CollectionParameters): Pagination/sort parameters for the query
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 on a database iteration error, 500 on any unexpected failure
+
     Returns:
-        GetMultiResponse: with all logs of the object
+        Response: A GetMultiResponse with all logs referencing the given object_id
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        builder_params = BuilderParameters({'object_id':object_id},
-                                           params.limit,
-                                           params.skip,
-                                           params.sort,
-                                           params.order)
+        query: dict[str, Any] = {LogKey.OBJECT_ID.value: object_id}
 
-        iteration_result = logs_manager.iterate(builder_params)
-        logs = [CmdbObjectLog.to_json(_) for _ in iteration_result.results]
-
-        api_response = GetMultiResponse(logs,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
-
-        return api_response.make_response()
+        return build_object_logs_response(logs_manager, query, params, request)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_logs_by_object] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve logs for Object with ID:{object_id}!")
@@ -239,26 +232,39 @@ def get_logs_by_object(object_id: int, params: CollectionParameters, request_use
 @logs_blueprint.route('/<int:public_id>/corresponding', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.view')
+@logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Get the corresponding log
+    HTTP `GET`/`HEAD` route for the other edit logs of the same object as the given log
+
+    Looks up the source log, then returns every other EDIT log for that object (excluding the
+    source log itself via the ``$nor`` clause).
 
     Args:
-        public_id (int): public_id of log
+        public_id (int): public_id of the source log whose siblings are requested
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 if the source log does not exist, 400 on a database read/iteration
+                       error, 500 on any unexpected failure
+
     Returns:
-        dict: object log
+        Response: A DefaultResponse wrapping the list of corresponding object logs
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
         selected_log: dict[str, Any] = logs_manager.get_one(public_id)
+
+        if not selected_log:
+            abort(404, f"The Log with ID:{public_id} was not found!")
+
         query: dict[str, Any] = {
-            "log_type": CmdbObjectLog.__name__,
-            "object_id": selected_log["object_id"],
-            "action": LogAction.EDIT.value,
-            "$nor": [{
-                "public_id": public_id
+            LogKey.LOG_TYPE.value: CmdbObjectLog.__name__,
+            LogKey.OBJECT_ID.value: selected_log[LogKey.OBJECT_ID.value],
+            LogKey.ACTION.value: LogAction.EDIT.value,
+            LogQueryOperator.NOR.value: [{
+                LogKey.PUBLIC_ID.value: public_id
             }]
         }
 
@@ -268,6 +274,8 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         corresponding_logs = [CmdbObjectLog.to_json(log) for log in logs.results]
 
         return DefaultResponse(corresponding_logs).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except BaseManagerGetError as err:
         LOGGER.error("[get_corresponding_object_logs] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve corresponding logs for ID:{public_id}!")
@@ -283,22 +291,38 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
 @logs_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@logs_blueprint.protect(auth=True, right='base.framework.log.delete')
+@logs_blueprint.protect(auth=True, right=LogRight.DELETE.value)
 def delete_log(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Deletes a single log with the given public_id
+    HTTP `DELETE` route to delete a single log by its public_id
 
     Args:
-        public_id (int): public_id of the log which need to be deleted
+        public_id (int): public_id of the log which should be deleted
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 if no log has the given public_id, 400 on a database read/delete error,
+                       500 on any unexpected failure
+
     Returns:
-        bool: deletion success
+        Response: A DefaultResponse wrapping the delete result count
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        deleted = logs_manager.delete({'public_id':public_id})
+        to_delete_log: dict[str, Any] = logs_manager.get_one(public_id)
+
+        if not to_delete_log:
+            abort(404, f"The Log with ID:{public_id} was not found!")
+
+        deleted = logs_manager.delete({LogKey.PUBLIC_ID.value: public_id})
 
         return DefaultResponse(deleted).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except BaseManagerGetError as err:
+        LOGGER.error("[delete_log] BaseManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the log with ID:{public_id} from database!")
     except BaseManagerDeleteError as err:
         LOGGER.error("[delete_log] BaseManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the log with the ID:{public_id}!")

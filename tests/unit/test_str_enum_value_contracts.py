@@ -192,11 +192,10 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     # platform tokens mirror platform.system() output the fingerprint resolvers branch on.
     (LicenseTier, {'FREE': 'free', 'CORE': 'core', 'BUSINESS': 'business', 'CORPORATE': 'corporate'}),
     (LicenseFeature, {
-        'API_ACCESS': 'api_access',
-        'WEBHOOKS': 'webhooks',
+        'REST_API': 'rest_api',
         'IPAM': 'ipam',
         'ISMS': 'isms',
-        'AI_DOC_GENERATION': 'ai_doc_generation',
+        'DOCUMENT_GENERATOR': 'document_generator',
         'AUTOMATIONS': 'automations',
     }),
     (ActivationRequestStatus, {'PENDING': 'PENDING', 'PROCESSED': 'PROCESSED', 'EXPIRED': 'EXPIRED'}),

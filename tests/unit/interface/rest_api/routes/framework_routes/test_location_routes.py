@@ -66,6 +66,7 @@ TOTAL_LOCATIONS: int = 2
 RESOLVED_NAME: str = 'resolved-name'
 
 HTTP_BAD_REQUEST: int = 400
+HTTP_FORBIDDEN: int = 403
 HTTP_NOT_FOUND: int = 404
 HTTP_SERVER_ERROR: int = 500
 
@@ -141,6 +142,30 @@ class TestInsertCmdbLocation:
         assert written['type_label'] == 'Server'
         response_ctor.assert_called_once_with(LOCATION_PUBLIC_ID)
         assert result is sentinel_response
+
+    def test_missing_required_field_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A body missing a required id is a 400 (not a 500 from the generic handler)."""
+        del patched_provider
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, {'parent': PARENT_ID, 'type_id': TYPE_ID})  # no object_id
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+        managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
+
+    def test_malformed_required_field_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A non-integer id value is a 400 (not a 500 from the generic handler)."""
+        del patched_provider
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, {'object_id': 'not-an-int', 'parent': PARENT_ID, 'type_id': TYPE_ID})
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+        managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
 
     def test_missing_type_aborts_404(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
@@ -634,6 +659,18 @@ class TestUpdateCmdbLocationForObject:
         assert written['name'] == RESOLVED_NAME
         assert written['parent'] == PARENT_ID
 
+    def test_missing_required_field_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A body missing a required id is a 400 (not a 500 from the generic handler)."""
+        del patched_provider
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, {'parent': PARENT_ID, 'name': 'srv'})  # no object_id
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+        managers[ManagerType.LOCATIONS].update_location.assert_not_called()
+
     def test_missing_location_aborts_404(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
@@ -705,12 +742,28 @@ class TestDeleteCmdbLocationForObject:
         """The location resolved for the object is deleted by its public_id."""
         del patched_provider
         managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
+        managers[ManagerType.LOCATIONS].location_has_children.return_value = False
         managers[ManagerType.LOCATIONS].delete_location.return_value = True
 
         with patch(f'{ROUTE_PATH}.DefaultResponse'):
             self._call(flask_app, OBJECT_ID)
 
         managers[ManagerType.LOCATIONS].delete_location.assert_called_once_with(LOCATION_PUBLIC_ID)
+
+    def test_location_with_children_aborts_403(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A location that still has child locations is refused with 403 and never deleted."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
+        managers[ManagerType.LOCATIONS].location_has_children.return_value = True
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, OBJECT_ID)
+
+        assert excinfo.value.code == HTTP_FORBIDDEN
+        managers[ManagerType.LOCATIONS].location_has_children.assert_called_once_with(LOCATION_PUBLIC_ID)
+        managers[ManagerType.LOCATIONS].delete_location.assert_not_called()
 
     def test_missing_location_aborts_404(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
@@ -731,6 +784,7 @@ class TestDeleteCmdbLocationForObject:
         """A ``LocationsManagerDeleteError`` is translated to HTTP 400."""
         del patched_provider
         managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
+        managers[ManagerType.LOCATIONS].location_has_children.return_value = False
         managers[ManagerType.LOCATIONS].delete_location.side_effect = LocationsManagerDeleteError('delete failed')
 
         with pytest.raises(HTTPException) as excinfo:

@@ -61,15 +61,14 @@ class LicenseFeature(BaseStrEnum):
     unlocked only when the entitlement's `features` list contains its value (the list is the sole
     source of truth; `type` is display-only). Any feature NOT listed here belongs to Community and
     is always available. The backend gates on the members it knows and ignores any unknown feature
-    string a license carries, so a portal can ship a feature ahead of backend support. API_ACCESS
+    string a license carries, so a portal can ship a feature ahead of backend support. REST_API
     reserves the external-API channel for a future license (the UI-vs-external channel split is
     deferred); the remaining members map one-to-one onto the DataGerry features a license grants
     """
-    API_ACCESS = 'api_access'
-    WEBHOOKS = 'webhooks'
+    REST_API = 'rest_api'
     IPAM = 'ipam'
     ISMS = 'isms'
-    AI_DOC_GENERATION = 'ai_doc_generation'
+    DOCUMENT_GENERATOR = 'document_generator'
     AUTOMATIONS = 'automations'
 
 
@@ -177,14 +176,14 @@ class PlatformName(BaseStrEnum):
 # PEM-encoded RSA-2048 public key that decrypts (public-key "verifies") license entitlement blobs
 LICENSE_PUBLIC_KEY_PEM: str = """\
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtYLJ0BBXkgNJ7Dc/h+vl
-cQhaJ2Gd6UNp16qvrmOOqlU2WPF6e839jhGf3jlT5pFxaZyO9IUzm+HcMTochkTg
-QZM3UNxkoTjcNvPTIBZ3ylTLORkf6oEevly5I8Mz6cuinRvUF0vWGSL1X9xHpW5h
-7F0Q6melfaSLkU7KSKehJuuOXNEwE9HnQjK4s2+Z3d9zJKr2ayZ0mgWxyPKEOowB
-lwzcdXo9jbvRekhOENdzkRAJFa6acSl7b4kZFMdbgE5f/VVe1AWRWg7wzfnqidcZ
-GdQHVjXNyq7tmqSOqVbURbfjaMqjce3+KsqFU6FDl8ii6BYy1Je8sjD4QErXRAA+
-vQIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoDbAm3R66P+3+Lyccm5+
+MD19Yt7M6YF1Hrjde5XM7UfpodMBsCMFWj8C0po0h430c+X/4qAL1TF+531ULlk/
+/BnBraOX4jlis3NyqLgApdZYcSNadqNTH9ydkZPtHrXL62CVqkN3XimHhmWONJDq
+bLmataoCqEw8ZRXNwQdLoC3WhtqsQHOWWbskYgU+glB+wiGxv9e7ihBoQ7fJJh6W
+jT1YuipzVsW9DA4Q+kJmVzwwyS3UEk4e40V5V96GDJpdcm4iQDNr1yI14uTUnIf1
+JTojhqQK0mmm2Mj5S4F0JmXNdmpvQuULK71HoPdqrikfNiJaPO0MXKVnenux65WE
+HwIDAQAB
 -----END PUBLIC KEY-----"""
 
 # HMAC-SHA256 secret used for machine binding and the counter tamper-seal; used as UTF-8 key bytes
-LICENSE_HMAC_SECRET: str = 'Ce85z6GNQY_mzGOm4cjxW95BsEuvI5qO2WMixQI0MeQ'
+LICENSE_HMAC_SECRET: str = '=NI6okPS8ZGwmGYYJUI0V/lsRQxwU/pBp68afDZ1p8qKOHo7wrJchhZLtxuBhVfOq'

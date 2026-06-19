@@ -26,9 +26,9 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.models.cmdb_location import CmdbLocationToJsonError
+from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+
 from cmdb.errors.manager import (
-    BaseManagerInsertError,
     BaseManagerGetError,
     BaseManagerDeleteError,
     BaseManagerIterationError,
@@ -93,8 +93,6 @@ class LocationsManager(BaseManager):
                 location = CmdbLocation.to_json(location)
 
             return self.insert(location)
-        except (BaseManagerInsertError, CmdbLocationToJsonError) as err:
-            raise LocationsManagerInsertError(str(err)) from err
         except Exception as err:
             LOGGER.error("[insert_location] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerInsertError(str(err)) from err
@@ -264,6 +262,25 @@ class LocationsManager(BaseManager):
             for location in descendant_locations
             if location.get("object_id") is not None
         ]
+
+
+    def location_has_children(self, public_id: int) -> bool:
+        """
+        Checks whether a CmdbLocation has any direct child CmdbLocations
+
+        Args:
+            public_id (int): public_id of the CmdbLocation to check
+
+        Raises:
+            LocationsManagerGetError: If the child count could not be retrieved
+
+        Returns:
+            bool: True if at least one CmdbLocation has this location as its parent
+        """
+        try:
+            return self.count_documents({LocationKey.PARENT: public_id}) > 0
+        except BaseManagerGetError as err:
+            raise LocationsManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
