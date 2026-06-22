@@ -17,8 +17,10 @@
 HMAC machine-binding primitive for the license feature (license feature part P4)
 
 Reproduces OpenCelium's HMAC binding byte-for-byte: HMAC-SHA256 over a message built by
-concatenating the four machine fingerprint fields followed by the request id (id LAST, no
-separators), keyed by the shipped HMAC secret, with the raw 32-byte digest Base64-encoded.
+concatenating the request id followed by the four machine fingerprint fields (id FIRST, no
+separators), keyed by the shipped HMAC secret, with the raw 32-byte digest Base64-encoded. The
+id-first order mirrors OpenCelium's ActivationRequestServiceImp.generateActivReq, which signs
+`HmacUtility.encode(ar.getId() + MachineUtility.getStringForHmacEncode())`.
 
 The same compute_hmac() primitive will later seal the metering counter (a different message), so it
 takes the message and secret as arguments; machine_binding_hmac() assembles the binding message in
@@ -64,19 +66,20 @@ def machine_binding_hmac(fingerprint: dict[str, str], request_id: str, secret: s
     """
     Computes the machine-binding HMAC for an activation request
 
-    The signed message is the four fingerprint fields (machineUuid, macAddress, systemUUID,
-    computerName) concatenated with no separators, followed by the request id LAST
+    The signed message is the request id FIRST, followed by the four fingerprint fields
+    (machineUuid, macAddress, systemUUID, computerName) concatenated with no separators - matching
+    OpenCelium's `HmacUtility.encode(ar.getId() + MachineUtility.getStringForHmacEncode())`
 
     Args:
         fingerprint (dict[str, str]): A machine fingerprint keyed by the ActivationRequestKey
             machine fields (as produced by machine_fingerprint.get_machine_fingerprint)
-        request_id (str): The activation request id, appended last
+        request_id (str): The activation request id, prepended first
         secret (str): The HMAC key; defaults to the shipped LICENSE_HMAC_SECRET
 
     Returns:
         str: The Base64-encoded binding HMAC
     """
-    message = ''.join(fingerprint[field] for field in _MACHINE_FIELD_ORDER) + request_id
+    message = request_id + ''.join(fingerprint[field] for field in _MACHINE_FIELD_ORDER)
 
     return compute_hmac(message, secret)
 

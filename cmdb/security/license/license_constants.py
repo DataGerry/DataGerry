@@ -186,4 +186,4 @@ HwIDAQAB
 -----END PUBLIC KEY-----"""
 
 # HMAC-SHA256 secret used for machine binding and the counter tamper-seal; used as UTF-8 key bytes
-LICENSE_HMAC_SECRET: str = '=NI6okPS8ZGwmGYYJUI0V/lsRQxwU/pBp68afDZ1p8qKOHo7wrJchhZLtxuBhVfOq'
+LICENSE_HMAC_SECRET: str = 'NI6okPS8ZGwmGYYJUI0V/lsRQxwU/pBp68afDZ1p8qKOHo7wrJchhZLtxuBhVfOq'

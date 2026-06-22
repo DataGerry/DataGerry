@@ -40,7 +40,8 @@ PLACEHOLDER_FINGERPRINT: dict[str, str] = {
     ActivationRequestKey.COMPUTER_NAME: 'COMPUTER_NAME',
 }
 SAMPLE_REQUEST_ID: str = 'eff042a1-b9db-43b3-855d-b62d712ce4c9'
-SAMPLE_EXPECTED_HMAC: str = 'I1I3lY7IQ4jC6j073BHzsp92G58Imds4YwM1/tGbLq8='
+# OpenCelium generateActivReq order: encode(id + fingerprint), id FIRST (see test_hmac_binding)
+SAMPLE_EXPECTED_HMAC: str = 'C6VD+atCNUYDIeWdMbJRGkzDbcFp5n87tcAbnxcZJeU='
 
 # A fingerprint with distinct, realistic field values
 FINGERPRINT: dict[str, str] = {
@@ -80,7 +81,7 @@ def test_build_activation_request_is_pending_and_bound() -> None:
 
 
 def test_build_activation_request_matches_opencelium_sample() -> None:
-    """With the OC secret + placeholders + sample id, the binding HMAC matches the verified sample"""
+    """With the OC secret + placeholders + sample id, the binding HMAC matches the id-first order"""
     request = lc.build_activation_request(PLACEHOLDER_FINGERPRINT, SAMPLE_REQUEST_ID, secret=OPENCELIUM_SECRET)
 
     assert request.hmac == SAMPLE_EXPECTED_HMAC

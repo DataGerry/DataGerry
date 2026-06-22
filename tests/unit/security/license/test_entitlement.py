@@ -32,7 +32,7 @@ from cmdb.security.license.tooling.license_generator import build_entitlement
 
 # A well-formed entitlement document keyed by the wire keys (mirrors the OpenCelium free sample)
 VALID_ENTITLEMENT: dict = {
-    LicenseEntitlementKey.HMAC: 'I1I3lY7IQ4jC6j073BHzsp92G58Imds4YwM1/tGbLq8=',
+    LicenseEntitlementKey.HMAC: 'C6VD+atCNUYDIeWdMbJRGkzDbcFp5n87tcAbnxcZJeU=',
     LicenseEntitlementKey.START_DATE: 1640995200000,
     LicenseEntitlementKey.END_DATE: 0,
     LicenseEntitlementKey.SUB_ID: 'sub-1',

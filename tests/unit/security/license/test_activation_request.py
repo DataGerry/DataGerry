@@ -34,7 +34,7 @@ TTL_SECONDS: int = 3600
 # A well-formed activation-request document keyed by the wire keys
 VALID_REQUEST: dict = {
     ActivationRequestKey.ID: 'eff042a1-b9db-43b3-855d-b62d712ce4c9',
-    ActivationRequestKey.HMAC: 'I1I3lY7IQ4jC6j073BHzsp92G58Imds4YwM1/tGbLq8=',
+    ActivationRequestKey.HMAC: 'C6VD+atCNUYDIeWdMbJRGkzDbcFp5n87tcAbnxcZJeU=',
     ActivationRequestKey.TTL: TTL_SECONDS,
     ActivationRequestKey.STATUS: ActivationRequestStatus.PENDING.value,
     ActivationRequestKey.MACHINE_UUID: 'machine-1',
