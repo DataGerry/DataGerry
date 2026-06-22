@@ -45,7 +45,7 @@ pyinstaller==6.19.0
 pyinstaller-hooks-contrib==2026.0
 pylint==4.0.4
 pymongo==4.16.0
-pyOpenSSL==25.3.0
+pyOpenSSL==26.0.0
 pytest==9.0.2
 pytest-cov==7.0.0
 pytest-html==4.2.0
