@@ -181,16 +181,6 @@ class LicenseService:
         return feature.value in self.current_entitlement().features
 
 
-    def operation_usage_limit(self) -> int:
-        """
-        The metered operation-usage quota of the current entitlement
-
-        Returns:
-            int: The current entitlement's operationUsage value
-        """
-        return self.current_entitlement().operation_usage
-
-
     def activate(self, blob: str) -> LicenseVerificationResult:
         """
         Verifies an uploaded license blob and stores it as active when valid

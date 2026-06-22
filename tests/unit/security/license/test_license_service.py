@@ -29,7 +29,6 @@ import pytest
 from cmdb.manager.license_manager import license_service as svc_module
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.security.license.entitlement import LicenseEntitlement
-from cmdb.security.license.fallback import FREE_OPERATION_USAGE
 from cmdb.security.license.license_constants import (
     LicenseFeature,
     LicenseTier,
@@ -156,19 +155,3 @@ def test_deactivate_clears_the_store() -> None:
     assert service.deactivate() is True
     assert service.active_license_manager.cleared is True
 
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          operation-usage limit                                                      #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_operation_usage_limit_free_default() -> None:
-    """With no license the usage limit is the free default quota"""
-    assert _service(None).operation_usage_limit() == FREE_OPERATION_USAGE
-
-
-def test_operation_usage_limit_from_valid_license(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A valid license exposes its own operation-usage quota"""
-    entitlement = LicenseEntitlement(hmac='bind', license_type=LicenseTier.BUSINESS.value, operation_usage=99999)
-    _patch_verify(monkeypatch, LicenseVerificationResult(LicenseVerificationStatus.VALID, entitlement))
-    service = _service(STORED_BLOB)
-
-    assert service.operation_usage_limit() == 99999

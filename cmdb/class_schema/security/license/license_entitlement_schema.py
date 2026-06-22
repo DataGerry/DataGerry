@@ -17,7 +17,7 @@
 Validation schema for LicenseEntitlement
 
 A LicenseEntitlement is the decrypted license payload: the OpenCelium
-`{hmac, startDate, endDate, subId, licenseId, operationUsage, duration, type}` document plus a
+`{hmac, startDate, endDate, subId, licenseId, type}` document plus a
 `features` list. The keys are the camelCase wire-format names (named by LicenseEntitlementKey) and
 `type` is constrained to the known license tiers. `features` is a required list of non-empty
 strings (it may be empty for the free tier); its items are NOT constrained to the known feature
@@ -62,16 +62,6 @@ def get_license_entitlement_schema() -> dict[str, Any]:
         LicenseEntitlementKey.LICENSE_ID: {  # License id (may be empty for the free tier)
             'type': 'string',
             'required': True,
-        },
-        LicenseEntitlementKey.OPERATION_USAGE: {  # Metered operation quota
-            'type': 'integer',
-            'required': True,
-            'min': 0,
-        },
-        LicenseEntitlementKey.DURATION: {  # License duration
-            'type': 'integer',
-            'required': True,
-            'min': 0,
         },
         LicenseEntitlementKey.TYPE: {  # Display-only tier label (a LicenseTier value); does not drive gating
             'type': 'string',

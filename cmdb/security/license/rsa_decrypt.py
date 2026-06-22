@@ -16,18 +16,21 @@
 """
 RSA public-key decrypt primitive for the license feature (license feature part P6)
 
-OpenCelium mints a license by ENCRYPTING the entitlement JSON with its PRIVATE key
-(`RSA/ECB/PKCS1Padding`, RSA-2048, 245-byte plaintext chunks); the backend recovers it by
-DECRYPTING with the PUBLIC key - a homemade signature scheme. Private-key encryption produces
-PKCS#1 v1.5 **type-1** padding (`00 01 FF..FF 00 || M`), so the public-key "decrypt" is a raw
-modular exponentiation followed by a type-1 unpad.
+A license is minted by ENCRYPTING the entitlement JSON with the PRIVATE key (`RSA/ECB/PKCS1Padding`,
+plaintext chunked to block_size - 11 bytes); the backend recovers it by DECRYPTING with the PUBLIC
+key - a homemade signature scheme inherited from OpenCelium (DataGerry ships its own RSA-4096 keys,
+where OpenCelium used RSA-2048). Private-key encryption produces PKCS#1 v1.5 **type-1** padding
+(`00 01 FF..FF 00 || M`), so the public-key "decrypt" is a raw modular exponentiation followed by a
+type-1 unpad.
 
 Neither pycryptodome's high-level cipher nor the `cryptography` lib exposes public-key decryption,
-so this module implements it directly: walk the ciphertext in modulus-sized (256-byte) blocks,
-compute `pow(c, e, n)` per block, strip the type-1 padding, and concatenate the recovered chunks.
+so this module implements it directly: walk the ciphertext in modulus-sized blocks (512 bytes for
+the shipped RSA-4096 key), compute `pow(c, e, n)` per block, strip the type-1 padding, and
+concatenate the recovered chunks. The block size is derived from the modulus, so any RSA size works.
 decrypt_license_blob() ties it to the P5 transport and JSON parsing. Any malformed input raises
 LicenseDecryptionError so the verification chain can degrade to Community
 """
+# from logging import Logger, getLogger
 import json
 from typing import Any
 
@@ -38,6 +41,8 @@ from cmdb.errors.security.security_errors import LicenseDecryptionError
 from cmdb.security.license.license_constants import LICENSE_PUBLIC_KEY_PEM
 from cmdb.security.license.transport import decode_binary
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# LOGGER: Logger = getLogger(__name__)
 
 # Leading byte of a PKCS#1 v1.5 encoded block (always 0x00)
 PKCS1_LEADING_BYTE: int = 0x00
@@ -130,7 +135,7 @@ def public_decrypt(ciphertext: bytes, public_key: RsaKey) -> bytes:
 
     Args:
         ciphertext (bytes): The raw ciphertext; its length must be a non-zero multiple of the
-            modulus size (256 bytes for RSA-2048)
+            modulus size (512 bytes for RSA-4096)
         public_key (RsaKey): The RSA public key whose private half produced the ciphertext
 
     Returns:
@@ -150,6 +155,8 @@ def public_decrypt(ciphertext: bytes, public_key: RsaKey) -> bytes:
 
     for start in range(0, len(ciphertext), block_size):
         plaintext += _decrypt_block(ciphertext[start:start + block_size], modulus, exponent, block_size)
+
+    # LOGGER.debug(f"[decrypt]: {plaintext}")
 
     return bytes(plaintext)
 

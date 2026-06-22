@@ -39,13 +39,12 @@ from cmdb.security.license.verification import LicenseVerificationResult
 #                                          default entitlement                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_default_entitlement_is_free_tier() -> None:
-    """The default entitlement is the free tier with the embedded window and quota"""
+    """The default entitlement is the free tier with the embedded validity window"""
     entitlement = fallback.default_entitlement()
 
     assert entitlement.license_type == LicenseTier.FREE.value
     assert entitlement.start_date == fallback.FREE_START_DATE
     assert entitlement.end_date == fallback.FREE_END_DATE
-    assert entitlement.operation_usage == fallback.FREE_OPERATION_USAGE
     assert entitlement.features == []
 
 

@@ -132,21 +132,19 @@ class LicenseEntitlementKey(BaseStrEnum):
     """
     Keys of the decrypted license entitlement JSON
 
-    Names every field of the `{hmac, startDate, endDate, subId, licenseId, operationUsage,
-    duration, type, features}` entitlement recovered by decrypting the license blob with the public
-    key. FEATURES is the list of unlocked feature keys (LicenseFeature values) and is the SOLE
-    source of truth for what the license grants; TYPE only labels the license for display and does
-    NOT drive gating. HMAC must equal the activation request's hmac (the machine-binding check);
-    START_DATE / END_DATE are epoch milliseconds with END_DATE 0 meaning no expiry; OPERATION_USAGE
-    is the metered quota. The camelCase spelling is the OpenCelium wire format and must not be renamed
+    Names every field of the `{hmac, startDate, endDate, subId, licenseId, type, features}`
+    entitlement recovered by decrypting the license blob with the public key. FEATURES is
+    the list of unlocked feature keys (LicenseFeature values) and is the SOLE source of truth for
+    what the license grants; TYPE only labels the license for display and does NOT drive gating.
+    HMAC must equal the activation request's hmac (the machine-binding check); START_DATE / END_DATE
+    are epoch milliseconds with END_DATE 0 meaning no expiry. The camelCase spelling is the
+    OpenCelium wire format and must not be renamed
     """
     HMAC = 'hmac'
     START_DATE = 'startDate'
     END_DATE = 'endDate'
     SUB_ID = 'subId'
     LICENSE_ID = 'licenseId'
-    OPERATION_USAGE = 'operationUsage'
-    DURATION = 'duration'
     TYPE = 'type'
     FEATURES = 'features'
 
@@ -173,16 +171,21 @@ class PlatformName(BaseStrEnum):
 # The matching RSA PRIVATE key NEVER ships; regenerate this material with
 # tools/license/generate_license_keys.py.
 
-# PEM-encoded RSA-2048 public key that decrypts (public-key "verifies") license entitlement blobs
+# PEM-encoded RSA-4096 public key that decrypts (public-key "verifies") license entitlement blobs
 LICENSE_PUBLIC_KEY_PEM: str = """\
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoDbAm3R66P+3+Lyccm5+
-MD19Yt7M6YF1Hrjde5XM7UfpodMBsCMFWj8C0po0h430c+X/4qAL1TF+531ULlk/
-/BnBraOX4jlis3NyqLgApdZYcSNadqNTH9ydkZPtHrXL62CVqkN3XimHhmWONJDq
-bLmataoCqEw8ZRXNwQdLoC3WhtqsQHOWWbskYgU+glB+wiGxv9e7ihBoQ7fJJh6W
-jT1YuipzVsW9DA4Q+kJmVzwwyS3UEk4e40V5V96GDJpdcm4iQDNr1yI14uTUnIf1
-JTojhqQK0mmm2Mj5S4F0JmXNdmpvQuULK71HoPdqrikfNiJaPO0MXKVnenux65WE
-HwIDAQAB
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAxdqurWuDtZRbJ9agxtbQ
+cevxbkSk4G7Zue8YwhGyfgFafTGVnvl/uGrkConBxszej2s7Ogd+5z1STqJhZGCk
+d6/xCjEq2Mxcd3RkwcTp36pkYuN9q1+TUQhGPgB/J26ZSnX/oTEekzDZpnK0b+cV
+oej+67fHC+r1jFvph1/BED7MIjf83Bp89xBkDKWRvPpY66lj5gxMM9y1od9wWR9W
+R3+xPmMcPBNPZCkTyoP8pBoww51mrUOAEUUEsUeUxZvit9GTuKkn8VgcnCJQ4q9X
+rt32Cn4eCoqrvdQXkKDSI8qsfS/NX+MlmQ76w3P65Ce473z2NkfCqyQKNDczZe6W
+LuEQCCJqN3jeXVpQwTZkZ1oRG2aMgoOkYV4EuD4UIGlSQyhQaLjwUbsxsij2ceXV
+TpDcuhT8d9cnJGZAhdMSMTymSqS/vkVvqvWbPyd2fXKyYhKLisBqEka+uQHeDEpF
+V3+Sgn1i4jdDNXiRFaokPknFHnXdTivwE3a7f7tZwabwyf/T9Yg3GGzHd7KC64XN
+G8SJTn1+F5L1Bcx9jwkNoxHF/xd25ipP1Wn966bB8fDVm9imfyCsHLVSEjSOLtew
+629mOoXJE1VwuQ0AJCyGq5zXj04gVQ8TYDAoVuaQ0FdrJUxpiL6RPUueJsQaWv9B
+pI+lJ4luWh4jgu9nJc8aV9cCAwEAAQ==
 -----END PUBLIC KEY-----"""
 
 # HMAC-SHA256 secret used for machine binding and the counter tamper-seal; used as UTF-8 key bytes

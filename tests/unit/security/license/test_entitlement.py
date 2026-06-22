@@ -37,8 +37,6 @@ VALID_ENTITLEMENT: dict = {
     LicenseEntitlementKey.END_DATE: 0,
     LicenseEntitlementKey.SUB_ID: 'sub-1',
     LicenseEntitlementKey.LICENSE_ID: 'lic-1',
-    LicenseEntitlementKey.OPERATION_USAGE: 25000,
-    LicenseEntitlementKey.DURATION: 0,
     LicenseEntitlementKey.TYPE: LicenseTier.CORE.value,
     LicenseEntitlementKey.FEATURES: [LicenseFeature.REST_API.value, LicenseFeature.IPAM.value],
 }
@@ -80,7 +78,7 @@ def test_to_json_survives_base64_json_transport() -> None:
 
 
 def test_from_data_applies_defaults() -> None:
-    """A minimal dict defaults to the free tier with zeroed dates/quota and empty ids"""
+    """A minimal dict defaults to the free tier with zeroed dates and empty ids"""
     entitlement = LicenseEntitlement.from_data({LicenseEntitlementKey.HMAC: 'bind'})
 
     assert entitlement.license_type == LicenseTier.FREE.value
@@ -112,7 +110,6 @@ def test_schema_accepts_empty_features() -> None:
     ({LicenseEntitlementKey.TYPE: 'enterprise'}, 'type not a known tier'),
     ({LicenseEntitlementKey.START_DATE: 'soon'}, 'startDate wrong type'),
     ({LicenseEntitlementKey.END_DATE: -1}, 'endDate below minimum'),
-    ({LicenseEntitlementKey.OPERATION_USAGE: -5}, 'operationUsage below minimum'),
     ({LicenseEntitlementKey.FEATURES: None}, 'missing required features'),
     ({LicenseEntitlementKey.FEATURES: 'ipam'}, 'features not a list'),
     ({LicenseEntitlementKey.FEATURES: ['']}, 'features holds an empty string'),

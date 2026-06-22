@@ -17,7 +17,7 @@
 Unit tests for cmdb.security.license.license_constants
 
 Verifies the shipped crypto material is usable as embedded (the RSA public key parses as a
-2048-bit public-only key; the HMAC secret is a non-empty ASCII string) and pins the
+4096-bit public-only key; the HMAC secret is a non-empty ASCII string) and pins the
 fingerprint fallback token. Enum value-contracts live in the central tripwire. Pure tests
 """
 from Crypto.PublicKey import RSA
@@ -30,7 +30,7 @@ from cmdb.security.license.license_constants import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Expected RSA modulus size of the shipped public key (must match the generator's RSA_KEY_SIZE_BITS)
-EXPECTED_RSA_KEY_SIZE_BITS: int = 2048
+EXPECTED_RSA_KEY_SIZE_BITS: int = 4096
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,8 +43,8 @@ def test_shipped_public_key_parses_as_rsa_key() -> None:
     assert key is not None
 
 
-def test_shipped_public_key_is_2048_bits() -> None:
-    """The embedded public key has the RSA-2048 modulus required for OpenCelium block-walk parity"""
+def test_shipped_public_key_is_4096_bits() -> None:
+    """The embedded public key has the expected RSA-4096 modulus (matches the generator key size)"""
     key = RSA.import_key(LICENSE_PUBLIC_KEY_PEM)
 
     assert key.size_in_bits() == EXPECTED_RSA_KEY_SIZE_BITS

@@ -224,8 +224,6 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'END_DATE': 'endDate',
         'SUB_ID': 'subId',
         'LICENSE_ID': 'licenseId',
-        'OPERATION_USAGE': 'operationUsage',
-        'DURATION': 'duration',
         'TYPE': 'type',
         'FEATURES': 'features',
     }),
