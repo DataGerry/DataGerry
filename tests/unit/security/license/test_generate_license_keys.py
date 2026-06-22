@@ -16,7 +16,7 @@
 """
 Unit tests for cmdb.security.license.tooling.generate_license_keys
 
-Verifies the dev key generator mints a usable RSA-2048 keypair (private decrypts what the public
+Verifies the dev key generator mints a usable RSA-4096 keypair (private decrypts what the public
 encrypts; the public half is public-only), that the HMAC secret is random and non-empty, and that
 write_artifacts lays the three files down with the expected contents. Pure tests (tmp_path only)
 """
@@ -28,14 +28,14 @@ from cmdb.security.license.tooling import generate_license_keys as gen
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Expected RSA modulus size minted by the generator
-EXPECTED_RSA_KEY_SIZE_BITS: int = 2048
+EXPECTED_RSA_KEY_SIZE_BITS: int = 4096
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            RSA keypair generation                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_generate_rsa_keypair_returns_2048_bit_private_and_public() -> None:
-    """The keypair is RSA-2048: the private half carries private material, the public half does not"""
+def test_generate_rsa_keypair_returns_4096_bit_private_and_public() -> None:
+    """The keypair is RSA-4096: the private half carries private material, the public half does not"""
     private_pem, public_pem = gen.generate_rsa_keypair()
 
     private_key = RSA.import_key(private_pem)

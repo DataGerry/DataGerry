@@ -17,11 +17,11 @@
 LicenseEntitlement model (license feature part P10)
 
 The entitlement is the decrypted license payload: the OpenCelium
-`{hmac, startDate, endDate, subId, licenseId, operationUsage, duration, type}` document plus a
+`{hmac, startDate, endDate, subId, licenseId, type}` document plus a
 `features` list. `features` is the SOLE source of truth for what the license unlocks (a list of
 LicenseFeature values); `type` only labels the license for display and does NOT drive gating.
 `hmac` must equal the activation request's hmac (the P11 binding check); startDate/endDate are epoch
-milliseconds with endDate 0 meaning no expiry; operationUsage is the metered quota.
+milliseconds with endDate 0 meaning no expiry.
 
 Like LicenseActivationRequest this is a lightweight data holder (not a CmdbDAO - it is not keyed by
 an integer public_id). from_data / to_json move between the camelCase wire dict (keyed by
@@ -58,8 +58,6 @@ class LicenseEntitlement:
         end_date: int = 0,
         sub_id: str = '',
         license_id: str = '',
-        operation_usage: int = 0,
-        duration: int = 0,
         features: list[str] | None = None,
     ) -> None:
         """
@@ -73,8 +71,6 @@ class LicenseEntitlement:
             end_date (int): Validity end, epoch milliseconds (0 = no expiry)
             sub_id (str): Subscription id
             license_id (str): License id
-            operation_usage (int): Metered operation quota
-            duration (int): License duration
             features (list[str] | None): The unlocked feature keys (LicenseFeature values); the sole
                 source of truth for what the license grants. Defaults to none (Community/free)
         """
@@ -84,8 +80,6 @@ class LicenseEntitlement:
         self.end_date = end_date
         self.sub_id = sub_id
         self.license_id = license_id
-        self.operation_usage = operation_usage
-        self.duration = duration
         self.features = list(features) if features else []
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
@@ -108,8 +102,6 @@ class LicenseEntitlement:
             end_date=data.get(LicenseEntitlementKey.END_DATE, 0),
             sub_id=data.get(LicenseEntitlementKey.SUB_ID, ''),
             license_id=data.get(LicenseEntitlementKey.LICENSE_ID, ''),
-            operation_usage=data.get(LicenseEntitlementKey.OPERATION_USAGE, 0),
-            duration=data.get(LicenseEntitlementKey.DURATION, 0),
             features=data.get(LicenseEntitlementKey.FEATURES, []),
         )
 
@@ -130,8 +122,6 @@ class LicenseEntitlement:
             LicenseEntitlementKey.END_DATE: instance.end_date,
             LicenseEntitlementKey.SUB_ID: instance.sub_id,
             LicenseEntitlementKey.LICENSE_ID: instance.license_id,
-            LicenseEntitlementKey.OPERATION_USAGE: instance.operation_usage,
-            LicenseEntitlementKey.DURATION: instance.duration,
             LicenseEntitlementKey.TYPE: instance.license_type,
             LicenseEntitlementKey.FEATURES: instance.features,
         }

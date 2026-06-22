@@ -111,8 +111,6 @@ def test_decrypt_license_blob_end_to_end(rsa_keypair: RsaKey) -> None:
         'endDate': 0,
         'subId': 's-1',
         'licenseId': 'l-1',
-        'operationUsage': 25000,
-        'duration': 0,
         'type': 'free',
     }
     plaintext = json.dumps(entitlement).encode('utf-8')

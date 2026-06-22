@@ -17,8 +17,8 @@
 Dev-only license generator (license feature part P7)
 
 Mints test license blobs the OpenCelium way - the exact inverse of the P6 public-key decrypt.
-private_encrypt() PKCS#1 v1.5 type-1 pads each 245-byte plaintext chunk, raises it with the PRIVATE
-key (`pow(m, d, n)`) and concatenates the 256-byte blocks; mint_license_blob() wraps an entitlement
+private_encrypt() PKCS#1 v1.5 type-1 pads each plaintext chunk (501 bytes for RSA-4096), raises it
+with the PRIVATE key (`pow(m, d, n)`) and concatenates the 512-byte blocks; mint_license_blob() wraps an entitlement
 dict (JSON -> private_encrypt -> Base64). A round-trip with decrypt_license_blob() recovers it.
 
 This stands in for the Service Portal so we can produce signed fixtures without the real portal. It
@@ -65,8 +65,6 @@ DEFAULT_START_DATE: int = 1640995200000  # epoch ms, 2022-01-01
 DEFAULT_END_DATE: int = 0  # 0 = no expiry
 DEFAULT_SUB_ID: str = 'dev-subscription'
 DEFAULT_LICENSE_ID: str = 'dev-license'
-DEFAULT_OPERATION_USAGE: int = 25000
-DEFAULT_DURATION: int = 0
 
 
 def _pkcs1_type1_pad(chunk: bytes, block_size: int) -> bytes:
@@ -92,7 +90,7 @@ def private_encrypt(plaintext: bytes, private_key: RsaKey) -> bytes:
     """
     Private-key encrypts plaintext block by block - the inverse of rsa_decrypt.public_decrypt
 
-    Splits the plaintext into chunks of (block_size - PKCS1_OVERHEAD_BYTES) bytes (245 for RSA-2048),
+    Splits the plaintext into chunks of (block_size - PKCS1_OVERHEAD_BYTES) bytes (501 for RSA-4096),
     type-1 pads each, and raises it with the private exponent
 
     Args:
@@ -123,8 +121,6 @@ def build_entitlement(
     end_date: int = DEFAULT_END_DATE,
     sub_id: str = DEFAULT_SUB_ID,
     license_id: str = DEFAULT_LICENSE_ID,
-    operation_usage: int = DEFAULT_OPERATION_USAGE,
-    duration: int = DEFAULT_DURATION,
     features: list[str] | None = None,
 ) -> dict[str, Any]:
     """
@@ -138,8 +134,6 @@ def build_entitlement(
         end_date (int): Validity end, epoch milliseconds (0 = no expiry)
         sub_id (str): Subscription id
         license_id (str): License id
-        operation_usage (int): Metered operation quota
-        duration (int): License duration
         features (list[str] | None): The unlocked feature keys (LicenseFeature values); the sole
             source of truth for what the license grants. Defaults to none (Community/free)
 
@@ -152,8 +146,6 @@ def build_entitlement(
         LicenseEntitlementKey.END_DATE: end_date,
         LicenseEntitlementKey.SUB_ID: sub_id,
         LicenseEntitlementKey.LICENSE_ID: license_id,
-        LicenseEntitlementKey.OPERATION_USAGE: operation_usage,
-        LicenseEntitlementKey.DURATION: duration,
         LicenseEntitlementKey.TYPE: license_type,
         LicenseEntitlementKey.FEATURES: list(features) if features else [],
     }

@@ -17,7 +17,7 @@
 Dev-only generator for DataGerry's license crypto material (license feature part P0)
 
 This script mints the key material the license feature is built on:
-  * a 2048-bit RSA keypair (the license generator/portal encrypts entitlements with the
+  * a 4096-bit RSA keypair (the license generator/portal encrypts entitlements with the
     PRIVATE key; the running DataGerry backend decrypts them with the PUBLIC key - the
     homemade "signature" scheme inherited from OpenCelium for parity), and
   * a random HMAC secret used for machine binding and the counter tamper-seal.
@@ -45,8 +45,11 @@ from pathlib import Path
 from Crypto.PublicKey import RSA
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# RSA modulus size in bits; must stay 2048 for OpenCelium wire-format parity (256-byte blocks)
-RSA_KEY_SIZE_BITS: int = 2048
+# RSA modulus size in bits; 4096 (512-byte blocks). Must match EXPECTED_RSA_KEY_SIZE_BITS in the
+# license-constants/generator tests and the size of the shipped LICENSE_PUBLIC_KEY_PEM. DataGerry
+# ships its own keys, so this is no longer tied to OpenCelium's 2048; the wire format (PKCS#1
+# type-1 block walk) is size-agnostic because both sides derive the block size from the modulus
+RSA_KEY_SIZE_BITS: int = 4096
 
 # Number of random bytes in the generated HMAC secret before URL-safe Base64 encoding
 HMAC_SECRET_BYTES: int = 32

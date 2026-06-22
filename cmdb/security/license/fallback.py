@@ -51,10 +51,9 @@ DEFAULT_REQUEST_ID: str = 'eff042a1-b9db-43b3-855d-b62d712ce4c9'
 # Binding hmac shared by the default request and the free entitlement (computed with the shipped secret)
 DEFAULT_HMAC: str = machine_binding_hmac(DEFAULT_FINGERPRINT, DEFAULT_REQUEST_ID)
 
-# Free entitlement validity window and quota (mirrors the OpenCelium free sample)
+# Free entitlement validity window (mirrors the OpenCelium free sample)
 FREE_START_DATE: int = 1640995200000  # epoch ms, 2022-01-01
 FREE_END_DATE: int = 0  # 0 = no expiry
-FREE_OPERATION_USAGE: int = 25000
 
 
 def default_activation_request() -> LicenseActivationRequest:
@@ -82,7 +81,6 @@ def default_entitlement() -> LicenseEntitlement:
         license_type=LicenseTier.FREE.value,
         start_date=FREE_START_DATE,
         end_date=FREE_END_DATE,
-        operation_usage=FREE_OPERATION_USAGE,
         features=[],
     )
 
