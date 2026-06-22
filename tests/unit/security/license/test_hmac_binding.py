@@ -16,9 +16,9 @@
 """
 Unit tests for cmdb.security.license.hmac_binding
 
-The headline test is a byte-for-byte parity check against the real OpenCelium sample: the same
-secret, machine placeholders and id must reproduce the exact Base64 digest observed in the wild.
-The rest pin the contract that makes that work - id goes LAST, the fields are concatenated with no
+The headline test is a parity check against OpenCelium's ActivationRequestServiceImp.generateActivReq:
+the same secret, machine placeholders and id must reproduce HmacUtility.encode(id + fingerprint).
+The rest pin the contract that makes that work - id goes FIRST, the fields are concatenated with no
 separators, the digest is deterministic, and constant_time_equals behaves like equality. Pure tests
 """
 from cmdb.security.license.hmac_binding import (
@@ -40,24 +40,26 @@ PLACEHOLDER_FINGERPRINT: dict[str, str] = {
     ActivationRequestKey.COMPUTER_NAME: 'COMPUTER_NAME',
 }
 
-# The id and resulting HMAC observed in the real OpenCelium free-license sample
+# The id and the resulting HMAC for OpenCelium's generateActivReq order: encode(id + fingerprint).
+# Computed with OPENCELIUM_SECRET over the placeholder fingerprint; mirrors the Java source order
+# (id FIRST). The older 'I1I3...' value was an id-LAST artifact of a stale embedded DEFAULT_AR blob.
 SAMPLE_REQUEST_ID: str = 'eff042a1-b9db-43b3-855d-b62d712ce4c9'
-SAMPLE_EXPECTED_HMAC: str = 'I1I3lY7IQ4jC6j073BHzsp92G58Imds4YwM1/tGbLq8='
+SAMPLE_EXPECTED_HMAC: str = 'C6VD+atCNUYDIeWdMbJRGkzDbcFp5n87tcAbnxcZJeU='
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        OpenCelium parity vector                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_machine_binding_hmac_reproduces_opencelium_sample() -> None:
-    """The binding HMAC matches the real OpenCelium sample byte-for-byte (verified wire format)"""
+    """The binding HMAC matches OpenCelium generateActivReq: encode(id + getStringForHmacEncode())"""
     result = machine_binding_hmac(PLACEHOLDER_FINGERPRINT, SAMPLE_REQUEST_ID, secret=OPENCELIUM_SECRET)
 
     assert result == SAMPLE_EXPECTED_HMAC
 
 
 def test_compute_hmac_matches_manual_message_for_sample() -> None:
-    """machine_binding_hmac equals compute_hmac over fields-then-id (the message assembly contract)"""
-    message = 'MACHINE_UUID' + 'MAC_ADDRESS' + 'SYSTEM_UUID' + 'COMPUTER_NAME' + SAMPLE_REQUEST_ID
+    """machine_binding_hmac equals compute_hmac over id-then-fields (the message assembly contract)"""
+    message = SAMPLE_REQUEST_ID + 'MACHINE_UUID' + 'MAC_ADDRESS' + 'SYSTEM_UUID' + 'COMPUTER_NAME'
 
     assert compute_hmac(message, secret=OPENCELIUM_SECRET) == SAMPLE_EXPECTED_HMAC
 
@@ -65,13 +67,13 @@ def test_compute_hmac_matches_manual_message_for_sample() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          message-order contract                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_request_id_goes_last() -> None:
-    """Putting the id first (instead of last) yields a different digest - id LAST is load-bearing"""
-    id_last = machine_binding_hmac(PLACEHOLDER_FINGERPRINT, SAMPLE_REQUEST_ID, secret=OPENCELIUM_SECRET)
-    id_first_message = SAMPLE_REQUEST_ID + 'MACHINE_UUIDMAC_ADDRESSSYSTEM_UUIDCOMPUTER_NAME'
-    id_first = compute_hmac(id_first_message, secret=OPENCELIUM_SECRET)
+def test_request_id_goes_first() -> None:
+    """Putting the id last (instead of first) yields a different digest - id FIRST is load-bearing"""
+    id_first = machine_binding_hmac(PLACEHOLDER_FINGERPRINT, SAMPLE_REQUEST_ID, secret=OPENCELIUM_SECRET)
+    id_last_message = 'MACHINE_UUIDMAC_ADDRESSSYSTEM_UUIDCOMPUTER_NAME' + SAMPLE_REQUEST_ID
+    id_last = compute_hmac(id_last_message, secret=OPENCELIUM_SECRET)
 
-    assert id_last != id_first
+    assert id_first != id_last
 
 
 def test_different_fingerprint_changes_hmac() -> None:
