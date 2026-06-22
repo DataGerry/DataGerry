@@ -20,6 +20,7 @@ import { CoreDeleteConfirmationModalComponent } from './components/dialog/delete
 import { CoreWarningModalComponent } from './components/dialog/core-warning-modal/core-warning-modal.component';
 import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
 import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
+import { PremiumFeatureModalComponent } from './components/dialog/premium-feature-modal/premium-feature-modal.component';
 import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
 import { FullscreenDirective } from './directives/fullscreen.directive';
 import { CompactNumberPipe } from './pipes/compact-number.pipe';
@@ -44,6 +45,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     CoreWarningModalComponent,
     AppUsageBarComponent,
     CoreConfirmationModalComponent,
+    PremiumFeatureModalComponent,
     CompactNumberPipe
   ],
   imports: [
@@ -73,6 +75,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     CoreWarningModalComponent,
     AppUsageBarComponent,
     CoreConfirmationModalComponent,
+    PremiumFeatureModalComponent,
     HorizontalResizeDirective,
     FullscreenDirective,
     CompactNumberPipe
