@@ -19,9 +19,11 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import {
   LICENSE_FEATURE_LABELS,
+  LICENSE_TIER_LABELS,
   LicenseEdition,
   LicenseEntitlement,
-  LicenseFeature
+  LicenseFeature,
+  LicenseTier
 } from '../../models/license.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -43,6 +45,15 @@ export class LicenseOverviewCardComponent {
 
   public readonly LicenseEdition = LicenseEdition;
 
+  /** Reveals the full license ID */
+  public revealId = false;
+
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public toggleReveal(): void {
+    this.revealId = !this.revealId;
+  }
+
   /* --------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
   public get isComplete(): boolean {
@@ -53,16 +64,43 @@ export class LicenseOverviewCardComponent {
     return this.edition === LicenseEdition.Expired;
   }
 
-  public get heading(): string {
-    if (this.isComplete) {
-      return 'Self-Hosted Edition activated';
-    }
-
-    return this.isExpired ? 'Expired license' : 'Active license';
+  /** Human-readable tier name from the entitlement `type`; falls back for an unknown discriminator. */
+  public get tierLabel(): string {
+    const type = this.entitlement?.type ?? '';
+    return LICENSE_TIER_LABELS[type as LicenseTier] ?? 'Licensed';
   }
 
-  public get tierLabel(): string {
-    return 'Self-Hosted Edition';
+  /** Theme key driving the card treatment; `default` for any tier the UI does not theme explicitly. */
+  public get tierKey(): string {
+    const type = this.entitlement?.type ?? '';
+    return (Object.values(LicenseTier) as string[]).includes(type) ? type : 'default';
+  }
+
+  /** Dark-surfaced tiers (Business/Corporate) carry white text and the white logo. */
+  public get isDarkCard(): boolean {
+    return this.tierKey === 'business' || this.tierKey === 'corporate' || this.tierKey === 'default';
+  }
+
+  /** Logo variant matched to the card surface: white knockout on dark tiers, full-color on light ones. */
+  public get logoSrc(): string {
+    return this.isDarkCard
+      ? '/assets/img/RZ_Datagerry_RGB_w.svg'
+      : '/assets/img/datagerry_logo.svg';
+  }
+
+  /** License key masked to the last four characters unless revealed (no payment-card grouping). */
+  public get displayLicenseId(): string {
+    const id = this.entitlement?.licenseId;
+
+    if (!id) {
+      return '—';
+    }
+
+    if (this.revealId) {
+      return id;
+    }
+
+    return `•••• •••• ${id.replace(/-/g, '').slice(-4)}`;
   }
 
   public get remainingLabel(): string {
@@ -75,6 +113,19 @@ export class LicenseOverviewCardComponent {
     }
 
     return `${this.remainingDays} day${this.remainingDays === 1 ? '' : 's'}`;
+  }
+
+  /** Tone class for the remaining-time value: red when lapsed, amber within a month, else neutral. */
+  public get remainingTone(): string {
+    if (this.remainingDays === null) {
+      return 'is-perpetual';
+    }
+
+    if (this.remainingDays <= 0) {
+      return 'is-expired';
+    }
+
+    return this.remainingDays <= 30 ? 'is-soon' : 'is-ok';
   }
 
   public featureLabel(feature: LicenseFeature): string {

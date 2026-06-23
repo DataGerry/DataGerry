@@ -26,6 +26,8 @@ import { LicenseManagementComponent } from './license-management.component';
 import { LicenseStatusBadgeComponent } from './components/license-status-badge/license-status-badge.component';
 import { LicenseStatusBannerComponent } from './components/license-status-banner/license-status-banner.component';
 import { LicenseOverviewCardComponent } from './components/license-overview-card/license-overview-card.component';
+import { LicenseFeatureCatalogComponent } from './components/license-feature-catalog/license-feature-catalog.component';
+import { LicenseCatalogModalComponent } from './components/license-catalog-modal/license-catalog-modal.component';
 import { LicenseActivationWorkflowComponent } from './components/license-activation-workflow/license-activation-workflow.component';
 import { LicenseWizardStepperComponent } from './components/license-wizard-stepper/license-wizard-stepper.component';
 import { LicenseImportComponent } from './components/license-import/license-import.component';
@@ -37,6 +39,8 @@ import { LicenseImportComponent } from './components/license-import/license-impo
     LicenseStatusBadgeComponent,
     LicenseStatusBannerComponent,
     LicenseOverviewCardComponent,
+    LicenseFeatureCatalogComponent,
+    LicenseCatalogModalComponent,
     LicenseActivationWorkflowComponent,
     LicenseWizardStepperComponent,
     LicenseImportComponent

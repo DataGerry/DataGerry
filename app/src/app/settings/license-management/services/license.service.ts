@@ -24,7 +24,8 @@ import { BaseApiService } from 'src/app/core/services/base-api.service';
 import { ApiCallService, resp } from 'src/app/services/api-call.service';
 import { APIGetSingleResponse } from 'src/app/services/models/api-response';
 
-import { CurrentLicense } from '../models/license.model';
+import { CurrentLicense, CurrentLicenseResponse } from '../models/license.model';
+import { mapCurrentLicenseResponse } from '../utils/license.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -46,8 +47,8 @@ export class LicenseService extends BaseApiService<CurrentLicense> {
 
   /** Fetches the currently effective license (verified license, or the free fallback). */
   public getCurrentLicense(): Observable<CurrentLicense> {
-    return this.handleGetRequest<APIGetSingleResponse<CurrentLicense>>(`${this.servicePrefix}/current`)
-      .pipe(map((response) => response.result));
+    return this.handleGetRequest<APIGetSingleResponse<CurrentLicenseResponse>>(`${this.servicePrefix}/current`)
+      .pipe(map((response) => mapCurrentLicenseResponse(response.result)));
   }
 
   /**
@@ -66,7 +67,7 @@ export class LicenseService extends BaseApiService<CurrentLicense> {
 
   /** Uploads a license blob for verification and activation; returns the resulting license. */
   public importLicense(blob: string): Observable<CurrentLicense> {
-    return this.handlePostRequest<APIGetSingleResponse<CurrentLicense>>(`${this.servicePrefix}/activate`, { blob })
-      .pipe(map((response) => response.result));
+    return this.handlePostRequest<APIGetSingleResponse<CurrentLicenseResponse>>(`${this.servicePrefix}/activate`, { blob })
+      .pipe(map((response) => mapCurrentLicenseResponse(response.result)));
   }
 }

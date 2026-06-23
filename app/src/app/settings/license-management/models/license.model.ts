@@ -34,13 +34,14 @@ export enum LicenseVerificationStatus {
   Expired = 'expired'
 }
 
-/** Individually gated features a tier can unlock (anything not listed belongs to Community). */
+/**
+ * Individually gated features a license can unlock (anything not listed belongs to Community).
+ */
 export enum LicenseFeature {
-  ApiAccess = 'api_access',
-  Webhooks = 'webhooks',
+  RestApi = 'rest_api',
   Ipam = 'ipam',
   Isms = 'isms',
-  AiDocGeneration = 'ai_doc_generation',
+  DocumentGenerator = 'document_generator',
   Automations = 'automations'
 }
 
@@ -50,6 +51,21 @@ export enum LicenseEdition {
   SelfHosted = 'self_hosted',
   Expired = 'expired'
 }
+
+export enum LicenseTier {
+  Free = 'free',
+  Core = 'core',
+  Business = 'business',
+  Corporate = 'corporate'
+}
+
+/** Human-readable tier names shown on the license card. */
+export const LICENSE_TIER_LABELS: Record<LicenseTier, string> = {
+  [LicenseTier.Free]: 'Community',
+  [LicenseTier.Core]: 'Core',
+  [LicenseTier.Business]: 'Business',
+  [LicenseTier.Corporate]: 'Corporate'
+};
 
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
@@ -63,9 +79,27 @@ export interface LicenseEntitlement {
   operationUsage: number;
   duration: number;
   type: string;
+  features: LicenseFeature[];
 }
 
-/** Payload of `GET /rest/license/current`. */
+/**
+ * Raw wire payload of `GET /rest/license/current` and the activate endpoint.
+ */
+export interface CurrentLicenseResponse {
+  hmac: string;
+  startDate: number;
+  endDate: number;
+  subId: string;
+  licenseId: string;
+  type: string;
+  features: LicenseFeature[];
+  operationUsage?: number;
+  duration?: number;
+  is_active: boolean;
+  status: LicenseVerificationStatus | null;
+}
+
+/** Domain model the UI consumes: the verification flags plus the entitlement grouped together. */
 export interface CurrentLicense {
   is_active: boolean;
   status: LicenseVerificationStatus | null;
@@ -74,23 +108,12 @@ export interface CurrentLicense {
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */
 
-/** Every gated feature unlocked by the Self-Hosted edition (Community unlocks none). */
-export const SELF_HOSTED_FEATURES: LicenseFeature[] = [
-  LicenseFeature.ApiAccess,
-  LicenseFeature.Webhooks,
-  LicenseFeature.Ipam,
-  LicenseFeature.Isms,
-  LicenseFeature.AiDocGeneration,
-  LicenseFeature.Automations
-];
-
 /** Human-readable feature names. */
 export const LICENSE_FEATURE_LABELS: Record<LicenseFeature, string> = {
-  [LicenseFeature.ApiAccess]: 'External API access',
-  [LicenseFeature.Webhooks]: 'Webhooks',
+  [LicenseFeature.RestApi]: 'REST API',
   [LicenseFeature.Ipam]: 'IPAM',
   [LicenseFeature.Isms]: 'ISMS',
-  [LicenseFeature.AiDocGeneration]: 'AI documentation generation',
+  [LicenseFeature.DocumentGenerator]: 'Document Generator',
   [LicenseFeature.Automations]: 'Automations'
 };
 

@@ -1,0 +1,63 @@
+<section
+  class="feature-catalog"
+  [attr.aria-labelledby]="showHeader ? 'feature-catalog-title' : null"
+  [attr.aria-label]="showHeader ? null : 'Self-Hosted features'">
+  @if (showHeader) {
+    <header class="feature-catalog__header">
+      <h2 id="feature-catalog-title" class="feature-catalog__title">{{ sectionTitle }}</h2>
+      <p class="feature-catalog__subtitle">{{ sectionSubtitle }}</p>
+    </header>
+  }
+
+  @for (section of sections; track section.key) {
+    <div class="feature-catalog__group">
+      <h3 class="feature-catalog__group-title">{{ section.label }}</h3>
+
+      <ul class="feature-catalog__grid">
+        @for (item of section.items; track item.feature) {
+          <li
+            class="feature-card"
+            [class.feature-card--featured]="item.featured"
+            [class.feature-card--enabled]="isEnabled(item.feature)">
+
+            <span class="feature-card__icon" aria-hidden="true">
+              <i [class]="item.icon"></i>
+            </span>
+
+            <div class="feature-card__body">
+              <div class="feature-card__head">
+                <h4 class="feature-card__name">{{ item.label }}</h4>
+
+                @if (isEnabled(item.feature)) {
+                  <span class="feature-card__flag feature-card__flag--enabled">
+                    <i class="fas fa-circle-check" aria-hidden="true"></i>Enabled
+                  </span>
+                } @else if (item.featured) {
+                  <span class="feature-card__flag feature-card__flag--featured">
+                    <i class="fas fa-star" aria-hidden="true"></i>Featured capability
+                  </span>
+                }
+              </div>
+
+              <p class="feature-card__description">{{ item.description }}</p>
+
+              @if (item.featured && item.benefits.length) {
+                <ul class="feature-card__benefits" aria-label="What's included">
+                  @for (benefit of item.benefits; track benefit) {
+                    <li class="feature-card__benefit">
+                      <span class="feature-card__benefit-check" aria-hidden="true">
+                        <i class="fas fa-check"></i>
+                      </span>
+                      <span>{{ benefit }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+
+            </div>
+          </li>
+        }
+      </ul>
+    </div>
+  }
+</section>
