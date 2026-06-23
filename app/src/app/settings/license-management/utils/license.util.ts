@@ -20,14 +20,34 @@ import { Observable, from } from 'rxjs';
 import {
   COMMUNITY_TIER,
   CurrentLicense,
+  CurrentLicenseResponse,
   LicenseEdition,
-  LicenseFeature,
-  LicenseVerificationStatus,
-  SELF_HOSTED_FEATURES
+  LicenseVerificationStatus
 } from '../models/license.model';
 
 /** Milliseconds in a day, used to derive the remaining validity period. */
 const MS_PER_DAY = 86_400_000;
+
+/**
+ * Maps the flat `/rest/license/current` wire payload into the nested domain model the UI consumes.
+ */
+export function mapCurrentLicenseResponse(response: CurrentLicenseResponse): CurrentLicense {
+  return {
+    is_active: response.is_active,
+    status: response.status,
+    entitlement: {
+      hmac: response.hmac,
+      startDate: response.startDate,
+      endDate: response.endDate,
+      subId: response.subId,
+      licenseId: response.licenseId,
+      operationUsage: response.operationUsage ?? 0,
+      duration: response.duration ?? 0,
+      type: response.type,
+      features: response.features ?? []
+    }
+  };
+}
 
 /**
  * Resolves the UI edition from the current license (on-premise only).
@@ -63,11 +83,6 @@ export function remainingDays(endDate: number, now: number): number | null {
   }
 
   return Math.ceil((endDate - now) / MS_PER_DAY);
-}
-
-/** Features unlocked by the entitlement tier: all features for Self-Hosted, none for Community. */
-export function tierFeatures(type: string): LicenseFeature[] {
-  return type === COMMUNITY_TIER ? [] : SELF_HOSTED_FEATURES;
 }
 
 /**

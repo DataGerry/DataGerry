@@ -1,7 +1,7 @@
 {
   "$schema": "./premium-feature-content.schema.json",
   "features": {
-    "api_access": {
+    "rest_api": {
       "title": "Unlock External API Access",
       "subtitle": "External API access is available in the DATAGerry Self-Hosted Edition",
       "description": "Connect your own tools through a secure REST API.",
@@ -12,18 +12,6 @@
         "Manage tokens and scopes"
       ],
       "tags": ["REST API", "Automation", "Integration"]
-    },
-    "webhooks": {
-      "title": "Unlock Webhooks",
-      "subtitle": "Webhooks are available in the DATAGerry Self-Hosted Edition",
-      "description": "Push real-time events to the systems you rely on.",
-      "icon": "fas fa-plug",
-      "benefits": [
-        "React to changes instantly",
-        "Push events to other systems",
-        "Keep integrations in sync"
-      ],
-      "tags": ["Real-time Sync", "Automation", "Integration"]
     },
     "ipam": {
       "title": "Unlock IPAM",

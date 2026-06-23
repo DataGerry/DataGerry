@@ -35,7 +35,7 @@ import {
   LicenseFeature,
   LicenseVerificationStatus
 } from './models/license.model';
-import { parseContentDispositionFilename, readLicenseFile, remainingDays, resolveEdition, tierFeatures } from './utils/license.util';
+import { parseContentDispositionFilename, readLicenseFile, remainingDays, resolveEdition } from './utils/license.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const ACTIVATION_REQUEST_FILENAME = 'datagerry-activation-request.txt';
@@ -193,7 +193,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
     this.entitlement = entitlement;
     this.edition = resolveEdition(license);
-    this.features = tierFeatures(entitlement.type);
+    this.features = entitlement.features;
     this.remainingDays = remainingDays(entitlement.endDate, Date.now());
     this.rejectionMessage = this.resolveRejectionMessage(license.status);
   }

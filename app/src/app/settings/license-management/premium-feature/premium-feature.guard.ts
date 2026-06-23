@@ -28,9 +28,9 @@ import { PremiumFeatureService } from './premium-feature.service';
  * Usage on a route:
  * ```
  * {
- *   path: 'webhooks',
+ *   path: 'ipam',
  *   canActivate: [AuthGuard, premiumFeatureGuard],
- *   data: { premiumFeature: LicenseFeature.Webhooks }
+ *   data: { premiumFeature: LicenseFeature.Ipam }
  * }
  * ```
  */

@@ -15,12 +15,11 @@
       "additionalProperties": false,
       "propertyNames": {
         "enum": [
-          "webhooks",
+          "rest_api",
           "ipam",
           "isms",
           "document_generator",
-          "automations",
-          "api_access"
+          "automations"
         ]
       },
       "patternProperties": {

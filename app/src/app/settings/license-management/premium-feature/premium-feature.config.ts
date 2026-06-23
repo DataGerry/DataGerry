@@ -66,7 +66,7 @@ export const PREMIUM_CATALOG_CATEGORIES: ReadonlyArray<PremiumCatalogCategory> =
   {
     key: 'automation',
     label: 'Automation & Integrations',
-    features: [LicenseFeature.ApiAccess, LicenseFeature.Automations]
+    features: [LicenseFeature.RestApi, LicenseFeature.Automations]
   },
   {
     key: 'productivity',
