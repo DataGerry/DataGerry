@@ -4,13 +4,13 @@
   [class.license-strip--self-hosted]="edition === LicenseEdition.SelfHosted"
   [class.license-strip--expired]="edition === LicenseEdition.Expired">
 
-  <span class="license-strip__icon" aria-hidden="true">
+  <!-- <span class="license-strip__icon" aria-hidden="true">
     @switch (edition) {
       @case (LicenseEdition.SelfHosted) { <i class="fas fa-shield-halved"></i> }
       @case (LicenseEdition.Expired) { <i class="fas fa-triangle-exclamation"></i> }
       @default { <i class="fas fa-cube"></i> }
     }
-  </span>
+  </span> -->
 
   <cmdb-license-status-badge [edition]="edition"></cmdb-license-status-badge>
 

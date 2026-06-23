@@ -17,6 +17,7 @@
 */
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpResponse } from '@angular/common/http';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Observable, ReplaySubject } from 'rxjs';
 import { finalize, switchMap, takeUntil } from 'rxjs/operators';
 import { FileSaverService } from 'ngx-filesaver';
@@ -24,6 +25,7 @@ import { FileSaverService } from 'ngx-filesaver';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
+import { LicenseCatalogModalComponent } from './components/license-catalog-modal/license-catalog-modal.component';
 import { LicenseService } from './services/license.service';
 import {
   CurrentLicense,
@@ -37,6 +39,9 @@ import { parseContentDispositionFilename, readLicenseFile, remainingDays, resolv
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const ACTIVATION_REQUEST_FILENAME = 'datagerry-activation-request.txt';
+
+/** Session flag so the premium catalogue greeting opens at most once per browser session. */
+const CATALOG_SEEN_KEY = 'dg.license.catalog.seen';
 
 
 @Component({
@@ -62,6 +67,11 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   public importing = false;
   public activatedEntitlement: LicenseEntitlement | null = null;
 
+  /** The catalogue is an upgrade upsell, so only offer it on locked (non Self-Hosted) editions. */
+  public get showCatalogTrigger(): boolean {
+    return !this.loadError && this.edition !== LicenseEdition.SelfHosted;
+  }
+
   private readonly subscriber = new ReplaySubject<void>(1);
 
   constructor(
@@ -69,6 +79,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     private readonly loaderService: LoaderService,
     private readonly toast: ToastService,
     private readonly fileSaver: FileSaverService,
+    private readonly modalService: NgbModal,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
@@ -87,6 +98,11 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
   public onRetry(): void {
     this.loadCurrentLicense();
+  }
+
+  /** Manually opens the Self-Hosted feature catalogue (bypasses the once-per-session auto-open). */
+  public onShowCatalog(): void {
+    this.openCatalogModal();
   }
 
   public onGenerateActivationRequest(): void {
@@ -154,6 +170,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
           this.setLicenseState(license);
           this.wizardActive = this.usesWizard(this.edition);
           this.cdr.markForCheck();
+          this.maybeShowCatalogModal();
         },
         error: (err) => {
           this.loadError = true;
@@ -208,5 +225,52 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     }
 
     return LICENSE_STATUS_MESSAGES[status] || null;
+  }
+
+  /**
+   * Greets the user with the premium catalogue when the edition is locked (Community/Expired).
+   * Self-Hosted instances already have every feature, and the dialog opens at most once per session.
+   */
+  private maybeShowCatalogModal(): void {
+    if (this.edition === LicenseEdition.SelfHosted || this.hasSeenCatalog()) {
+      return;
+    }
+
+    this.markCatalogSeen();
+    this.openCatalogModal();
+  }
+
+  private openCatalogModal(): void {
+    const modalRef = this.modalService.open(LicenseCatalogModalComponent, {
+      size: 'xl',
+      centered: true,
+      windowClass: 'license-catalog-window',
+      modalDialogClass: 'license-catalog-dialog',
+      ariaLabelledBy: 'license-catalog-title'
+    });
+
+    const instance = modalRef.componentInstance as LicenseCatalogModalComponent;
+    instance.edition = this.edition;
+    instance.features = this.features;
+
+    // Continue, the close button and the backdrop all just reveal the page — swallow the rejection.
+    modalRef.result.catch(() => undefined);
+  }
+
+  /** Whether the greeting already ran this session; degrades to "not seen" when storage is blocked. */
+  private hasSeenCatalog(): boolean {
+    try {
+      return sessionStorage.getItem(CATALOG_SEEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private markCatalogSeen(): void {
+    try {
+      sessionStorage.setItem(CATALOG_SEEN_KEY, '1');
+    } catch {
+      // Storage can be unavailable (private mode, quota); the greeting simply shows again next load.
+    }
   }
 }

@@ -40,7 +40,7 @@ export enum LicenseFeature {
   Webhooks = 'webhooks',
   Ipam = 'ipam',
   Isms = 'isms',
-  AiDocGeneration = 'ai_doc_generation',
+  DocumentGenerator = 'document_generator',
   Automations = 'automations'
 }
 
@@ -80,7 +80,7 @@ export const SELF_HOSTED_FEATURES: LicenseFeature[] = [
   LicenseFeature.Webhooks,
   LicenseFeature.Ipam,
   LicenseFeature.Isms,
-  LicenseFeature.AiDocGeneration,
+  LicenseFeature.DocumentGenerator,
   LicenseFeature.Automations
 ];
 
@@ -90,7 +90,7 @@ export const LICENSE_FEATURE_LABELS: Record<LicenseFeature, string> = {
   [LicenseFeature.Webhooks]: 'Webhooks',
   [LicenseFeature.Ipam]: 'IPAM',
   [LicenseFeature.Isms]: 'ISMS',
-  [LicenseFeature.AiDocGeneration]: 'AI documentation generation',
+  [LicenseFeature.DocumentGenerator]: 'Document Generator',
   [LicenseFeature.Automations]: 'Automations'
 };
 

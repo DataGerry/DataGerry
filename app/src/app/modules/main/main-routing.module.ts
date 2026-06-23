@@ -20,6 +20,8 @@ import { Routes, RouterModule } from '@angular/router';
 
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
+import { premiumFeatureGuard } from '../../settings/license-management/premium-feature/premium-feature.guard';
+import { LicenseFeature } from '../../settings/license-management/models/license.model';
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
 import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
@@ -83,9 +85,10 @@ const routes: Routes = [
     {
         path: 'isms',
         data: {
-            breadcrumb: 'ISMS'
+            breadcrumb: 'ISMS',
+            premiumFeature: LicenseFeature.Isms
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../../toolbox/isms/isms.module').then(m => m.ISMSModule)
     },
@@ -93,9 +96,10 @@ const routes: Routes = [
         path: 'automations',
         component: AutomationsWrapperComponent,
         data: {
-            breadcrumb: 'Automations'
+            breadcrumb: 'Automations',
+            premiumFeature: LicenseFeature.Automations
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard, PermissionGuard],
         children: [
             {
@@ -148,9 +152,10 @@ const routes: Routes = [
     {
         path: 'docapi',
         data: {
-            breadcrumb: 'Document Generator'
+            breadcrumb: 'Document Generator',
+            premiumFeature: LicenseFeature.DocumentGenerator
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../docapi/docapi.module').then(m => m.DocapiModule)
     },

@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DATAGerry premium feature content",
+  "description": "upgrade modal when a Community user opens a gated feature. Edit premium-feature-content.json to add or change a feature; this schema validates the file as you type.",
+  "type": "object",
+  "required": ["features"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "features": {
+      "type": "object",
+      "description": "Map of feature key -> content. The key must match a licensed feature.",
+      "additionalProperties": false,
+      "propertyNames": {
+        "enum": [
+          "webhooks",
+          "ipam",
+          "isms",
+          "document_generator",
+          "automations",
+          "api_access"
+        ]
+      },
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "subtitle", "description", "icon", "benefits"],
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Modal heading, e.g. \"Unlock Webhooks\".",
+              "minLength": 1
+            },
+            "subtitle": {
+              "type": "string",
+              "description": "Short line naming the edition that includes the feature.",
+              "minLength": 1
+            },
+            "description": {
+              "type": "string",
+              "description": "One or two sentences describing the value of the feature.",
+              "minLength": 1
+            },
+            "icon": {
+              "type": "string",
+              "description": "Full FontAwesome class for the hero icon, e.g. \"fas fa-plug\".",
+              "pattern": "^(fas|far|fab|fa-solid|fa-regular|fa-brands) fa-[a-z0-9-]+$"
+            },
+            "benefits": {
+              "type": "array",
+              "description": "Concise selling points rendered as a checklist (2-4 recommended).",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "tags": {
+              "type": "array",
+              "description": "Short scannable labels shown on the catalogue card (2-3 recommended).",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

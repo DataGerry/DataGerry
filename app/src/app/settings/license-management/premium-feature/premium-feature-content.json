@@ -1,0 +1,77 @@
+{
+  "$schema": "./premium-feature-content.schema.json",
+  "features": {
+    "api_access": {
+      "title": "Unlock External API Access",
+      "subtitle": "External API access is available in the DATAGerry Self-Hosted Edition",
+      "description": "Connect your own tools through a secure REST API.",
+      "icon": "fas fa-code",
+      "benefits": [
+        "Automate data access",
+        "Build custom integrations",
+        "Manage tokens and scopes"
+      ],
+      "tags": ["REST API", "Automation", "Integration"]
+    },
+    "webhooks": {
+      "title": "Unlock Webhooks",
+      "subtitle": "Webhooks are available in the DATAGerry Self-Hosted Edition",
+      "description": "Push real-time events to the systems you rely on.",
+      "icon": "fas fa-plug",
+      "benefits": [
+        "React to changes instantly",
+        "Push events to other systems",
+        "Keep integrations in sync"
+      ],
+      "tags": ["Real-time Sync", "Automation", "Integration"]
+    },
+    "ipam": {
+      "title": "Unlock IPAM",
+      "subtitle": "IPAM is available in the DATAGerry Self-Hosted Edition",
+      "description": "Plan and track your entire IP space in one place.",
+      "icon": "fas fa-network-wired",
+      "benefits": [
+        "Organize subnets and ranges",
+        "Track IP assignments",
+        "Avoid address conflicts"
+      ],
+      "tags": ["Subnets", "IP Tracking", "Network"]
+    },
+    "isms": {
+      "title": "Unlock ISMS",
+      "subtitle": "ISMS is available in the DATAGerry Self-Hosted Edition",
+      "description": "Run a complete information security management system alongside your CMDB.",
+      "icon": "fas fa-shield-halved",
+      "benefits": [
+        "Track risks and controls",
+        "Manage security policies",
+        "Support audits and compliance"
+      ],
+      "tags": ["ISO 27001", "Governance", "Security"]
+    },
+    "document_generator": {
+      "title": "Unlock the Document Generator",
+      "subtitle": "The Document Generator is available in the DATAGerry Self-Hosted Edition",
+      "description": "Generate polished documents and reports from your CMDB.",
+      "icon": "fas fa-file-pdf",
+      "benefits": [
+        "Build reusable templates",
+        "Export polished documents",
+        "Automate your reporting"
+      ],
+      "tags": ["Templates", "Reporting", "Export"]
+    },
+    "automations": {
+      "title": "Unlock Automations",
+      "subtitle": "Automations are available in the DATAGerry Self-Hosted Edition",
+      "description": "Automate workflows and sync data with zero code.",
+      "icon": "fas fa-gears",
+      "benefits": [
+        "Automate repetitive tasks",
+        "Sync with external systems",
+        "Build no-code workflows"
+      ],
+      "tags": ["No-code", "Workflows", "Sync"]
+    }
+  }
+}
