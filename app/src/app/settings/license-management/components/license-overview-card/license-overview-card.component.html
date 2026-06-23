@@ -1,69 +1,113 @@
-<div class="card license-summary h-100" [class.license-summary--complete]="isComplete">
-  <div class="card-header d-flex align-items-center justify-content-between">
-    <span class="fw-semibold">
-      @if (isComplete) {
-        <i class="fas fa-circle-check text-success me-2" aria-hidden="true"></i>
-      } @else if (isExpired) {
-        <i class="fas fa-triangle-exclamation text-warning me-2" aria-hidden="true"></i>
-      } @else {
-        <i class="fas fa-certificate me-2" aria-hidden="true"></i>
-      }
-      {{ heading }}
-    </span>
-    <span class="badge bg-light text-dark border">{{ tierLabel }}</span>
-  </div>
+<div class="license-overview" [class.license-overview--complete]="isComplete">
 
-  <div class="card-body">
-    @if (isComplete) {
-      <p class="text-muted mb-3">
-        Your license has been verified and all licensed features are now active on this instance.
-      </p>
-    }
+  @if (isComplete) {
+    <p class="license-overview__success">
+      <i class="fas fa-circle-check" aria-hidden="true"></i>
+      Your license is verified — all licensed features are now active on this instance.
+    </p>
+  }
 
-    @if (entitlement) {
-      <dl class="row mb-0 license-summary__details">
-        <dt class="col-sm-4">Edition</dt>
-        <dd class="col-sm-8">{{ tierLabel }}</dd>
+  @if (entitlement) {
+    <div class="license-overview__grid">
 
-        <dt class="col-sm-4">Subscription ID</dt>
-        <dd class="col-sm-8">{{ entitlement.subId || '—' }}</dd>
+      <section
+        class="dg-card dg-card--{{ tierKey }}"
+        [class.dg-card--expired]="isExpired"
+        aria-label="Active license card">
 
-        <dt class="col-sm-4">License ID</dt>
-        <dd class="col-sm-8">{{ entitlement.licenseId || '—' }}</dd>
+        <header class="dg-card__top">
+          <img
+            class="dg-card__logo"
+            [src]="logoSrc"
+            alt="DATAGERRY"
+            width="74"
+            height="22" />
 
-        <dt class="col-sm-4">Operation usage</dt>
-        <dd class="col-sm-8">{{ entitlement.operationUsage | number }}</dd>
+          <span class="dg-card__status" [class.dg-card__status--expired]="isExpired">
+            <span class="dg-card__status-dot" aria-hidden="true"></span>
+            {{ isExpired ? 'Expired' : 'Active' }}
+          </span>
+        </header>
 
-        <dt class="col-sm-4">Valid from</dt>
-        <dd class="col-sm-8">{{ entitlement.startDate | date: 'mediumDate' }}</dd>
+        <div class="dg-card__tier">
+          <span class="dg-card__tier-kicker">Edition</span>
+          <span class="dg-card__tier-name">{{ tierLabel }}</span>
+        </div>
 
-        <dt class="col-sm-4">Expires</dt>
-        <dd class="col-sm-8">
-          @if (entitlement.endDate) {
-            {{ entitlement.endDate | date: 'mediumDate' }}
-          } @else {
-            No expiry
-          }
-        </dd>
+        <div class="dg-card__key">
+          <span class="dg-card__key-label">License key</span>
+          <div class="dg-card__key-value">
+            <span class="dg-card__key-text" [class.is-masked]="!revealId">{{ displayLicenseId }}</span>
+            @if (entitlement.licenseId) {
+              <button
+                type="button"
+                class="dg-card__reveal"
+                [attr.aria-pressed]="revealId"
+                [attr.aria-label]="revealId ? 'Hide license key' : 'Show license key'"
+                (click)="toggleReveal()">
+                <i class="fas" [class.fa-eye]="!revealId" [class.fa-eye-slash]="revealId" aria-hidden="true"></i>
+              </button>
+            }
+          </div>
+        </div>
 
-        <dt class="col-sm-4">Remaining</dt>
-        <dd class="col-sm-8">{{ remainingLabel }}</dd>
-
-        <dt class="col-sm-4">Enabled features</dt>
-        <dd class="col-sm-8">
-          @if (features.length) {
-            <span class="license-summary__features">
-              @for (feature of features; track feature) {
-                <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">
-                  <i class="fas fa-check me-1" aria-hidden="true"></i>{{ featureLabel(feature) }}
-                </span>
+        <footer class="dg-card__bottom">
+          <div class="dg-card__field">
+            <span class="dg-card__field-label">Subscription</span>
+            <span class="dg-card__field-value">{{ entitlement.subId || '—' }}</span>
+          </div>
+          <div class="dg-card__field">
+            <span class="dg-card__field-label">Valid from</span>
+            <span class="dg-card__field-value">{{ entitlement.startDate | date: 'MM/yy' }}</span>
+          </div>
+          <div class="dg-card__field dg-card__field--end">
+            <span class="dg-card__field-label">Valid thru</span>
+            <span class="dg-card__field-value">
+              @if (entitlement.endDate) {
+                {{ entitlement.endDate | date: 'MM/yy' }}
+              } @else {
+                &#8734;
               }
             </span>
-          } @else {
-            <span class="text-muted">No additional features</span>
-          }
-        </dd>
+          </div>
+        </footer>
+      </section>
+
+      <dl class="license-meta">
+        <div class="license-meta__row">
+          <dt>Started</dt>
+          <dd>{{ entitlement.startDate | date: 'mediumDate' }}</dd>
+        </div>
+        <div class="license-meta__row">
+          <dt>Expires</dt>
+          <dd>
+            @if (entitlement.endDate) {
+              {{ entitlement.endDate | date: 'mediumDate' }}
+            } @else {
+              No expiry
+            }
+          </dd>
+        </div>
+        <div class="license-meta__row">
+          <dt>Remaining</dt>
+          <dd><span class="license-meta__remaining {{ remainingTone }}">{{ remainingLabel }}</span></dd>
+        </div>
+        <div class="license-meta__row license-meta__row--features">
+          <dt>Enabled features</dt>
+          <dd>
+            @if (features.length) {
+              <span class="license-meta__features">
+                @for (feature of features; track feature) {
+                  <span class="license-chip"><i class="fas fa-check" aria-hidden="true"></i>{{ featureLabel(feature) }}</span>
+                }
+              </span>
+            } @else {
+              <span class="text-muted">No additional features</span>
+            }
+          </dd>
+        </div>
       </dl>
-    }
-  </div>
+
+    </div>
+  }
 </div>

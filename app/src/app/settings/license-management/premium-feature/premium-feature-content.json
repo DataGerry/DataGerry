@@ -3,7 +3,7 @@
   "features": {
     "rest_api": {
       "title": "Unlock External API Access",
-      "subtitle": "External API access is available in the DATAGerry Self-Hosted Edition",
+      "subtitle": "REST API access is available in the DATAGerry Self-Hosted Edition",
       "description": "Connect your own tools through a secure REST API.",
       "icon": "fas fa-code",
       "benefits": [

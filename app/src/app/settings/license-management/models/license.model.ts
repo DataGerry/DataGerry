@@ -110,7 +110,7 @@ export interface CurrentLicense {
 
 /** Human-readable feature names. */
 export const LICENSE_FEATURE_LABELS: Record<LicenseFeature, string> = {
-  [LicenseFeature.RestApi]: 'External API access',
+  [LicenseFeature.RestApi]: 'REST API',
   [LicenseFeature.Ipam]: 'IPAM',
   [LicenseFeature.Isms]: 'ISMS',
   [LicenseFeature.DocumentGenerator]: 'Document Generator',
