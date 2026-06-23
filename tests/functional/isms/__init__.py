@@ -14,19 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all ISMS relevant helper methods
-"""
-from .isms_risk_matrix_helper import (
-    ensure_default_risk_matrix,
-    calculate_risk_matrix,
-    remove_deleted_risk_class_from_matrix,
-    check_risk_classes_set_in_matrix,
-)
-# -------------------------------------------------------------------------------------------------------------------- #
+Functional tests for the ISMS routes over HTTP
 
-__all__: list[str] = [
-    'ensure_default_risk_matrix',
-    'calculate_risk_matrix',
-    'remove_deleted_risk_class_from_matrix',
-    'check_risk_classes_set_in_matrix',
-]
+Covers the ISMS configuration status route, in particular the RiskMatrix singleton self-heal:
+the status route recreates the matrix (public_id 1) instead of failing when it is missing
+"""

@@ -33,7 +33,7 @@ from cmdb.manager import (
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.isms_model.isms_helper import check_risk_classes_set_in_matrix
+from cmdb.models.isms_model.isms_helper import check_risk_classes_set_in_matrix, ensure_default_risk_matrix
 
 
 from cmdb.interface.blueprints import APIBlueprint
@@ -75,10 +75,8 @@ def get_isms_config_status(request_user: CmdbUser) -> Response:
         impact_amount: int = impact_manager.count_documents()
         impact_category_amount: int = impact_category_manager.count_documents()
 
-        current_risk_matrix: dict[str, Any] | None = risk_matrix_manager.get_item(1, as_dict=True)
-
-        if not current_risk_matrix:
-            abort(404, "The RiskMatrix with was not found in the database!")
+        # The RiskMatrix is a singleton (public_id 1) seeded at setup; recreate the default if missing
+        current_risk_matrix: dict[str, Any] = ensure_default_risk_matrix(risk_matrix_manager)
 
         risk_matrix_risk_class_status: bool = check_risk_classes_set_in_matrix(current_risk_matrix)
 
