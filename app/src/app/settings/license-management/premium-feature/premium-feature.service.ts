@@ -30,7 +30,6 @@ import {
 
 import { LicenseFeature } from '../models/license.model';
 import { LicenseService } from '../services/license.service';
-import { tierFeatures } from '../utils/license.util';
 import { PREMIUM_FEATURE_CONTENT } from './premium-feature.config';
 
 /** Route the upgrade call-to-action sends the user to. */
@@ -81,9 +80,31 @@ export class PremiumFeatureService {
     this.loaderService.show();
 
     return this.licenseService.getCurrentLicense().pipe(
-      map((license) => license.is_active && tierFeatures(license.entitlement.type).includes(feature)),
+      map((license) => license.is_active && license.entitlement.features.includes(feature)),
       catchError(() => of(false)),
       finalize(() => this.loaderService.hide())
+    );
+  }
+
+  /**
+   * Resolves which of the supplied premium features are currently LOCKED for the active edition.
+   *
+   * Intended for passive UI hints (e.g. premium badges): Cloud deployments unlock everything, so the
+   * result is always empty; on-premise installs derive the locked set from the verified license in a
+   * single lookup, and a failed lookup degrades safely to "all locked". Unlike `isFeatureUnlocked`,
+   * this does not toggle the global loader.
+   */
+  getLockedFeatures(features: readonly LicenseFeature[]): Observable<Set<LicenseFeature>> {
+    if (environment.cloudMode) {
+      return of(new Set<LicenseFeature>());
+    }
+
+    return this.licenseService.getCurrentLicense().pipe(
+      map((license) => {
+        const unlocked = license.is_active ? license.entitlement.features : [];
+        return new Set(features.filter((feature) => !unlocked.includes(feature)));
+      }),
+      catchError(() => of(new Set(features)))
     );
   }
 
