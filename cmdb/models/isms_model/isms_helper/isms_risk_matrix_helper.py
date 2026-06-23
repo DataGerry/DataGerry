@@ -17,18 +17,44 @@
 Helper Methods for calculating the IsmsRiskMatrix
 """
 from logging import Logger, getLogger
-from typing import Tuple
+from typing import Any, Tuple
 
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.manager import RiskClassManager, LikelihoodManager, ImpactManager, RiskMatrixManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
+from cmdb.database.predefined_data.isms_data import get_default_risk_matrix
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+def ensure_default_risk_matrix(risk_matrix_manager: RiskMatrixManager) -> dict[str, Any]:
+    """
+    Returns the singleton IsmsRiskMatrix (public_id 1), creating the empty default if it is missing
+
+    The RiskMatrix is a singleton seeded once at setup; if its document is absent (e.g. it was
+    deleted, or the database was created before the matrix was seeded) this recreates the default
+    so callers never have to handle a missing matrix. The default carries public_id 1, an empty
+    cell list and no unit
+
+    Args:
+        risk_matrix_manager (RiskMatrixManager): Manager used to read and, if needed, create the matrix
+
+    Returns:
+        dict[str, Any]: The current (or freshly created) IsmsRiskMatrix document
+    """
+    current_risk_matrix: dict[str, Any] | None = risk_matrix_manager.get_item(1, as_dict=True)
+
+    if not current_risk_matrix:
+        risk_matrix_manager.insert_item(get_default_risk_matrix())
+        current_risk_matrix = risk_matrix_manager.get_item(1, as_dict=True)
+
+    return current_risk_matrix
+
+
 def calculate_risk_matrix(request_user: CmdbUser) -> None:
     """
     Calculates the IsmsRiskMatrix with current values
@@ -47,7 +73,7 @@ def calculate_risk_matrix(request_user: CmdbUser) -> None:
 
     # Only calculate the matrix if the minimum requirements are met
     if len(all_risk_classes) > 0 and len(all_likelihoods) > 0 and len(all_impacts) > 0:
-        current_risk_matrix = risk_matrix_manager.get_item(1, as_dict=True)
+        current_risk_matrix = ensure_default_risk_matrix(risk_matrix_manager)
 
         new_risk_matrix_values = __generate_risk_matrix(all_impacts, all_likelihoods)
 
@@ -72,7 +98,7 @@ def remove_deleted_risk_class_from_matrix(deleted_risk_class_id: int, request_us
     """
     risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
-    current_risk_matrix = risk_matrix_manager.get_item(1, as_dict=True)
+    current_risk_matrix = ensure_default_risk_matrix(risk_matrix_manager)
 
     for cell in current_risk_matrix['risk_matrix']:
         if cell["risk_class_id"] == deleted_risk_class_id:

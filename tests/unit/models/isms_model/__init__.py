@@ -14,19 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all ISMS relevant helper methods
-"""
-from .isms_risk_matrix_helper import (
-    ensure_default_risk_matrix,
-    calculate_risk_matrix,
-    remove_deleted_risk_class_from_matrix,
-    check_risk_classes_set_in_matrix,
-)
-# -------------------------------------------------------------------------------------------------------------------- #
+Unit tests for cmdb.models.isms_model
 
-__all__: list[str] = [
-    'ensure_default_risk_matrix',
-    'calculate_risk_matrix',
-    'remove_deleted_risk_class_from_matrix',
-    'check_risk_classes_set_in_matrix',
-]
+Covers the ISMS helper logic in isolation (no Mongo, no Flask): the RiskMatrix singleton
+self-heal in isms_helper. The managers and crypto are stubbed
+"""

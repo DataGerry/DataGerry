@@ -19,7 +19,8 @@ Functional tests for the license activation-request route (GET /license/activati
 Drives the route over HTTP with an authenticated admin: it returns the activation request as a
 downloadable text/plain .txt attachment whose Base64 body decodes to the six request-file fields
 (no ttl/status), and the returned hmac is the machine-binding HMAC over the issued fingerprint and
-id. The deeper crypto / persistence behaviour is asserted at the unit / integration tiers
+id. With ?as_string=true the same blob is returned as a DefaultResponse string payload instead of a
+file. The deeper crypto / persistence behaviour is asserted at the unit / integration tiers
 """
 from http import HTTPStatus
 
@@ -33,10 +34,13 @@ from cmdb.security.license.transport import decode_json
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     ACTIVATION_REQUEST_ROUTE,
     ACTIVATION_REQUEST_FILENAME,
+    ACTIVATION_REQUEST_AS_STRING_PARAM,
+    ACTIVATION_REQUEST_RESPONSE_KEY,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = f'/license{ACTIVATION_REQUEST_ROUTE}'
+AS_STRING_URL: str = f'{ROUTE_URL}?{ACTIVATION_REQUEST_AS_STRING_PARAM}=true'
 
 REQUEST_FILE_KEYS: set[str] = {
     ActivationRequestKey.ID.value,
@@ -90,6 +94,35 @@ def test_returned_hmac_binds_the_fingerprint(rest_api) -> None:
     expected = machine_binding_hmac(fingerprint, decoded[ActivationRequestKey.ID.value])
 
     assert decoded[ActivationRequestKey.HMAC.value] == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          as_string (string payload)                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_as_string_returns_json_payload_not_attachment(rest_api) -> None:
+    """With ?as_string=true the route returns a JSON payload (no .txt attachment)"""
+    response = rest_api.get(AS_STRING_URL)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.mimetype == 'application/json'
+    assert 'Content-Disposition' not in response.headers
+
+
+def test_as_string_body_decodes_to_the_six_request_file_fields(rest_api) -> None:
+    """The string payload carries the same Base64 blob, decoding to the six request-file fields"""
+    response = rest_api.get(AS_STRING_URL)
+
+    blob = response.json[ACTIVATION_REQUEST_RESPONSE_KEY]
+
+    assert isinstance(blob, str)
+    assert set(decode_json(blob)) == REQUEST_FILE_KEYS
+
+
+def test_invalid_as_string_param_returns_400(rest_api) -> None:
+    """A non-boolean as_string value is rejected with 400 rather than a 500"""
+    response = rest_api.get(f'{ROUTE_URL}?{ACTIVATION_REQUEST_AS_STRING_PARAM}=maybe')
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -36,6 +36,12 @@ LICENSE_DELETE_RIGHT: str = 'base.license.delete'
 # Filename of the downloadable activation-request .txt the admin hands to the license portal
 ACTIVATION_REQUEST_FILENAME: str = 'datagerry_activation_request.txt'
 
+# Query param that flips the activation-request route from a file download to a string payload
+ACTIVATION_REQUEST_AS_STRING_PARAM: str = 'as_string'
+
+# Response-payload key carrying the activation-request blob when returned as a string
+ACTIVATION_REQUEST_RESPONSE_KEY: str = 'activation_request'
+
 
 class LicenseUploadKey(BaseStrEnum):
     """
