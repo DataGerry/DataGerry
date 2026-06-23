@@ -67,19 +67,22 @@ def _current_license_payload(license_service: LicenseService) -> dict[str, Any]:
     """
     Builds the current-license response payload from a single license-state resolution
 
+    The effective entitlement fields (type, features, licenseId, hmac, startDate, endDate, subId)
+    are emitted flat at the top level, alongside the is_active flag and verification status
+
     Args:
         license_service (LicenseService): The license service to read state from
 
     Returns:
-        dict[str, Any]: The is_active / status / entitlement payload
+        dict[str, Any]: The flattened entitlement document plus the is_active / status fields
     """
     state = license_service.current_state()
 
-    return {
-        CurrentLicenseResponseKey.IS_ACTIVE: state.active,
-        CurrentLicenseResponseKey.STATUS: state.status.value if state.status is not None else None,
-        CurrentLicenseResponseKey.ENTITLEMENT: LicenseEntitlement.to_json(state.entitlement),
-    }
+    payload: dict[str, Any] = LicenseEntitlement.to_json(state.entitlement)
+    payload[CurrentLicenseResponseKey.IS_ACTIVE] = state.active
+    payload[CurrentLicenseResponseKey.STATUS] = state.status.value if state.status is not None else None
+
+    return payload
 
 
 @license_blueprint.route(CURRENT_LICENSE_ROUTE, methods=['GET', 'HEAD'])
