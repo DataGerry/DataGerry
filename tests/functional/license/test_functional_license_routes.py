@@ -80,7 +80,7 @@ def test_current_license_defaults_to_free(rest_api) -> None:
     payload = response.json[RESULT_KEY]
     assert payload[CurrentLicenseResponseKey.IS_ACTIVE.value] is False
     assert payload[CurrentLicenseResponseKey.STATUS.value] is None
-    assert payload[CurrentLicenseResponseKey.ENTITLEMENT.value]['type'] == LicenseTier.FREE.value
+    assert payload['type'] == LicenseTier.FREE.value
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -107,7 +107,7 @@ def test_activate_current_delete_cycle(rest_api, monkeypatch: pytest.MonkeyPatch
     activate = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
     assert activate.status_code == HTTPStatus.OK
     assert activate.json[RESULT_KEY][CurrentLicenseResponseKey.IS_ACTIVE.value] is True
-    entitlement = activate.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]
+    entitlement = activate.json[RESULT_KEY]
     assert entitlement['type'] == LicenseTier.BUSINESS.value
     assert entitlement['features'] == ['isms', 'ipam']
 
@@ -117,7 +117,7 @@ def test_activate_current_delete_cycle(rest_api, monkeypatch: pytest.MonkeyPatch
     deleted = rest_api.delete(CURRENT_URL)
     assert deleted.status_code == HTTPStatus.OK
     assert deleted.json[RESULT_KEY][CurrentLicenseResponseKey.IS_ACTIVE.value] is False
-    assert deleted.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]['type'] == LicenseTier.FREE.value
+    assert deleted.json[RESULT_KEY]['type'] == LicenseTier.FREE.value
 
 
 def test_activate_overwrites_current_license(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,13 +128,13 @@ def test_activate_overwrites_current_license(rest_api, monkeypatch: pytest.Monke
     })
 
     first = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'core-blob'})
-    assert first.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]['type'] == LicenseTier.CORE.value
+    assert first.json[RESULT_KEY]['type'] == LicenseTier.CORE.value
 
     second = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'business-blob'})
-    assert second.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]['type'] == LicenseTier.BUSINESS.value
+    assert second.json[RESULT_KEY]['type'] == LicenseTier.BUSINESS.value
 
     current = rest_api.get(CURRENT_URL)
-    assert current.json[RESULT_KEY][CurrentLicenseResponseKey.ENTITLEMENT.value]['type'] == LicenseTier.BUSINESS.value
+    assert current.json[RESULT_KEY]['type'] == LicenseTier.BUSINESS.value
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

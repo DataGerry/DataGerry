@@ -50,13 +50,13 @@ class CurrentLicenseResponseKey(BaseStrEnum):
     """
     Keys of the current-license route's JSON response payload
 
-    IS_ACTIVE is True when a stored license verifies as valid; STATUS is the verification outcome
-    (a LicenseVerificationStatus value, or null when no license is stored); ENTITLEMENT carries the
-    effective entitlement document (the verified license, or the free entitlement when degraded)
+    The effective entitlement fields (keyed by LicenseEntitlementKey) are emitted flat at the top
+    level; these two keys are added alongside them. IS_ACTIVE is True when a stored license verifies
+    as valid; STATUS is the verification outcome (a LicenseVerificationStatus value, or null when no
+    license is stored - the install runs on the free entitlement)
     """
     IS_ACTIVE = 'is_active'
     STATUS = 'status'
-    ENTITLEMENT = 'entitlement'
 
 
 # Cerberus schema for the activate/upload request body
