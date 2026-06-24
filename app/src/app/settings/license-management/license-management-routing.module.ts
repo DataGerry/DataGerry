@@ -19,6 +19,7 @@ import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 
 import { LicenseManagementComponent } from './license-management.component';
+import { LicenseResolver } from './services/license-resolver.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -28,6 +29,9 @@ const routes: Routes = [
     data: {
       breadcrumb: 'Overview',
       right: 'base.license.view'
+    },
+    resolve: {
+      license: LicenseResolver
     },
     component: LicenseManagementComponent
   }

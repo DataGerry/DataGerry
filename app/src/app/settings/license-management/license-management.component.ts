@@ -17,22 +17,28 @@
 */
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpResponse } from '@angular/common/http';
+import { ActivatedRoute } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Observable, ReplaySubject } from 'rxjs';
 import { finalize, switchMap, takeUntil } from 'rxjs/operators';
 import { FileSaverService } from 'ngx-filesaver';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { LicenseCatalogModalComponent } from './components/license-catalog-modal/license-catalog-modal.component';
 import { LicenseService } from './services/license.service';
+import { ResolvedLicense } from './services/license-resolver.service';
 import {
   CurrentLicense,
   LICENSE_STATUS_MESSAGES,
+  LICENSE_STATUS_TITLES,
+  LICENSE_TIER_LABELS,
   LicenseEdition,
   LicenseEntitlement,
   LicenseFeature,
+  LicenseTier,
   LicenseVerificationStatus
 } from './models/license.model';
 import { parseContentDispositionFilename, readLicenseFile, remainingDays, resolveEdition } from './utils/license.util';
@@ -60,7 +66,11 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   public features: LicenseFeature[] = [];
   public remainingDays: number | null = null;
   public rejectionMessage: string | null = null;
+  public rejectionTitle = 'License warning';
+  public rejectionIcon = 'fas fa-triangle-exclamation';
   public loadError = false;
+  /** False until the first license fetch resolves, so the view never renders before data exists. */
+  public loaded = false;
 
   public wizardActive = false;
   public wizardGenerated = false;
@@ -69,7 +79,21 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
   /** The catalogue is an upgrade upsell, so only offer it on locked (non Self-Hosted) editions. */
   public get showCatalogTrigger(): boolean {
-    return !this.loadError && this.edition !== LicenseEdition.SelfHosted;
+    return this.loaded && !this.loadError && this.edition !== LicenseEdition.SelfHosted;
+  }
+
+  /** A license can be removed only once it is verified and active (the overview card is on screen). */
+  public get canDeleteLicense(): boolean {
+    return !this.loadError && !this.wizardActive && this.edition === LicenseEdition.SelfHosted;
+  }
+
+  /**
+   * True while re-importing from an active license: the existing license is still in place, so the
+   * wizard can be abandoned to return to the overview. The first-time (Community/Expired) wizard has
+   * no overview to fall back to, so it is never cancellable.
+   */
+  public get canCancelImport(): boolean {
+    return !this.loadError && this.wizardActive && this.edition === LicenseEdition.SelfHosted;
   }
 
   private readonly subscriber = new ReplaySubject<void>(1);
@@ -80,13 +104,15 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     private readonly toast: ToastService,
     private readonly fileSaver: FileSaverService,
     private readonly modalService: NgbModal,
+    private readonly deleteModal: DeleteModalService,
+    private readonly route: ActivatedRoute,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
   /* -------------------------------------------------- LIFE CYCLE -------------------------------------------------- */
 
   public ngOnInit(): void {
-    this.loadCurrentLicense();
+    this.applyResolvedLicense();
   }
 
   public ngOnDestroy(): void {
@@ -154,10 +180,62 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  /** Re-enters the four-step activation wizard so an active instance can import a new license. */
+  public onImportLicense(): void {
+    this.wizardGenerated = false;
+    this.activatedEntitlement = null;
+    this.wizardActive = true;
+    this.cdr.markForCheck();
+  }
+
+  /** Abandons a re-import and returns to the active-license overview, leaving the license untouched. */
+  public onCancelImport(): void {
+    this.wizardActive = false;
+    this.wizardGenerated = false;
+    this.activatedEntitlement = null;
+    this.cdr.markForCheck();
+  }
+
+  /** Confirms the destructive removal before deleting the stored license. */
+  public onDeleteLicense(): void {
+    this.deleteModal.confirmDelete({
+      title: 'Remove license',
+      itemType: 'license',
+      itemName: this.licenseName,
+      warningMessage:
+        'Removing the license disables all Self-Hosted features and returns this instance to the Community edition.',
+      onConfirm: () => this.deleteCurrentLicense()
+    });
+  }
+
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+  /** Applies the license fetched by the route resolver before navigation (the "precall"). */
+  private applyResolvedLicense(): void {
+    const resolved = this.route.snapshot.data['license'] as ResolvedLicense | undefined;
+
+    // Defensive fallback: if the route was reached without the resolver, fetch directly.
+    if (!resolved) {
+      this.loadCurrentLicense();
+      return;
+    }
+
+    this.loaded = true;
+
+    if (resolved.failed || !resolved.license) {
+      this.loadError = true;
+      this.toast.error('The current license could not be loaded.');
+      return;
+    }
+
+    this.setLicenseState(resolved.license);
+    this.wizardActive = this.usesWizard(this.edition);
+    this.maybeShowCatalogModal();
+  }
 
   private loadCurrentLicense(): void {
     this.loadError = false;
+    this.loaded = false;
     this.loaderService.show();
 
     this.licenseService.getCurrentLicense()
@@ -167,17 +245,41 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
       )
       .subscribe({
         next: (license) => {
+          this.loaded = true;
           this.setLicenseState(license);
           this.wizardActive = this.usesWizard(this.edition);
           this.cdr.markForCheck();
           this.maybeShowCatalogModal();
         },
         error: (err) => {
+          this.loaded = true;
           this.loadError = true;
           this.toast.error(err?.error?.message ?? 'The current license could not be loaded.');
           this.cdr.markForCheck();
         }
       });
+  }
+
+  private deleteCurrentLicense(): void {
+    this.loaderService.show();
+
+    this.licenseService.deleteCurrentLicense()
+      .pipe(
+        takeUntil(this.subscriber),
+        finalize(() => this.loaderService.hide())
+      )
+      .subscribe({
+        next: () => this.onDeleteSuccess(),
+        error: (err) => this.toast.error(err?.error?.message ?? 'The license could not be removed.')
+      });
+  }
+
+  private onDeleteSuccess(): void {
+    this.toast.success('License removed. This instance is back on the Community edition.');
+    this.wizardGenerated = false;
+    this.activatedEntitlement = null;
+    // Re-fetch so the edition, features and wizard state reflect the cleared license.
+    this.loadCurrentLicense();
   }
 
   private onImportSuccess(license: CurrentLicense): void {
@@ -196,6 +298,8 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     this.features = entitlement.features;
     this.remainingDays = remainingDays(entitlement.endDate, Date.now());
     this.rejectionMessage = this.resolveRejectionMessage(license.status);
+    this.rejectionTitle = this.resolveRejectionTitle(license.status);
+    this.rejectionIcon = this.resolveRejectionIcon(license.status);
   }
 
   private saveActivationRequest(response: HttpResponse<Blob>): void {
@@ -219,12 +323,44 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     return edition === LicenseEdition.Community || edition === LicenseEdition.Expired;
   }
 
+  /** Tier label used to identify the license in the delete confirmation prompt. */
+  private get licenseName(): string {
+    const type = this.entitlement?.type ?? '';
+    return LICENSE_TIER_LABELS[type as LicenseTier] ?? 'Self-Hosted';
+  }
+
   private resolveRejectionMessage(status: LicenseVerificationStatus | null): string | null {
     if (!status || status === LicenseVerificationStatus.Valid) {
       return null;
     }
 
     return LICENSE_STATUS_MESSAGES[status] || null;
+  }
+
+  private resolveRejectionTitle(status: LicenseVerificationStatus | null): string {
+    if (!status || status === LicenseVerificationStatus.Valid) {
+      return 'License warning';
+    }
+
+    return LICENSE_STATUS_TITLES[status] || 'License warning';
+  }
+
+  /** Picks an icon that reflects the failure category (time, integrity, machine binding). */
+  private resolveRejectionIcon(status: LicenseVerificationStatus | null): string {
+    switch (status) {
+      case LicenseVerificationStatus.Expired:
+        return 'fas fa-circle-exclamation';
+      case LicenseVerificationStatus.NotYetValid:
+        return 'fas fa-clock';
+      case LicenseVerificationStatus.DecryptFailed:
+      case LicenseVerificationStatus.SchemaInvalid:
+        return 'fas fa-shield-halved';
+      case LicenseVerificationStatus.BindingMismatch:
+      case LicenseVerificationStatus.NoActivationRequest:
+        return 'fas fa-ban';
+      default:
+        return 'fas fa-triangle-exclamation';
+    }
   }
 
   /**

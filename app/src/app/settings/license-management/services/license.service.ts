@@ -70,4 +70,9 @@ export class LicenseService extends BaseApiService<CurrentLicense> {
     return this.handlePostRequest<APIGetSingleResponse<CurrentLicenseResponse>>(`${this.servicePrefix}/activate`, { blob })
       .pipe(map((response) => mapCurrentLicenseResponse(response.result)));
   }
+
+  /** Removes the currently stored license, degrading the instance back to the Community edition. */
+  public deleteCurrentLicense(): Observable<void> {
+    return this.handleDeleteRequest<void>(`${this.servicePrefix}/current`);
+  }
 }

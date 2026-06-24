@@ -20,6 +20,7 @@ import { CommonModule } from '@angular/common';
 
 import { CoreModule } from '../../core/core.module';
 import { LayoutModule } from '../../layout/layout.module';
+import { AuthModule } from '../../modules/auth/auth.module';
 
 import { LicenseManagementRoutingModule } from './license-management-routing.module';
 import { LicenseManagementComponent } from './license-management.component';
@@ -49,7 +50,8 @@ import { LicenseImportComponent } from './components/license-import/license-impo
     CommonModule,
     LicenseManagementRoutingModule,
     CoreModule,
-    LayoutModule
+    LayoutModule,
+    AuthModule
   ]
 })
 export class LicenseManagementModule {}

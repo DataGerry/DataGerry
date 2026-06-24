@@ -118,21 +118,35 @@ export const LICENSE_FEATURE_LABELS: Record<LicenseFeature, string> = {
 };
 
 /**
+ * Short headlines paired with {@link LICENSE_STATUS_MESSAGES} when a stored license fails
+ * verification. `Valid` is never surfaced as a warning.
+ */
+export const LICENSE_STATUS_TITLES: Record<LicenseVerificationStatus, string> = {
+  [LicenseVerificationStatus.Valid]: '',
+  [LicenseVerificationStatus.DecryptFailed]: 'License could not be verified',
+  [LicenseVerificationStatus.SchemaInvalid]: 'License could not be verified',
+  [LicenseVerificationStatus.NoActivationRequest]: 'License not recognized on this machine',
+  [LicenseVerificationStatus.BindingMismatch]: 'License not recognized on this machine',
+  [LicenseVerificationStatus.NotYetValid]: 'License not active yet',
+  [LicenseVerificationStatus.Expired]: 'License expired'
+};
+
+/**
  * Explanations shown when a stored license fails verification (degrading the install to Community).
- * `Valid` is never surfaced as a warning.
+ * Each pairs with the matching {@link LICENSE_STATUS_TITLES} headline; `Valid` is never surfaced.
  */
 export const LICENSE_STATUS_MESSAGES: Record<LicenseVerificationStatus, string> = {
   [LicenseVerificationStatus.Valid]: '',
   [LicenseVerificationStatus.DecryptFailed]:
-    'The stored license could not be decrypted. Please import a valid license file.',
+    'The stored license is corrupted or was tampered with and has been disabled. Import a valid license below to restore the Self-Hosted Edition.',
   [LicenseVerificationStatus.SchemaInvalid]:
-    'The stored license is malformed. Please import a valid license file.',
+    'The stored license is malformed and has been disabled. Import a valid license below to restore the Self-Hosted Edition.',
   [LicenseVerificationStatus.NoActivationRequest]:
-    'No matching activation request was found on this machine. Generate a new activation request and re-issue the license.',
+    'No matching activation request was found on this machine. Generate a new activation request below and re-issue the license.',
   [LicenseVerificationStatus.BindingMismatch]:
-    'The stored license is bound to a different machine. Generate a new activation request and re-issue the license.',
+    'This license is bound to a different machine and cannot be used here. Generate a new activation request below and re-issue the license.',
   [LicenseVerificationStatus.NotYetValid]:
     'The stored license is not valid yet. Check the start date on the license.',
   [LicenseVerificationStatus.Expired]:
-    'The license has expired. Import a renewed license file to restore the Self-Hosted Edition.'
+    'Your Self-Hosted features have been disabled. Renew your license and import the new file below to restore them.'
 };

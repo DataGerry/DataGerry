@@ -105,7 +105,7 @@ export class LicenseOverviewCardComponent {
 
   public get remainingLabel(): string {
     if (this.remainingDays === null) {
-      return 'Perpetual';
+      return null;
     }
 
     if (this.remainingDays <= 0) {
