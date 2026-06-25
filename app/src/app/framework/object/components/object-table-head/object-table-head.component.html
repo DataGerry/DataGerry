@@ -8,7 +8,7 @@
                 class="btn btn-success btn-sm me-1"
                 [ngClass]="getButtonClass()"
                 [ngbTooltip]="getButtonTooltip()"
-                [routerLink]="['/framework/object/add/', type?.public_id ]">
+                (click)="onAdd()">
           <i class="fas fa-plus"></i> Add
         </button>
         <button type="button"
@@ -19,8 +19,8 @@
           <i class="fas fa-tasks"></i> Bulk Change <span
           class="badge bg-primary bg-pill">{{selectedObjects.length}}</span>
         </button>
-        <button type="button" *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'" 
-                (click)="manyObjectDeletes.emit()"
+        <button type="button" *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'"
+                (click)="onDeleteSelected()"
                 [ngbTooltip]="getDeleteSelectedTooltip()"
                 [disabled]="selectedObjects.length<=0" 
                 class="btn btn-danger btn-sm me-1">

@@ -74,9 +74,24 @@
 
       @if (mode === modes.Create) {
       <div class="col-md-12 mb-3">
+        @if (ipamAvailable) {
         <app-form-select formControlName="special_type" label="Special type" [items]="specialTypeOptions"
           bindLabel="label" bindValue="value" placeholder="Select a special type">
         </app-form-select>
+        } @else {
+        <label class="form-label" for="specialTypePremiumPlaceholder">Special type</label>
+        <div class="dg-premium-locked">
+          <input id="specialTypePremiumPlaceholder" type="text" class="form-control"
+            placeholder="Select a special type" disabled />
+          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+        </div>
+        <div class="form-text">
+          Special types such as subnets and supernets are part of IPAM.
+          <button type="button" class="btn btn-link btn-sm p-0 align-baseline" (click)="promptIpamUpgrade()">
+            Upgrade to unlock
+          </button>
+        </div>
+        }
       </div>
       }
 

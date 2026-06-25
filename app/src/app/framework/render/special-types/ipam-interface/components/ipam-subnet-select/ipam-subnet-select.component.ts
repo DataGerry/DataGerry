@@ -18,6 +18,9 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { Subject, takeUntil } from 'rxjs';
 
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+
 import { RenderFieldComponent } from '../../../../fields/components.fields';
 import { IPAM_INTERFACE_FIELD_NAMES } from '../../models/interface-fields';
 import { SubnetOption } from '../../models/subnet-option.types';
@@ -29,6 +32,10 @@ import { SubnetOptionsApiService } from '../../services/subnet-options-api.servi
  * for this one field so the options come from {@code GET ipam/subnet/?type=} filtered by the
  * address family selected in the sibling dg-interface-type field. Changing the family clears the
  * previous pick (it belongs to the other family) and reloads the list.
+ *
+ * Subnet assignment is an IPAM premium capability. Without a license that includes IPAM the
+ * picker stays read-only: an already-assigned subnet remains visible but cannot be changed, and
+ * new rows cannot have a subnet assigned. The rest of the interface row stays fully editable.
  */
 @Component({
     templateUrl: './ipam-subnet-select.component.html',
@@ -40,7 +47,11 @@ export class IpamSubnetSelectComponent extends RenderFieldComponent implements O
     public readonly options = signal<SubnetOption[]>([]);
     public readonly loading = signal<boolean>(false);
 
+    /** Whether the active license includes IPAM. Drives the read-only lock on the picker. */
+    public readonly ipamAvailable = signal<boolean>(false);
+
     private readonly api = inject(SubnetOptionsApiService);
+    private readonly premiumFeature = inject(PremiumFeatureService);
     private readonly destroy$ = new Subject<void>();
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -48,8 +59,13 @@ export class IpamSubnetSelectComponent extends RenderFieldComponent implements O
 /* ------------------------------------------------------------------------------------------------------------------ */
 
     public ngOnInit(): void {
+        this.premiumFeature.isAvailable$(LicenseFeature.Ipam)
+            .pipe(takeUntil(this.destroy$))
+            .subscribe((available: boolean) => this.ipamAvailable.set(available));
+
         const typeControl = this.parentFormGroup.get(IPAM_INTERFACE_FIELD_NAMES.TYPE);
 
+        // Load the list even when locked so an already-assigned subnet still renders its name/CIDR.
         this.loadOptions(this.resolveFamily(typeControl?.value));
 
         typeControl?.valueChanges
@@ -64,10 +80,24 @@ export class IpamSubnetSelectComponent extends RenderFieldComponent implements O
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                     FUNCTIONS                                                      */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+    /** Opens the upgrade showcase for IPAM from the locked-picker hint. */
+    public promptIpamUpgrade(): void {
+        this.premiumFeature.promptUpgrade(LicenseFeature.Ipam);
+    }
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                 PRIVATE FUNCTIONS                                                  */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
     private onFamilyChanged(family: string): void {
+        // Without IPAM the subnet is locked, so a type switch must never clear the existing pick.
+        if (!this.ipamAvailable()) {
+            return;
+        }
+
         // Drop the previous selection back to the empty placeholder, then reload so only
         // subnets of the newly selected family are offered.
         this.controller?.setValue(null);

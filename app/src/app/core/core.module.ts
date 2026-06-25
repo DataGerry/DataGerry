@@ -23,6 +23,9 @@ import { CoreConfirmationModalComponent } from './components/dialog/confirmation
 import { PremiumFeatureModalComponent } from './components/dialog/premium-feature-modal/premium-feature-modal.component';
 import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
 import { FullscreenDirective } from './directives/fullscreen.directive';
+import { PremiumFeatureDirective } from './directives/premium-feature.directive';
+import { PremiumGateDirective } from './directives/premium-gate.directive';
+import { PremiumLockedComponent } from './components/premium-locked/premium-locked.component';
 import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
 @NgModule({
@@ -54,7 +57,10 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     FormsModule,
     ReactiveFormsModule,
     HorizontalResizeDirective,
-    FullscreenDirective
+    FullscreenDirective,
+    PremiumFeatureDirective,
+    PremiumGateDirective,
+    PremiumLockedComponent
   ],
   exports: [
     LoadingPopupComponent,
@@ -78,6 +84,9 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     PremiumFeatureModalComponent,
     HorizontalResizeDirective,
     FullscreenDirective,
+    PremiumFeatureDirective,
+    PremiumGateDirective,
+    PremiumLockedComponent,
     CompactNumberPipe
   ]
 })

@@ -19,22 +19,48 @@
         @case (stepGenerate) {
           <h3 class="license-wizard__title">Generate the activation request</h3>
           <p class="text-muted">
-            DATAGerry builds a request bound to this machine and downloads it as a file. You will
-            upload that file to the service portal in the next step.
+            DATAGerry builds a request bound to this machine. Copy the generated request or download
+            it as a file, then upload it to the service portal in the next step.
           </p>
 
-          @if (generated) {
+          @if (generated && activationKey) {
             <div class="alert alert-success d-flex align-items-center" role="status">
               <i class="fas fa-circle-check me-2" aria-hidden="true"></i>
-              <span>Activation request generated and downloaded to your computer.</span>
+              <span>Activation request generated. Copy or download it for the service portal.</span>
+            </div>
+
+            <div class="license-wizard__key">
+              <label class="license-wizard__key-label" for="activation-key">Activation request</label>
+              <textarea
+                id="activation-key"
+                class="form-control license-wizard__key-field"
+                rows="5"
+                readonly
+                spellcheck="false"
+                [value]="activationKey">
+              </textarea>
+              <p class="text-muted small mt-2 mb-0">
+                <i class="fas fa-clock me-1" aria-hidden="true"></i>
+                This activation request is valid for 60 minutes. Generate a new one if it expires.
+              </p>
             </div>
           }
 
           <div class="license-wizard__actions">
             <button type="button" class="btn btn-primary" (click)="onGenerate()">
-              <i class="fas fa-download me-1" aria-hidden="true"></i>
-              {{ generated ? 'Download again' : 'Generate activation request' }}
+              <i class="fas fa-rotate me-1" aria-hidden="true"></i>
+              {{ generated ? 'Regenerate' : 'Generate activation request' }}
             </button>
+
+            @if (generated && activationKey) {
+              <button type="button" class="btn btn-outline-primary" (click)="onCopyKey()">
+                <i class="fas fa-copy me-1" aria-hidden="true"></i>Copy
+              </button>
+              <button type="button" class="btn btn-outline-primary" (click)="onDownloadKey()">
+                <i class="fas fa-download me-1" aria-hidden="true"></i>Download
+              </button>
+            }
+
             <button type="button" class="btn btn-outline-secondary" (click)="onNext()">
               Continue<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
             </button>

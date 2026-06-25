@@ -30,6 +30,8 @@ import { CmdbType } from '../../../framework/models/cmdb-type';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -72,6 +74,9 @@ export class SidebarComponent implements OnInit, OnDestroy {
     flyout: { group: string; top: number } | null = null;
     flyoutHovered = false;
 
+    // Whether IPAM is unlocked for the active edition; gates the "Networks" tab and the network tree.
+    public ipamAvailable = false;
+
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     constructor(
@@ -80,7 +85,8 @@ export class SidebarComponent implements OnInit, OnDestroy {
         private renderer: Renderer2,
         private elementRef: ElementRef,
         private userService: UserService,
-        private cdRed: ChangeDetectorRef
+        private cdRed: ChangeDetectorRef,
+        private premiumFeatureService: PremiumFeatureService
     ) {
         this.categoryTreeSubscription = new Subscription();
         this.unCategorizedTypesSubscription = new Subscription();
@@ -114,6 +120,13 @@ export class SidebarComponent implements OnInit, OnDestroy {
         }
 
         this.selectedMenu = this.sidebarService.selectedMenu;
+
+        this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe((available) => {
+                this.ipamAvailable = available;
+                this.cdRed.markForCheck();
+            });
     }
 
 
@@ -165,6 +178,12 @@ export class SidebarComponent implements OnInit, OnDestroy {
      */
     selectNavTab(tab: 'locations' | 'ipam'): void {
         this.setMenu(tab);
+    }
+
+
+    /** Opens the IPAM upgrade showcase from the locked network area. */
+    promptIpamUpgrade(): void {
+        this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
     }
 
 
@@ -251,7 +270,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
         if (!this.isSidebarCollapsed) {
             return;
         }
-    
+
         this.clearFlyoutCloseTimeout();
         this.flyoutHovered = false;
     

@@ -186,6 +186,13 @@ cmdb-search-bar {
         transition: $transition-smooth;
         text-decoration: none;
 
+        // Center the "Pro" pill on the right of the row (the global default sits in the top-right corner).
+        .dg-premium-badge {
+          top: 50%;
+          right: 8px;
+          transform: translateY(-50%);
+        }
+
         &:hover {
           background: $brand-primary-light;
           color: $brand-primary;
@@ -408,6 +415,7 @@ cmdb-search-bar {
     }
 
     .dropdown-icon-item {
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -441,7 +449,7 @@ cmdb-search-bar {
         transition: $transition-smooth;
       }
 
-      span {
+      span:not(.dg-premium-badge) {
         display: block;
         font-size: 10.5px;
         font-weight: 600;
@@ -470,7 +478,7 @@ cmdb-search-bar {
           transform: scale(1.1);
         }
 
-        span {
+        span:not(.dg-premium-badge) {
           color: $brand-primary;
         }
       }

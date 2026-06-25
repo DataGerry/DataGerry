@@ -19,11 +19,14 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
   Output,
   SimpleChanges
 } from '@angular/core';
+
+import { CopyService } from 'src/app/core/services/copy.service';
 
 import { LicenseEdition, LicenseEntitlement, LicenseFeature } from '../../models/license.model';
 import { WizardStep } from '../license-wizard-stepper/license-wizard-stepper.component';
@@ -38,13 +41,17 @@ import { WizardStep } from '../license-wizard-stepper/license-wizard-stepper.com
 })
 export class LicenseActivationWorkflowComponent implements OnChanges {
   @Input() generated = false;
+  @Input() activationKey: string | null = null;
   @Input() importing = false;
   @Input() activatedEntitlement: LicenseEntitlement | null = null;
   @Input() features: LicenseFeature[] = [];
 
   @Output() generate = new EventEmitter<void>();
+  @Output() download = new EventEmitter<void>();
   @Output() activate = new EventEmitter<File>();
   @Output() finished = new EventEmitter<void>();
+
+  private readonly copyService = inject(CopyService);
 
   public readonly LicenseEdition = LicenseEdition;
   public readonly stepGenerate = 0;
@@ -90,6 +97,17 @@ export class LicenseActivationWorkflowComponent implements OnChanges {
 
   public onGenerate(): void {
     this.generate.emit();
+  }
+
+  /** Copies the generated activation request to the clipboard with toast feedback. */
+  public onCopyKey(): void {
+    if (this.activationKey) {
+      this.copyService.copyWithFeedback(this.activationKey, 'activation request');
+    }
+  }
+
+  public onDownloadKey(): void {
+    this.download.emit();
   }
 
   public onFileSelected(file: File): void {

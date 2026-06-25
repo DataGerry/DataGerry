@@ -15,20 +15,21 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Observable, of } from 'rxjs';
-import { catchError, finalize, map, tap } from 'rxjs/operators';
+import { catchError, distinctUntilChanged, map, shareReplay, switchMap, take, tap } from 'rxjs/operators';
 
 import { environment } from 'src/environments/environment';
-import { LoaderService } from 'src/app/core/services/loader.service';
 import {
   PREMIUM_FEATURE_MODAL_RESULT,
   PremiumFeatureModalComponent
 } from 'src/app/core/components/dialog/premium-feature-modal/premium-feature-modal.component';
 
-import { LicenseFeature } from '../models/license.model';
+import { CurrentLicense, LicenseFeature } from '../models/license.model';
+import { remainingDays } from '../utils/license.util';
 import { LicenseService } from '../services/license.service';
 import { PREMIUM_FEATURE_CONTENT } from './premium-feature.config';
 
@@ -36,10 +37,11 @@ import { PREMIUM_FEATURE_CONTENT } from './premium-feature.config';
 const LICENSE_MANAGEMENT_ROUTE = '/settings/license';
 
 /**
- * Coordinates the premium-feature gate: resolves whether the current edition unlocks a feature and,
- * when it does not, presents the upgrade modal and routes the user to license management.
+ * Single source of truth for premium-feature gating.
  *
- * All licensing logic lives here; the modal component stays purely presentational.
+ * The active license is fetched once and cached in a signal; every gate in the app (route guards,
+ * toolbox badges, the gating directives) reads from that cache instead of hitting the endpoint
+ * itself. The modal stays purely presentational and all licensing logic lives here.
  */
 @Injectable({ providedIn: 'root' })
 export class PremiumFeatureService {
@@ -47,16 +49,70 @@ export class PremiumFeatureService {
   private readonly modalService = inject(NgbModal);
   private readonly router = inject(Router);
   private readonly licenseService = inject(LicenseService);
-  private readonly loaderService = inject(LoaderService);
+
+  /**
+   * Cached license. `undefined` means "not hydrated yet", `null` means "hydrated but no valid
+   * license" (Community); an object is the verified license.
+   */
+  private readonly license = signal<CurrentLicense | null | undefined>(undefined);
+
+  /** RxJS view of the cache for the reactive consumers (guards, directives, badges). */
+  private readonly license$ = toObservable(this.license);
+
+  /** Shared in-flight hydration request, so concurrent first-time callers trigger a single fetch. */
+  private hydration$?: Observable<CurrentLicense | null>;
 
   /* --------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
   /**
+   * Synchronous entitlement snapshot for passive UI (badges, structural gates, the type form).
+   *
+   * Cloud is always entitled. On-premise it fails closed while the license is still unknown and
+   * treats an inactive, expired or unlicensed state as locked. Expiry is evaluated locally against
+   * the cached `endDate`, so a license lapsing mid-session is caught without another network call.
+   */
+  isAvailable(feature: LicenseFeature): boolean {
+    if (environment.cloudMode) {
+      return true;
+    }
+
+    const license = this.license();
+    if (!license || !license.is_active) {
+      return false;
+    }
+
+    const days = remainingDays(license.entitlement.endDate, Date.now());
+    if (days !== null && days < 0) {
+      return false;
+    }
+
+    return license.entitlement.features.includes(feature);
+  }
+
+  /**
+   * Reactive entitlement stream for directives and badges: waits for the first hydration, then
+   * re-emits whenever the cached license changes (import/removal). Fails closed until known.
+   */
+  isAvailable$(feature: LicenseFeature): Observable<boolean> {
+    if (environment.cloudMode) {
+      return of(true);
+    }
+
+    return this.ensureHydrated().pipe(
+      switchMap(() => this.license$),
+      map(() => this.isAvailable(feature)),
+      distinctUntilChanged()
+    );
+  }
+
+  /**
    * Gate used by route guards: emits `true` when the feature is unlocked, otherwise opens the upgrade
-   * modal and emits `false` so navigation is cancelled.
+   * modal and emits `false`. Awaits hydration first so an entitled deep-link is never wrongly blocked.
    */
   ensureAccess(feature: LicenseFeature): Observable<boolean> {
-    return this.isFeatureUnlocked(feature).pipe(
+    return this.ensureHydrated().pipe(
+      map(() => this.isAvailable(feature)),
+      take(1),
       tap((unlocked) => {
         if (!unlocked) {
           this.openUpgradeModal(feature);
@@ -66,49 +122,72 @@ export class PremiumFeatureService {
   }
 
   /**
-   * Resolves whether the active edition entitles the given feature.
-   *
-   * Cloud deployments are always entitled (and expose no license endpoint), so they short-circuit to
-   * `true`. On-premise installs are decided by the verified license; a failed lookup degrades safely
-   * to "locked".
+   * Locked subset of the supplied features, kept in sync with license changes. Drives the toolbox
+   * "Pro" badges.
    */
-  isFeatureUnlocked(feature: LicenseFeature): Observable<boolean> {
-    if (environment.cloudMode) {
-      return of(true);
-    }
-
-    this.loaderService.show();
-
-    return this.licenseService.getCurrentLicense().pipe(
-      map((license) => license.is_active && license.entitlement.features.includes(feature)),
-      catchError(() => of(false)),
-      finalize(() => this.loaderService.hide())
-    );
-  }
-
-  /**
-   * Resolves which of the supplied premium features are currently LOCKED for the active edition.
-   *
-   * Intended for passive UI hints (e.g. premium badges): Cloud deployments unlock everything, so the
-   * result is always empty; on-premise installs derive the locked set from the verified license in a
-   * single lookup, and a failed lookup degrades safely to "all locked". Unlike `isFeatureUnlocked`,
-   * this does not toggle the global loader.
-   */
-  getLockedFeatures(features: readonly LicenseFeature[]): Observable<Set<LicenseFeature>> {
+  watchLockedFeatures(features: readonly LicenseFeature[]): Observable<Set<LicenseFeature>> {
     if (environment.cloudMode) {
       return of(new Set<LicenseFeature>());
     }
 
-    return this.licenseService.getCurrentLicense().pipe(
-      map((license) => {
-        const unlocked = license.is_active ? license.entitlement.features : [];
-        return new Set(features.filter((feature) => !unlocked.includes(feature)));
-      }),
-      catchError(() => of(new Set(features)))
+    return this.ensureHydrated().pipe(
+      switchMap(() => this.license$),
+      map(() => new Set(features.filter((feature) => !this.isAvailable(feature))))
     );
   }
 
+  /** Seeds the cache from a freshly imported license, so gated UI updates without a re-fetch. */
+  seed(license: CurrentLicense): void {
+    this.license.set(license);
+  }
+
+  /** Re-fetches the current license (e.g. after removal) and reseeds the cache. */
+  refresh(): void {
+    if (environment.cloudMode) {
+      return;
+    }
+
+    this.hydration$ = undefined;
+    this.fetchLicense().subscribe((license) => this.license.set(license));
+  }
+
+  /** Opens the upgrade showcase for a feature directly (e.g. a locked badge click). */
+  promptUpgrade(feature: LicenseFeature): void {
+    this.openUpgradeModal(feature);
+  }
+
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+  /**
+   * Resolves once the license is known, performing a single shared fetch the first time it is needed.
+   * Already-hydrated callers resolve immediately; concurrent first-callers share one network request.
+   */
+  private ensureHydrated(): Observable<CurrentLicense | null> {
+    if (environment.cloudMode) {
+      return of(null);
+    }
+
+    const current = this.license();
+    if (current !== undefined) {
+      return of(current);
+    }
+
+    if (!this.hydration$) {
+      this.hydration$ = this.fetchLicense().pipe(
+        tap((license) => this.license.set(license)),
+        shareReplay(1)
+      );
+    }
+
+    return this.hydration$;
+  }
+
+  /** Single point that talks to the license endpoint; a failed lookup degrades safely to Community. */
+  private fetchLicense(): Observable<CurrentLicense | null> {
+    return this.licenseService.getCurrentLicense().pipe(
+      catchError(() => of(null))
+    );
+  }
 
   /** Opens the showcase modal for a feature and routes to license management on confirmation. */
   private openUpgradeModal(feature: LicenseFeature): void {

@@ -19,6 +19,8 @@
 import { Component, inject, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
 
 import { RenderResult } from '../../../models/cmdb-render';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 
 @Component({
   selector: 'cmdb-object-footer',
@@ -29,7 +31,15 @@ import { RenderResult } from '../../../models/cmdb-render';
 export class ObjectFooterComponent implements OnChanges {
 
   public objectID: number;
+  public readonly LicenseFeature = LicenseFeature;
   private rr: RenderResult;
+
+  private readonly premiumFeatureService = inject(PremiumFeatureService);
+
+  /** Risk Assessments belong to ISMS; locked editions see a "Pro" placeholder instead of the list. */
+  public get ismsAvailable(): boolean {
+    return this.premiumFeatureService.isAvailable(LicenseFeature.Isms);
+  }
 
   @Input('renderResult')
   public set renderResult(rr) {

@@ -17,6 +17,38 @@
         (clicked)="onShowCatalog()">
       </app-button>
     }
+
+    @if (canDeleteLicense) {
+      <div class="license-management__actions d-flex flex-wrap align-items-center gap-2">
+        <app-button
+          *permissionLink="'base.license.edit'"
+          label="Import license"
+          icon="fas fa-file-import"
+          bootstrapClass="btn-outline-primary"
+          ariaLabel="Import a new license through the activation steps"
+          (clicked)="onImportLicense()">
+        </app-button>
+
+        <app-button
+          *permissionLink="'base.license.delete'"
+          label="Remove license"
+          icon="fas fa-trash-can"
+          bootstrapClass="btn-outline-danger"
+          ariaLabel="Remove the active license from this instance"
+          (clicked)="onDeleteLicense()">
+        </app-button>
+      </div>
+    }
+
+    @if (canCancelImport) {
+      <app-button
+        label="Cancel"
+        icon="fas fa-arrow-left"
+        bootstrapClass="btn-outline-secondary"
+        ariaLabel="Cancel the import and return to the license overview"
+        (clicked)="onCancelImport()">
+      </app-button>
+    }
   </header>
 
   @if (loadError) {
@@ -34,6 +66,14 @@
         </app-button>
       </div>
     </div>
+  } @else if (!loaded) {
+    <div class="card">
+      <div class="card-body text-center py-5" role="status" aria-live="polite">
+        <div class="spinner-border text-primary" aria-hidden="true"></div>
+        <h2 class="h5 mt-3">Loading your license…</h2>
+        <p class="text-muted mb-0">Fetching the current license details.</p>
+      </div>
+    </div>
   } @else {
 
     <!-- <cmdb-license-status-banner
@@ -45,19 +85,21 @@
 
     @if (rejectionMessage) {
       <app-warning-alert
-        title="License warning:"
+        [title]="rejectionTitle"
         [message]="rejectionMessage"
-        iconClass="fas fa-triangle-exclamation">
+        [iconClass]="rejectionIcon">
       </app-warning-alert>
     }
 
     @if (wizardActive) {
       <cmdb-license-activation-workflow
         [generated]="wizardGenerated"
+        [activationKey]="activationKey"
         [importing]="importing"
         [activatedEntitlement]="activatedEntitlement"
         [features]="features"
         (generate)="onGenerateActivationRequest()"
+        (download)="onDownloadActivationRequest()"
         (activate)="onActivateLicense($event)"
         (finished)="onWizardFinished()">
       </cmdb-license-activation-workflow>
