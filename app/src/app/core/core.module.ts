@@ -25,6 +25,7 @@ import { HorizontalResizeDirective } from './directives/horizontal-resize.direct
 import { FullscreenDirective } from './directives/fullscreen.directive';
 import { PremiumFeatureDirective } from './directives/premium-feature.directive';
 import { PremiumGateDirective } from './directives/premium-gate.directive';
+import { PremiumLockedComponent } from './components/premium-locked/premium-locked.component';
 import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
 @NgModule({
@@ -58,7 +59,8 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     HorizontalResizeDirective,
     FullscreenDirective,
     PremiumFeatureDirective,
-    PremiumGateDirective
+    PremiumGateDirective,
+    PremiumLockedComponent
   ],
   exports: [
     LoadingPopupComponent,
@@ -84,6 +86,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     FullscreenDirective,
     PremiumFeatureDirective,
     PremiumGateDirective,
+    PremiumLockedComponent,
     CompactNumberPipe
   ]
 })
