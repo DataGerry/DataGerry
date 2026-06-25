@@ -29,6 +29,8 @@ import { SpecialType, SpecialTypeOption, SpecialTypeSchema } from '../../../mode
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { ValidationService } from '../../services/validation.service';
 import { SpecialTypeSchemaContent, SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 
@@ -48,6 +50,8 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   public readonly modes = CmdbMode;
   public form: UntypedFormGroup;
   public specialTypeOptions: Array<SpecialTypeOption> = [];
+  // Special types (subnets/supernets) belong to IPAM; when locked the dropdown is shown as a Pro upsell.
+  public ipamAvailable = false;
 
   private specialTypeSchemaFieldNames: Set<string> = new Set<string>();
   private specialTypeSchemaSectionNames: Set<string> = new Set<string>();
@@ -80,7 +84,8 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
     private specialTypeService: SpecialTypeService,
     private toastService: ToastService,
     private loaderService: LoaderService,
-    private validationService: ValidationService
+    private validationService: ValidationService,
+    private premiumFeatureService: PremiumFeatureService
   ) {
     super();
     this.form = new UntypedFormGroup({
@@ -99,7 +104,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
     if (this.mode === CmdbMode.Create) {
       this.form.get('name').setAsyncValidators(checkTypeExistsValidator(this.typeService));
       this.form.markAllAsTouched();
-      this.loadAvailableSpecialTypes();
+      this.watchIpamAvailability();
       this.form.get('special_type').valueChanges.pipe(takeUntil(this.subscriber)).subscribe((specialType: SpecialType | null) => {
         this.handleSpecialTypeChange(specialType);
       });
@@ -165,6 +170,29 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   public setRandomColor(): void {
     const randomColor = '#' + Math.floor(Math.random() * 16777215).toString(16);
     this.form.get('ci_explorer_color').setValue(randomColor);
+  }
+
+
+  /** Opens the upgrade showcase for IPAM from the locked special-type field. */
+  public promptIpamUpgrade(): void {
+    this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
+  }
+
+
+  /**
+   * Tracks IPAM entitlement so the special-type dropdown renders functionally only when unlocked,
+   * and as a "Pro" upsell otherwise. Loads the available special types once IPAM is confirmed.
+   */
+  private watchIpamAvailability(): void {
+    this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
+      .pipe(takeUntil(this.subscriber))
+      .subscribe((available) => {
+        this.ipamAvailable = available;
+
+        if (available && !this.specialTypeOptions.length) {
+          this.loadAvailableSpecialTypes();
+        }
+      });
   }
 
 

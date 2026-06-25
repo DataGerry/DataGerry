@@ -584,3 +584,80 @@ $sb-speed : 200ms;
     overflow-y: auto;
   }
 }
+
+// Locked Networks (IPAM) area: a dimmed faux tree behind a lock + upgrade prompt.
+.sb-locked {
+  position: relative;
+  padding: 18px 14px;
+  min-height: 190px;
+}
+
+.sb-locked__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  opacity: 0.35;
+  filter: blur(0.5px);
+  pointer-events: none;
+
+  .sb-locked__line {
+    height: 12px;
+    border-radius: 4px;
+    background: $sb-border-color;
+
+    &:nth-child(1) { width: 80%; }
+    &:nth-child(2) { width: 62%; margin-left: 16px; }
+    &:nth-child(3) { width: 70%; margin-left: 16px; }
+    &:nth-child(4) { width: 52%; margin-left: 32px; }
+  }
+}
+
+.sb-locked__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+}
+
+.sb-locked__icon {
+  font-size: 22px;
+  color: $sb-accent;
+  margin-bottom: 2px;
+}
+
+.sb-locked__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: $sb-text-primary;
+}
+
+.sb-locked__text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: $sb-text-muted;
+}
+
+.sb-locked__btn {
+  margin-top: 8px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  // Deepened brand orange so the white label keeps a >= 4.5:1 ratio (WCAG AA).
+  background: #c83f0e;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: #b3380c;
+  }
+}
