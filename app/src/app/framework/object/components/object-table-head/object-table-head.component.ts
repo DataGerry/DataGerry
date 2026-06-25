@@ -24,6 +24,8 @@ import { Router } from '@angular/router';
 import { environment } from 'src/environments/environment';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 
 @Component({
     selector: 'cmdb-object-table-head',
@@ -55,6 +57,12 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
   private readonly router = inject(Router);
   private readonly objectService = inject(ObjectService);
+  private readonly premiumFeatureService = inject(PremiumFeatureService);
+
+  /** A special-type list (subnet/supernet/…) is locked for add and bulk actions without IPAM. */
+  public get isPremiumLocked(): boolean {
+    return !!this.type?.special_type && !this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
+  }
 
   ngOnInit(): void {
 
@@ -172,8 +180,39 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
 
   public onBulkChange(): void {
+    if (this.isPremiumLocked) {
+      this.promptUpgrade();
+      return;
+    }
+
     this.router.navigate(['/framework/object/change/'],
       { state: { type: this.type, objects: this.selectedObjects } });
+  }
+
+
+  /** Navigates to the add form for this type, or surfaces the upsell when the type is locked. */
+  public onAdd(): void {
+    if (this.isPremiumLocked) {
+      this.promptUpgrade();
+      return;
+    }
+
+    this.router.navigate(['/framework/object/add/', this.type?.public_id]);
+  }
+
+
+  public onDeleteSelected(): void {
+    if (this.isPremiumLocked) {
+      this.promptUpgrade();
+      return;
+    }
+
+    this.manyObjectDeletes.emit();
+  }
+
+
+  public promptUpgrade(): void {
+    this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
   }
 
   public exporter(see: SupportedExporterExtension, view: string = 'native'): void {
