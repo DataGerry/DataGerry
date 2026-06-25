@@ -408,6 +408,7 @@ cmdb-search-bar {
     }
 
     .dropdown-icon-item {
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -441,7 +442,7 @@ cmdb-search-bar {
         transition: $transition-smooth;
       }
 
-      span {
+      span:not(.dg-premium-badge) {
         display: block;
         font-size: 10.5px;
         font-weight: 600;
@@ -470,7 +471,7 @@ cmdb-search-bar {
           transform: scale(1.1);
         }
 
-        span {
+        span:not(.dg-premium-badge) {
           color: $brand-primary;
         }
       }

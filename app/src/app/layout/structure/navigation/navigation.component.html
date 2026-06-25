@@ -119,6 +119,9 @@
                       <div class="col">
                         <a class="dropdown-icon-item" *permissionLink="['base.docapi.template.view']"
                           [routerLink]="['/docapi']">
+                          @if (isLocked(LicenseFeature.DocumentGenerator)) {
+                          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                          }
                           <fa-icon icon="file-pdf"></fa-icon>
                           <span>Document<br />Generator</span>
                         </a>
@@ -160,12 +163,18 @@
                       </div>
                       <div class="col" *permissionLink="'base.openCelium.connection.view'">
                         <a [routerLink]="['/automations']" class="dropdown-icon-item">
+                          @if (isLocked(LicenseFeature.Automations)) {
+                          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                          }
                           <img src="/assets/img/opencelium.png" class="automation-icon" alt="Automations" />
                           <span>Automations</span>
                         </a>
                       </div>
                       <div class="col">
                         <a [routerLink]="['/isms']" class="dropdown-icon-item">
+                          @if (isLocked(LicenseFeature.Isms)) {
+                          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                          }
                           <fa-icon icon="shield-alt"></fa-icon>
                           <span>ISMS</span>
                         </a>
