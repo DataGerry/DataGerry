@@ -46,9 +46,6 @@ import { readLicenseFile, remainingDays, resolveEdition } from './utils/license.
 
 const ACTIVATION_REQUEST_FILENAME = 'datagerry-activation-request.txt';
 
-/** Session flag so the premium catalogue greeting opens at most once per browser session. */
-const CATALOG_SEEN_KEY = 'dg.license.catalog.seen';
-
 
 @Component({
   selector: 'cmdb-license-management',
@@ -245,7 +242,6 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
     this.setLicenseState(resolved.license);
     this.wizardActive = this.usesWizard(this.edition);
-    this.maybeShowCatalogModal();
   }
 
   private loadCurrentLicense(): void {
@@ -264,7 +260,6 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
           this.setLicenseState(license);
           this.wizardActive = this.usesWizard(this.edition);
           this.cdr.markForCheck();
-          this.maybeShowCatalogModal();
         },
         error: (err) => {
           this.loaded = true;
@@ -380,19 +375,6 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * Greets the user with the premium catalogue when the edition is locked (Community/Expired).
-   * Self-Hosted instances already have every feature, and the dialog opens at most once per session.
-   */
-  private maybeShowCatalogModal(): void {
-    if (this.edition === LicenseEdition.SelfHosted || this.hasSeenCatalog()) {
-      return;
-    }
-
-    this.markCatalogSeen();
-    this.openCatalogModal();
-  }
-
   private openCatalogModal(): void {
     const modalRef = this.modalService.open(LicenseCatalogModalComponent, {
       size: 'xl',
@@ -408,22 +390,5 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
     // Continue, the close button and the backdrop all just reveal the page — swallow the rejection.
     modalRef.result.catch(() => undefined);
-  }
-
-  /** Whether the greeting already ran this session; degrades to "not seen" when storage is blocked. */
-  private hasSeenCatalog(): boolean {
-    try {
-      return sessionStorage.getItem(CATALOG_SEEN_KEY) === '1';
-    } catch {
-      return false;
-    }
-  }
-
-  private markCatalogSeen(): void {
-    try {
-      sessionStorage.setItem(CATALOG_SEEN_KEY, '1');
-    } catch {
-      // Storage can be unavailable (private mode, quota); the greeting simply shows again next load.
-    }
   }
 }
