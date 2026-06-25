@@ -18,8 +18,8 @@
 import { inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { Observable, of } from 'rxjs';
-import { catchError, finalize, map, tap } from 'rxjs/operators';
+import { Observable, of, Subject } from 'rxjs';
+import { catchError, finalize, map, startWith, switchMap, tap } from 'rxjs/operators';
 
 import { environment } from 'src/environments/environment';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -48,6 +48,9 @@ export class PremiumFeatureService {
   private readonly router = inject(Router);
   private readonly licenseService = inject(LicenseService);
   private readonly loaderService = inject(LoaderService);
+
+  /** Emits whenever the active license changes so passive consumers can re-evaluate gated state. */
+  private readonly licenseChanged = new Subject<void>();
 
   /* --------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -106,6 +109,26 @@ export class PremiumFeatureService {
       }),
       catchError(() => of(new Set(features)))
     );
+  }
+
+  /**
+   * Reactive variant of {@link getLockedFeatures}: emits the locked set immediately and re-emits
+   * whenever {@link notifyLicenseChanged} fires, so gated UI (e.g. the toolbox "Pro" badges) stays
+   * in sync after a license import or removal without requiring a page reload.
+   */
+  watchLockedFeatures(features: readonly LicenseFeature[]): Observable<Set<LicenseFeature>> {
+    return this.licenseChanged.pipe(
+      startWith(void 0),
+      switchMap(() => this.getLockedFeatures(features))
+    );
+  }
+
+  /**
+   * Signals that the active license changed. Call after a successful license import or removal so
+   * passive premium-state consumers re-evaluate without a reload.
+   */
+  notifyLicenseChanged(): void {
+    this.licenseChanged.next();
   }
 
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

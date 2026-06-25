@@ -66,6 +66,24 @@
     min-width: 0;
     flex: 1 1 auto;
   }
+
+  &__key {
+    margin-top: 1rem;
+  }
+
+  &__key-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+  }
+
+  &__key-field {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.8125rem;
+    word-break: break-all;
+    resize: vertical;
+    background-color: #f8f9fa;
+  }
 }
 
 @media (max-width: 767.98px) {

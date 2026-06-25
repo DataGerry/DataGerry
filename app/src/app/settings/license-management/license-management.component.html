@@ -94,10 +94,12 @@
     @if (wizardActive) {
       <cmdb-license-activation-workflow
         [generated]="wizardGenerated"
+        [activationKey]="activationKey"
         [importing]="importing"
         [activatedEntitlement]="activatedEntitlement"
         [features]="features"
         (generate)="onGenerateActivationRequest()"
+        (download)="onDownloadActivationRequest()"
         (activate)="onActivateLicense($event)"
         (finished)="onWizardFinished()">
       </cmdb-license-activation-workflow>

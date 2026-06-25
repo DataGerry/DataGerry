@@ -16,7 +16,6 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
-import { HttpResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Observable, ReplaySubject } from 'rxjs';
@@ -28,6 +27,7 @@ import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { LicenseCatalogModalComponent } from './components/license-catalog-modal/license-catalog-modal.component';
+import { PremiumFeatureService } from './premium-feature/premium-feature.service';
 import { LicenseService } from './services/license.service';
 import { ResolvedLicense } from './services/license-resolver.service';
 import {
@@ -41,7 +41,7 @@ import {
   LicenseTier,
   LicenseVerificationStatus
 } from './models/license.model';
-import { parseContentDispositionFilename, readLicenseFile, remainingDays, resolveEdition } from './utils/license.util';
+import { readLicenseFile, remainingDays, resolveEdition } from './utils/license.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const ACTIVATION_REQUEST_FILENAME = 'datagerry-activation-request.txt';
@@ -74,6 +74,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
   public wizardActive = false;
   public wizardGenerated = false;
+  public activationKey: string | null = null;
   public importing = false;
   public activatedEntitlement: LicenseEntitlement | null = null;
 
@@ -106,7 +107,8 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     private readonly modalService: NgbModal,
     private readonly deleteModal: DeleteModalService,
     private readonly route: ActivatedRoute,
-    private readonly cdr: ChangeDetectorRef
+    private readonly cdr: ChangeDetectorRef,
+    private readonly premiumFeatureService: PremiumFeatureService
   ) {}
 
   /* -------------------------------------------------- LIFE CYCLE -------------------------------------------------- */
@@ -134,16 +136,26 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   public onGenerateActivationRequest(): void {
     this.loaderService.show();
 
-    this.licenseService.downloadActivationRequest()
+    this.licenseService.generateActivationKey()
       .pipe(
         takeUntil(this.subscriber),
         finalize(() => this.loaderService.hide())
       )
       .subscribe({
-        next: (response) => this.saveActivationRequest(response),
-        // Blob error bodies carry no parsed message, so fall back to a static one.
-        error: (err) => this.toast.error(err?.error?.message ?? 'The activation request could not be downloaded.')
+        next: (key) => this.onActivationKeyGenerated(key),
+        // Text error bodies carry no parsed message, so fall back to a static one.
+        error: (err) => this.toast.error(err?.error?.message ?? 'The activation request could not be generated.')
       });
+  }
+
+  /** Saves the already-generated activation request as a text file, reusing the displayed key. */
+  public onDownloadActivationRequest(): void {
+    if (!this.activationKey) {
+      return;
+    }
+
+    const blob = new Blob([this.activationKey], { type: 'text/plain;charset=utf-8' });
+    this.fileSaver.save(blob, ACTIVATION_REQUEST_FILENAME);
   }
 
   public onActivateLicense(file: File): void {
@@ -176,6 +188,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
 
   public onWizardFinished(): void {
     this.wizardActive = false;
+    this.activationKey = null;
     this.activatedEntitlement = null;
     this.cdr.markForCheck();
   }
@@ -183,6 +196,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   /** Re-enters the four-step activation wizard so an active instance can import a new license. */
   public onImportLicense(): void {
     this.wizardGenerated = false;
+    this.activationKey = null;
     this.activatedEntitlement = null;
     this.wizardActive = true;
     this.cdr.markForCheck();
@@ -192,6 +206,7 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   public onCancelImport(): void {
     this.wizardActive = false;
     this.wizardGenerated = false;
+    this.activationKey = null;
     this.activatedEntitlement = null;
     this.cdr.markForCheck();
   }
@@ -277,7 +292,10 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   private onDeleteSuccess(): void {
     this.toast.success('License removed. This instance is back on the Community edition.');
     this.wizardGenerated = false;
+    this.activationKey = null;
     this.activatedEntitlement = null;
+    // Refresh gated UI (e.g. toolbox badges) now that the features are locked again.
+    this.premiumFeatureService.notifyLicenseChanged();
     // Re-fetch so the edition, features and wizard state reflect the cleared license.
     this.loadCurrentLicense();
   }
@@ -285,6 +303,8 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   private onImportSuccess(license: CurrentLicense): void {
     this.toast.success('License imported successfully.');
     this.setLicenseState(license);
+    // Surface the unlocked features in gated UI (e.g. toolbox badges) without a reload.
+    this.premiumFeatureService.notifyLicenseChanged();
     // Keep the wizard mounted and surface its completion step.
     this.activatedEntitlement = license.entitlement;
     this.cdr.markForCheck();
@@ -302,20 +322,17 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     this.rejectionIcon = this.resolveRejectionIcon(license.status);
   }
 
-  private saveActivationRequest(response: HttpResponse<Blob>): void {
-    const blob = response?.body;
+  private onActivationKeyGenerated(key: string): void {
+    const trimmed = (key ?? '').trim();
 
-    if (!blob) {
+    if (!trimmed) {
       this.toast.error('The activation request response was empty.');
       return;
     }
 
-    const filename = parseContentDispositionFilename(response.headers.get('Content-Disposition'))
-      ?? ACTIVATION_REQUEST_FILENAME;
-
-    this.fileSaver.save(blob, filename);
+    this.activationKey = trimmed;
     this.wizardGenerated = true;
-    this.toast.success('Activation request downloaded.');
+    this.toast.success('Activation request generated.');
     this.cdr.markForCheck();
   }
 
