@@ -50,15 +50,34 @@ from cmdb.framework.ipam.special_type_wiring import (
     cleanup_special_type_references,
 )
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     TypeUserDataKey,
     TypeCleanStatusKey,
 )
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def enforce_special_type_license(request_user: CmdbUser, is_special_type: bool) -> None:
+    """
+    Blocks managing an IPAM special type when the IPAM feature is not licensed
+
+    A no-op unless the write targets an IPAM special type (SUPERNET/SUBNET/VLAN). For a special type
+    it delegates to the shared license guard, which aborts with HTTP 403 on-premise when IPAM is not
+    licensed and is itself a no-op in cloud/local mode. Used by the create/update/delete type routes
+    so the IPAM type gate lives in one place
+
+    Args:
+        request_user (CmdbUser): The user performing the type create/edit/delete
+        is_special_type (bool): Whether the targeted type carries an IPAM special_type marker
+    """
+    if is_special_type:
+        abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+
 
 def get_type_or_404(
     types_manager: TypesManager,

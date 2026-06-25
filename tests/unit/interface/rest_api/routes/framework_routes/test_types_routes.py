@@ -480,6 +480,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type='OLD')), \
+             patch(f'{ROUTE_PATH}.enforce_special_type_license'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=False), \
              pytest.raises(HTTPException) as exc_info:

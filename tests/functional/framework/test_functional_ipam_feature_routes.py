@@ -28,6 +28,8 @@ from typing import Any
 
 import pytest
 
+from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.object_model import CmdbObject, CmdbObjectMdsKey, CmdbObjectMdsRowKey
 from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
@@ -72,6 +74,12 @@ OBJECT_IDS: list[int] = [SUPERNET_ID, SUBNET_PARENT_ID, SUBNET_CHILD_ID, SUBNET_
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   FIXTURES                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
+@pytest.fixture(autouse=True)
+def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
+    """Licenses the IPAM feature so the gated /ipam routes are reachable in these contract tests"""
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
+
+
 def _subnet_doc(public_id: int, name: str, cidr: str, supernet_ref: int | None) -> dict[str, Any]:
     """Builds a SUBNET object doc with an optional parent supernet reference."""
     fields = [

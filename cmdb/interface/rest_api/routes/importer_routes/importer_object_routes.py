@@ -58,6 +58,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.blueprints import NestedBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import enforce_special_type_license
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
     get_file_in_request,
     get_element_from_data_request,
@@ -331,6 +332,10 @@ def import_objects(request_user: CmdbUser) -> Response:
         except Exception as error:
             LOGGER.error("[import_objects] Exception: %s. Type: %s", error, type(error), exc_info=True)
             abort(400, "Could not import objects!")
+
+        # Importing objects of an IPAM special type requires a valid IPAM license. Placed outside the
+        # type-resolution try above so the 403 propagates (that block converts any exception to 400).
+        enforce_special_type_license(request_user, bool(type_ and type_.special_type))
 
         # Load parser
         try:

@@ -21,6 +21,7 @@ rows, runs the appropriate validators, and returns the accumulated structured er
 route turns those into a 400 abort so an API client cannot bypass the validation that the
 frontend pre-check routes also expose
 """
+from collections import Counter
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
@@ -424,6 +425,103 @@ def enforce_object_invariants(
     errors.extend(_enforce_interface_rows(objects_manager, types_manager, candidate_object, previous_object))
 
     return errors
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          LICENSE GATING (IPAM feature)                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _interface_subnet_links(candidate_object: dict[str, Any]) -> Counter:
+    """
+    Counts the subnet references carried by the candidate's dg-ipam-interface rows
+
+    Args:
+        candidate_object (dict[str, Any]): A CmdbObject document
+
+    Returns:
+        Counter: A multiset of subnet public_ids referenced by interface rows; rows without a subnet
+            selected are ignored
+    """
+    return Counter(
+        subnet_ref
+        for _row_index, subnet_ref, _ip, _interface_type in _extract_interface_rows(candidate_object)
+        if subnet_ref is not None
+    )
+
+
+def _interface_subnet_link_added(
+    candidate_object: dict[str, Any],
+    previous_object: dict[str, Any] | None,
+) -> bool:
+    """
+    Whether the write adds a new interface->subnet link or changes an existing one
+
+    Compares the multiset of interface subnet references before and after the write: a link counts
+    as added/changed when the candidate references a subnet more often than the previous object did
+    - a brand-new row carrying a subnet, or a row whose subnet was switched. Clearing a subnet or
+    re-saving unchanged rows is not flagged. On insert (previous_object is None) any interface row
+    carrying a subnet counts as added
+
+    Args:
+        candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
+        previous_object (dict[str, Any] | None): The pre-edit document on update, else None
+
+    Returns:
+        bool: True when at least one interface->subnet link is added or changed
+    """
+    candidate_links: Counter = _interface_subnet_links(candidate_object)
+    previous_links: Counter = _interface_subnet_links(previous_object) if previous_object else Counter()
+
+    return bool(candidate_links - previous_links)
+
+
+def object_write_requires_ipam_license(
+    types_manager: TypesManager,
+    candidate_object: dict[str, Any],
+    previous_object: dict[str, Any] | None = None,
+) -> bool:
+    """
+    Whether creating/editing this object touches IPAM-licensed surface
+
+    True when the object is of an IPAM special type (Supernet/Subnet/VLAN) - any write to such an
+    object is gated - or, for a regular object, when the write adds or changes an interface->subnet
+    link. Pure detection; the caller pairs this with the license check and aborts 403 when locked
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
+        previous_object (dict[str, Any] | None): The pre-edit document on update; None on insert
+
+    Returns:
+        bool: True when the write requires a valid IPAM license
+    """
+    type_id: Any = candidate_object.get(CmdbObjectKey.TYPE_ID)
+
+    if isinstance(type_id, int) and _resolve_object_special_type(types_manager, type_id) is not None:
+        return True
+
+    return _interface_subnet_link_added(candidate_object, previous_object)
+
+
+def object_delete_requires_ipam_license(
+    types_manager: TypesManager,
+    target_object: dict[str, Any],
+) -> bool:
+    """
+    Whether deleting this object touches IPAM-licensed surface
+
+    True only when the target object is of an IPAM special type; deleting a regular object (even one
+    that links a subnet on an interface) is not gated
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        target_object (dict[str, Any]): The CmdbObject document being deleted
+
+    Returns:
+        bool: True when the deletion requires a valid IPAM license
+    """
+    type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
+
+    return isinstance(type_id, int) and _resolve_object_special_type(types_manager, type_id) is not None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

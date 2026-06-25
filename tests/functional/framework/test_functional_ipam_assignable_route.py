@@ -29,11 +29,19 @@ from typing import Any
 import pytest
 
 from cmdb.database.mongo_connector import MongoConnector
+from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/ipam/assignable-objects/'
+
+
+@pytest.fixture(autouse=True)
+def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
+    """Licenses the IPAM feature so the gated /ipam/assignable-objects route is reachable in these tests"""
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 
 # Type ids (kept distinct from other functional fixtures to avoid clashes)
 TYPE_SERVER: int = 40   # IPAM-capable (carries dg-ipam-interface section)

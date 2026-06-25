@@ -47,7 +47,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     get_objects_using_location_field,
     type_deletion_followup,
     apply_type_changes_to_locations,
+    enforce_special_type_license,
 )
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
@@ -462,3 +464,24 @@ def test_apply_type_changes_to_locations_pushes_only_changed_fields() -> None:
     public_id, changed_data = locations.update_locations_by_type.call_args.args
     assert public_id == 5
     assert changed_data == {LocationKey.TYPE_LABEL: 'New'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          enforce_special_type_license                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_enforce_special_type_license_noop_when_not_special() -> None:
+    """A non-special type write never consults the license guard"""
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_special_type_license(MagicMock(), False)
+
+    guard.assert_not_called()
+
+
+def test_enforce_special_type_license_delegates_for_special_type() -> None:
+    """A special-type write delegates to the IPAM license guard with the request user"""
+    request_user = MagicMock()
+
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_special_type_license(request_user, True)
+
+    guard.assert_called_once_with(LicenseFeature.IPAM, request_user)

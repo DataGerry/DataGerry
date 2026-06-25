@@ -71,6 +71,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     sync_select_field_options,
     is_special_type_changed,
     render_or_native,
+    guard_object_write_license,
+    guard_object_delete_license,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.interface.rest_api.routes.report_routes.report_helper import build_report_query
@@ -165,6 +167,9 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
 
         # Validate fields have type property
         validate_and_fill_object_fields(objects_manager, new_object_data)
+
+        # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
+        guard_object_write_license(types_manager, request_user, new_object_data)
 
         ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
             objects_manager,
@@ -853,11 +858,17 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
             validate_and_fill_object_fields(objects_manager, new_data)
 
             types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+            previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
+
+            # Editing an IPAM special-type object (or adding/changing an interface subnet) needs an IPAM license
+            guard_object_write_license(types_manager, request_user, new_data, previous_object)
+
             ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
                 objects_manager,
                 types_manager,
                 new_data,
-                previous_object=CmdbObject.to_json(current_object_instance),
+                previous_object=previous_object,
             )
 
             if ipam_errors:
@@ -1213,6 +1224,10 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(500, f"Type of Object with ID:{public_id} not found in database!")
 
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        # Deleting an IPAM special-type object needs a valid IPAM license
+        guard_object_delete_license(types_manager, request_user, CmdbObject.to_json(to_delete_object))
+
         ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
             objects_manager,
             types_manager,
@@ -1288,6 +1303,10 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
             abort(500, f"Type of Object with ID:{public_id} not found in database!")
 
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        # Deleting an IPAM special-type object needs a valid IPAM license
+        guard_object_delete_license(types_manager, request_user, CmdbObject.to_json(to_delete_object))
+
         ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
             objects_manager,
             types_manager,
@@ -1380,6 +1399,9 @@ def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> 
         guard_targets: list[dict[str, Any]] = [CmdbObject.to_json(target_object), *children_objects]
 
         for guard_target in guard_targets:
+            # Deleting an IPAM special-type object (parent or child) needs a valid IPAM license
+            guard_object_delete_license(types_manager, request_user, guard_target)
+
             ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
                 objects_manager,
                 types_manager,
@@ -1495,7 +1517,10 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
         type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
 
         # Atomic IPAM guard: refuse the whole bulk delete if any object would orphan references
+        # or - when IPAM is unlicensed - if any target is an IPAM special-type object
         for to_check in to_delete_objects:
+            guard_object_delete_license(types_manager, request_user, to_check)
+
             ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
                 objects_manager,
                 types_manager,

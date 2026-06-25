@@ -290,12 +290,54 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(object_relations_blueprint, url_prefix='/object_relations')
     app.register_blueprint(object_relation_logs_blueprint, url_prefix='/object_relation_logs')
     app.register_blueprint(extendable_option_blueprint, url_prefix='/extendable_options')
-    app.register_blueprint(object_group_blueprint, url_prefix='/object_groups')
-    app.register_blueprint(person_blueprint, url_prefix='/persons')
-    app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
     app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
     app.register_blueprint(config_file_blueprint, url_prefix='/config_file')
     app.register_blueprint(chatgpt_blueprint, url_prefix='/chatgpt')
+
+    # Feature-gating guard, shared by the ISMS and OpenCelium blueprint locks below
+    from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
+    from cmdb.security.license.license_constants import LicenseFeature
+
+    # ISMS Blueprints. The whole ISMS module is a licensed feature, so every route (all methods,
+    # reads included) is gated on-premise. Gating is registered before the blueprints so all
+    # current and future ISMS routes are covered.
+    for isms_blueprint in (
+        isms_config_blueprint,
+        risk_class_blueprint,
+        likelihood_blueprint,
+        impact_blueprint,
+        impact_category_blueprint,
+        protection_goal_blueprint,
+        risk_matrix_blueprint,
+        threat_blueprint,
+        vulnerability_blueprint,
+        risk_blueprint,
+        control_measure_blueprint,
+        risk_assessment_blueprint,
+        control_measure_assignment_blueprint,
+        isms_importer_blueprint,
+        isms_report_blueprint,
+    ):
+        gate_blueprint(isms_blueprint, LicenseFeature.ISMS)
+
+    # Persons, Person Groups and Object Groups are shared entities the ISMS feature depends on
+    # (risk-assessment responsible/interviewed persons and risk owner; the object group is the risk
+    # scope). On-premise they are part of the licensed ISMS surface, so their HTTP routes are gated
+    # behind the ISMS feature too. They keep their own top-level url_prefixes (not moved under
+    # /isms/) so the frontend contract is unchanged. The internal object-delete cascade
+    # (objects_helper.handle_delete_from_object_groups) calls ObjectGroupsManager directly rather
+    # than these routes, so it is unaffected by the gate. Gated before registration so the
+    # before_request guard binds (Flask runs a blueprint's deferred setup at registration time).
+    for isms_shared_blueprint in (
+        object_group_blueprint,
+        person_blueprint,
+        person_group_blueprint,
+    ):
+        gate_blueprint(isms_shared_blueprint, LicenseFeature.ISMS)
+
+    app.register_blueprint(object_group_blueprint, url_prefix='/object_groups')
+    app.register_blueprint(person_blueprint, url_prefix='/persons')
+    app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
 
     # ISMS Blueprints
     app.register_blueprint(isms_config_blueprint, url_prefix='/isms/config')
@@ -314,6 +356,19 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(isms_importer_blueprint, url_prefix='/isms/importer')
     app.register_blueprint(isms_report_blueprint, url_prefix='/isms/reports')
 
+    # IPAM routes. The dedicated /ipam surface (overviews, network tree, validation, assignable
+    # lookups) is part of the licensed IPAM feature, so every route is gated on-premise. The IPAM
+    # data itself stays readable through the generic /objects and /types routes (guarded separately
+    # at write time); only these dedicated IPAM surfaces are locked here.
+    for ipam_blueprint in (
+        ipam_validation_blueprint,
+        ipam_supernet_blueprint,
+        ipam_subnet_blueprint,
+        ipam_assignable_blueprint,
+        ipam_tree_blueprint,
+    ):
+        gate_blueprint(ipam_blueprint, LicenseFeature.IPAM)
+
     # IPAM routes
     app.register_blueprint(ipam_validation_blueprint, url_prefix='/ipam/validate')
     app.register_blueprint(ipam_supernet_blueprint, url_prefix='/ipam/supernet')
@@ -325,7 +380,19 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(license_activation_blueprint, url_prefix='/license')
     app.register_blueprint(license_blueprint, url_prefix='/license')
 
-    # OpenCelium routes
+    # OpenCelium routes. The whole integration is the licensed "Automations" feature, so every
+    # route is gated on-premise (OpenCelium's OWN license routes stay ungated). Gating is
+    # registered before the blueprints so all current and future routes are covered.
+    for oc_automations_blueprint in (
+        oc_connectors_blueprint,
+        oc_invokers_blueprint,
+        oc_templates_blueprint,
+        oc_connections_blueprint,
+        oc_schedulers_blueprint,
+        oc_connection_log_blueprint,
+    ):
+        gate_blueprint(oc_automations_blueprint, LicenseFeature.AUTOMATIONS)
+
     app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_invokers_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_templates_blueprint, url_prefix='/open_celium')
