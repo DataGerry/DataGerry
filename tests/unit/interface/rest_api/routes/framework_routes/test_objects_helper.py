@@ -31,8 +31,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     render_or_native,
     is_special_type_changed,
     validate_and_fill_object_fields,
+    guard_object_write_license,
+    guard_object_delete_license,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
@@ -148,3 +151,53 @@ class TestValidateAndFillObjectFields:
             validate_and_fill_object_fields(manager, object_data)
 
         assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          guard_object_write_license                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGuardObjectWriteLicense:
+    """guard_object_write_license delegates to the IPAM license guard only for gated writes."""
+
+    def test_aborts_when_write_requires_license(self) -> None:
+        """A gated write (special-type / interface-subnet) is handed to the license guard."""
+        request_user = MagicMock()
+
+        with patch(f'{HELPER_PATH}.object_write_requires_ipam_license', return_value=True), \
+             patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
+            guard_object_write_license(MagicMock(), request_user, {}, None)
+
+        guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+    def test_noop_when_write_not_gated(self) -> None:
+        """A write that touches no IPAM surface never consults the license guard."""
+        with patch(f'{HELPER_PATH}.object_write_requires_ipam_license', return_value=False), \
+             patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
+            guard_object_write_license(MagicMock(), MagicMock(), {}, None)
+
+        guard.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          guard_object_delete_license                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGuardObjectDeleteLicense:
+    """guard_object_delete_license delegates to the IPAM license guard only for special-type targets."""
+
+    def test_aborts_when_delete_requires_license(self) -> None:
+        """Deleting a special-type object is handed to the license guard."""
+        request_user = MagicMock()
+
+        with patch(f'{HELPER_PATH}.object_delete_requires_ipam_license', return_value=True), \
+             patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
+            guard_object_delete_license(MagicMock(), request_user, {})
+
+        guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+    def test_noop_when_delete_not_gated(self) -> None:
+        """Deleting an ordinary object never consults the license guard."""
+        with patch(f'{HELPER_PATH}.object_delete_requires_ipam_license', return_value=False), \
+             patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
+            guard_object_delete_license(MagicMock(), MagicMock(), {})
+
+        guard.assert_not_called()

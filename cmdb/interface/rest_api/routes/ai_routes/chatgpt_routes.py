@@ -27,8 +27,11 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
 from cmdb.interface.rest_api.responses import DefaultResponse
+
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -39,6 +42,7 @@ chatgpt_blueprint = APIBlueprint('chatgpt', __name__)
 @chatgpt_blueprint.route('/message', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def send_chatgpt_message(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to interact with ChatGPT regarding the document generator

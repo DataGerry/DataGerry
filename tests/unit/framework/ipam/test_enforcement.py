@@ -64,6 +64,8 @@ from cmdb.framework.ipam.enforcement import (
     enforce_delete_guards,
     enforce_object_invariants,
     format_errors_for_abort,
+    object_write_requires_ipam_license,
+    object_delete_requires_ipam_license,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -861,3 +863,111 @@ def test_enforce_delete_guards_returns_empty_for_non_special_type_target() -> No
     assert not errors
     supernet_mock.assert_not_called()
     subnet_mock.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          LICENSE GATING (IPAM feature)                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _license_types_manager(special_type_by_id: dict[int, str]) -> MagicMock:
+    """Builds a types_manager mock whose get_type marks the given ids as the given SpecialType"""
+    manager = MagicMock()
+
+    def _get_type(type_id: int) -> dict[str, Any]:
+        special_type = special_type_by_id.get(type_id)
+
+        return {TypeSchemaKey.SPECIAL_TYPE: special_type} if special_type else {}
+
+    manager.get_type.side_effect = _get_type
+
+    return manager
+
+
+def _interface_object(public_id: int | None, type_id: int, subnet_ids: list[int | None]) -> dict[str, Any]:
+    """Builds a regular object with one dg-ipam-interface row per entry in subnet_ids"""
+    rows = [_make_interface_row(subnet_id, '10.0.0.5') for subnet_id in subnet_ids]
+
+    return _make_object_doc(public_id, type_id, mds=[_make_interface_section(rows)])
+
+
+def test_write_requires_license_for_special_type_object() -> None:
+    """Any write to an IPAM special-type object requires the IPAM license (flat block)"""
+    types_manager = _license_types_manager({SUBNET_TYPE_ID: SpecialType.SUBNET.value})
+    candidate = _make_object_doc(CANDIDATE_OBJECT_ID, SUBNET_TYPE_ID, fields=[_make_field('dg-name', 'x')])
+
+    assert object_write_requires_ipam_license(types_manager, candidate) is True
+
+
+def test_write_requires_license_when_insert_adds_interface_subnet() -> None:
+    """Creating a regular object with an interface row carrying a subnet requires the license"""
+    types_manager = _license_types_manager({})
+    candidate = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is True
+
+
+def test_write_allows_insert_interface_without_subnet() -> None:
+    """Creating a regular object whose interface row selects no subnet is not gated"""
+    types_manager = _license_types_manager({})
+    candidate = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [None])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is False
+
+
+def test_write_allows_regular_object_without_interface() -> None:
+    """A plain regular object write touches no IPAM surface"""
+    types_manager = _license_types_manager({})
+    candidate = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, fields=[_make_field('dg-name', 'x')])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is False
+
+
+def test_write_allows_resaving_unchanged_interface_subnet() -> None:
+    """Re-saving a regular object with the same interface subnet is allowed (no link added/changed)"""
+    types_manager = _license_types_manager({})
+    previous = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+    candidate = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=previous) is False
+
+
+def test_write_requires_license_when_interface_subnet_changes() -> None:
+    """Switching an interface row to a different subnet requires the license"""
+    types_manager = _license_types_manager({})
+    previous = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+    candidate = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [PARENT_SUPERNET_ID])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=previous) is True
+
+
+def test_write_allows_clearing_interface_subnet() -> None:
+    """Removing the subnet from an interface row (keeping the interface) is allowed"""
+    types_manager = _license_types_manager({})
+    previous = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+    candidate = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [None])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=previous) is False
+
+
+def test_write_requires_license_when_adding_a_second_subnet_row() -> None:
+    """Adding a new interface row that carries a subnet requires the license"""
+    types_manager = _license_types_manager({})
+    previous = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+    candidate = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID, PARENT_SUPERNET_ID])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=previous) is True
+
+
+def test_delete_requires_license_for_special_type_object() -> None:
+    """Deleting an IPAM special-type object requires the IPAM license"""
+    types_manager = _license_types_manager({SUBNET_TYPE_ID: SpecialType.SUBNET.value})
+    target = _make_object_doc(CANDIDATE_OBJECT_ID, SUBNET_TYPE_ID, fields=[_make_field('dg-name', 'x')])
+
+    assert object_delete_requires_ipam_license(types_manager, target) is True
+
+
+def test_delete_allows_regular_object_even_with_interface_subnet() -> None:
+    """Deleting a regular object is never gated, even if it links a subnet on an interface"""
+    types_manager = _license_types_manager({})
+    target = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
+
+    assert object_delete_requires_ipam_license(types_manager, target) is False

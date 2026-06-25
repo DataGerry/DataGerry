@@ -22,13 +22,23 @@ with the empty default instead of the route failing
 """
 from http import HTTPStatus
 
+import pytest
+
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskMatrix
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 STATUS_URL: str = '/isms/config/status'
 RISK_MATRIX_ID: int = 1
 STATUS_KEYS: set[str] = {'risk_classes', 'likelihoods', 'impacts', 'impact_categories', 'risk_matrix'}
+
+
+@pytest.fixture(autouse=True)
+def _isms_licensed(monkeypatch: pytest.MonkeyPatch):
+    """Licenses the ISMS feature so the gated config route is reachable in these route-behaviour tests"""
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.ISMS)
 
 
 def _risk_matrix_doc(database_manager: MongoDatabaseManager, database_name: str) -> dict | None:

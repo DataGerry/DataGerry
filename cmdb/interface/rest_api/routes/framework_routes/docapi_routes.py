@@ -39,7 +39,10 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
 from cmdb.interface.route_utils import insert_request_user, right_required, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.blueprints import APIBlueprint, RootBlueprint
+
+from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.docapi_templates_manager import (
     DocapiTemplatesManagerInsertError,
@@ -64,6 +67,7 @@ docs_blueprint = APIBlueprint('docs', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.add')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def create_template(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a DocapiTemplate into the database
@@ -103,6 +107,7 @@ def create_template(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @docs_blueprint.protect(auth=True, right='base.docapi.template.view')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @docs_blueprint.parse_collection_parameters()
 def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -144,6 +149,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.view')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for getting multiple DocapiTemplates filtered by the searchfilter
@@ -177,6 +183,7 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.view')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single DocapiTemplate with the given public_id
@@ -208,6 +215,7 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.view')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single DocapiTemplate with the given name
@@ -237,6 +245,7 @@ def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
 @docapi_blueprint.route('/template/<int:public_id>/render/<int:object_id>', methods=['GET'])
 @insert_request_user
 @right_required('base.framework.object.view')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def render_object_template(public_id: int, object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single rendered DocapiTemplate
@@ -297,6 +306,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.edit')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def update_template(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route for updating a single DocapiTemplate
@@ -333,6 +343,7 @@ def update_template(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.docapi.template.delete')
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def delete_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single DocapiTemplate

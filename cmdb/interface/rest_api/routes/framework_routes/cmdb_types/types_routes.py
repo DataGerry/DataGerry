@@ -65,6 +65,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     compute_removed_global_templates,
     apply_type_update_side_effects,
     build_types_clean_status_items,
+    enforce_special_type_license,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.blueprints import APIBlueprint
@@ -115,6 +116,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        # Creating an IPAM special type (Supernet/Subnet/VLAN) requires a valid IPAM license
+        enforce_special_type_license(request_user, bool(data.get(TypeSchemaKey.SPECIAL_TYPE)))
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
@@ -398,10 +402,14 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     Returns:
         UpdateSingleResponse: The new data of the CmdbType
     """
+    # pylint: disable=too-many-statements  # complex update orchestration (re-reads + side effects)
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         old_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+
+        # Editing an IPAM special type (existing or attempted) requires a valid IPAM license
+        enforce_special_type_license(request_user, bool(old_type.special_type or data.get(TypeSchemaKey.SPECIAL_TYPE)))
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
@@ -488,6 +496,10 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         to_delete_type: dict[str, Any] | None = types_manager.get_type(public_id)
+
+        # Deleting an IPAM special type requires a valid IPAM license
+        deletes_special_type: bool = bool(to_delete_type and to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE))
+        enforce_special_type_license(request_user, deletes_special_type)
 
         # Check CmdbType is allowed to be deleted
         verify_type_deletable(request_user, public_id, to_delete_type)

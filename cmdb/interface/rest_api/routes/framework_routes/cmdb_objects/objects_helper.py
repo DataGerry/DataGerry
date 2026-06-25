@@ -50,12 +50,62 @@ from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.framework.ipam.enforcement import (
+    object_write_requires_ipam_license,
+    object_delete_requires_ipam_license,
+)
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def guard_object_write_license(
+    types_manager: TypesManager,
+    request_user: CmdbUser,
+    candidate_object: dict[str, Any],
+    previous_object: dict[str, Any] | None = None,
+) -> None:
+    """
+    Blocks creating/editing an IPAM-gated object when the IPAM feature is not licensed
+
+    A no-op unless the write touches IPAM-licensed surface (a special-type object, or an interface
+    row that adds/changes a subnet link). For a gated write it aborts with HTTP 403 on-premise when
+    IPAM is unlicensed; it is a no-op in cloud/local mode and when IPAM is licensed
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        request_user (CmdbUser): The user performing the object write
+        candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
+        previous_object (dict[str, Any] | None): The pre-edit document on update; None on insert
+    """
+    if object_write_requires_ipam_license(types_manager, candidate_object, previous_object):
+        abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+
+
+def guard_object_delete_license(
+    types_manager: TypesManager,
+    request_user: CmdbUser,
+    target_object: dict[str, Any],
+) -> None:
+    """
+    Blocks deleting an IPAM special-type object when the IPAM feature is not licensed
+
+    A no-op unless the target is an IPAM special-type object. For such a target it aborts with HTTP
+    403 on-premise when IPAM is unlicensed; it is a no-op in cloud/local mode and when IPAM is
+    licensed
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        request_user (CmdbUser): The user performing the deletion
+        target_object (dict[str, Any]): The CmdbObject document being deleted
+    """
+    if object_delete_requires_ipam_license(types_manager, target_object):
+        abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+
 
 def render_or_native(
         view: str,
