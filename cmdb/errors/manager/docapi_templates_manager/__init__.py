@@ -16,8 +16,11 @@
 """
 This module provides all errors for the DocapiTemplatesManager
 """
+from typing import Any
+
 from .docapi_templates_manager_errors import (
     DocapiTemplatesManagerError,
+    DocapiTemplatesManagerInitError,
     DocapiTemplatesManagerInsertError,
     DocapiTemplatesManagerGetError,
     DocapiTemplatesManagerIterationError,
@@ -28,9 +31,21 @@ from .docapi_templates_manager_errors import (
 
 __all__: list[str] = [
     'DocapiTemplatesManagerError',
+    'DocapiTemplatesManagerInitError',
     'DocapiTemplatesManagerInsertError',
     'DocapiTemplatesManagerGetError',
     'DocapiTemplatesManagerIterationError',
     'DocapiTemplatesManagerUpdateError',
     'DocapiTemplatesManagerDeleteError',
+    'DOCAPI_TEMPLATES_MANAGER_ERRORS',
 ]
+
+
+DOCAPI_TEMPLATES_MANAGER_ERRORS: dict[str, Any] = {
+    "init": DocapiTemplatesManagerInitError,
+    "insert": DocapiTemplatesManagerInsertError,
+    "get": DocapiTemplatesManagerGetError,
+    "update": DocapiTemplatesManagerUpdateError,
+    "delete": DocapiTemplatesManagerDeleteError,
+    "iterate": DocapiTemplatesManagerIterationError,
+}

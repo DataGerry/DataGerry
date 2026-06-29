@@ -28,7 +28,6 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.relation_model import CmdbRelation
-from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -41,6 +40,8 @@ from cmdb.interface.rest_api.responses import (
     UpdateSingleResponse,
     DeleteSingleResponse,
 )
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import RelationRight
+from cmdb.interface.rest_api.routes.relation_routes.relations_helper import handle_deleted_type_ids
 
 from cmdb.errors.manager.relations_manager import (
     RelationsManagerInsertError,
@@ -60,7 +61,7 @@ relations_blueprint = APIBlueprint('relations', __name__)
 @relations_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@relations_blueprint.protect(auth=True, right='base.framework.relation.add')
+@relations_blueprint.protect(auth=True, right=RelationRight.ADD.value)
 @relations_blueprint.validate(CmdbRelation.SCHEMA)
 def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -102,7 +103,7 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
 @relations_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@relations_blueprint.protect(auth=True, right='base.framework.relation.view')
+@relations_blueprint.protect(auth=True, right=RelationRight.VIEW.value)
 @relations_blueprint.parse_collection_parameters()
 def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -144,7 +145,7 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> 
 @relations_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@relations_blueprint.protect(auth=True, right='base.framework.relation.view')
+@relations_blueprint.protect(auth=True, right=RelationRight.VIEW.value)
 def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbRelation
@@ -180,7 +181,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
 @relations_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@relations_blueprint.protect(auth=True, right='base.framework.relation.edit')
+@relations_blueprint.protect(auth=True, right=RelationRight.EDIT.value)
 @relations_blueprint.validate(CmdbRelation.SCHEMA)
 def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -201,20 +202,26 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
                                                                                 ManagerType.OBJECT_RELATIONS,
                                                                                 request_user)
 
-        to_update_relation = relations_manager.get_relation(public_id)
+        to_update_relation: dict[str, Any] | None = relations_manager.get_relation(public_id)
 
         if to_update_relation:
-            handle_deleted_type_ids(to_update_relation, data, object_relations_manager)
+            # Pin the identity to the URL so a forged body public_id cannot rewrite the document
+            data['public_id'] = public_id
 
-            changed_fields: dict = relations_manager.get_added_and_removed_fields(to_update_relation, data)
-
-            object_relations_manager.update_changed_fields(public_id, changed_fields)
-
+            # Compute the diffs from the in-memory old/new data before any persistence
+            changed_fields: dict[str, list[str]] = relations_manager.get_added_and_removed_fields(
+                to_update_relation, data
+            )
             relation: CmdbRelation = CmdbRelation.from_data(data)
 
+            # Persist the relation first; only then cascade the now-applied definition to the
+            # dependent CmdbObjectRelations, so a failed relation update leaves them untouched
             relations_manager.update_relation(public_id, relation)
 
-            return UpdateSingleResponse(data).make_response()
+            handle_deleted_type_ids(to_update_relation, data, object_relations_manager)
+            object_relations_manager.update_changed_fields(public_id, changed_fields)
+
+            return UpdateSingleResponse(CmdbRelation.to_json(relation)).make_response()
 
         abort(404, f"The Relation with ID:{public_id} was not found!")
     except HTTPException as http_err:
@@ -234,7 +241,7 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
 @relations_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@relations_blueprint.protect(auth=True, right='base.framework.relation.delete')
+@relations_blueprint.protect(auth=True, right=RelationRight.DELETE.value)
 def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbRelation
@@ -248,18 +255,22 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     try:
         relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
+        object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_RELATIONS,
+            request_user
+        )
         ci_explorer_profile_manager: CiExplorerProfileManager = ManagerProvider.get_manager(
             ManagerType.CI_EXPLORER_PROFILE,
             request_user
         )
 
-        to_delete_relation = relations_manager.get_relation(public_id)
+        to_delete_relation: dict[str, Any] | None = relations_manager.get_relation(public_id)
 
         if not to_delete_relation:
             abort(404, f"The Relation with ID:{public_id} was not found!")
 
-        # Check if the CmdbRelation is currently used
-        if relations_manager.get_one_by({"relation_id": public_id}, CmdbObjectRelation.COLLECTION):
+        # Check if the CmdbRelation is currently used by any CmdbObjectRelation
+        if object_relations_manager.get_one_by({"relation_id": public_id}):
             abort(403, f"The Relation with ID:{public_id} is currently in use and cannot be deleted!")
 
         relations_manager.delete_relation(public_id)
@@ -278,46 +289,4 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
         abort(400, f"Failed to retrieve the Relation with ID:{public_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while deleting Relation with ID:{public_id}!")
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-def handle_deleted_type_ids(old_relation: dict,
-                            new_relation: dict,
-                            object_relations_manager: ObjectRelationsManager) -> None:
-    """
-    Checks if the allowed parent and child CmdbTypes have changed especially if some were deleted.
-    If some of them were deleted then all corresponding ObjectRelations will be deleted.
-
-    Args:
-        old_relation (dict): old relation data
-        new_relation (dict): new relation data
-        object_relations_manager (ObjectRelationsManager): Database interaction for CmdbObjectRelations
-    """
-    deleted_parent_ids = get_deleted_type_ids(old_relation["parent_type_ids"], new_relation["parent_type_ids"])
-
-    if deleted_parent_ids:
-        object_relations_manager.delete_invalidated_object_relations(old_relation["public_id"],
-                                                                     deleted_parent_ids,
-                                                                     True)
-
-    deleted_child_ids = get_deleted_type_ids(old_relation["child_type_ids"], new_relation["child_type_ids"])
-
-    if deleted_child_ids:
-        object_relations_manager.delete_invalidated_object_relations(old_relation["public_id"],
-                                                                     deleted_child_ids,
-                                                                     False)
-
-
-def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> list[int]:
-    """
-    Identifies the IDs that have been deleted when comparing two lists
-
-    Args:
-        old_ids (list[int]): The previous list of IDs
-        new_ids (list[int]): The updated list of IDs
-
-    Returns:
-        list[int]: A list containing the deleted IDs
-    """
-    return list(set(old_ids) - set(new_ids))
+        abort(500, f"An internal server error occured while deleting Relation with ID:{public_id}!")
