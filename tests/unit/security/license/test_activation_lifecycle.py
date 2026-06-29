@@ -127,14 +127,3 @@ def test_is_request_expired_uses_current_time_by_default(monkeypatch: pytest.Mon
     monkeypatch.setattr(lc.time, 'time', lambda: CREATED_AT + TTL + 5)
 
     assert lc.is_request_expired(CREATED_AT, TTL) is True
-
-
-@pytest.mark.parametrize('now,expected', [
-    (CREATED_AT, TTL),
-    (CREATED_AT + TTL - 60, 60),
-    (CREATED_AT + TTL, 0),
-    (CREATED_AT + TTL + 100, 0),
-])
-def test_seconds_until_expiry(now: int, expected: int) -> None:
-    """Remaining seconds count down and clamp to zero once expired"""
-    assert lc.seconds_until_expiry(CREATED_AT, TTL, now) == expected

@@ -18,67 +18,73 @@ This module contains the implementation of the ObjectRelationsManager
 """
 from logging import Logger, getLogger
 from typing import Any
+
 from cmdb.database import MongoDatabaseManager
 
-from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.object_relation_model import CmdbObjectRelation
 
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import (
-    BaseManagerInsertError,
-    BaseManagerGetError,
-    BaseManagerDeleteError,
-)
-from cmdb.errors.manager.object_relations_manager import (
-    ObjectRelationsManagerInitError,
-    ObjectRelationsManagerInsertError,
-    ObjectRelationsManagerGetError,
-    ObjectRelationsManagerIterationError,
-    ObjectRelationsManagerUpdateError,
-    ObjectRelationsManagerDeleteError,
-)
-from cmdb.errors.models.cmdb_object_relation import (
-    CmdbObjectRelationToJsonError,
-)
+from cmdb.errors.manager.object_relations_manager import OBJECT_RELATIONS_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
+# Document field names of a CmdbObjectRelation, named here so queries/updates reference a constant
+# instead of repeating the literal keys
+PUBLIC_ID_FIELD: str = 'public_id'
+RELATION_ID_FIELD: str = 'relation_id'
+RELATION_PARENT_ID_FIELD: str = 'relation_parent_id'
+RELATION_CHILD_ID_FIELD: str = 'relation_child_id'
+RELATION_PARENT_TYPE_ID_FIELD: str = 'relation_parent_type_id'
+RELATION_CHILD_TYPE_ID_FIELD: str = 'relation_child_type_id'
+FIELD_VALUES_FIELD: str = 'field_values'
+
+# Keys of a single ``field_values`` entry. An object-relation field value is a ``name``/``value``
+# pair by design (consumed that way across the codebase); it is intentionally NOT a name/value/type
+# triple like a CmdbObject field
+FIELD_VALUE_NAME_KEY: str = 'name'
+FIELD_VALUE_VALUE_KEY: str = 'value'
+
+# Keys of the ``changed_fields`` diff produced by RelationsManager.get_added_and_removed_fields
+ADDED_FIELDS_KEY: str = 'added'
+REMOVED_FIELDS_KEY: str = 'removed'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ObjectRelationsManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-class ObjectRelationsManager(BaseManager):
+class ObjectRelationsManager(GenericManager):
     """
     The ObjectRelationsManager handles the interaction between the CmdbObjectRelations-API and the database
-    `Extends`: BaseManager
+
+    `Extends`: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection for the ObjectRelationsManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str | None): Name of the database to which the 'dbm' should connect.
+                                   Only used in CLOUD_MODE. Defaults to None
 
         Raises:
             ObjectRelationsManagerInitError: If the ObjectRelationsManager could not be initialised
         """
-        try:
-            super().__init__(CmdbObjectRelation.COLLECTION, dbm, database)
-        except Exception as err:
-            raise ObjectRelationsManagerInitError(err) from err
+        super().__init__(dbm, CmdbObjectRelation, OBJECT_RELATIONS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_object_relation(self, object_relation: dict) -> int:
+    def insert_object_relation(self, object_relation: dict[str, Any] | CmdbObjectRelation) -> int:
         """
         Insert a CmdbObjectRelation into the database
 
         Args:
-            object_relation (dict): Raw data of the CmdbObjectRelation
+            object_relation (dict[str, Any] | CmdbObjectRelation): Raw data or model instance of the
+                                                                   CmdbObjectRelation
 
         Raises:
             ObjectRelationsManagerInsertError: When a CmdbObjectRelation could not be inserted into the database
@@ -86,22 +92,11 @@ class ObjectRelationsManager(BaseManager):
         Returns:
             int: The public_id of the created CmdbObjectRelation
         """
-        try:
-            if isinstance(object_relation, CmdbObjectRelation):
-                object_relation = CmdbObjectRelation.to_json(object_relation)
-
-            return self.insert(object_relation)
-        except CmdbObjectRelationToJsonError as err:
-            raise ObjectRelationsManagerInsertError(err) from err
-        except BaseManagerInsertError as err:
-            raise ObjectRelationsManagerInsertError(err) from err
-        except Exception as err:
-            LOGGER.error("[insert_object_relation] Exception: %s. Type: %s", err, type(err))
-            raise ObjectRelationsManagerInsertError(err) from err
+        return self.insert_item(object_relation)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_object_relation(self, public_id: int) -> dict | None:
+    def get_object_relation(self, public_id: int) -> dict[str, Any] | None:
         """
         Retrieves a CmdbObjectRelation from the database
 
@@ -112,12 +107,9 @@ class ObjectRelationsManager(BaseManager):
             ObjectRelationsManagerGetError: When a CmdbObjectRelation could not be retrieved
 
         Returns:
-            dict | None: Dict representation of the CmdbObjectRelation attributes if it exists else None
+            dict[str, Any] | None: Dict representation of the CmdbObjectRelation if it exists else None
         """
-        try:
-            return self.get_one(public_id)
-        except BaseManagerGetError as err:
-            raise ObjectRelationsManagerGetError(err) from err
+        return self.get_item(public_id, as_dict=True)
 
 
     def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbObjectRelation]:
@@ -131,42 +123,46 @@ class ObjectRelationsManager(BaseManager):
             ObjectRelationsManagerIterationError: When the iteration failed
 
         Returns:
-            IterationResult[CmdbRelation]: All CmdbObjectRelations matching the filter
+            IterationResult[CmdbObjectRelation]: All CmdbObjectRelations matching the filter
         """
-        try:
-            aggregation_result, total = self.iterate_query(builder_params)
-
-            iteration_result: IterationResult[CmdbObjectRelation] = IterationResult(aggregation_result,
-                                                                                    total,
-                                                                                    CmdbObjectRelation)
-
-            return iteration_result
-        except Exception as err:
-            raise ObjectRelationsManagerIterationError(err) from err
+        return self.iterate_items(builder_params)
 
 
     def get_related_relations(self, public_id: int) -> list[dict[str, Any]]:
-        """TODO: document"""
+        """
+        Retrieves all CmdbObjectRelations referencing the given CmdbObject as parent or child
+
+        Args:
+            public_id (int): public_id of the CmdbObject whose CmdbObjectRelations are requested
+
+        Returns:
+            list[dict[str, Any]]: All CmdbObjectRelations where the CmdbObject is the parent or the child
+        """
         return list(self.find(criteria=self.get_related_relations_query(public_id)))
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_object_relation(self, public_id:int, data: dict) -> None:
+    def update_object_relation(self, public_id: int, data: dict[str, Any] | CmdbObjectRelation) -> None:
         """
         Updates a CmdbObjectRelation in the database
 
+        The document identity is pinned to ``public_id`` so a payload ``public_id`` can never rewrite
+        the document's id.
+
         Args:
             public_id (int): public_id of the CmdbObjectRelation which should be updated
-            data (dict): The data with new values for the CmdbObjectRelation
+            data (dict[str, Any] | CmdbObjectRelation): The new values for the CmdbObjectRelation
 
         Raises:
             ObjectRelationsManagerUpdateError: When the update operation fails
         """
-        try:
-            self.update({'public_id':public_id}, CmdbObjectRelation.to_json(data))
-        except Exception as err:
-            LOGGER.error("[update_object_relation] Exception: %s. Type: %s", err, type(err))
-            raise ObjectRelationsManagerUpdateError(err) from err
+        if isinstance(data, CmdbObjectRelation):
+            data = CmdbObjectRelation.to_json(data)
+
+        # Pin the identity: a payload public_id can never rewrite the document's id
+        data[PUBLIC_ID_FIELD] = public_id
+
+        self.update_item(public_id, data)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -183,21 +179,27 @@ class ObjectRelationsManager(BaseManager):
         Returns:
             bool: True if deletion was successful
         """
-        try:
-            return self.delete({'public_id':public_id})
-        except BaseManagerDeleteError as err:
-            raise ObjectRelationsManagerDeleteError(err) from err
+        return self.delete_item(public_id)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
     def get_related_relations_query(self, public_id: int) -> dict[str, Any]:
-        """TODO: document"""
+        """
+        Builds the query matching every CmdbObjectRelation referencing the given CmdbObject
+
+        Args:
+            public_id (int): public_id of the CmdbObject to match as parent or child
+
+        Returns:
+            dict[str, Any]: A Mongo ``$or`` query on the parent/child object id fields
+        """
         return {
             "$or": [
-                {"relation_parent_id": public_id},
-                {"relation_child_id": public_id},
+                {RELATION_PARENT_ID_FIELD: public_id},
+                {RELATION_CHILD_ID_FIELD: public_id},
             ]
         }
+
 
     def delete_invalidated_object_relations(
             self,
@@ -208,8 +210,8 @@ class ObjectRelationsManager(BaseManager):
         Deletes invalid CmdbObjectRelations based on the given `relation_id` and `invalid_ids`
 
         This method checks whether the invalid IDs are related to the parent or child types
-        of the given CmdbRelation. It then constructs a query to find the invalid CmdbObjectRelations
-        and deletes them.
+        of the given CmdbRelation, then deletes every matching CmdbObjectRelation in a single
+        server-side operation.
 
         Args:
             relation_id (int): The public_id of the CmdbRelation for which invalid
@@ -218,46 +220,67 @@ class ObjectRelationsManager(BaseManager):
             is_parent_ids (bool): A flag indicating whether the invalid IDs belong to parent type relations
                                   (True) or child type relations (False)
         """
-        query = {"$and": [{"relation_id": relation_id}, {"relation_child_type_id": { "$in": invalid_ids }}]}
+        type_field = RELATION_PARENT_TYPE_ID_FIELD if is_parent_ids else RELATION_CHILD_TYPE_ID_FIELD
 
-        if is_parent_ids:
-            query = {"$and": [{"relation_id": relation_id}, {"relation_parent_type_id": { "$in": invalid_ids }}]}
+        query: dict[str, Any] = {
+            "$and": [
+                {RELATION_ID_FIELD: relation_id},
+                {type_field: {"$in": invalid_ids}},
+            ]
+        }
 
-        invalid_object_relations = self.find_all(criteria=query)
-
-        for invalid_object_relation in invalid_object_relations:
-            self.delete({"public_id": invalid_object_relation['public_id']})
+        # Single server-side delete instead of fetch-then-loop (avoids an N+1 delete walk)
+        self.delete_many(query)
 
 
-    def update_changed_fields(self, relation_id: int, changed_fields: dict) -> None:
+    def update_changed_fields(self, relation_id: int, changed_fields: dict[str, list[str]]) -> None:
         """
         Updates all CmdbObjectRelations that reference the given CmdbRelation
 
-        - **Removes** any fields that have been deleted
-        - **Adds** new fields with an empty value
+        - **Removes** any ``field_values`` whose name is in ``changed_fields['removed']``
+        - **Adds** new ``field_values`` (with an empty value) for each name in ``changed_fields['added']``
+
+        Both edits are applied in a single server-side ``update_many`` aggregation pipeline, so no
+        documents are loaded into Python and no per-document write loop is issued.
 
         Args:
             relation_id (int): The public_id of the CmdbRelation whose fields were changed
-            changed_fields (dict): A dictionary with two keys:
+            changed_fields (dict[str, list[str]]): A dictionary with two keys:
                 - "added" (list[str]): Field names that were newly introduced
                 - "removed" (list[str]): Field names that should be removed
         """
-        affected_object_relations = self.get_many(filter={'relation_id':relation_id})
+        added: list[str] = changed_fields.get(ADDED_FIELDS_KEY, [])
+        removed: list[str] = changed_fields.get(REMOVED_FIELDS_KEY, [])
 
-        for obj_relation in affected_object_relations:
-            updated_field_values = []
+        # Nothing changed: skip the write entirely so unrelated relation edits do not rewrite every
+        # dependent CmdbObjectRelation
+        if not added and not removed:
+            return
 
-            # Remove fields that are in 'removed'
-            for field in obj_relation['field_values']:
-                if field['name'] not in changed_fields['removed']:
-                    updated_field_values.append(field)
+        new_field_entries: list[dict[str, Any]] = [
+            {FIELD_VALUE_NAME_KEY: name, FIELD_VALUE_VALUE_KEY: None} for name in added
+        ]
 
-            # Add new fields from 'added' with an empty value
-            for new_field in changed_fields['added']:
-                updated_field_values.append({'name': new_field, 'value': None})
+        # Pipeline update: keep the field values whose name is not removed, then append the new ones
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$set": {
+                    FIELD_VALUES_FIELD: {
+                        "$concatArrays": [
+                            {
+                                "$filter": {
+                                    "input": {"$ifNull": [f"${FIELD_VALUES_FIELD}", []]},
+                                    "as": "fv",
+                                    "cond": {
+                                        "$not": [{"$in": [f"$$fv.{FIELD_VALUE_NAME_KEY}", removed]}]
+                                    },
+                                }
+                            },
+                            new_field_entries,
+                        ]
+                    }
+                }
+            }
+        ]
 
-            # Update object relation
-            obj_relation['field_values'] = updated_field_values
-
-            # Save the updated object relation
-            self.update_object_relation(obj_relation['public_id'], obj_relation)
+        self.update_many({RELATION_ID_FIELD: relation_id}, pipeline, plain=True)

@@ -22,6 +22,8 @@ its features unlocked; an unbound license is rejected and not stored; and deacti
 install to the free tier. Uses an in-test keypair via the injectable public key, so it runs in CI
 without the gitignored dev key
 """
+import time
+
 import pytest
 from Crypto.PublicKey import RSA
 from Crypto.PublicKey.RSA import RsaKey
@@ -30,13 +32,22 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.license_manager.active_license_manager import ActiveLicenseManager
 from cmdb.manager.license_manager.license_activation_requests_manager import LicenseActivationRequestsManager
 from cmdb.manager.license_manager.license_service import LicenseService
-from cmdb.security.license.license_constants import ActivationRequestKey, LicenseFeature, LicenseTier
+from cmdb.security.license.license_constants import (
+    ActivationRequestKey,
+    LicenseFeature,
+    LicenseTier,
+    LicenseVerificationStatus,
+)
 from cmdb.security.license.tooling.license_generator import build_entitlement, mint_license_blob
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RSA_KEY_SIZE_BITS: int = 2048
 PAST_MS: int = 1_000_000_000_000  # 2001, safely before "now"
 NO_EXPIRY: int = 0
+
+# A created_at offset (seconds) far beyond any activation-request TTL, used to force lazy expiry
+WELL_PAST_TTL_SECONDS: int = 100_000
+CREATED_AT_KEY: str = 'created_at'
 
 FINGERPRINT: dict[str, str] = {
     ActivationRequestKey.MACHINE_UUID: 'machine-svc-int',
@@ -132,3 +143,49 @@ def test_deactivate_reverts_to_free(service: LicenseService, rsa_keypair: RsaKey
     assert service.is_active() is False
     assert service.current_tier() == LicenseTier.FREE.value
     assert service.current_status() is None
+
+
+def _age_requests(database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """Backdates every stored activation request's created_at well past its TTL (forces expiry)"""
+    database_manager.get_collection(LicenseActivationRequestsManager.COLLECTION, database_name).update_many(
+        {},
+        {'$set': {CREATED_AT_KEY: int(time.time()) - WELL_PAST_TTL_SECONDS}},
+    )
+
+
+def test_activate_rejected_when_activation_request_expired(
+    service: LicenseService, rsa_keypair: RsaKey,
+    database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """A license bound to a request older than its TTL is rejected at activation and not stored"""
+    request = service.activation_requests_manager.create_activation_request(FINGERPRINT)
+    _age_requests(database_manager, database_name)
+
+    entitlement = build_entitlement(
+        license_type=LicenseTier.CORE.value, hmac_value=request.hmac, start_date=PAST_MS, end_date=NO_EXPIRY,
+    )
+    blob = mint_license_blob(entitlement, rsa_keypair)
+
+    result = service.activate(blob)
+
+    assert result.is_valid is False
+    assert result.status == LicenseVerificationStatus.ACTIVATION_REQUEST_EXPIRED
+    assert service.is_active() is False
+    assert service.current_tier() == LicenseTier.FREE.value
+
+
+def test_active_license_survives_activation_request_ttl_expiry(
+    service: LicenseService, rsa_keypair: RsaKey,
+    database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """Once activated, a license keeps working after its one-time request ages out (gating regression)"""
+    blob = _bound_blob(service, rsa_keypair, LicenseTier.BUSINESS.value, features=[LicenseFeature.ISMS.value])
+    assert service.activate(blob).is_valid is True
+    assert service.is_active() is True
+
+    # The bound activation request ages past its TTL; ongoing feature gating must NOT apply it
+    _age_requests(database_manager, database_name)
+
+    assert service.is_active() is True
+    assert service.current_tier() == LicenseTier.BUSINESS.value
+    assert service.has_feature(LicenseFeature.ISMS) is True

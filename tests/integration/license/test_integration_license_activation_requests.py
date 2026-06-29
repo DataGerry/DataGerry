@@ -128,45 +128,6 @@ def test_is_document_expired_uses_stored_created_at(manager: LicenseActivationRe
     assert manager.is_document_expired(stored, now=created_at + TTL_SECONDS) is True
 
 
-def test_expire_if_stale_persists_expired_on_aged_pending(manager: LicenseActivationRequestsManager) -> None:
-    """A PENDING request past its TTL is flipped to EXPIRED in the database on read, but not before"""
-    request = manager.create_activation_request(FINGERPRINT, ttl=TTL_SECONDS)
-    stored = manager.get_by_request_id(request.request_id)
-    created_at = stored[ACTIVATION_CREATED_AT_KEY]
-
-    # Still within the TTL window: unchanged, nothing persisted
-    unchanged = manager.expire_if_stale(dict(stored), now=created_at + TTL_SECONDS - 1)
-    assert unchanged[ActivationRequestKey.STATUS] == ActivationRequestStatus.PENDING.value
-    assert manager.get_by_request_id(request.request_id)['status'] == ActivationRequestStatus.PENDING.value
-
-    # Past the TTL: flipped to EXPIRED and persisted
-    updated = manager.expire_if_stale(dict(stored), now=created_at + TTL_SECONDS)
-    assert updated[ActivationRequestKey.STATUS] == ActivationRequestStatus.EXPIRED.value
-    assert manager.get_by_request_id(request.request_id)['status'] == ActivationRequestStatus.EXPIRED.value
-
-
-def test_expire_if_stale_leaves_non_pending_requests_untouched(
-    manager: LicenseActivationRequestsManager,
-    database_manager: MongoDatabaseManager,
-    database_name: str,
-) -> None:
-    """A non-PENDING (e.g. PROCESSED) request past its TTL is returned unchanged and not rewritten"""
-    request = manager.create_activation_request(FINGERPRINT, ttl=TTL_SECONDS)
-    collection = database_manager.get_collection(LicenseActivationRequestsManager.COLLECTION, database_name)
-    collection.update_one(
-        {ActivationRequestKey.ID: request.request_id},
-        {'$set': {ActivationRequestKey.STATUS: ActivationRequestStatus.PROCESSED.value}},
-    )
-    stored = manager.get_by_request_id(request.request_id)
-    created_at = stored[ACTIVATION_CREATED_AT_KEY]
-
-    # Well past the TTL, but PROCESSED is not PENDING so the request is left as-is
-    result = manager.expire_if_stale(dict(stored), now=created_at + TTL_SECONDS + 100)
-
-    assert result[ActivationRequestKey.STATUS] == ActivationRequestStatus.PROCESSED.value
-    assert manager.get_by_request_id(request.request_id)['status'] == ActivationRequestStatus.PROCESSED.value
-
-
 def test_delete_by_request_id_removes_the_request(manager: LicenseActivationRequestsManager) -> None:
     """Deleting by id removes the stored request"""
     request = manager.create_activation_request(FINGERPRINT, ttl=TTL_SECONDS)

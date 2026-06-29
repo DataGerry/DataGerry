@@ -19,12 +19,18 @@ Unit tests for the CmdbRelation route helpers
 Pure tests: the ObjectRelationsManager is a MagicMock, so only the comparison logic and the
 delete-cascade dispatch are exercised.
 """
+from http import HTTPStatus
 from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
+from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     get_deleted_type_ids,
     handle_deleted_type_ids,
+    get_existing_relation_or_abort,
+    validate_object_relation_endpoints,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -80,3 +86,53 @@ class TestHandleDeletedTypeIds:
         handle_deleted_type_ids(relation, dict(relation), manager)
 
         manager.delete_invalidated_object_relations.assert_not_called()
+
+
+# ------------------------------------------------ get_existing_relation_or_abort ------------------------------------ #
+
+class TestGetExistingRelationOrAbort:
+    """get_existing_relation_or_abort returns the relation or aborts 400."""
+
+    def test_returns_relation_when_present(self) -> None:
+        """An existing relation is returned unchanged."""
+        relations_manager = MagicMock()
+        relation = {'public_id': RELATION_PUBLIC_ID}
+        relations_manager.get_relation.return_value = relation
+
+        assert get_existing_relation_or_abort(relations_manager, RELATION_PUBLIC_ID) is relation
+        relations_manager.get_relation.assert_called_once_with(RELATION_PUBLIC_ID)
+
+    def test_aborts_400_when_missing(self) -> None:
+        """A missing relation aborts with 400."""
+        relations_manager = MagicMock()
+        relations_manager.get_relation.return_value = None
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_existing_relation_or_abort(relations_manager, RELATION_PUBLIC_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+
+# --------------------------------------------- validate_object_relation_endpoints ---------------------------------- #
+
+class TestValidateObjectRelationEndpoints:
+    """validate_object_relation_endpoints guards distinct, present parent/child objects."""
+
+    def test_passes_for_distinct_endpoints(self) -> None:
+        """Distinct, present parent and child ids do not abort."""
+        validate_object_relation_endpoints(1, 2)
+
+    @pytest.mark.parametrize('parent_id, child_id', [(None, 2), (1, None), (None, None), (0, 2)])
+    def test_aborts_400_when_endpoint_missing(self, parent_id: int | None, child_id: int | None) -> None:
+        """A missing parent or child id aborts with 400."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_object_relation_endpoints(parent_id, child_id)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_aborts_400_when_parent_equals_child(self) -> None:
+        """The same object as parent and child aborts with 400."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_object_relation_endpoints(7, 7)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST

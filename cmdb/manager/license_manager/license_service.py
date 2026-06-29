@@ -185,13 +185,22 @@ class LicenseService:
         """
         Verifies an uploaded license blob and stores it as active when valid
 
+        Unlike the ongoing verification used for feature gating, activation also enforces the bound
+        activation request's TTL: a license bound to a request older than its window is rejected with
+        ACTIVATION_REQUEST_EXPIRED and not stored.
+
         Args:
             blob (str): The Base64 license blob to activate
 
         Returns:
             LicenseVerificationResult: The verification result; the blob is stored only when VALID
         """
-        result = verify_license(blob, self.activation_requests_manager, public_key_pem=self.public_key_pem)
+        result = verify_license(
+            blob,
+            self.activation_requests_manager,
+            public_key_pem=self.public_key_pem,
+            enforce_activation_ttl=True,
+        )
 
         if result.is_valid:
             self.active_license_manager.set_active_license(blob)

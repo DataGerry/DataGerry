@@ -16,6 +16,8 @@
 """
 This module provides all errors for the ObjectRelationsManager
 """
+from typing import Any
+
 from .object_relations_manager_errors import (
     ObjectRelationsManagerError,
     ObjectRelationsManagerInitError,
@@ -35,4 +37,17 @@ __all__: list[str] = [
     'ObjectRelationsManagerUpdateError',
     'ObjectRelationsManagerDeleteError',
     'ObjectRelationsManagerIterationError',
+    'OBJECT_RELATIONS_MANAGER_ERRORS',
 ]
+
+
+# Per-operation exception map consumed by GenericManager: each operation key maps to the
+# ObjectRelationsManager error raised when that operation fails
+OBJECT_RELATIONS_MANAGER_ERRORS: dict[str, Any] = {
+    "init": ObjectRelationsManagerInitError,
+    "insert": ObjectRelationsManagerInsertError,
+    "get": ObjectRelationsManagerGetError,
+    "update": ObjectRelationsManagerUpdateError,
+    "delete": ObjectRelationsManagerDeleteError,
+    "iterate": ObjectRelationsManagerIterationError,
+}

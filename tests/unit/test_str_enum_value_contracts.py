@@ -205,6 +205,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'SCHEMA_INVALID': 'schema_invalid',
         'NO_ACTIVATION_REQUEST': 'no_activation_request',
         'BINDING_MISMATCH': 'binding_mismatch',
+        'ACTIVATION_REQUEST_EXPIRED': 'activation_request_expired',
         'NOT_YET_VALID': 'not_yet_valid',
         'EXPIRED': 'expired',
     }),

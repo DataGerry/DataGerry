@@ -35,6 +35,7 @@ from cmdb.security.license.license_constants import (
     LicenseTier,
     LicenseVerificationStatus,
 )
+from cmdb.security.license.activation_lifecycle import is_request_expired
 from cmdb.security.license.tooling.license_generator import build_entitlement, mint_license_blob
 from cmdb.security.license.verification import verify_license
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -45,6 +46,10 @@ NOW_MS: int = 1_700_000_000_000
 PAST_MS: int = NOW_MS - 1_000
 FUTURE_MS: int = NOW_MS + 1_000_000
 NO_EXPIRY: int = 0
+
+NOW_SECONDS: int = NOW_MS // 1_000
+TTL_SECONDS: int = 3600
+CREATED_AT_KEY: str = 'created_at'
 
 FINGERPRINT: dict[str, str] = {
     ActivationRequestKey.MACHINE_UUID: 'machine-1',
@@ -57,7 +62,11 @@ BINDING_HMAC: str = machine_binding_hmac(FINGERPRINT, REQUEST_ID)
 
 
 class _StubActivationRequests:
-    """Minimal activation-request store exposing only get_by_hmac, for injection into verify_license"""
+    """Minimal activation-request store for injection into verify_license
+
+    Exposes get_by_hmac plus an is_document_expired mirroring the real manager's lazy-TTL static
+    method, so the activation-time TTL branch can be exercised without Mongo.
+    """
 
     def __init__(self, by_hmac: dict[str, dict[str, Any]]) -> None:
         self._by_hmac = by_hmac
@@ -65,6 +74,20 @@ class _StubActivationRequests:
     def get_by_hmac(self, hmac: str) -> Optional[dict[str, Any]]:
         """Returns the stored activation-request document for an hmac, or None"""
         return self._by_hmac.get(hmac)
+
+    @staticmethod
+    def is_document_expired(document: dict[str, Any], now: Optional[int] = None) -> bool:
+        """Whether the stored request has aged past its TTL (created_at + ttl <= now)"""
+        return is_request_expired(document[CREATED_AT_KEY], document[ActivationRequestKey.TTL], now)
+
+
+def _store_with_binding_ttl(created_at: int, ttl: int = TTL_SECONDS) -> _StubActivationRequests:
+    """A store holding one request bound to BINDING_HMAC carrying a created_at/ttl for expiry checks"""
+    return _StubActivationRequests({BINDING_HMAC: {
+        ActivationRequestKey.HMAC: BINDING_HMAC,
+        CREATED_AT_KEY: created_at,
+        ActivationRequestKey.TTL: ttl,
+    }})
 
 
 @pytest.fixture(name='rsa_keypair', scope='module')
@@ -191,3 +214,40 @@ def test_expired(rsa_keypair: RsaKey) -> None:
     result = verify_license(blob, _store_with_binding(), now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair))
 
     assert result.status == LicenseVerificationStatus.EXPIRED
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       activation-request TTL (activation only)                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_activation_request_expired_when_enforced(rsa_keypair: RsaKey) -> None:
+    """With enforce_activation_ttl, a bound request older than its TTL is rejected at activation"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY)
+    store = _store_with_binding_ttl(created_at=NOW_SECONDS - TTL_SECONDS - 1)
+
+    result = verify_license(blob, store, now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair),
+                            enforce_activation_ttl=True)
+
+    assert result.status == LicenseVerificationStatus.ACTIVATION_REQUEST_EXPIRED
+    assert result.is_valid is False
+    assert result.entitlement is None
+
+
+def test_fresh_activation_request_is_valid_when_enforced(rsa_keypair: RsaKey) -> None:
+    """With enforce_activation_ttl, a bound request still within its TTL verifies as VALID"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY)
+    store = _store_with_binding_ttl(created_at=NOW_SECONDS - 60)
+
+    result = verify_license(blob, store, now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair),
+                            enforce_activation_ttl=True)
+
+    assert result.status == LicenseVerificationStatus.VALID
+
+
+def test_expired_activation_request_ignored_when_not_enforced(rsa_keypair: RsaKey) -> None:
+    """Default (gating) verification must NOT apply the request TTL - an active license keeps working"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY)
+    store = _store_with_binding_ttl(created_at=NOW_SECONDS - TTL_SECONDS - 1)
+
+    result = verify_license(blob, store, now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair))
+
+    assert result.status == LicenseVerificationStatus.VALID

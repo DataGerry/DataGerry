@@ -71,7 +71,6 @@ from cmdb.security.license.activation_lifecycle import (
     build_activation_request,
     is_request_expired,
     new_request_id,
-    seconds_until_expiry,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -109,5 +108,4 @@ __all__: list[str] = [
     'build_activation_request',
     'is_request_expired',
     'new_request_id',
-    'seconds_until_expiry',
 ]
