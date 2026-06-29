@@ -19,8 +19,10 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import {
   LICENSE_FEATURE_LABELS,
+  LICENSE_TIER_FEATURES,
   LicenseEdition,
-  LicenseFeature
+  LicenseFeature,
+  LicenseTier
 } from '../../models/license.model';
 import {
   PREMIUM_CATALOG_CATEGORIES,
@@ -76,9 +78,16 @@ export class LicenseFeatureCatalogComponent {
     this.unlocked = new Set(value ?? []);
   }
 
+  /** Tier selected in the catalogue filter; highlights its features and dims the rest (`null` = no filter). */
+  @Input()
+  set tierFilter(value: LicenseTier | null) {
+    this.tierFeatures = value ? new Set(LICENSE_TIER_FEATURES[value] ?? []) : null;
+  }
+
   public readonly sections: CatalogSection[] = this.buildSections();
 
   private unlocked = new Set<LicenseFeature>();
+  private tierFeatures: Set<LicenseFeature> | null = null;
 
   /* --------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -102,6 +111,16 @@ export class LicenseFeatureCatalogComponent {
    */
   public isEnabled(feature: LicenseFeature): boolean {
     return this.allUnlocked && this.unlocked.has(feature);
+  }
+
+  /** True while a tier filter is active, so cards split into highlighted (in-tier) and dimmed (out-of-tier). */
+  public get isFiltering(): boolean {
+    return this.tierFeatures !== null;
+  }
+
+  /** Whether the feature belongs to the tier currently selected in the filter. */
+  public isInSelectedTier(feature: LicenseFeature): boolean {
+    return this.tierFeatures?.has(feature) ?? false;
   }
 
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

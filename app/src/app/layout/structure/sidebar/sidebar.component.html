@@ -131,8 +131,12 @@
 
       @if (selectedMenu === 'ipam' && !isSidebarCollapsed) {
       <li class="sb-nav-item sb-content-panel">
+        @if (ipamAvailable) {
         <ipam-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()">
         </ipam-tree>
+        } @else {
+        <ng-container [ngTemplateOutlet]="ipamLocked"></ng-container>
+        }
       </li>
       }
 
@@ -176,9 +180,13 @@
   @if (flyout.group === 'ipam') {
   <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
     (mouseleave)="onFlyoutMouseLeave()">
-    <div class="sb-flyout__head">IPAM</div>
+    <div class="sb-flyout__head">Networks</div>
     <div class="sb-flyout__body">
+      @if (ipamAvailable) {
       <ipam-tree [isExpanded]="false" [showSidebarExpandButton]="false"></ipam-tree>
+      } @else {
+      <ng-container [ngTemplateOutlet]="ipamLocked"></ng-container>
+      }
     </div>
   </div>
   }
@@ -186,3 +194,21 @@
   }
 
 </div>
+
+<!-- Locked-state placeholder shown in the Networks area when IPAM is not part of the edition. -->
+<ng-template #ipamLocked>
+  <div class="sb-locked">
+    <div class="sb-locked__preview" aria-hidden="true">
+      <span class="sb-locked__line"></span>
+      <span class="sb-locked__line"></span>
+      <span class="sb-locked__line"></span>
+      <span class="sb-locked__line"></span>
+    </div>
+    <div class="sb-locked__overlay">
+      <fa-icon icon="lock" class="sb-locked__icon"></fa-icon>
+      <p class="sb-locked__title">Networks is a Pro feature</p>
+      <p class="sb-locked__text">Plan and track your IP space with IPAM in the Self-Hosted Edition.</p>
+      <button type="button" class="sb-locked__btn" (click)="promptIpamUpgrade()">Upgrade to unlock</button>
+    </div>
+  </div>
+</ng-template>

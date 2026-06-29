@@ -208,6 +208,77 @@ $cm-radius: 18px;
   }
 }
 
+/* ----------------------------------------------- TIER FILTER ----------------------------------------------------- */
+
+.catalog-filter {
+  margin-bottom: 1.25rem;
+
+  &__label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: $cm-soft;
+  }
+
+  &__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  &__chip {
+    padding: 0.34rem 0.85rem;
+    border: 1px solid #dfe2e7;
+    border-radius: 999px;
+    background: #fff;
+    color: $cm-body;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &:hover {
+      border-color: rgba(233, 77, 24, 0.4);
+      color: $cm-brand-strong;
+      background: rgba(233, 77, 24, 0.06);
+    }
+
+    &:focus-visible {
+      outline: 2px solid $cm-brand;
+      outline-offset: 2px;
+    }
+
+    &--active {
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, $cm-brand 0%, $cm-brand-strong 100%);
+      box-shadow: 0 4px 12px rgba(233, 77, 24, 0.3);
+
+      &:hover {
+        color: #fff;
+        background: linear-gradient(135deg, $cm-brand 0%, $cm-brand-strong 100%);
+      }
+    }
+  }
+
+  &__summary {
+    min-height: 1.05rem;
+    margin: 0.55rem 0 0;
+    font-size: 0.78rem;
+    color: $cm-soft;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catalog-filter__chip {
+    transition: none;
+  }
+}
+
 @keyframes catalog-modal-in {
   from {
     opacity: 0;

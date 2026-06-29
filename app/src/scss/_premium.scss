@@ -21,3 +21,13 @@ $dg-premium-badge-bg: #c83f0e;
   border-radius: 999px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
+
+// Inline variant for list rows / dropdown options: the badge flows with the
+// row instead of being pinned to a corner; spacing is handled by the row layout.
+.dg-premium-badge--inline {
+  position: static;
+  top: auto;
+  right: auto;
+  display: inline-block;
+  vertical-align: middle;
+}

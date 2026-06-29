@@ -53,6 +53,8 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   // Special types (subnets/supernets) belong to IPAM; when locked the dropdown is shown as a Pro upsell.
   public ipamAvailable = false;
 
+  public lockedSpecialTypeOptions: Array<SpecialTypeOption & { disabled: true }> = [];
+
   private specialTypeSchemaFieldNames: Set<string> = new Set<string>();
   private specialTypeSchemaSectionNames: Set<string> = new Set<string>();
   private previouslySelectedSpecialType: SpecialType | null = null;
@@ -181,7 +183,8 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
 
   /**
    * Tracks IPAM entitlement so the special-type dropdown renders functionally only when unlocked,
-   * and as a "Pro" upsell otherwise. Loads the available special types once IPAM is confirmed.
+   * and as a "Pro" upsell otherwise. The available special types are loaded from the backend either
+   * way so the locked dropdown lists the same options.
    */
   private watchIpamAvailability(): void {
     this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
@@ -189,7 +192,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
       .subscribe((available) => {
         this.ipamAvailable = available;
 
-        if (available && !this.specialTypeOptions.length) {
+        if (!this.specialTypeOptions.length) {
           this.loadAvailableSpecialTypes();
         }
       });
@@ -205,6 +208,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
           label: `${type} - ${description}`,
           description
         }));
+        this.lockedSpecialTypeOptions = this.specialTypeOptions.map((option) => ({ ...option, disabled: true }));
       },
       error: (error) => {
         this.toastService.error(error?.error?.message);
