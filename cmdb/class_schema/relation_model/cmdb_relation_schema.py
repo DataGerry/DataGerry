@@ -118,7 +118,6 @@ def get_cmdb_relation_schema() -> dict:
         'fields': {  # All fields for the section
             'type': 'list',
             'required': False,
-            'default': None,
             'schema': {
                 'type': 'dict',
                 'schema': {

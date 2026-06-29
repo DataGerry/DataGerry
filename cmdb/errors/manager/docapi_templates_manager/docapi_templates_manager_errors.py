@@ -30,6 +30,12 @@ class DocapiTemplatesManagerError(Exception):
 
 # ------------------------------------------ DocapiTemplatesManager - ERRORS ----------------------------------------- #
 
+class DocapiTemplatesManagerInitError(DocapiTemplatesManagerError):
+    """
+    Raised when DocapiTemplatesManager could not be initialised
+    """
+
+
 class DocapiTemplatesManagerInsertError(DocapiTemplatesManagerError):
     """
     Raised when DocapiTemplatesManager could not insert a DocapiTemplate
