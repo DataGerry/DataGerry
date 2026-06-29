@@ -14,15 +14,57 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Helper functions for the CmdbRelation routes
+Helper functions for the CmdbRelation and CmdbObjectRelation routes
 
-Pure, side-effect-light helpers extracted from the route handlers so the orchestration in
-``relations_routes`` stays readable and the comparison logic stays unit-testable.
+Helpers extracted from the route handlers so the orchestration in ``relations_routes`` /
+``object_relation_routes`` stays readable and the comparison / validation logic stays
+unit-testable. The validation helpers abort with the documented HTTP status on invalid input.
 """
 from typing import Any
 
-from cmdb.manager import ObjectRelationsManager
+from flask import abort
+
+from cmdb.manager import ObjectRelationsManager, RelationsManager
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+def get_existing_relation_or_abort(relations_manager: RelationsManager, relation_id: int | None) -> dict[str, Any]:
+    """
+    Returns the CmdbRelation for the given id or aborts with 400 if it no longer exists
+
+    Shared by the CmdbObjectRelation create/update routes, which both require the referenced
+    CmdbRelation to still exist before persisting.
+
+    Args:
+        relations_manager (RelationsManager): Manager used to look up the CmdbRelation
+        relation_id (int | None): public_id of the referenced CmdbRelation
+
+    Returns:
+        dict[str, Any]: The existing CmdbRelation
+    """
+    target_relation: dict[str, Any] | None = relations_manager.get_relation(relation_id)
+
+    if not target_relation:
+        abort(400, f"The Relation with ID:{relation_id} does not exist anymore!")
+
+    return target_relation
+
+
+def validate_object_relation_endpoints(parent_id: int | None, child_id: int | None) -> None:
+    """
+    Validates that a CmdbObjectRelation references a distinct parent and child CmdbObject
+
+    Aborts with 400 if either endpoint is missing or if both endpoints are the same CmdbObject.
+
+    Args:
+        parent_id (int | None): public_id of the parent CmdbObject
+        child_id (int | None): public_id of the child CmdbObject
+    """
+    if not parent_id or not child_id:
+        abort(400, "Both 'relation_parent_id' and 'relation_child_id' must be provided!")
+
+    if parent_id == child_id:
+        abort(400, "Parent and child cannot be the same Object in an ObjectRelation!")
 
 
 def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> list[int]:

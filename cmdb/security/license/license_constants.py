@@ -97,13 +97,16 @@ class LicenseVerificationStatus(BaseStrEnum):
     / PKCS#1 padding / non-JSON payload; SCHEMA_INVALID a decrypted payload that is not a well-formed
     entitlement; NO_ACTIVATION_REQUEST a license whose hmac matches no stored activation request on
     this machine; BINDING_MISMATCH a stored request whose hmac no longer equals the license hmac;
-    NOT_YET_VALID a startDate in the future; EXPIRED an endDate in the past
+    ACTIVATION_REQUEST_EXPIRED a bound activation request whose TTL has elapsed (enforced only at
+    activation time, never during ongoing feature gating); NOT_YET_VALID a startDate in the future;
+    EXPIRED an endDate in the past
     """
     VALID = 'valid'
     DECRYPT_FAILED = 'decrypt_failed'
     SCHEMA_INVALID = 'schema_invalid'
     NO_ACTIVATION_REQUEST = 'no_activation_request'
     BINDING_MISMATCH = 'binding_mismatch'
+    ACTIVATION_REQUEST_EXPIRED = 'activation_request_expired'
     NOT_YET_VALID = 'not_yet_valid'
     EXPIRED = 'expired'
 

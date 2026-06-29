@@ -112,20 +112,3 @@ def is_request_expired(created_at: int, ttl: int, now: int | None = None) -> boo
     current = int(time.time()) if now is None else now
 
     return current >= created_at + ttl
-
-
-def seconds_until_expiry(created_at: int, ttl: int, now: int | None = None) -> int:
-    """
-    Returns how many seconds remain before an activation request expires
-
-    Args:
-        created_at (int): Epoch seconds at which the request was stored
-        ttl (int): Time-to-live in seconds
-        now (int | None): Epoch seconds to evaluate against; defaults to the current time
-
-    Returns:
-        int: Seconds remaining, clamped to 0 once expired
-    """
-    current = int(time.time()) if now is None else now
-
-    return max(0, created_at + ttl - current)

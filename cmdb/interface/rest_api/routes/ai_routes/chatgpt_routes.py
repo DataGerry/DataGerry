@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Definition of all routes for the Type Assistant
+Definition of the ChatGPT REST routes for the document generator
 """
 from logging import Logger, getLogger
 from flask import abort, request
@@ -37,6 +37,9 @@ from cmdb.security.license.license_constants import LicenseFeature
 LOGGER: Logger = getLogger(__name__)
 
 chatgpt_blueprint = APIBlueprint('chatgpt', __name__)
+
+# Key of the user message in the request body of the /message route
+MESSAGE_FIELD: str = 'message'
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @chatgpt_blueprint.route('/message', methods=['POST'])
@@ -54,8 +57,8 @@ def send_chatgpt_message(request_user: CmdbUser) -> Response:
         DefaultResponse: The response from ChatGPT
     """
     try:
-        user_message: dict = request.get_json()
-        user_message = user_message.get('message')
+        request_body = request.get_json(silent=True)
+        user_message = request_body.get(MESSAGE_FIELD) if isinstance(request_body, dict) else None
 
         if not user_message:
             abort(400, "No message provided!")

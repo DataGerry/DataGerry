@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,30 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Shared constants for the CmdbRelation REST routes
+Shared constants for the CmdbObjectRelationLog REST routes
 
-Names the ACL rights guarding the CmdbRelation routes so the routes reference enum members
-instead of repeating the literal right strings.
+Names the ACL rights guarding the CmdbObjectRelationLog routes so the routes reference enum
+members instead of repeating the literal right strings.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-class RelationRight(BaseStrEnum):
+class ObjectRelationLogRight(BaseStrEnum):
     """
-    ACL right identifiers guarding the CmdbRelation REST routes
+    ACL right identifiers guarding the CmdbObjectRelationLog REST routes
     """
-    ADD = 'base.framework.relation.add'
-    VIEW = 'base.framework.relation.view'
-    EDIT = 'base.framework.relation.edit'
-    DELETE = 'base.framework.relation.delete'
-
-
-class ObjectRelationRight(BaseStrEnum):
-    """
-    ACL right identifiers guarding the CmdbObjectRelation REST routes
-    """
-    ADD = 'base.framework.objectRelation.add'
-    VIEW = 'base.framework.objectRelation.view'
-    EDIT = 'base.framework.objectRelation.edit'
-    DELETE = 'base.framework.objectRelation.delete'
+    VIEW = 'base.framework.objectRelationLog.view'
+    DELETE = 'base.framework.objectRelationLog.delete'

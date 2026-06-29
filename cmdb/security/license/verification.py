@@ -88,6 +88,7 @@ def verify_license(
     activation_requests_manager: Any,
     now_ms: Optional[int] = None,
     public_key_pem: str = LICENSE_PUBLIC_KEY_PEM,
+    enforce_activation_ttl: bool = False,
 ) -> LicenseVerificationResult:
     """
     Verifies a license blob through the full chain
@@ -95,10 +96,16 @@ def verify_license(
     Args:
         blob (str): The Base64 license blob to verify
         activation_requests_manager (Any): The activation-request store; must expose
-            get_by_hmac(hmac) returning the stored request document or None
+            get_by_hmac(hmac) returning the stored request document or None, and - when
+            enforce_activation_ttl is True - is_document_expired(document, now) returning whether
+            the stored request has aged past its TTL
         now_ms (Optional[int]): Epoch milliseconds to evaluate the validity window against;
             defaults to the current time
         public_key_pem (str): PEM public key to decrypt with; defaults to the shipped key
+        enforce_activation_ttl (bool): When True, reject a license bound to an activation request
+            whose TTL has elapsed. This must be set ONLY at activation time. The ongoing
+            verification used for feature gating must leave it False, otherwise an already-activated
+            license would stop working once its (one-time) activation request aged out
 
     Returns:
         LicenseVerificationResult: VALID with the entitlement, or a failure status to degrade on
@@ -122,6 +129,13 @@ def verify_license(
     stored_hmac = activation_request.get(ActivationRequestKey.HMAC, '')
     if not constant_time_equals(entitlement.hmac, stored_hmac):
         return LicenseVerificationResult(LicenseVerificationStatus.BINDING_MISMATCH)
+
+    # Activation-request TTL (lazy expiry). Enforced ONLY at activation time: the ongoing
+    # verification used for feature gating leaves enforce_activation_ttl False, so an already
+    # activated license keeps working after its one-time activation request ages out.
+    if enforce_activation_ttl and activation_requests_manager.is_document_expired(
+            activation_request, now=current_ms // MILLIS_PER_SECOND):
+        return LicenseVerificationResult(LicenseVerificationStatus.ACTIVATION_REQUEST_EXPIRED)
 
     if entitlement.start_date > current_ms:
         return LicenseVerificationResult(LicenseVerificationStatus.NOT_YET_VALID)

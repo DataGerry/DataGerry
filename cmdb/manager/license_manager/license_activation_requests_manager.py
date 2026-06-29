@@ -168,30 +168,3 @@ class LicenseActivationRequestsManager(BaseManager):
             document[ActivationRequestKey.TTL],
             now,
         )
-
-
-    def expire_if_stale(self, document: dict[str, Any], now: int | None = None) -> dict[str, Any]:
-        """
-        Persists EXPIRED status on a PENDING request that has aged past its TTL (write-on-read)
-
-        The read-time half of the no-scheduler expiry strategy: a lone PENDING request that was never
-        superseded but whose TTL has elapsed is flipped to EXPIRED in the database the next time it is
-        read. Non-pending or still-valid documents are returned unchanged
-
-        Args:
-            document (dict[str, Any]): A stored activation-request document
-            now (int | None): Epoch seconds to evaluate against; defaults to the current time
-
-        Returns:
-            dict[str, Any]: The document, with status updated to EXPIRED when it had gone stale
-        """
-        is_pending = document.get(ActivationRequestKey.STATUS) == ActivationRequestStatus.PENDING.value
-
-        if is_pending and self.is_document_expired(document, now):
-            self.update(
-                {ActivationRequestKey.ID: document[ActivationRequestKey.ID]},
-                {ActivationRequestKey.STATUS: ActivationRequestStatus.EXPIRED.value},
-            )
-            document[ActivationRequestKey.STATUS] = ActivationRequestStatus.EXPIRED.value
-
-        return document
