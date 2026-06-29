@@ -79,12 +79,17 @@
           bindLabel="label" bindValue="value" placeholder="Select a special type">
         </app-form-select>
         } @else {
-        <label class="form-label" for="specialTypePremiumPlaceholder">Special type</label>
-        <div class="dg-premium-locked">
-          <input id="specialTypePremiumPlaceholder" type="text" class="form-control"
-            placeholder="Select a special type" disabled />
-          <span class="dg-premium-badge" title="Premium feature">Pro</span>
-        </div>
+        <label class="form-label" for="specialTypePremiumSelect">Special type</label>
+        <ng-select labelForId="specialTypePremiumSelect" class="dg-premium-select" [items]="lockedSpecialTypeOptions"
+          bindLabel="label" bindValue="value" placeholder="Select a special type" [clearable]="false"
+          [searchable]="false">
+          <ng-template ng-option-tmp let-item="item">
+            <span class="dg-premium-option">
+              <span class="dg-premium-option__label">{{ item.label }}</span>
+              <span class="dg-premium-badge dg-premium-badge--inline" title="Premium feature">Pro</span>
+            </span>
+          </ng-template>
+        </ng-select>
         <div class="form-text">
           Special types such as subnets and supernets are part of IPAM.
           <button type="button" class="btn btn-link btn-sm p-0 align-baseline" (click)="promptIpamUpgrade()">
