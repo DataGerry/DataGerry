@@ -18,7 +18,9 @@
           <li
             class="feature-card"
             [class.feature-card--featured]="item.featured"
-            [class.feature-card--enabled]="isEnabled(item.feature)">
+            [class.feature-card--enabled]="isEnabled(item.feature)"
+            [class.feature-card--in-tier]="isFiltering && isInSelectedTier(item.feature)"
+            [class.feature-card--out-tier]="isFiltering && !isInSelectedTier(item.feature)">
 
             <span class="feature-card__icon" aria-hidden="true">
               <i [class]="item.icon"></i>
@@ -31,6 +33,10 @@
                 @if (isEnabled(item.feature)) {
                   <span class="feature-card__flag feature-card__flag--enabled">
                     <i class="fas fa-circle-check" aria-hidden="true"></i>Enabled
+                  </span>
+                } @else if (isFiltering && isInSelectedTier(item.feature)) {
+                  <span class="feature-card__flag feature-card__flag--in-tier">
+                    <i class="fas fa-circle-check" aria-hidden="true"></i>Included
                   </span>
                 } @else if (item.featured) {
                   <span class="feature-card__flag feature-card__flag--featured">

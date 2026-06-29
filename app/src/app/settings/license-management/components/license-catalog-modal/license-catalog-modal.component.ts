@@ -18,7 +18,14 @@
 import { ChangeDetectionStrategy, Component, inject, Input, ViewEncapsulation } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
-import { LicenseEdition, LicenseFeature } from '../../models/license.model';
+import {
+  LICENSE_TIER_FEATURES,
+  LICENSE_TIER_FILTER_ORDER,
+  LICENSE_TIER_LABELS,
+  LicenseEdition,
+  LicenseFeature,
+  LicenseTier
+} from '../../models/license.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Reasons the dialog closes, so the caller can react to the user's intent. */
@@ -26,6 +33,15 @@ export const LICENSE_CATALOG_MODAL_RESULT = {
   activate: 'activate',
   later: 'later'
 } as const;
+
+/** A single tier filter chip. */
+interface TierFilterOption {
+  tier: LicenseTier;
+  label: string;
+}
+
+/** Total premium features in the catalogue — the top tier holds the full set. */
+const TOTAL_PREMIUM_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate].length;
 
 /**
  * Welcome dialog shown on entering License Management for a locked edition. It frames the premium
@@ -48,7 +64,34 @@ export class LicenseCatalogModalComponent {
 
   public readonly activeModal = inject(NgbActiveModal);
 
+  /** Tier chips shown above the catalogue; `null` selection means "All tiers" (no filter). */
+  public readonly tierFilters: TierFilterOption[] = LICENSE_TIER_FILTER_ORDER.map((tier) => ({
+    tier,
+    label: LICENSE_TIER_LABELS[tier]
+  }));
+
+  public selectedTier: LicenseTier | null = null;
+
+  /* --------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+  /** Caption announcing how many premium features the selected tier unlocks (`null` while unfiltered). */
+  public get filterSummary(): string | null {
+    if (this.selectedTier === null) {
+      return null;
+    }
+
+    const count = LICENSE_TIER_FEATURES[this.selectedTier].length;
+    const label = LICENSE_TIER_LABELS[this.selectedTier];
+
+    return `${label} includes ${count} of ${TOTAL_PREMIUM_FEATURES} premium features.`;
+  }
+
   /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  /** Selects a tier filter (or clears it with `null`) to highlight that tier's features in the catalogue. */
+  public onSelectTier(tier: LicenseTier | null): void {
+    this.selectedTier = tier;
+  }
 
   /** Closes the dialog and reveals the activation flow on the License Management page. */
   public onActivate(): void {

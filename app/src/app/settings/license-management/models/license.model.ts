@@ -67,6 +67,32 @@ export const LICENSE_TIER_LABELS: Record<LicenseTier, string> = {
   [LicenseTier.Corporate]: 'Corporate'
 };
 
+/**
+ * Premium features each tier unlocks, in cumulative (superset) order. Display-only: this drives the
+ * catalogue's "which tier includes what" filter and must never be used for gating. Real entitlement
+ * is the active license's `features` list, enforced by the backend (see {@link LicenseEntitlement}).
+ */
+export const LICENSE_TIER_FEATURES: Record<LicenseTier, LicenseFeature[]> = {
+  [LicenseTier.Free]: [],
+  [LicenseTier.Core]: [LicenseFeature.RestApi],
+  [LicenseTier.Business]: [LicenseFeature.RestApi, LicenseFeature.Ipam, LicenseFeature.Isms],
+  [LicenseTier.Corporate]: [
+    LicenseFeature.RestApi,
+    LicenseFeature.Ipam,
+    LicenseFeature.Isms,
+    LicenseFeature.DocumentGenerator,
+    LicenseFeature.Automations
+  ]
+};
+
+/** Tiers offered as catalogue filter chips, ascending. */
+export const LICENSE_TIER_FILTER_ORDER: ReadonlyArray<LicenseTier> = [
+  LicenseTier.Free,
+  LicenseTier.Core,
+  LicenseTier.Business,
+  LicenseTier.Corporate
+];
+
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
 /** Decrypted license payload (epoch-millisecond dates; `endDate === 0` means no expiry). */

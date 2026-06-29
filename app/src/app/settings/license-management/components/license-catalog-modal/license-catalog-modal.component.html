@@ -11,9 +11,38 @@
   </header>
 
   <div class="catalog-modal__body">
+    <div class="catalog-filter">
+      <span id="catalog-filter-label" class="catalog-filter__label">Show features for</span>
+
+      <div class="catalog-filter__chips" role="group" aria-labelledby="catalog-filter-label">
+        <button
+          type="button"
+          class="catalog-filter__chip"
+          [class.catalog-filter__chip--active]="selectedTier === null"
+          [attr.aria-pressed]="selectedTier === null"
+          (click)="onSelectTier(null)">
+          All tiers
+        </button>
+
+        @for (option of tierFilters; track option.tier) {
+          <button
+            type="button"
+            class="catalog-filter__chip"
+            [class.catalog-filter__chip--active]="selectedTier === option.tier"
+            [attr.aria-pressed]="selectedTier === option.tier"
+            (click)="onSelectTier(option.tier)">
+            {{ option.label }}
+          </button>
+        }
+      </div>
+
+      <p class="catalog-filter__summary" aria-live="polite">{{ filterSummary }}</p>
+    </div>
+
     <cmdb-license-feature-catalog
       [edition]="edition"
       [features]="features"
+      [tierFilter]="selectedTier"
       [showHeader]="false">
     </cmdb-license-feature-catalog>
   </div>
