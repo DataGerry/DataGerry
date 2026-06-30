@@ -14,13 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All API routes for OpenCelium Invokers
+All API routes for OpenCelium Templates
 """
 from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort, current_app, request
 from werkzeug import Response
+from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcTemplateManager
 
@@ -69,8 +70,10 @@ def create_oc_template(request_user: CmdbUser) -> Response:
         # LOGGER.debug(f"template: {template}")
 
         return DefaultResponse(created_template).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcTemplateCreateError as err:
-        LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[create_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to create the OpenCelium Template!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -101,6 +104,8 @@ def get_oc_template(request_user: CmdbUser, template_id: str) -> Response:
         # LOGGER.debug(f"template: {template}")
 
         return DefaultResponse(template).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcTemplateGetError as err:
         LOGGER.error("[get_oc_template] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Template with ID:{template_id}!")
@@ -129,6 +134,8 @@ def get_all_oc_templates(request_user: CmdbUser) -> list[dict[str, Any]]:
         templates: list[dict[str, Any]] = oc_template_manager.get_all_templates()
 
         return DefaultResponse(templates).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcTemplateGetError as err:
         LOGGER.error("[get_all_oc_templates] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Templates!")
@@ -163,13 +170,13 @@ def get_all_oc_templates_detailed(
         templates: list[dict[str, Any]] = oc_template_manager.get_all_templates(from_connector_id, to_connector_id)
 
         invoker_name = "DataGerry"
-        datagerry_templates = []
+        datagerry_templates: list[dict[str, Any]] = []
         if current_app.cloud_mode and not current_app.local_mode:
             invoker_name = "DataGerryCloud"
 
         # Filter DataGerry templates
         if templates:
-            datagerry_templates: list[dict[str, Any]] = [
+            datagerry_templates = [
                 t for t in templates
                 if isinstance(t, dict)
                 and (
@@ -182,6 +189,8 @@ def get_all_oc_templates_detailed(
             ]
 
         return DefaultResponse(datagerry_templates).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcTemplateGetError as err:
         LOGGER.error("[get_all_oc_templates_detailed] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium detailed Templates!")
