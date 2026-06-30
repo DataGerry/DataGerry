@@ -49,7 +49,7 @@
                 </div>
                 }
             </div>
-            <small class="form-text text-muted text-start">Use a unique field identifier</small>
+            <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
             @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
             <div class="invalid-feedback">
                 @if (nameControl.errors?.required) {
@@ -63,7 +63,7 @@
         </div>
         <div class="mb-3 col-md-12">
             <label class="mb-1">Label<span class="text-danger">*</span>:</label>
-            <input [formControl]="labelControl" [(ngModel)]="data.label" type="text" class="form-control"
+            <input [formControl]="labelControl" type="text" class="form-control"
                 placeholder="Field label" [ngClass]="{'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
                 (ngModelChange)="onInputChange($event, 'label')" />

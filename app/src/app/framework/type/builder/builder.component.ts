@@ -58,6 +58,7 @@ import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
 import { MultiSectionControl } from './controls/multi-section.control';
 import { SectionIdentifierService } from '../services/SectionIdentifierService.service';
 import { FieldIdentifierValidationService } from '../services/field-identifier-validation.service';
+import { isReservedIdentifier } from '../../../layout/validators/reserved-identifier-prefix-validator';
 import { BuilderUtils } from './utils/builder-utils';
 import { NumberControl } from './controls/number/number.control';
 import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
@@ -102,7 +103,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
     @Input() public lockedFieldNames: Array<string> = [];
 
     public selectedGlobalSectionTemplates: Array<CmdbSectionTemplate> = [];
-    public globalSectionTemplateFields: Array<string> = [];
+    private selectedGlobalTemplatesInitialized = false;
 
     public showColorPickerForSection: string | null = null;  // Keep track of which section's color picker is open
 
@@ -176,8 +177,8 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
 
 
     ngOnChanges(changes: SimpleChanges): void {
-        if (this.globalSectionTemplates?.length > 0 && this.globalSectionTemplateFields?.length == 0) {
-            this.initGlobalFieldsList();
+        if (this.globalSectionTemplates?.length > 0 && !this.selectedGlobalTemplatesInitialized) {
+            this.selectedGlobalTemplatesInitialized = true;
             this.setSelectedGlobalTemplates();
         }
     }
@@ -850,12 +851,19 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
      * @returns boolean - Returns true if the section or any of its fields are highlighted, false otherwise.
      */
     public isSectionHighlighted(section: any): boolean {
+        // Predefined / non-editable sections (global templates, special-type, system) are defined by us
+        // and trusted, so they and their fields are never flagged.
+        if (!this.canEditSection(section)) {
+            return false;
+        }
+
         const isDuplicateIdentifier = this.sections?.filter(s => s?.name === section?.name).length > 1;
         const isRefSection = section?.type === "ref-section";
-        const hasInvalidFields = section?.fields?.some(field => this.isFieldHighlighted(field));
+        const hasInvalidFields = section?.fields?.some(field => this.isFieldHighlighted(field, section));
+        const usesReservedName = isReservedIdentifier(section?.name);
 
         // Check for section-level issues (name, label, duplicates)
-        const hasSectionIssues = !section?.name || isDuplicateIdentifier || !section?.label;
+        const hasSectionIssues = !section?.name || isDuplicateIdentifier || !section?.label || usesReservedName;
 
         if (isRefSection) {
             const isInvalidReference = !section?.reference?.type_id || !section?.reference?.section_name;
@@ -873,19 +881,32 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
      * @param field - The field to check for highlighting.
      * @returns boolean - Returns true if the field should be highlighted, false otherwise.
      */
-    public isFieldHighlighted(field: any): boolean {
+    public isFieldHighlighted(field: any, section?: any): boolean {
         // Ensure field is a valid object (not null, undefined, or a primitive)
         if (!field || typeof field !== 'object') {
             return false;
         }
 
+        // A field inside a predefined / non-editable section (global template, special-type, system) is
+        // defined by us and is never flagged - not even for duplicates, since the user cannot change it.
+        if (section && !this.canEditSection(section)) {
+            return false;
+        }
+
         const hasDuplicateIdentifier = this.hasDuplicateFieldIdentifier(field);
-        if (this.isSchemaLockedField(field)) {
+        // Locked fields (special-type schema or global template fields) are not user-editable, so only a
+        // real duplicate identifier matters for them.
+        if (this.isLockedField(field)) {
             return hasDuplicateIdentifier;
         }
 
         const isRefField = field?.type === "ref";
-        const hasInvalidIdentifier = !field?.name || hasDuplicateIdentifier;
+        // The reserved "dg-"/"dg_" prefix rule only targets user-created identifiers. The location
+        // special control ships with the system-owned "dg_location" name, which the user cannot edit,
+        // so it legitimately uses the reserved namespace and must not be flagged.
+        const isSystemReservedField = field?.type === 'location';
+        const usesReservedName = !isSystemReservedField && isReservedIdentifier(field?.name);
+        const hasInvalidIdentifier = !field?.name || hasDuplicateIdentifier || usesReservedName;
         const hasValidRefTypes = field && 'ref_types' in field && Array.isArray(field?.ref_types) && field?.ref_types?.length > 0;
 
         if (hasInvalidIdentifier || isRefField || !field?.label) {
@@ -933,7 +954,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
      */
     public preventDragForAllFields(event: DragEvent, section: any): void {
         // Check if any field in the section is highlighted (has an error)
-        const isAnyFieldHighlighted = section?.fields?.some(field => this.isFieldHighlighted(field));
+        const isAnyFieldHighlighted = section?.fields?.some(field => this.isFieldHighlighted(field, section));
         const isAnyFieldEmpty = this.checkEmptyFields()?.length > 0;
 
         if (isAnyFieldHighlighted || isAnyFieldEmpty || this.disableFields) {
@@ -976,7 +997,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
      */
     isAnyFieldHighlighted(): boolean {
         return this.sections.some(section =>
-            section?.fields?.some(field => this.isFieldHighlighted(field))
+            section?.fields?.some(field => this.isFieldHighlighted(field, section))
         );
     }
 
@@ -1171,23 +1192,19 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
 
 
     public isGlobalSection(section: CmdbTypeSection) {
-        for (let sectionIndex in this.globalSectionTemplates) {
-            const aTemplate = this.globalSectionTemplates[sectionIndex];
-
-            if (aTemplate?.name == section?.name) {
-                return true;
-            }
+        const name = section?.name;
+        if (!name) {
+            return false;
         }
 
-        for (let sectionIndex in this.selectedGlobalSectionTemplates) {
-            const aTemplate = this.selectedGlobalSectionTemplates[sectionIndex];
-
-            if (aTemplate?.name == section?.name) {
-                return true;
-            }
+        // The type persistently records which global templates it uses (global_template_ids); this is
+        // stable regardless of the transient palette/selected arrays, so it is the primary source of truth.
+        if (this.typeInstance?.global_template_ids?.includes(name)) {
+            return true;
         }
 
-        return false;
+        return [...(this.globalSectionTemplates ?? []), ...(this.selectedGlobalSectionTemplates ?? [])]
+            .some(template => template?.name === name);
     }
 
 
@@ -1214,29 +1231,20 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
 
 
     /**
-     * Checks if the fieldName is in the List of global field names
-     * 
+     * Checks if the fieldName belongs to any global section template (available or already dropped).
+     * Scans the live template arrays so detection stays correct regardless of load/drop timing,
+     * mirroring isGlobalSection.
+     *
      * @param fieldName Name of the field which should be checked
-     * @returns True if it is in the List
+     * @returns True if the field originates from a global section template
      */
-    public isGlobalField(fieldName: string) {
-        return this.globalSectionTemplateFields?.indexOf(fieldName) > -1;
-    }
-
-
-    /**
-     * Saves field names of all global section templates in a list
-     */
-    private initGlobalFieldsList() {
-
-        for (let templateIndex in this.globalSectionTemplates) {
-            let aTemplate = this.globalSectionTemplates[templateIndex];
-
-            for (let fieldIndex in aTemplate?.fields) {
-                let aField = aTemplate?.fields[fieldIndex];
-                this.globalSectionTemplateFields?.push(aField.name);
-            }
+    public isGlobalField(fieldName: string): boolean {
+        if (!fieldName) {
+            return false;
         }
+
+        return [...(this.globalSectionTemplates ?? []), ...(this.selectedGlobalSectionTemplates ?? [])]
+            .some(template => template?.fields?.some(field => field?.name === fieldName));
     }
 
 

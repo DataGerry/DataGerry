@@ -26,6 +26,7 @@ import { APIGetMultiResponse } from '../../../../../services/models/api-response
 import { ReplaySubject, Subscription } from 'rxjs';
 import { CmdbMode } from '../../../../modes.enum';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 import { ToastService } from "../../../../../layout/toast/toast.service";
 import { ValidationService } from '../../../services/validation.service';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
@@ -47,7 +48,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     /**
      * Name form control.
      */
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
 
     /**
      * Label form control.

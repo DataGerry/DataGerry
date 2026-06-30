@@ -17,6 +17,7 @@
 */
 import { Component, OnDestroy, OnInit, ChangeDetectorRef } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
 import { takeUntil, tap } from 'rxjs/operators';
@@ -46,7 +47,7 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
 
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
     public typeControl: UntypedFormControl = new UntypedFormControl(undefined, Validators.required);
     public summaryControl: UntypedFormControl = new UntypedFormControl(undefined);
