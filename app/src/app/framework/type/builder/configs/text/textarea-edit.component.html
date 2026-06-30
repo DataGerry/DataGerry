@@ -63,7 +63,7 @@
         </div>
         <div class="mb-3 col-md-12">
             <label class="mb-1">Label<span class="text-danger">*</span>:</label>
-            <input [formControl]="labelControl" [(ngModel)]="data.label" type="text" class="form-control"
+            <input [formControl]="labelControl" type="text" class="form-control"
                 placeholder="Field label" [ngClass]="{'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
                 (ngModelChange)="onInputChange($event, 'label')" />

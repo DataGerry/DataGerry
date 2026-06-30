@@ -61,7 +61,7 @@
     <div class="mb-3 col-md-12">
         <label class="mb-1">Label<span class="required">*</span>:</label>
         <input [formControl]="labelControl" type="text" class="form-control" placeholder="Field label"
-            [(ngModel)]="data.label" [ngClass]="{'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
+            [ngClass]="{'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                         'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
             (ngModelChange)="onInputChange($event, 'label')" />
         <small class="form-text">a static display name</small>

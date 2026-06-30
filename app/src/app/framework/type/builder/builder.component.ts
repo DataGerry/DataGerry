@@ -901,8 +901,11 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         }
 
         const isRefField = field?.type === "ref";
-        // Only user-created identifiers reach here, so the reserved "dg-"/"dg_" prefix rule applies.
-        const usesReservedName = isReservedIdentifier(field?.name);
+        // The reserved "dg-"/"dg_" prefix rule only targets user-created identifiers. The location
+        // special control ships with the system-owned "dg_location" name, which the user cannot edit,
+        // so it legitimately uses the reserved namespace and must not be flagged.
+        const isSystemReservedField = field?.type === 'location';
+        const usesReservedName = !isSystemReservedField && isReservedIdentifier(field?.name);
         const hasInvalidIdentifier = !field?.name || hasDuplicateIdentifier || usesReservedName;
         const hasValidRefTypes = field && 'ref_types' in field && Array.isArray(field?.ref_types) && field?.ref_types?.length > 0;
 
