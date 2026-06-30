@@ -27,6 +27,11 @@
                     Identifier is a required field
                 </div>
                 }
+                @if (nameControl.errors?.reservedPrefix) {
+                <div class="text-end">
+                    Identifier cannot start with "dg-" or "dg_" (reserved prefix)
+                </div>
+                }
             </div>
             }
         </div>

@@ -17,6 +17,7 @@
 */
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
 
@@ -47,7 +48,7 @@ export class DateFieldEditComponent extends ConfigEditBaseComponent implements O
     public datePlaceholder = 'YYYY-MM-DD';
 
     public requiredControl: UntypedFormControl = new UntypedFormControl(false);
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
     public descriptionControl: UntypedFormControl = new UntypedFormControl(undefined);
     public valueControl: UntypedFormControl = new UntypedFormControl(undefined);

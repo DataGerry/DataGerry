@@ -17,6 +17,7 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
 
@@ -37,7 +38,7 @@ export class CheckFieldEditComponent extends ConfigEditBaseComponent implements 
     // Component un-subscriber
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
     public descriptionControl: UntypedFormControl = new UntypedFormControl('');
     public valueControl: UntypedFormControl = new UntypedFormControl(false);

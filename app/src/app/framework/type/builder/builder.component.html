@@ -247,7 +247,7 @@
                                                 <div 
                                                     class="card-header d-flex justify-content-between align-items-center"
                                                     [ngClass]="{'global-section-item': isLockedField(field)}"
-                                                    [ngClass]="{'highlight-field-header': isFieldHighlighted(field)}"
+                                                    [ngClass]="{'highlight-field-header': isFieldHighlighted(field, section)}"
                                                 >
                                                     <span>
                                                         <fa-icon [icon]="['fas', matchedType(field.type)]"></fa-icon> {{field?.label}}

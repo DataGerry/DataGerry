@@ -24,6 +24,7 @@ import { ValidationService } from '../../../services/validation.service';
 import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ValidRegexValidator } from '../../../../../layout/validators/valid-regex-validator';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
@@ -41,7 +42,7 @@ export class NumberFieldEditComponent extends ConfigEditBaseComponent implements
 
     public requiredControl: UntypedFormControl = new UntypedFormControl(false);
     public hideFieldControl: UntypedFormControl = new UntypedFormControl(false);
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
     public descriptionControl: UntypedFormControl = new UntypedFormControl(undefined);
     public regexControl: UntypedFormControl = new UntypedFormControl(undefined, ValidRegexValidator);

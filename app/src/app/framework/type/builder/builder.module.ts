@@ -45,6 +45,7 @@ import { ConfigEditComponent } from './configs/config-edit.component';
 import { PreviewModalComponent } from './modals/preview-modal/preview-modal.component';
 import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-modal.component';
 import { LocationFieldInUseModalComponent } from './modals/location-field-in-use-modal/location-field-in-use-modal.component';
+import { IdentifierHintComponent } from './configs/identifier-hint/identifier-hint.component';
 import { ColorChromeModule } from 'ngx-color/chrome';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -63,7 +64,8 @@ import { ColorChromeModule } from 'ngx-color/chrome';
         NgbTooltipModule,
         LayoutModule,
         ColorChromeModule,
-        CoreModule
+        CoreModule,
+        IdentifierHintComponent
     ],
     declarations: [
         ConfigEditComponent,

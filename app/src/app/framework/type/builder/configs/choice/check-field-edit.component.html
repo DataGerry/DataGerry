@@ -46,7 +46,7 @@
             </div>
 }
         </div>
-        <small class="form-text text-muted text-start">Use a unique field identifier</small>
+        <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
         @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
 <div class="invalid-feedback">
             @if (nameControl.errors?.required) {
