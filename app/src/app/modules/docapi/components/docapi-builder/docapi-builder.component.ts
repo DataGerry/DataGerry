@@ -78,6 +78,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private warningModalOpen = false;
     private previousTypeState: { templateType: string; parameters: any } | null = null;
     public previewInProgress = false;
+    public isSaving = false;
     public isLoading$ = this.loaderService.isLoading$;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -103,6 +104,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
      * Handles the API call for creating or editing the document.
      */
     public saveDoc(): void {
+        if (this.isSaving) {
+            return;
+        }
+
         if (!this.docInstance && this.mode === CmdbMode.Create) {
             this.docInstance = new DocTemplate();
         }
@@ -110,8 +115,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.updateDocInstance();
 
         if (this.mode === CmdbMode.Create) {
+            this.isSaving = true;
             this.handleCreateMode();
         } else if (this.mode === CmdbMode.Edit) {
+            this.isSaving = true;
             this.handleEditMode();
         }
     }
@@ -474,6 +481,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         this.docapiService.postDocTemplate(this.docInstance).pipe(
             finalize(() => {
+                this.isSaving = false;
                 this.loaderService.hide();
             })
         ).subscribe({
@@ -497,6 +505,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         this.docapiService.putDocTemplate(this.docInstance).pipe(
             finalize(() => {
+                this.isSaving = false;
                 this.loaderService.hide();
             })
         ).subscribe({
