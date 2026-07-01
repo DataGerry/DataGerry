@@ -109,3 +109,29 @@ export function parseContentDispositionFilename(header: string | null): string |
 export function readLicenseFile(file: File): Observable<string> {
   return from(file.text());
 }
+
+/**
+ * Normalises the activation-request response to the bare Base64 blob.
+ *
+ * The endpoint returns the key wrapped in a `{ "activation_request": "..." }` JSON envelope, while
+ * older builds returned the bare string. Both shapes are accepted so the wizard only ever shows the
+ * blob itself, never the surrounding JSON.
+ */
+export function extractActivationRequest(response: string): string {
+  const raw = (response ?? '').trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.activation_request === 'string') {
+      return parsed.activation_request.trim();
+    }
+  } catch {
+    // Not a JSON envelope — the response is already the bare blob.
+  }
+
+  return raw;
+}

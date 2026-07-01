@@ -25,7 +25,7 @@ import { ApiCallService } from 'src/app/services/api-call.service';
 import { APIGetSingleResponse } from 'src/app/services/models/api-response';
 
 import { CurrentLicense, CurrentLicenseResponse } from '../models/license.model';
-import { mapCurrentLicenseResponse } from '../utils/license.util';
+import { extractActivationRequest, mapCurrentLicenseResponse } from '../utils/license.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -53,9 +53,6 @@ export class LicenseService extends BaseApiService<CurrentLicense> {
 
   /**
    * Generates a fresh activation request and returns its Base64 blob as a plain string.
-   *
-   * Uses the `as_string=true` variant of the activation-request endpoint so the key can be shown,
-   * copied and downloaded inside the wizard instead of forcing a browser file download.
    */
   public generateActivationKey(): Observable<string> {
     const options = {
@@ -64,7 +61,8 @@ export class LicenseService extends BaseApiService<CurrentLicense> {
       responseType: 'text'
     };
 
-    return this.api.callGet<string>(`${this.servicePrefix}/activation-request`, options);
+    return this.api.callGet<string>(`${this.servicePrefix}/activation-request`, options)
+      .pipe(map((response) => extractActivationRequest(response)));
   }
 
   /** Uploads a license blob for verification and activation; returns the resulting license. */
