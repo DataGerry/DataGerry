@@ -289,8 +289,8 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     this.wizardGenerated = false;
     this.activationKey = null;
     this.activatedEntitlement = null;
-    // Reseed the gating cache so gated UI (toolbox badges, etc.) locks again without a reload.
-    this.premiumFeatureService.refresh();
+    // Clear the gating cache directly so gated UI (sidebar, toolbox badges) locks without a reload.
+    this.premiumFeatureService.clear();
     // Re-fetch so the edition, features and wizard state reflect the cleared license.
     this.loadCurrentLicense();
   }

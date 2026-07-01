@@ -141,14 +141,16 @@ export class PremiumFeatureService {
     this.license.set(license);
   }
 
-  /** Re-fetches the current license (e.g. after removal) and reseeds the cache. */
-  refresh(): void {
+  /**
+   * Clears the cached entitlement after a license removal, locking gated UI immediately.
+   */
+  clear(): void {
     if (environment.cloudMode) {
       return;
     }
 
     this.hydration$ = undefined;
-    this.fetchLicense().subscribe((license) => this.license.set(license));
+    this.license.set(null);
   }
 
   /** Opens the upgrade showcase for a feature directly (e.g. a locked badge click). */
