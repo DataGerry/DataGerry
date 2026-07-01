@@ -54,6 +54,11 @@ export class LicenseActivationWorkflowComponent implements OnChanges {
   private readonly copyService = inject(CopyService);
 
   public readonly LicenseEdition = LicenseEdition;
+
+  /** Service portal entry point and the direct link to the self-hosted license page. */
+  public readonly portalUrl = 'https://service.datagerry.com';
+  public readonly portalLicenseUrl = 'https://service.datagerry.com/self/lic';
+
   public readonly stepGenerate = 0;
   public readonly stepPortal = 1;
   public readonly stepImport = 2;
