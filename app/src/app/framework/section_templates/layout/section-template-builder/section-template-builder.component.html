@@ -94,14 +94,14 @@
                         @if (sectionTemplateID <= 0) { <form [formGroup]="formGroup" class="section-template-options">
                             <div class="section-template-option">
                                 <app-toggle class="section-template-option-control" [id]="'is-multi-data-section-label'"
-                                    [formControlName]="'isMultiDataSection'" [ariaLabel]="'Multi Data Section'" />
+                                    [controlName]="'isMultiDataSection'" [ariaLabel]="'Multi Data Section'" />
                                 <span class="section-template-option-label">
                                     Multi Data Section
                                 </span>
                             </div>
                             <div class="section-template-option is-global">
                                 <app-toggle class="section-template-option-control" [id]="'is-global-label'"
-                                    [formControlName]="'isGlobal'" [ariaLabel]="'Global Template'" />
+                                    [controlName]="'isGlobal'" [ariaLabel]="'Global Template'" />
                                 <span class="section-template-option-label">
                                     Global Template
                                 </span>
