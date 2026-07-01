@@ -1,6 +1,38 @@
+$brand: #e94d18;
+$brand-soft: rgba(233, 77, 24, 0.1);
+$hairline: #eceef1;
+$content-max: 42.5rem;
+
 .license-wizard {
-  border-radius: 0.75rem;
+  border: 1px solid #e9ecef;
+  border-radius: 1rem;
   overflow: hidden;
+  box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 1.1rem 1.5rem;
+    background-color: #fff;
+    border-bottom: 1px solid $hairline;
+    font-size: 1.02rem;
+    letter-spacing: -0.01em;
+
+    // Turn the leading icon into a soft brand chip.
+    i {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      margin: 0;
+      border-radius: 0.6rem;
+      background-color: $brand-soft;
+      color: $brand;
+      font-size: 0.85rem;
+    }
+  }
 
   &__grid {
     display: flex;
@@ -8,21 +40,29 @@
   }
 
   &__aside {
-    flex: 0 0 14rem;
-    padding: 1.5rem 1.25rem;
-    background-color: #f8f9fa;
-    border-right: 1px solid #eceef1;
+    flex: 0 0 15rem;
+    padding: 1.75rem 1.35rem;
+    background: linear-gradient(180deg, #fbfcfd 0%, #f5f7f9 100%);
+    border-right: 1px solid $hairline;
   }
 
   &__content {
     flex: 1 1 auto;
     min-width: 0;
-    padding: 1.5rem 1.75rem;
+    padding: 1.85rem 2rem;
   }
 
   &__title {
-    font-size: 1.05rem;
+    font-size: 1.15rem;
     font-weight: 600;
+    letter-spacing: -0.01em;
+    color: #1f2937;
+    margin-bottom: 0.4rem;
+  }
+
+  &__content > .text-muted {
+    max-width: $content-max;
+    line-height: 1.55;
   }
 
   &__hints {
@@ -38,7 +78,9 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.6rem;
-    margin-top: 1.5rem;
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #f1f3f5;
 
     &--end {
       justify-content: flex-end;
@@ -48,16 +90,16 @@
   &__file {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.5rem;
-    background-color: #f8f9fa;
+    gap: 0.85rem;
+    padding: 0.9rem 1.05rem;
+    border: 1px solid #d7f0e2;
+    border-radius: 0.65rem;
+    background-color: #f4fbf7;
   }
 
   &__file-icon {
-    font-size: 1.5rem;
-    color: #6c757d;
+    font-size: 1.4rem;
+    color: #198754;
   }
 
   &__file-meta {
@@ -68,21 +110,149 @@
   }
 
   &__key {
-    margin-top: 1rem;
+    margin-top: 1.25rem;
   }
 
   &__key-label {
     display: block;
     font-weight: 600;
-    margin-bottom: 0.35rem;
+    font-size: 0.85rem;
+    color: #374151;
+    margin-bottom: 0.4rem;
   }
 
   &__key-field {
     font-family: var(--bs-font-monospace, monospace);
     font-size: 0.8125rem;
+    line-height: 1.55;
     word-break: break-all;
     resize: vertical;
-    background-color: #f8f9fa;
+    background-color: #f8fafc;
+    border-color: #e2e6ea;
+    border-radius: 0.6rem;
+
+    &:focus {
+      background-color: #fff;
+      border-color: $brand;
+      box-shadow: 0 0 0 0.2rem $brand-soft;
+    }
+  }
+}
+
+/* -------------------------------------------------- SERVICE PORTAL ------------------------------------------------- */
+
+$portal-accent: #e94d18;
+
+.portal-intro {
+  max-width: $content-max;
+  line-height: 1.55;
+}
+
+.portal-steps {
+  list-style: none;
+  max-width: $content-max;
+  margin: 1.5rem 0 0;
+  padding: 0;
+
+  &__item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding-bottom: 1.5rem;
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+
+    // Continuous connector spine linking the step markers.
+    &:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 0.875rem;
+      top: 1.85rem;
+      bottom: -0.15rem;
+      width: 2px;
+      transform: translateX(-1px);
+      border-radius: 2px;
+      background-color: #e5e7eb;
+    }
+  }
+
+  &__num {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    background-color: #fde6de;
+    color: $portal-accent;
+    font-size: 0.82rem;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(233, 77, 24, 0.14);
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+    padding-top: 0.1rem;
+  }
+
+  &__title {
+    font-weight: 600;
+    color: #374151;
+  }
+
+  &__desc {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #6b7280;
+  }
+
+  &__link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $portal-accent;
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible {
+      color: darken($portal-accent, 10%);
+      text-decoration: underline;
+    }
+
+    i {
+      font-size: 0.75rem;
+    }
+  }
+}
+
+.portal-note {
+  display: flex;
+  align-items: flex-start;
+  max-width: $content-max;
+  margin: 1.5rem 0 0;
+  padding: 0.85rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #6b7280;
+  background-color: #f8fafc;
+  border: 1px solid #eef1f4;
+  border-radius: 0.6rem;
+
+  i {
+    margin-top: 0.15rem;
+    color: $portal-accent;
   }
 }
 
@@ -95,7 +265,20 @@
     &__aside {
       flex-basis: auto;
       border-right: 0;
-      border-bottom: 1px solid #eceef1;
+      border-bottom: 1px solid $hairline;
+    }
+
+    &__content {
+      padding: 1.5rem 1.25rem;
+    }
+  }
+
+  .portal-cta {
+    align-items: flex-start;
+
+    &__action {
+      width: 100%;
+      justify-content: center;
     }
   }
 }

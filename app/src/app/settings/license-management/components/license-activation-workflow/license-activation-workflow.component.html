@@ -70,13 +70,72 @@
         <!-- Step 2: Service portal -->
         @case (stepPortal) {
           <h3 class="license-wizard__title">Upload it to the service portal</h3>
-          <p class="text-muted">This step happens outside DATAGerry.</p>
-          <ol class="license-wizard__hints">
-            <li>Open the external service portal in your browser.</li>
-            <li>Upload the activation request file you just downloaded.</li>
-            <li>The portal verifies it and generates your license file.</li>
-            <li>Download the generated license file, then return here.</li>
+          <p class="text-muted portal-intro">
+            Follow these steps in the DATAGerry service portal to turn your activation request into a
+            license file.
+          </p>
+
+          <ol class="portal-steps">
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">1</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Open the service portal</span>
+                <span class="portal-steps__desc">
+                  Sign in to the DATAGerry service portal in a new browser tab.
+                </span>
+                <a
+                  class="portal-steps__link"
+                  [href]="portalUrl"
+                  target="_blank"
+                  rel="noopener noreferrer">
+                  Open service portal
+                  <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
+                </a>
+              </div>
+            </li>
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">2</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Go to license management</span>
+                <span class="portal-steps__desc">
+                  Open the license management page for your self-hosted licenses.
+                </span>
+                <a
+                  class="portal-steps__link"
+                  [href]="portalLicenseUrl"
+                  target="_blank"
+                  rel="noopener noreferrer">
+                  Open license management
+                  <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
+                </a>
+              </div>
+            </li>
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">3</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Upload your activation request</span>
+                <span class="portal-steps__desc">
+                  Upload the file you downloaded — or paste the request you copied — in the previous step.
+                </span>
+              </div>
+            </li>
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">4</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Download your license file</span>
+                <span class="portal-steps__desc">
+                  The portal verifies the request and generates your license file. Download it, then
+                  return here to import it.
+                </span>
+              </div>
+            </li>
           </ol>
+
+          <p class="portal-note">
+            <i class="fas fa-circle-info me-2" aria-hidden="true"></i>
+            The generated license file is valid for 60 minutes, so keep this tab open and import it
+            right after downloading.
+          </p>
 
           <div class="license-wizard__actions">
             <button type="button" class="btn btn-outline-secondary" (click)="onBack()">
