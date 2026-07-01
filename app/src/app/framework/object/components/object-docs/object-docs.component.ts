@@ -19,11 +19,15 @@ import { Component, inject, OnChanges, Input, SimpleChanges } from '@angular/cor
 import { MatDialog } from '@angular/material/dialog';
 
 import { FileSaverService } from 'ngx-filesaver';
+import { Observable } from 'rxjs';
+import { take } from 'rxjs/operators';
 
 import { DocapiService } from '../../../../modules/docapi/services/docapi.service';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 
 import { RenderResult } from '../../../models/cmdb-render';
 import { DocTemplate } from '../../../../modules/docapi/models/cmdb-doctemplate';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -37,21 +41,22 @@ export class ObjectDocsComponent implements OnChanges {
     @Input() renderResult: RenderResult;
     docs: DocTemplate[];
 
+    private readonly docapiService = inject(DocapiService);
+    private readonly fileSaverService = inject(FileSaverService);
+    private readonly dialog = inject(MatDialog);
+    private readonly premiumFeatureService = inject(PremiumFeatureService);
+
+    /** Drives the "Pro" upsell state shown when the Document Generator is not covered by the license. */
+    readonly documentGeneratorAvailable$: Observable<boolean> =
+        this.premiumFeatureService.isAvailable$(LicenseFeature.DocumentGenerator);
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    private readonly docapiService = inject(DocapiService);
-    private readonly fileSaverService = inject(FileSaverService);
-    private readonly dialog = inject(MatDialog);
-
-
     ngOnChanges(changes: SimpleChanges) {
         if (changes.renderResult && this.renderResult) {
-            this.docapiService.getObjectDocTemplateList(this.renderResult.type_information.type_id)
-                .subscribe((docs: DocTemplate[]) => {
-                    this.docs = docs;
-            });
+            this.loadDocuments(this.renderResult.type_information.type_id);
         }
     }
 
@@ -69,6 +74,11 @@ export class ObjectDocsComponent implements OnChanges {
     }
 
 
+    public promptDocumentUpgrade(): void {
+        this.premiumFeatureService.promptUpgrade(LicenseFeature.DocumentGenerator);
+    }
+
+
     openDocumentDialog(): void {
         const dialogRef = this.dialog.open(ObjectDocsComponent, {
             width: '400px',
@@ -77,5 +87,24 @@ export class ObjectDocsComponent implements OnChanges {
 
         dialogRef.afterClosed().subscribe(result => {
         });
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** Skips the template lookup when the feature is locked, so we never fire a call the edition can't serve. */
+    private loadDocuments(typeId: number): void {
+        this.premiumFeatureService.isAvailable$(LicenseFeature.DocumentGenerator)
+            .pipe(take(1))
+            .subscribe((available: boolean) => {
+                if (!available) {
+                    this.docs = [];
+                    return;
+                }
+
+                this.docapiService.getObjectDocTemplateList(typeId)
+                    .subscribe((docs: DocTemplate[]) => {
+                        this.docs = docs;
+                    });
+            });
     }
 }

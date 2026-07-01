@@ -205,9 +205,14 @@ export class TypeDeleteComponent implements OnInit {
 
         deleteModal.result.then((result) => {
             if (result === 'delete') {
-                this.typeService.deleteType(this.typeID).subscribe(() => {
-                    this.router.navigate(['/framework/type/']);
-                    this.toast.success(`Type was successfully Deleted: TypeID: ${this.typeID}`);
+                this.typeService.deleteType(this.typeID).subscribe({
+                    next: () => {
+                        this.router.navigate(['/framework/type/']);
+                        this.toast.success(`Type was successfully Deleted: TypeID: ${this.typeID}`);
+                    },
+                    error: (error) => {
+                        this.toast.error(error?.error?.message );
+                    }
                 });
             }
         },
