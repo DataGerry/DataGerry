@@ -1,7 +1,8 @@
-$marker-size: 2.25rem;
+$marker-size: 2.125rem;
 $accent: #e94d18;
 $done: #198754;
-$muted: #adb5bd;
+$line-idle: #e5e7eb;
+$line-done: #7cc9a8;
 
 .wizard-stepper {
   list-style: none;
@@ -10,7 +11,7 @@ $muted: #adb5bd;
 
   &__item {
     position: relative;
-    padding-bottom: 1.5rem;
+    padding-bottom: 1.75rem;
 
     &:last-child {
       padding-bottom: 0;
@@ -21,21 +22,23 @@ $muted: #adb5bd;
   &__line {
     position: absolute;
     left: calc(#{$marker-size} / 2);
-    top: $marker-size;
-    bottom: 0;
+    top: calc(#{$marker-size} + 0.15rem);
+    bottom: 0.35rem;
     width: 2px;
     transform: translateX(-1px);
-    background-color: #e5e7eb;
+    border-radius: 2px;
+    background-color: $line-idle;
+    transition: background-color 200ms ease;
   }
 
   &__item.is-completed &__line {
-    background-color: $done;
+    background-color: $line-done;
   }
 
   &__button {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.85rem;
     width: 100%;
     padding: 0;
     border: 0;
@@ -58,11 +61,13 @@ $muted: #adb5bd;
     width: $marker-size;
     height: $marker-size;
     border-radius: 50%;
-    border: 2px solid #e5e7eb;
+    border: 2px solid $line-idle;
     background-color: #fff;
-    color: $muted;
-    font-size: 0.9rem;
-    transition: all 150ms ease;
+    color: #adb5bd;
+    font-size: 0.85rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    transition: border-color 180ms ease, background-color 180ms ease,
+      color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
   }
 
   &__text {
@@ -72,9 +77,10 @@ $muted: #adb5bd;
   }
 
   &__index {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     color: #9ca3af;
   }
 
@@ -82,6 +88,14 @@ $muted: #adb5bd;
     font-size: 0.92rem;
     font-weight: 500;
     color: #6b7280;
+    transition: color 180ms ease;
+  }
+
+  // Hover affordance for steps the user can revisit.
+  &__item.is-clickable:not(.is-active):hover &__marker {
+    border-color: darken($line-idle, 12%);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(15, 23, 42, 0.1);
   }
 
   // Completed
@@ -89,6 +103,7 @@ $muted: #adb5bd;
     border-color: $done;
     background-color: $done;
     color: #fff;
+    box-shadow: 0 2px 6px rgba(25, 135, 84, 0.28);
   }
 
   &__item.is-completed &__title {
@@ -98,7 +113,12 @@ $muted: #adb5bd;
   // Active
   &__item.is-active &__marker {
     border-color: $accent;
-    background-color: rgba(233, 77, 24, 0.1);
+    background-color: #fff;
+    color: $accent;
+    box-shadow: 0 0 0 4px rgba(233, 77, 24, 0.12), 0 2px 8px rgba(233, 77, 24, 0.22);
+  }
+
+  &__item.is-active &__index {
     color: $accent;
   }
 
@@ -112,7 +132,7 @@ $muted: #adb5bd;
   }
 
   &__button:focus-visible &__marker {
-    box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.3);
+    box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.35);
   }
 }
 
