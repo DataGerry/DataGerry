@@ -93,6 +93,15 @@
           <h3 class="license-wizard__title">Import the license file</h3>
           <p class="text-muted">Import the license file you received from the service portal.</p>
 
+          <div class="alert alert-warning d-flex align-items-start">
+            <i class="fas fa-triangle-exclamation me-2 mt-1" aria-hidden="true"></i>
+            <span>
+              Import this file within <strong>60 minutes</strong> of downloading it from the service portal.
+              After that the license file expires and can no longer be imported — start again from step 1 to
+              generate a new activation request.
+            </span>
+          </div>
+
           @if (selectedFile) {
             <div class="license-wizard__file" role="status">
               <i class="fas fa-file-lines license-wizard__file-icon" aria-hidden="true"></i>
