@@ -641,6 +641,10 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
             this.typeInstance.render_meta.sections = [...this.sections];
             this.sectionReference = this.typeInstance.render_meta.sections;
             this.validationService?.setSectionValid(section?.name, true);
+
+            // Recompute status now
+            this.refreshFieldIdentifiers();
+            this.updateHighlightState();
         }
     }
 

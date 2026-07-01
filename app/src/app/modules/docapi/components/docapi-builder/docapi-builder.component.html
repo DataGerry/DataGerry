@@ -90,6 +90,7 @@
             label="Save"
             [type]="'button'"
             bootstrapClass="btn-success next"
+            [disabled]="isSaving"
             (clicked)="saveDoc()"
         ></app-button>
     </aw-wizard-step>

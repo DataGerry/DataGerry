@@ -28,13 +28,13 @@ import { ControlContainer, FormGroupDirective } from '@angular/forms';
 })
 export class ToggleComponent {
     @Input() public label = '';
-    @Input() public formControlName = '';
+    @Input() public controlName = '';
     @Input() public id = '';
     @Input() public ariaLabel = '';
 
 
     public get resolvedId(): string {
-        return this.id || this.formControlName || 'app-toggle-input';
+        return this.id || this.controlName || 'app-toggle-input';
     }
 
 
