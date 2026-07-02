@@ -1,20 +1,56 @@
 <div class="dropdown">
-  <button mat-icon-button [matMenuTriggerFor]="menu" class="custom-button">
+  <button mat-icon-button [matMenuTriggerFor]="menu" #docsMenuTrigger="matMenuTrigger" class="custom-button">
     <div class="dropdown-toggle total-title d-flex justify-object-view-items" aria-haspopup="true"
       aria-expanded="false">
       <div class="icon"><i class="fa fa-file-pdf"></i></div>
-      <div class="name"><strong class="text-uppercase">Documents</strong> <span>Total {{docs?.length}}</span></div>
+      <div class="name"><strong class="text-uppercase">Documents</strong> <span>Total {{ docs?.length || 0 }}</span>
+      </div>
     </div>
   </button>
 </div>
-<mat-menu #menu="matMenu">
+
+<mat-menu #menu="matMenu" class="dg-docs-menu">
+  <div class="dg-docs-menu__header" aria-hidden="true">
+    <span class="dg-docs-menu__header-icon"><i class="fa fa-file-pdf"></i></span>
+    <span class="dg-docs-menu__header-title">Documents</span>
+    @if (documentGeneratorAvailable$ | async) {
+    <span class="dg-docs-menu__header-count">{{ docs?.length || 0 }}</span>
+    } @else {
+    <span class="dg-premium-badge dg-premium-badge--inline">Pro</span>
+    }
+  </div>
+
+  @if (documentGeneratorAvailable$ | async) {
+
   @if (docs?.length > 0) {
-  @for (doc of docs; track doc) {
-  <button mat-menu-item (click)="downloadDocument(doc.public_id, renderResult.object_information?.object_id, doc.name)">
-    {{ doc.label }}
+  <div class="dg-docs-menu__list">
+    @for (doc of docs; track doc.public_id) {
+    <button mat-menu-item type="button" class="dg-docs-menu__item" [title]="doc.label"
+      (click)="downloadDocument(doc.public_id, renderResult?.object_information?.object_id, doc.name)">
+      <span class="dg-docs-menu__item-icon"><i class="fa fa-file-pdf"></i></span>
+      <span class="dg-docs-menu__item-label">{{ doc.label }}</span>
+      <i class="fa fa-download dg-docs-menu__item-action" aria-hidden="true"></i>
+    </button>
+    }
+  </div>
+  } @else {
+  <button mat-menu-item type="button" disabled class="dg-docs-menu__empty">
+    <span class="dg-docs-menu__item-icon"><i class="fa fa-folder-open"></i></span>
+    <span class="dg-docs-menu__item-label">No documents available</span>
   </button>
   }
+
   } @else {
-  <button mat-menu-item disabled>No documents available</button>
+  <div class="dg-docs-menu__premium">
+    <span class="dg-docs-menu__premium-icon"><i class="fas fa-lock" aria-hidden="true"></i></span>
+    <p class="dg-docs-menu__premium-title">Documents is a Pro feature</p>
+    <p class="dg-docs-menu__premium-text">
+      Generate and download polished documents from your CMDB with the Document Generator in the Self-Hosted Edition.
+    </p>
+    <button type="button" class="dg-docs-menu__premium-cta"
+      (click)="docsMenuTrigger.closeMenu(); promptDocumentUpgrade()">
+      Upgrade to unlock
+    </button>
+  </div>
   }
 </mat-menu>
