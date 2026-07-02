@@ -41,7 +41,6 @@ class IsmsProtectionGoal(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.protectionGoal"
-    MODEL = 'ProtectionGoal'
 
     SCHEMA: dict = get_isms_protection_goal_schema()
 

@@ -48,7 +48,6 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.controlMeasureAssignment"
-    MODEL = 'ControlMeasureAssignment'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('control_measure_id', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_id', 'unique': False},
@@ -65,7 +64,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
         }
     ]
 
-    SCHEMA: dict = get_isms_control_measure_assignment_schema()
+    SCHEMA: dict[str, Any] = get_isms_control_measure_assignment_schema()
 
 
     #pylint: disable=R0913, R0917
@@ -73,7 +72,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
             self,
             public_id: int,
             control_measure_id: int,
-            risk_assessment_id:int,
+            risk_assessment_id: int,
             planned_implementation_date: datetime,
             implementation_status: int,
             finished_implementation_date: datetime,
@@ -114,7 +113,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "IsmsControlMeasureAssignment":
+    def from_data(cls, data: dict[str, Any]) -> "IsmsControlMeasureAssignment":
         """
         Initialises a IsmsControlMeasureAssignment from a dict
 
@@ -153,7 +152,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "IsmsControlMeasureAssignment") -> dict:
+    def to_json(cls, instance: "IsmsControlMeasureAssignment") -> dict[str, Any]:
         """
         Converts a IsmsControlMeasureAssignment into a json compatible dict
 

@@ -32,6 +32,7 @@ from cmdb.models.isms_model import IsmsRisk, RiskType
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -87,10 +88,10 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         created_risk: dict = risk_manager.get_item(result_id, as_dict=True)
 
-        if created_risk:
-            return InsertSingleResponse(created_risk, result_id).make_response()
+        if not created_risk:
+            abort(404, "Could not retrieve the created Risk from the database!")
 
-        abort(404, "Could not retrieve the created Risk from the database!")
+        return InsertSingleResponse(created_risk, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskManagerInsertError as err:
@@ -164,12 +165,10 @@ def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     try:
         risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        requested_risk = risk_manager.get_item(public_id, as_dict=True)
+        requested_risk = get_item_or_404(risk_manager, public_id,
+                                         f"The Risk with ID:{public_id} was not found!")
 
-        if requested_risk:
-            return GetSingleResponse(requested_risk, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The Risk with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_risk, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskManagerGetError as err:
@@ -201,10 +200,8 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
     try:
         risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        to_update_risk = risk_manager.get_item(public_id)
-
-        if not to_update_risk:
-            abort(404, f"The Risk with ID:{public_id} was not found!")
+        get_item_or_404(risk_manager, public_id,
+                        f"The Risk with ID:{public_id} was not found!", as_dict=False)
 
         # Validate the RiskType
         if not RiskType.is_valid(data.get('risk_type')):
@@ -248,10 +245,8 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     try:
         risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        to_delete_risk = risk_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_risk:
-            abort(404, f"The Risk with ID:{public_id} was not found!")
+        to_delete_risk = get_item_or_404(risk_manager, public_id,
+                                         f"The Risk with ID:{public_id} was not found!")
 
         risk_manager.delete_with_follow_up(public_id)
 
@@ -276,7 +271,7 @@ def is_risk_data_valid(data: dict[str, Any]) -> bool:
 
     Depending on the risk_type, additional fields are required:
       - For THREAT_X_VULNERABILITY: 'threats' and 'vulnerabilities' must be provided
-      - For THREAT: 'threats' and 'description' must be provided
+      - For THREAT: 'threats' must be provided
       - For EVENT: 'consequences' and 'description' must be provided
 
     Args:

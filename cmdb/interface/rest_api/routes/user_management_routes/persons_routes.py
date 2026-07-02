@@ -214,9 +214,10 @@ def update_cmdb_person(public_id: int, data: dict[str, Any], request_user: CmdbU
         groups_to_add = updated_groups - existing_groups  # New groups
         groups_to_remove = existing_groups - updated_groups  # Removed groups
 
-        person_groups_manager.update_person_in_groups(public_id, groups_to_add, groups_to_remove)
-
+        # Persist the Person first, then sync the reciprocal group membership only on success
         persons_manager.update_item(public_id, CmdbPerson.from_data(data))
+
+        person_groups_manager.update_person_in_groups(public_id, groups_to_add, groups_to_remove)
 
         return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:

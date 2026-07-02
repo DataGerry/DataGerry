@@ -91,6 +91,12 @@ def create_template(request_user: CmdbUser) -> Response:
         add_data_dump = json.dumps(request.json)
 
         new_tpl_data = json.loads(add_data_dump, object_hook=json_util.object_hook)
+
+        template_name = new_tpl_data.get('name')
+
+        if docapi_manager.get_template_by_name(name=template_name):
+            abort(400, f"A template with the name '{template_name}' already exists!")
+
         new_tpl_data['public_id'] = docapi_manager.get_new_docapi_public_id()
         new_tpl_data['author_id'] = request_user.get_public_id()
 
@@ -99,6 +105,8 @@ def create_template(request_user: CmdbUser) -> Response:
         ack = docapi_manager.insert_template(template_instance)
 
         return DefaultResponse(ack).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except DocapiTemplatesManagerInsertError as err:
         LOGGER.error("[create_template] %s", err, exc_info=True)
         abort(400, "Could not insert the new template in the database!")

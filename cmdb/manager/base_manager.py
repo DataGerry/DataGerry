@@ -794,3 +794,28 @@ class BaseManager:
             )
         except DocumentDeleteError as err:
             raise BaseManagerDeleteError(str(err)) from err
+
+
+    def delete_many_from_other_collection(self, collection: str, filter_query: dict[str, Any]) -> DeleteResult:
+        """
+        Deletes every document matching the raw filter from another collection
+
+        The cross-collection counterpart of delete_many / delete_many_raw (which target this manager's
+        own collection); used to cascade a delete into referencing collections in a single round-trip
+        instead of fetching the referencing documents and deleting them one by one
+
+        Args:
+            collection (str): The name of the collection to delete from
+            filter_query (dict[str, Any]): The raw MongoDB filter selecting documents to delete
+                                           (supports operators, e.g. {'public_id': {'$in': [...]}})
+
+        Raises:
+            BaseManagerDeleteError: If the deletion operation fails
+
+        Returns:
+            DeleteResult: The outcome of the delete, including the deleted document count
+        """
+        try:
+            return self.dbm.delete_many_raw(collection=collection, db_name=self.db_name, filter_query=filter_query)
+        except DocumentDeleteError as err:
+            raise BaseManagerDeleteError(str(err)) from err

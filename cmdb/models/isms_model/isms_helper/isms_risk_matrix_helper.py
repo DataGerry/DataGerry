@@ -17,7 +17,7 @@
 Helper Methods for calculating the IsmsRiskMatrix
 """
 from logging import Logger, getLogger
-from typing import Any, Tuple
+from typing import Any
 
 from cmdb.models.user_model import CmdbUser
 
@@ -75,10 +75,10 @@ def calculate_risk_matrix(request_user: CmdbUser) -> None:
     if len(all_risk_classes) > 0 and len(all_likelihoods) > 0 and len(all_impacts) > 0:
         current_risk_matrix = ensure_default_risk_matrix(risk_matrix_manager)
 
-        new_risk_matrix_values = __generate_risk_matrix(all_impacts, all_likelihoods)
+        new_risk_matrix_values = _generate_risk_matrix(all_impacts, all_likelihoods)
 
-        new_matrix_with_risk_classes = __transfer_risk_classes(current_risk_matrix['risk_matrix'],
-                                                               new_risk_matrix_values)
+        new_matrix_with_risk_classes = _transfer_risk_classes(current_risk_matrix['risk_matrix'],
+                                                              new_risk_matrix_values)
 
         current_risk_matrix['risk_matrix'] = new_matrix_with_risk_classes
 
@@ -121,16 +121,16 @@ def check_risk_classes_set_in_matrix(risk_matrix: dict) -> bool:
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-def __generate_risk_matrix(impacts: list[dict], likelihoods: list[dict]) -> list[dict]:
+def _generate_risk_matrix(impacts: list[dict[str, Any]], likelihoods: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Generates a risk matrix starting from the bottom-left corner, filling row-wise
 
     Args:
-        impacts (list[dict]): List of impact objects
-        likelihoods (list[dict]): List of likelihood objects
+        impacts (list[dict[str, Any]]): List of impact objects
+        likelihoods (list[dict[str, Any]]): List of likelihood objects
 
     Returns:
-        list[dict]: A list of IsmsRiskMatrix cells
+        list[dict[str, Any]]: A list of IsmsRiskMatrix cells
     """
     risk_matrix = []
 
@@ -152,19 +152,20 @@ def __generate_risk_matrix(impacts: list[dict], likelihoods: list[dict]) -> list
     return risk_matrix
 
 
-def __transfer_risk_classes(old_matrix: list[dict], new_matrix: list[dict]) -> list[dict]:
+def _transfer_risk_classes(old_matrix: list[dict[str, Any]],
+                           new_matrix: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Transfers risk_class_id values from the old risk matrix to the new matrix where applicable
 
     Args:
-        old_matrix (list[dict]): The previous risk matrix.
-        new_matrix (list[dict]): The newly generated risk matrix.
+        old_matrix (list[dict[str, Any]]): The previous risk matrix.
+        new_matrix (list[dict[str, Any]]): The newly generated risk matrix.
 
     Returns:
-        list[dict]: Updated new risk matrix with transferred risk_class_id values
+        list[dict[str, Any]]: Updated new risk matrix with transferred risk_class_id values
     """
     # Create a lookup dictionary from the old matrix using (impact_id, likelihood_id) as key
-    old_risk_lookup: dict[Tuple[int, int], int] = {
+    old_risk_lookup: dict[tuple[int, int], int] = {
         (cell["impact_id"], cell["likelihood_id"]): cell["risk_class_id"] for cell in old_matrix
     }
 

@@ -105,6 +105,21 @@ class TestCreateAndList:
             database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
                 .delete_many({'name': CREATE_TEMPLATE_NAME})
 
+    def test_duplicate_name_is_rejected(self, rest_api,
+                                        database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A second POST reusing an existing name is rejected with 400 and no duplicate is created."""
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        try:
+            first = rest_api.post(f'{CRUD_URL}/', json={'name': CREATE_TEMPLATE_NAME, 'active': True})
+            assert first.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+            duplicate = rest_api.post(f'{CRUD_URL}/', json={'name': CREATE_TEMPLATE_NAME, 'active': True})
+
+            assert duplicate.status_code == HTTPStatus.BAD_REQUEST
+            assert collection.count_documents({'name': CREATE_TEMPLATE_NAME}) == 1
+        finally:
+            collection.delete_many({'name': CREATE_TEMPLATE_NAME})
+
     def test_list_returns_results_envelope(self, rest_api,
                                           database_manager: MongoDatabaseManager, database_name: str) -> None:
         """GET /docs/template returns a results envelope matching X-Total-Count."""

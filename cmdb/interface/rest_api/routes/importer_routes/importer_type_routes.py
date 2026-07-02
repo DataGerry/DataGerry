@@ -35,10 +35,6 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import NestedBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
-
-from cmdb.errors.manager.types_manager import (
-    TypesManagerInsertError,
-)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 importer_type_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/type')
@@ -80,9 +76,9 @@ def add_type(request_user: CmdbUser) -> Response:
             try:
                 type_instance = CmdbType.from_data(new_type_data)
                 types_manager.insert_type(type_instance)
-            except (TypesManagerInsertError, Exception) as err:
+            except Exception as err:
                 LOGGER.error("[add_type] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-                error_collection.update({"public_id": new_type_data['public_id'], "message": err})
+                error_collection[str(new_type_data['public_id'])] = "Failed to import this Type."
 
         return DefaultResponse(error_collection).make_response()
     except HTTPException as http_err:
@@ -124,7 +120,7 @@ def update_type(request_user: CmdbUser):
                 types_manager.update_type(update_type_instance.public_id, update_type_instance)
             except Exception as err:
                 LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                error_collection.update({"public_id": add_data_dump['public_id'], "message": err})
+                error_collection[str(add_data_dump['public_id'])] = "Failed to update this Type."
 
         return DefaultResponse(error_collection).make_response()
     except HTTPException as http_err:

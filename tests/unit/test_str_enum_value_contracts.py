@@ -45,6 +45,7 @@ from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.risk_type_enum import RiskType
 from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
 from cmdb.models.isms_model.isms_import_type_enum import IsmsImportType
+from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
@@ -116,6 +117,19 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'CONTROL_MEASURE': 'control_measure',
         'THREAT': 'threat',
         'VULNERABILITY': 'vulnerability',
+    }),
+    # IsmsRiskAssessment risk-calculation matrix keys: persisted MongoDB document keys used by the
+    # ImpactManager / ImpactCategoryManager recompute paths and the ISMS report aggregations.
+    (RiskCalculationKey, {
+        'BEFORE': 'risk_calculation_before',
+        'AFTER': 'risk_calculation_after',
+        'IMPACTS': 'impacts',
+        'IMPACT_ID': 'impact_id',
+        'IMPACT_CATEGORY_ID': 'impact_category_id',
+        'MAXIMUM_IMPACT_ID': 'maximum_impact_id',
+        'MAXIMUM_IMPACT_VALUE': 'maximum_impact_value',
+        'LIKELIHOOD_ID': 'likelihood_id',
+        'LIKELIHOOD_VALUE': 'likelihood_value',
     }),
     (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),

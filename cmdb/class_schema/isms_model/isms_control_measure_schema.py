@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsControlMeasure.SCHEMA.
 """
 from typing import Any
+
+from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_control_measure_schema() -> dict[str, Any]:
@@ -46,6 +48,7 @@ def get_isms_control_measure_schema() -> dict[str, Any]:
             'type': 'string',
             'required': True,
             'empty': False,
+            'allowed': [measure_type.value for measure_type in ControlMeasureType],
         },
         'source': {  # public_id of the source the control originates from (e.g. a framework / standard)
             'type': 'integer',
