@@ -80,7 +80,7 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 
         result_id = person_groups_manager.insert_item(data)
 
-        # Add the person to the selected groups
+        # Add the new group to each of its selected member persons
         selected_person_ids = data.get('group_members', [])
         persons_manager.add_group_to_persons(result_id, selected_person_ids)
 
@@ -216,9 +216,10 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
         persons_to_add = updated_persons - existing_persons  # New persons
         persons_to_remove = existing_persons - updated_persons  # Removed persons
 
-        persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
-
+        # Persist the PersonGroup first, then sync the reciprocal person membership only on success
         person_groups_manager.update_item(public_id, CmdbPersonGroup.from_data(data))
+
+        persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
 
         return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:

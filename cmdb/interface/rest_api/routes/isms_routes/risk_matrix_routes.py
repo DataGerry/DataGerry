@@ -17,6 +17,7 @@
 Implementation of all API routes for the IsmsRiskMatrix
 """
 from logging import Logger, getLogger
+from typing import Any
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -30,6 +31,7 @@ from cmdb.models.isms_model import IsmsRiskMatrix
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
@@ -69,12 +71,10 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
                                                                     request_user
                                                                          )
 
-        requested_risk_matrix = risk_matrix_manager.get_item(public_id, as_dict=True)
+        requested_risk_matrix = get_item_or_404(risk_matrix_manager, public_id,
+                                                 f"The RiskMatrix with ID:{public_id} was not found!")
 
-        if requested_risk_matrix:
-            return GetSingleResponse(requested_risk_matrix, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The RiskMatrix with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_risk_matrix, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskMatrixManagerGetError as err:
@@ -82,7 +82,7 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
         abort(400, f"Failed to retrieve the RiskMatrix with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_isms_risk_matrix] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the RiskMatrix!")
+        abort(500, f"An internal server error occured while retrieving the RiskMatrix with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -91,7 +91,7 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_matrix_blueprint.protect(auth=True, right='base.isms.riskMatrix.edit')
 @risk_matrix_blueprint.validate(IsmsRiskMatrix.SCHEMA)
-def update_isms_risk_matrix(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_risk_matrix(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskMatrix
 
@@ -109,10 +109,8 @@ def update_isms_risk_matrix(public_id: int, data: dict, request_user: CmdbUser):
                                                                     request_user
                                                                          )
 
-        to_update_risk_matrix = risk_matrix_manager.get_item(public_id)
-
-        if not to_update_risk_matrix:
-            abort(404, f"The RiskMatrix with ID:{public_id} was not found!")
+        get_item_or_404(risk_matrix_manager, public_id,
+                        f"The RiskMatrix with ID:{public_id} was not found!", as_dict=False)
 
         risk_matrix_manager.update_item(public_id, IsmsRiskMatrix.from_data(data))
 

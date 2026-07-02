@@ -43,7 +43,6 @@ class IsmsRiskMatrix(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.riskMatrix"
-    MODEL = 'RiskMatrix'
 
     SCHEMA: dict = get_isms_risk_matrix_schema()
 

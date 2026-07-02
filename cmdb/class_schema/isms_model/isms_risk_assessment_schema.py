@@ -22,7 +22,79 @@ before and after treatment (collection ``isms.riskAssessment``).
 This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsRiskAssessment.SCHEMA.
 """
+from typing import Any
+
+from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Allowed values for the reference-type discriminator fields, pinned to their enums
+_OBJECT_REF_TYPES: list[str] = [ref_type.value for ref_type in ObjectReferenceType]
+_PERSON_REF_TYPES: list[str] = [ref_type.value for ref_type in PersonReferenceType]
+
+
+def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
+    """
+    Builds the Cerberus schema for one risk_calculation matrix (before or after treatment).
+
+    Both matrices share the same shape; the parameter only controls whether the ``impacts`` list
+    must be present, keeping the two definitions in sync from a single source.
+
+    Args:
+        required_impacts (bool): Whether the 'impacts' list is required in this matrix
+
+    Returns:
+        dict[str, Any]: The Cerberus rules for a single risk_calculation matrix
+    """
+    return {
+        'type': 'dict',
+        'required': True,
+        'empty': False,
+        'schema': {
+            'impacts': {  # All impact category sliders
+                'type': 'list',
+                'required': required_impacts,
+                'schema': {
+                    'type': 'dict',
+                    'schema': {
+                        'impact_category_id': {  # public_id of IsmsImpactCategory
+                            'type': 'integer',
+                            'required': True,
+                        },
+                        'impact_id': {  # public_id of IsmsImpact (empty = unrated)
+                            'type': 'integer',
+                            'required': True,
+                            'nullable': True,
+                        }
+                    }
+                }
+            },
+            'likelihood_id': {  # public_id of IsmsLikelihood (empty = unrated)
+                'type': 'integer',
+                'required': True,
+                'nullable': True,
+            },
+            'likelihood_value': {  # calculation_basis of selected IsmsLikelihood
+                'type': 'float',
+                'min': 0.0,
+                'required': True,
+                'nullable': True,
+            },
+            'maximum_impact_id': {  # public_id of the maximum IsmsImpact
+                'type': 'integer',
+                'required': True,
+                'nullable': True,
+            },
+            'maximum_impact_value': {  # Maximum calculation_basis of the impact sliders
+                'type': 'float',
+                'min': 0.0,
+                'required': True,
+                'nullable': True,
+            }
+        }
+    }
+
+
 # pylint: disable=R0801
 def get_isms_risk_assessment_schema() -> dict:
     """
@@ -44,7 +116,8 @@ def get_isms_risk_assessment_schema() -> dict:
         'object_id_ref_type': {  # ObjectReferenceType Enum
             'type': 'string',
             'required': True,
-            'empty': False
+            'empty': False,
+            'allowed': _OBJECT_REF_TYPES,
         },
         'object_id': {  # public_id of referenced CmdbObject or CmdbObjectGroup (dependening on 'object_reference_type')
             'type': 'integer',
@@ -53,53 +126,7 @@ def get_isms_risk_assessment_schema() -> dict:
             'empty': False
         },
         # Risk calculation before treatment
-        'risk_calculation_before': {
-            'type': 'dict',
-            'required': True,
-            'empty': False,
-            'schema': {
-                'impacts': {  # All impact category sliders
-                    'type': 'list',
-                    'required': True,
-                    'schema': {
-                        'type': 'dict',
-                        'schema': {
-                            'impact_category_id': {  # public_id of IsmsImpactCategory
-                                'type': 'integer',
-                                'required': True,
-                            },
-                            'impact_id': {  # public_id of IsmsImpact (empty = unrated)
-                                'type': 'integer',
-                                'required': True,
-                                'nullable': True,
-                            }
-                        }
-                    }
-                },
-                'likelihood_id': {  # public_id of IsmsLikelihood (empty = unrated)
-                    'type': 'integer',
-                    'required': True,
-                    'nullable': True,
-                },
-                'likelihood_value': {  # calculation_basis of selected IsmsLikelihood
-                    'type': 'float',
-                    'min': 0.0,
-                    'required': True,
-                    'nullable': True,
-                },
-                'maximum_impact_id': {  # public_id of the maximum IsmsImpact
-                    'type': 'integer',
-                    'required': True,
-                    'nullable': True,
-                },
-                'maximum_impact_value': {  # Maximum calculation_basis of the impact sliders
-                    'type': 'float',
-                    'min': 0.0,
-                    'required': True,
-                    'nullable': True,
-                }
-            }
-        },
+        'risk_calculation_before': _get_risk_calculation_schema(required_impacts=True),
         'risk_assessor_id': {  # public_id of CmdbPerson
             'type': 'integer',
             'min': 1,
@@ -109,6 +136,7 @@ def get_isms_risk_assessment_schema() -> dict:
         'risk_owner_id_ref_type': {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
+            'allowed': _PERSON_REF_TYPES,
         },
         'risk_owner_id': {  # public_id of CmdbPerson or CmdbPersonGroup
             'type': 'integer',
@@ -140,6 +168,7 @@ def get_isms_risk_assessment_schema() -> dict:
         'responsible_persons_id_ref_type': {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
+            'allowed': _PERSON_REF_TYPES,
         },
         'responsible_persons_id': {  # public_id of CmdbPerson or CmdbPersonGroup
             'type': 'integer',
@@ -187,53 +216,9 @@ def get_isms_risk_assessment_schema() -> dict:
             'required': True,
             'nullable': True,
         },
-        # Risk calculation after treatment
-        'risk_calculation_after': {
-            'type': 'dict',
-            'required': True,
-            'empty': False,
-            'schema': {
-                'impacts': {  # All impact category sliders
-                    'type': 'list',
-                    'schema': {
-                        'type': 'dict',
-                        'schema': {
-                            'impact_category_id': {  # public_id of IsmsImpactCategory
-                                'type': 'integer',
-                                'required': True,
-                            },
-                            'impact_id': {  # public_id of IsmsImpact (empty = unrated)
-                                'type': 'integer',
-                                'required': True,
-                                'nullable': True,
-                            }
-                        }
-                    }
-                },
-                'likelihood_id': {  # public_id of IsmsLikelihood (empty = unrated)
-                    'type': 'integer',
-                    'required': True,
-                    'nullable': True,
-                },
-                'likelihood_value': {  # calculation_basis of selected IsmsLikelihood
-                    'type': 'float',
-                    'min': 0.0,
-                    'required': True,
-                    'nullable': True,
-                },
-                'maximum_impact_id': {  # public_id of the maximum IsmsImpact
-                    'type': 'integer',
-                    'required': True,
-                    'nullable': True,
-                },
-                'maximum_impact_value': {  # Maximum calculation_basis of the impact sliders
-                    'type': 'float',
-                    'min': 0.0,
-                    'required': True,
-                    'nullable': True,
-                }
-            }
-        },
+        # Risk calculation after treatment (impacts optional: an untreated assessment has no
+        # after-treatment sliders yet, unlike the mandatory before-treatment matrix)
+        'risk_calculation_after': _get_risk_calculation_schema(required_impacts=False),
         # Checking the effectiveness of the measures
         'audit_done_date': {  # Audit done date
             'type': 'dict',
@@ -243,6 +228,7 @@ def get_isms_risk_assessment_schema() -> dict:
         'auditor_id_ref_type': {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
+            'allowed': _PERSON_REF_TYPES,
         },
         'auditor_id': {  # public_id of CmdbPerson or CmdbPersonGroup
             'type': 'integer',

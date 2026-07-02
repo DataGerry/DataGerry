@@ -69,7 +69,8 @@ class RootBlueprint(Blueprint):
                 try:
                     location_args = request.args.to_dict()
                 except Exception as err:
-                    abort(400, err)
+                    LOGGER.error("[parse_arguments] Exception: %s. Type: %s", err, type(err), exc_info=True)
+                    abort(400, "Failed to parse the request arguments!")
 
                 return f(location_args)
 

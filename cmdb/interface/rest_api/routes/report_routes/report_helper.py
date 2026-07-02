@@ -22,6 +22,7 @@ Create / Update / Run routes. Validation helpers abort with HTTP 400 so the rout
 orchestration.
 """
 import json
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
 
@@ -42,6 +43,8 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_REQUIRED_PARAMS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 # Locked-down namespace for evaluating a stored report query: only 'datetime' is exposed and
 # builtins are removed, so the evaluation cannot reach arbitrary imports / builtins
@@ -76,7 +79,8 @@ def normalize_report_params(params: dict[str, Any]) -> None:
         params[ReportKey.CONDITIONS] = json.loads(params[ReportKey.CONDITIONS])
         params[ReportKey.SELECTED_FIELDS] = json.loads(params[ReportKey.SELECTED_FIELDS])
     except (ValueError, TypeError) as err:
-        abort(400, f"Malformed Report parameter: {err}")
+        LOGGER.error("[normalize_report_params] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(400, "One or more Report parameters are malformed!")
 
     params[ReportKey.MDS_MODE] = (
         params[ReportKey.MDS_MODE]

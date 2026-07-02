@@ -172,7 +172,7 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
                 raise http_err
             except AuthError as err:
                 LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
-                abort(500, str(err))
+                abort(500, "Authentication with OpenCelium failed!")
             except ConnectTimeout as err:
                 LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
                 abort(500, "Connection to OpenCelium could not be established!")

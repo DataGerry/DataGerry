@@ -42,7 +42,6 @@ class IsmsRisk(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.risk"
-    MODEL = 'Risk'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('risk_type', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_type', 'unique': False},

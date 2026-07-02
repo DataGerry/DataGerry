@@ -17,6 +17,7 @@
 Implementation of IsmsImpactCategory in DataGerry - ISMS
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
@@ -41,23 +42,27 @@ class IsmsImpactCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.impactCategory"
-    MODEL = 'ImpactCategory'
 
     SCHEMA: dict = get_isms_impact_category_schema()
 
 
-    #pylint: disable=R0917
-    def __init__(self, public_id: int, name: str, impact_descriptions: list, sort: int = None):
+    # pylint: disable=R0917  # the document has four flat, independent fields; grouping them adds no clarity
+    def __init__(self,
+                 public_id: int,
+                 name: str,
+                 impact_descriptions: list[dict[str, Any]],
+                 sort: int | None = None) -> None:
         """
         Initialises an IsmsImpactCategory
 
         Args:
             public_id (int): public_id of the IsmsImpactCategory
             name (str): The name of the IsmsImpactCategory
-            impact_descriptions (list): The descriptions for each IsmsImpact
+            impact_descriptions (list[dict[str, Any]]): The descriptions for each IsmsImpact
+            sort (int | None): Sort order of the category. Defaults to None
 
         Raises:
-            IsmsImpactCategoryInitFromDataError: When the IsmsImpact could not be initialised
+            IsmsImpactCategoryInitError: When the IsmsImpactCategory could not be initialised
         """
         try:
             self.name = name
@@ -71,7 +76,7 @@ class IsmsImpactCategory(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "IsmsImpactCategory":
+    def from_data(cls, data: dict[str, Any]) -> "IsmsImpactCategory":
         """
         Initialises a IsmsImpactCategory from a dict
 
@@ -96,7 +101,7 @@ class IsmsImpactCategory(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "IsmsImpactCategory") -> dict:
+    def to_json(cls, instance: "IsmsImpactCategory") -> dict[str, Any]:
         """
         Converts a IsmsImpactCategory into a json compatible dict
 

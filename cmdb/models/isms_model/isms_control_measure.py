@@ -43,7 +43,6 @@ class IsmsControlMeasure(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.controlMeasure"
-    MODEL = 'ControlMeasure'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('control_measure_type', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_type', 'unique': False},

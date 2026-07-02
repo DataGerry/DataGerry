@@ -1049,17 +1049,15 @@ class ObjectsManager(BaseManager):
 
         if risk_assessment_ids:
             # Delete the RiskAssessments
-            self.dbm.delete_many(
+            self.delete_many_from_other_collection(
                 IsmsRiskAssessment.COLLECTION,
-                self.db_name,
-                **{'public_id': {'$in': risk_assessment_ids}},
+                {'public_id': {'$in': risk_assessment_ids}}
             )
 
             # Delete all ControlMeasureAssignments referencing those RiskAssessments
-            self.dbm.delete_many(
+            self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
-                self.db_name,
-                **{'risk_assessment_id': {'$in': risk_assessment_ids}},
+                {'risk_assessment_id': {'$in': risk_assessment_ids}}
             )
 
 

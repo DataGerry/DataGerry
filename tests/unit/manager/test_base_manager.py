@@ -122,6 +122,29 @@ def test_count_from_other_collection_wraps_failure() -> None:
         BaseManager.count_from_other_collection(mgr, 'framework.reports', {'x': 1})
 
 
+def test_delete_many_from_other_collection_delegates_to_other_collection() -> None:
+    """Deletes against the GIVEN collection (not the manager's own) with the manager's db + raw filter"""
+    mgr = _mock_manager()
+    mgr.dbm.delete_many_raw.return_value = 'delete-result'
+    filter_query = {'risk_assessment_id': {'$in': [1, 2]}}
+
+    result = BaseManager.delete_many_from_other_collection(mgr, 'isms.controlMeasureAssignment', filter_query)
+
+    assert result == 'delete-result'
+    mgr.dbm.delete_many_raw.assert_called_once_with(
+        collection='isms.controlMeasureAssignment', db_name=DB_NAME, filter_query=filter_query
+    )
+
+
+def test_delete_many_from_other_collection_wraps_failure() -> None:
+    """A DocumentDeleteError from the delete is wrapped in BaseManagerDeleteError"""
+    mgr = _mock_manager()
+    mgr.dbm.delete_many_raw.side_effect = DocumentDeleteError('boom')
+
+    with pytest.raises(BaseManagerDeleteError):
+        BaseManager.delete_many_from_other_collection(mgr, 'isms.controlMeasureAssignment', {'x': 1})
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  iterate_query                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #

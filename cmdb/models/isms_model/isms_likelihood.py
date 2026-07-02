@@ -41,7 +41,6 @@ class IsmsLikelihood(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.likelihood"
-    MODEL = 'Likelihood'
     SCHEMA: dict = get_isms_likelihood_schema()
 
 

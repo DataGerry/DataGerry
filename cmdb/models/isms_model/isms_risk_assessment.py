@@ -48,7 +48,6 @@ class IsmsRiskAssessment(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.riskAssessment"
-    MODEL = 'RiskAssessment'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('risk_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_id', 'unique': False},
@@ -79,11 +78,11 @@ class IsmsRiskAssessment(CmdbDAO):
             risk_id: int,
             object_id_ref_type: ObjectReferenceType,
             object_id: int,
-            risk_calculation_before: dict,
+            risk_calculation_before: dict[str, Any],
             risk_assessor_id: int,
             risk_owner_id_ref_type: PersonReferenceType,
             risk_owner_id: int,
-            interviewed_persons: list,
+            interviewed_persons: list[int],
             risk_assessment_date: datetime,
             additional_info: str,
             risk_treatment_option: TreatmentOption,
@@ -97,7 +96,7 @@ class IsmsRiskAssessment(CmdbDAO):
             costs_for_implementation: float,
             costs_for_implementation_currency: str,
             priority: Priority,
-            risk_calculation_after: dict,
+            risk_calculation_after: dict[str, Any],
             audit_done_date: datetime,
             auditor_id_ref_type: PersonReferenceType,
             auditor_id: int,
@@ -173,7 +172,7 @@ class IsmsRiskAssessment(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "IsmsRiskAssessment":
+    def from_data(cls, data: dict[str, Any]) -> "IsmsRiskAssessment":
         """
         Initialises a IsmsRiskAssessment from a dict
 
@@ -238,7 +237,7 @@ class IsmsRiskAssessment(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "IsmsRiskAssessment") -> dict:
+    def to_json(cls, instance: "IsmsRiskAssessment") -> dict[str, Any]:
         """
         Converts a IsmsRiskAssessment into a json compatible dict
 
