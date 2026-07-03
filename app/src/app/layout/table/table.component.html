@@ -56,6 +56,7 @@
         </div>
     </div>
 
+    <div #scroll class="table-scroll">
     <table #table layout-table class="table">
         <!-- Main Header -->
         <thead table-head [sortable]="sortable">
@@ -189,6 +190,14 @@
         <tfoot table-foot>
         </tfoot>
     </table>
+    </div>
+
+    <!-- Custom horizontal scrollbar pinned to the bottom of the viewport. Always visible
+         while the table overflows (unlike the OS scrollbar), so users know to scroll to
+         reach the remaining columns. Track + thumb are driven by the component. -->
+    <div #stickyScrollbar class="table-sticky-scrollbar is-hidden">
+        <div #stickyThumb class="table-sticky-scrollbar__thumb"></div>
+    </div>
 
     <div class="table-footer d-flex">
         <div class="me-auto">
