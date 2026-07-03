@@ -26,7 +26,7 @@
   <div class="dg-docs-menu__list">
     @for (doc of docs; track doc.public_id) {
     <button mat-menu-item type="button" class="dg-docs-menu__item" [title]="doc.label"
-      (click)="downloadDocument(doc.public_id, renderResult?.object_information?.object_id, doc.name)">
+      (click)="downloadDocument(doc.public_id, renderResult?.object_information?.object_id, doc.label)">
       <span class="dg-docs-menu__item-icon"><i class="fa fa-file-pdf"></i></span>
       <span class="dg-docs-menu__item-label">{{ doc.label }}</span>
       <i class="fa fa-download dg-docs-menu__item-action" aria-hidden="true"></i>

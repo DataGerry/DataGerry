@@ -101,7 +101,7 @@ export class ObjectDocsComponent implements OnChanges {
                     return;
                 }
 
-                this.docapiService.getObjectDocTemplateList(typeId)
+                this.docapiService.getObjectDocTemplateList(typeId, true)
                     .subscribe((docs: DocTemplate[]) => {
                         this.docs = docs;
                     });
