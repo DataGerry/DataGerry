@@ -2,6 +2,72 @@
   position: relative;
 }
 
+/* Keep wide tables scrolling within their own region instead of the whole page.
+   Only the table element is wrapped, so the header toolbar and pagination footer
+   (and their dropdowns) stay outside the overflow context. The native scrollbar is
+   hidden here; the sticky scrollbar below is the visible control. */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Custom floating horizontal scrollbar that sticks to the bottom of the viewport while
+   the table is on screen. It is always visible while the table overflows (independent of
+   the OS "show scrollbars only when scrolling" setting), so users can tell there are more
+   columns to reach. Track always shown; thumb geometry is set by the component. */
+.table-sticky-scrollbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  width: 100%;
+  height: 14px;
+  border-radius: 7px;
+  background-color: rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+
+  &.is-hidden {
+    display: none;
+  }
+
+  &__thumb {
+    position: absolute;
+    top: 3px;
+    left: 0;
+    height: 8px;
+    min-width: 28px;
+    border-radius: 4px;
+    background-color: rgba(180, 58, 14, 0.8);
+    cursor: grab;
+    transition: background-color 0.15s ease;
+    will-change: transform;
+
+    &:hover {
+      background-color: rgba(180, 58, 14, 0.92);
+    }
+
+    &.is-dragging {
+      background-color: #b43a0e;
+      cursor: grabbing;
+    }
+  }
+}
+
+
+:fullscreen .table-scroll {
+  overflow: visible;
+}
+
+:fullscreen .table-sticky-scrollbar {
+  display: none;
+}
+
 .disableContent {
   pointer-events: none;
   opacity: 0.4;
