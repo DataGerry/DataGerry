@@ -24,9 +24,10 @@ from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager, RelationsManager
+from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager, RelationsManager, ObjectsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.object_relations_manager import ROLE_PARENT, ROLE_CHILD
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_relation_model import CmdbObjectRelation
@@ -51,6 +52,7 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import Ob
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     get_existing_relation_or_abort,
     validate_object_relation_endpoints,
+    resolve_counterpart_summaries,
 )
 
 from cmdb.errors.manager.object_relations_manager import (
@@ -79,6 +81,16 @@ CREATION_TIME_FIELD: str = 'creation_time'
 LAST_EDIT_TIME_FIELD: str = 'last_edit_time'
 PUBLIC_ID_FIELD: str = 'public_id'
 TARGET_IDS_FIELD: str = 'target_ids'
+FIELD_VALUES_FIELD: str = 'field_values'
+
+# Keys of the relation-tab instances response and its rows
+TOTAL_KEY: str = 'total'
+COUNT_KEY: str = 'count'
+RESULTS_KEY: str = 'results'
+COUNTERPART_KEY: str = 'counterpart'
+
+# Default page size for the relation-tab instances route
+DEFAULT_TAB_PAGE_SIZE: int = 10
 
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
@@ -191,6 +203,110 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
     except Exception as err:
         LOGGER.error("[get_cmdb_object_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while iterating the ObjectRelations!")
+
+
+@object_relations_blueprint.route('/tabs/<int:object_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+# NOTE: no .protect right yet - general gating for this route will be added later
+def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET` route for the relation-tab descriptors of a single CmdbObject
+
+    Returns one descriptor per (relation_id, role) group - relation_id, role, role-oriented label /
+    icon / color and the instance count - so the frontend can build the relation tabs without
+    loading any CmdbObjectRelation instances
+
+    Args:
+        object_id (int): public_id of the CmdbObject whose relation tabs are requested
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        DefaultResponse: ``{'results': [...]}`` with one entry per relation tab
+    """
+    try:
+        object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
+                                                                ManagerType.OBJECT_RELATIONS,
+                                                                request_user)
+
+        tabs = object_relations_manager.get_relation_tabs(object_id)
+
+        return DefaultResponse({'results': tabs}).make_response()
+    except ObjectRelationsManagerIterationError as err:
+        LOGGER.error("[get_cmdb_object_relation_tabs] %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the ObjectRelation tabs from database!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_object_relation_tabs] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while retrieving the ObjectRelation tabs!")
+
+
+@object_relations_blueprint.route('/tabs/<int:object_id>/instances', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+# NOTE: no .protect right yet - general gating for this route will be added later
+def get_cmdb_object_relation_tab_instances(object_id: int, request_user: CmdbUser) -> Response:
+    # Orchestrates pagination params + two managers + counterpart resolution into one response
+    # pylint: disable=too-many-locals
+    """
+    HTTP `GET` route for one page of a relation tab's object relations
+
+    A tab is identified by the ``relation_id`` and ``role`` query parameters (role 'parent' or
+    'child'). Returns the paginated instances of that group, each with its own field_values and the
+    resolved counterpart (the object on the other side; null when it is missing / inactive /
+    ACL-hidden). ``total`` is the raw group size and drives the table pagination
+
+    Args:
+        object_id (int): public_id of the CmdbObject whose relations are listed
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        DefaultResponse: ``{'total': int, 'count': int, 'results': [...]}``
+    """
+    try:
+        relation_id = request.args.get('relation_id', type=int)
+        role = request.args.get('role')
+
+        if relation_id is None or role not in (ROLE_PARENT, ROLE_CHILD):
+            abort(400, "A 'relation_id' and a valid 'role' ('parent' or 'child') are required!")
+
+        limit = request.args.get('limit', DEFAULT_TAB_PAGE_SIZE, int)
+        page = request.args.get('page', 1, int)
+        skip = max(page - 1, 0) * limit if limit else 0
+        sort = request.args.get('sort', PUBLIC_ID_FIELD) or PUBLIC_ID_FIELD
+        order = request.args.get('order', 1, int)
+
+        object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
+                                                                ManagerType.OBJECT_RELATIONS,
+                                                                request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+        instances, total = object_relations_manager.get_relation_tab_instances(
+                                object_id, relation_id, role, limit=limit, skip=skip, sort=sort, order=order)
+
+        counterpart_field = RELATION_CHILD_ID_FIELD if role == ROLE_PARENT else RELATION_PARENT_ID_FIELD
+        counterparts = resolve_counterpart_summaries(
+                            [inst.get(counterpart_field) for inst in instances], request_user, objects_manager)
+
+        results = [
+            {
+                PUBLIC_ID_FIELD: inst.get(PUBLIC_ID_FIELD),
+                RELATION_ID_FIELD: inst.get(RELATION_ID_FIELD),
+                FIELD_VALUES_FIELD: inst.get(FIELD_VALUES_FIELD, []),
+                COUNTERPART_KEY: counterparts.get(inst.get(counterpart_field)),
+            }
+            for inst in instances
+        ]
+
+        return DefaultResponse({TOTAL_KEY: total, COUNT_KEY: len(results), RESULTS_KEY: results}).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectRelationsManagerIterationError as err:
+        LOGGER.error("[get_cmdb_object_relation_tab_instances] %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the ObjectRelation tab instances from database!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_object_relation_tab_instances] Exception: %s. Type: %s",
+                     err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while retrieving the ObjectRelation tab instances!")
 
 
 @object_relations_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
