@@ -105,8 +105,9 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
     }
 
 
-    public getObjectDocTemplateList(typeId: number): Observable<T[]> {
+    public getObjectDocTemplateList(typeId: number, minimal: boolean = false): Observable<T[]> {
         const options = this.getBaseOptions();
+        options.params = new HttpParams().set('minimal', String(minimal));
 
         const searchfilter = {
             template_parameters: { type: typeId }
