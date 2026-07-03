@@ -63,6 +63,10 @@ def add_type(request_user: CmdbUser) -> Response:
 
         error_collection: dict[str, Any] = {}
         upload = request.form.get('uploadFile')
+
+        if not upload:
+            abort(400, "No upload file was provided!")
+
         new_type_list = json.loads(upload, object_hook=json_util.object_hook)
 
         for new_type_data in new_type_list:
@@ -90,7 +94,8 @@ def add_type(request_user: CmdbUser) -> Response:
 
 @importer_type_blueprint.route('/update/', methods=['POST'])
 @insert_request_user
-def update_type(request_user: CmdbUser):
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def update_type(request_user: CmdbUser) -> Response:
     """
     Updates existing CmdbTypes based on uploaded JSON data. Each type must already exist 
     otherwise, an error will be recorded. Updates are applied by public ID.
@@ -105,8 +110,12 @@ def update_type(request_user: CmdbUser):
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        error_collection = {}
+        error_collection: dict[str, Any] = {}
         upload = request.form.get('uploadFile')
+
+        if not upload:
+            abort(400, "No upload file was provided!")
+
         data_dump = json.loads(upload, object_hook=json_util.object_hook)
 
         for add_data_dump in data_dump:

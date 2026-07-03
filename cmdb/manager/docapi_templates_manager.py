@@ -34,6 +34,10 @@ from cmdb.errors.manager.docapi_templates_manager import (
 
 LOGGER: Logger = getLogger(__name__)
 
+# MongoDB projection for the minimal template representation - only public_id and label are read
+# (``_id`` excluded), for lightweight listings that do not need the full template document
+MINIMAL_TEMPLATE_PROJECTION: dict[str, int] = {'public_id': 1, 'label': 1, '_id': 0}
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            DocapiTemplatesManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -142,6 +146,28 @@ class DocapiTemplatesManager(GenericManager):
             templates = self.get_many(**requirements)
 
             return [DocapiTemplate.from_data(template) for template in templates]
+        except Exception as err:
+            raise DocapiTemplatesManagerGetError(str(err)) from err
+
+
+    def get_minimal_templates_by(self, **requirements: Any) -> list[dict[str, Any]]:
+        """
+        Retrieve a minimal representation of DocapiTemplates matching the requirements filter
+
+        Only the public_id and label are read from the database (server-side projection), for
+        lightweight listings that do not need the full template document
+
+        Args:
+            **requirements (Any): Field/value pairs the returned DocapiTemplates must match
+
+        Raises:
+            DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
+
+        Returns:
+            list[dict[str, Any]]: Matching templates as {'public_id': ..., 'label': ...} dicts
+        """
+        try:
+            return self.find(criteria=requirements, projection=MINIMAL_TEMPLATE_PROJECTION)
         except Exception as err:
             raise DocapiTemplatesManagerGetError(str(err)) from err
 

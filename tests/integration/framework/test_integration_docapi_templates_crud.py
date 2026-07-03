@@ -228,6 +228,14 @@ class TestFilteredReads:
         assert [tpl.get_public_id() for tpl in results] == [TPL_ID_FOR_FILTER]
         assert all(isinstance(tpl, DocapiTemplate) for tpl in results)
 
+    def test_get_minimal_templates_by_projects_only_public_id_and_label(
+        self, docapi_templates_manager: DocapiTemplatesManager,
+    ) -> None:
+        """The minimal read returns only public_id + label dicts (server-side projection)."""
+        results = docapi_templates_manager.get_minimal_templates_by(name=FILTER_NAME)
+
+        assert results == [{'public_id': TPL_ID_FOR_FILTER, 'label': 'Template'}]
+
     def test_get_template_by_name_returns_single(self, docapi_templates_manager: DocapiTemplatesManager) -> None:
         """A name filter returns the first matching template."""
         result = docapi_templates_manager.get_template_by_name(name=FILTER_NAME)
