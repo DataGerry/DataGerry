@@ -24,8 +24,60 @@ from typing import Any
 
 from flask import abort
 
-from cmdb.manager import ObjectRelationsManager, RelationsManager
+from cmdb.manager import ObjectRelationsManager, RelationsManager, ObjectsManager
+from cmdb.manager.query_builder import BuilderParameters
+
+from cmdb.models.user_model import CmdbUser
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Keys of a counterpart summary returned for a relation-tab row
+COUNTERPART_OBJECT_ID_KEY: str = 'object_id'
+COUNTERPART_TYPE_LABEL_KEY: str = 'type_label'
+COUNTERPART_ICON_KEY: str = 'icon'
+COUNTERPART_SUMMARY_LINE_KEY: str = 'summary_line'
+
+
+def resolve_counterpart_summaries(
+    counterpart_ids: list[int],
+    request_user: CmdbUser,
+    objects_manager: ObjectsManager,
+) -> dict[int, dict[str, Any]]:
+    """
+    Renders the given counterpart objects (ACL-scoped) into minimal relation-tab row summaries
+
+    Only objects the requesting user may read are returned; ids that are missing, inactive or
+    ACL-hidden are absent from the result, so the caller renders their row with a null counterpart
+
+    Args:
+        counterpart_ids (list[int]): public_ids of the counterpart objects to resolve
+        request_user (CmdbUser): The user requesting the data (for ACL-scoped rendering)
+        objects_manager (ObjectsManager): Manager used to fetch the counterpart objects
+
+    Returns:
+        dict[int, dict[str, Any]]: object_id -> {object_id, type_label, icon, summary_line}
+    """
+    unique_ids = list({cid for cid in counterpart_ids if cid is not None})
+
+    if not unique_ids:
+        return {}
+
+    builder_params = BuilderParameters(criteria={'public_id': {'$in': unique_ids}})
+    objects = objects_manager.iterate(builder_params, request_user, AccessControlPermission.READ).results
+
+    summaries: dict[int, dict[str, Any]] = {}
+
+    for render_result in CmdbMultiRender(objects, request_user).result():
+        object_id = render_result.object_information.get('object_id')
+        summaries[object_id] = {
+            COUNTERPART_OBJECT_ID_KEY: object_id,
+            COUNTERPART_TYPE_LABEL_KEY: render_result.type_information.get('type_label'),
+            COUNTERPART_ICON_KEY: render_result.type_information.get('icon'),
+            COUNTERPART_SUMMARY_LINE_KEY: render_result.summary_line,
+        }
+
+    return summaries
 
 
 def get_existing_relation_or_abort(relations_manager: RelationsManager, relation_id: int | None) -> dict[str, Any]:

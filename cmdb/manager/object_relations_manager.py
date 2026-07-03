@@ -25,10 +25,14 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.models.relation_model import CmdbRelation
 
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager.object_relations_manager import OBJECT_RELATIONS_MANAGER_ERRORS
+from cmdb.errors.manager.object_relations_manager import (
+    OBJECT_RELATIONS_MANAGER_ERRORS,
+    ObjectRelationsManagerIterationError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -52,6 +56,92 @@ FIELD_VALUE_VALUE_KEY: str = 'value'
 # Keys of the ``changed_fields`` diff produced by RelationsManager.get_added_and_removed_fields
 ADDED_FIELDS_KEY: str = 'added'
 REMOVED_FIELDS_KEY: str = 'removed'
+
+# Role an object plays in a relation instance (parent side or child side)
+ROLE_PARENT: str = 'parent'
+ROLE_CHILD: str = 'child'
+
+# Role-oriented display fields on a CmdbRelation definition, projected into a relation tab
+DEF_NAME_PARENT_FIELD: str = 'relation_name_parent'
+DEF_NAME_CHILD_FIELD: str = 'relation_name_child'
+DEF_ICON_PARENT_FIELD: str = 'relation_icon_parent'
+DEF_ICON_CHILD_FIELD: str = 'relation_icon_child'
+DEF_COLOR_PARENT_FIELD: str = 'relation_color_parent'
+DEF_COLOR_CHILD_FIELD: str = 'relation_color_child'
+
+# Keys of a single relation-tab descriptor returned by build_relation_tabs_pipeline
+TAB_RELATION_ID_KEY: str = 'relation_id'
+TAB_ROLE_KEY: str = 'role'
+TAB_LABEL_KEY: str = 'label'
+TAB_ICON_KEY: str = 'icon'
+TAB_COLOR_KEY: str = 'color'
+TAB_COUNT_KEY: str = 'count'
+
+# Temporary field name for the joined relation definition inside the pipeline
+_DEFINITION_FIELD: str = 'definition'
+
+
+def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
+    """
+    Builds the aggregation pipeline that summarises an object's relations into tab descriptors
+
+    For the given object the pipeline matches every CmdbObjectRelation referencing it, derives the
+    role(s) the object plays (parent and/or child - a self-relation counts for both), groups by
+    (relation_id, role), counts the instances, joins the CmdbRelation definition and projects the
+    role-oriented label / icon / color plus the count. Groups whose relation definition no longer
+    exists are dropped (matching the frontend, which skips groups without a definition)
+
+    Args:
+        object_id (int): public_id of the CmdbObject whose relation tabs are summarised
+
+    Returns:
+        list[dict[str, Any]]: The MongoDB aggregation pipeline
+    """
+    role_ref = f'$_id.{TAB_ROLE_KEY}'
+    is_parent = {'$eq': [role_ref, ROLE_PARENT]}
+    definition_ref = f'${_DEFINITION_FIELD}'
+
+    return [
+        {'$match': {'$or': [
+            {RELATION_PARENT_ID_FIELD: object_id},
+            {RELATION_CHILD_ID_FIELD: object_id},
+        ]}},
+        # An instance places the object on the parent side, the child side, or (self-relation) both
+        {'$addFields': {'roles': {'$concatArrays': [
+            {'$cond': [{'$eq': [f'${RELATION_PARENT_ID_FIELD}', object_id]}, [ROLE_PARENT], []]},
+            {'$cond': [{'$eq': [f'${RELATION_CHILD_ID_FIELD}', object_id]}, [ROLE_CHILD], []]},
+        ]}}},
+        {'$unwind': '$roles'},
+        {'$group': {
+            '_id': {TAB_RELATION_ID_KEY: f'${RELATION_ID_FIELD}', TAB_ROLE_KEY: '$roles'},
+            TAB_COUNT_KEY: {'$sum': 1},
+        }},
+        {'$lookup': {
+            'from': CmdbRelation.COLLECTION,
+            'localField': f'_id.{TAB_RELATION_ID_KEY}',
+            'foreignField': PUBLIC_ID_FIELD,
+            'as': _DEFINITION_FIELD,
+        }},
+        # drops groups whose relation definition no longer exists
+        {'$unwind': definition_ref},
+        {'$project': {
+            '_id': 0,
+            TAB_RELATION_ID_KEY: f'$_id.{TAB_RELATION_ID_KEY}',
+            TAB_ROLE_KEY: role_ref,
+            TAB_LABEL_KEY: {'$cond': [is_parent,
+                                      f'{definition_ref}.{DEF_NAME_PARENT_FIELD}',
+                                      f'{definition_ref}.{DEF_NAME_CHILD_FIELD}']},
+            TAB_ICON_KEY: {'$cond': [is_parent,
+                                     f'{definition_ref}.{DEF_ICON_PARENT_FIELD}',
+                                     f'{definition_ref}.{DEF_ICON_CHILD_FIELD}']},
+            TAB_COLOR_KEY: {'$cond': [is_parent,
+                                      f'{definition_ref}.{DEF_COLOR_PARENT_FIELD}',
+                                      f'{definition_ref}.{DEF_COLOR_CHILD_FIELD}']},
+            TAB_COUNT_KEY: 1,
+        }},
+        # stable order: by relation, parent tab before child tab
+        {'$sort': {TAB_RELATION_ID_KEY: 1, TAB_ROLE_KEY: -1}},
+    ]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ObjectRelationsManager - CLASS                                            #
@@ -139,6 +229,72 @@ class ObjectRelationsManager(GenericManager):
             list[dict[str, Any]]: All CmdbObjectRelations where the CmdbObject is the parent or the child
         """
         return list(self.find(criteria=self.get_related_relations_query(public_id)))
+
+
+    def get_relation_tabs(self, object_id: int) -> list[dict[str, Any]]:
+        """
+        Summarises the object's relations into tab descriptors without loading any instances
+
+        Each descriptor is one (relation_id, role) group with the role-oriented label / icon / color
+        and the instance count - enough to render the relation tabs. Computed in a single aggregation
+
+        Args:
+            object_id (int): public_id of the CmdbObject whose relation tabs are requested
+
+        Raises:
+            ObjectRelationsManagerIterationError: When the aggregation fails
+
+        Returns:
+            list[dict[str, Any]]: One descriptor per (relation_id, role) group
+        """
+        try:
+            return list(self.aggregate(build_relation_tabs_pipeline(object_id)))
+        except Exception as err:
+            raise ObjectRelationsManagerIterationError(str(err)) from err
+
+
+    def get_relation_tab_instances(
+        self,
+        object_id: int,
+        relation_id: int,
+        role: str,
+        limit: int = 0,
+        skip: int = 0,
+        sort: str = PUBLIC_ID_FIELD,
+        order: int = 1,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        Retrieves one page of a relation tab's instances plus the group's total
+
+        A tab is identified by (relation_id, role): role=parent selects instances where the object is
+        the parent, role=child where it is the child. The total is the raw count of the group (so it
+        matches the tab badge and drives pagination); only the requested page is materialised
+
+        Args:
+            object_id (int): public_id of the CmdbObject whose relations are listed
+            relation_id (int): public_id of the CmdbRelation definition (the tab's relation)
+            role (str): 'parent' or 'child' - the side the object plays in this tab
+            limit (int): Page size (0 = no limit). Defaults to 0
+            skip (int): Number of documents to skip. Defaults to 0
+            sort (str): Field to sort by. Defaults to public_id
+            order (int): Sort direction, 1 ascending / -1 descending. Defaults to 1
+
+        Raises:
+            ObjectRelationsManagerIterationError: When the query fails
+
+        Returns:
+            tuple[list[dict[str, Any]], int]: (the page's object-relation documents, total in group)
+        """
+        side_field = RELATION_PARENT_ID_FIELD if role == ROLE_PARENT else RELATION_CHILD_ID_FIELD
+        criteria = {RELATION_ID_FIELD: relation_id, side_field: object_id}
+
+        try:
+            total = self.count_documents(criteria)
+            instances = list(self.find(criteria=criteria, limit=limit, skip=skip, sort=[(sort, order)]))
+
+            return instances, total
+        except Exception as err:
+            raise ObjectRelationsManagerIterationError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
