@@ -41,13 +41,13 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
     Extends: PipelineBuilder
     """
 
-    def __init__(self, pipeline: list[dict] = None):
+    def __init__(self, pipeline: list[dict] | None = None):
         """
         Initializes the QuickSearchPipelineBuilder instance
 
         Args:
-            pipeline (list[dict], optional): A predefined aggregation pipeline.
-                                             Defaults to an empty list
+            pipeline (list[dict] | None): A predefined aggregation pipeline.
+                                          Defaults to an empty list
         """
         super().__init__(pipeline=pipeline)
 
@@ -55,9 +55,10 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
     def build(
             self,
             search_term: str,
-            user: CmdbUser = None,
-            permission: AccessControlPermission = None,
+            user: CmdbUser | None = None,
+            permission: AccessControlPermission | None = None,
             active_flag: bool = False) -> list[dict]:
+        # pylint: disable=arguments-differ
         """
         Builds an aggregation pipeline based on the given search term and optional filters
 

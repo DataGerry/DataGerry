@@ -167,19 +167,26 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
     """
     HTTP `GET` route for getting multiple DocapiTemplates filtered by the searchfilter
 
+    With the ``minimal=true`` query parameter only a lightweight representation of each template
+    (public_id + label) is returned, and only those fields are read from the database
+
     Args:
         searchfilter (str): Filter for the DocapiTemplates
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        DefaultResponse: All DocapiTemplates matching the searchfilter
+        DefaultResponse: All DocapiTemplates matching the searchfilter (minimal when requested)
     """
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
         filterdict = json.loads(searchfilter)
+        minimal = request.args.get('minimal', 'false') in ['True', 'true']
 
-        tpl = docapi_manager.get_templates_by(**filterdict)
+        if minimal:
+            tpl = docapi_manager.get_minimal_templates_by(**filterdict)
+        else:
+            tpl = docapi_manager.get_templates_by(**filterdict)
 
         api_response = DefaultResponse(tpl)
 

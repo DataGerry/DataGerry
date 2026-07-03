@@ -226,6 +226,24 @@ class TestFilteredReads:
             database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
                 .delete_one({'public_id': TPL_ID_FOR_GET})
 
+    def test_get_by_searchfilter_minimal_returns_only_public_id_and_label(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """With minimal=true each match carries only public_id + label, not the full document."""
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_GET)
+        try:
+            search = quote(json.dumps({'public_id': TPL_ID_FOR_GET}))
+            response = rest_api.get(f'{CRUD_URL}/by/{search}?minimal=true')
+
+            assert response.status_code == HTTPStatus.OK
+            body = response.get_json()
+            assert len(body) == 1
+            assert set(body[0]) == {'public_id', 'label'}
+            assert body[0]['public_id'] == TPL_ID_FOR_GET
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_GET})
+
     def test_get_by_name_returns_template(self, rest_api,
                                          database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The name route returns the template with the given name."""

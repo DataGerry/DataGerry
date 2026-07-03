@@ -28,7 +28,6 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
-    WebhooksManager,
     LogsManager,
     DgServicePortalManager,
     ObjectRelationsManager,
@@ -38,6 +37,7 @@ from cmdb.manager import (
     ObjectsManager,
     TypesManager,
 )
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
 
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -289,13 +289,11 @@ def handle_notify_webhooks(
         event_type (WebhookEventType): The webhook event type to emit (CREATE or DELETE)
     """
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
         if event_type == WebhookEventType.CREATE:
-            webhooks_manager.send_webhook_event(event_type, object_after=CmdbObject.to_json(target_object))
+            send_webhook_event(request_user, event_type, object_after=CmdbObject.to_json(target_object))
 
         if event_type == WebhookEventType.DELETE:
-            webhooks_manager.send_webhook_event(event_type, object_before=CmdbObject.to_json(target_object))
+            send_webhook_event(request_user, event_type, object_before=CmdbObject.to_json(target_object))
     except Exception as err:
         LOGGER.error("[handle_notify_webhooks] Send Webhook Event Exception: %s, Type:%s", err, type(err))
 

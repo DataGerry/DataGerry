@@ -35,9 +35,9 @@ from cmdb.manager import (
     LogsManager,
     ObjectsManager,
     ReportsManager,
-    WebhooksManager,
     TypesManager,
 )
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
@@ -795,7 +795,6 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
         object_ids = request.args.getlist('objectIDs')
 
@@ -907,10 +906,11 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
 
             #EVENT: UPDATE-EVENT
             try:
-                webhooks_manager.send_webhook_event(WebhookEventType.UPDATE,
-                                                    CmdbObject.to_json(current_object_instance),
-                                                    CmdbObject.to_json(object_after),
-                                                    changes)
+                send_webhook_event(request_user,
+                                   WebhookEventType.UPDATE,
+                                   CmdbObject.to_json(current_object_instance),
+                                   CmdbObject.to_json(object_after),
+                                   changes)
             except Exception as error:
                 LOGGER.error(
                     "[update_cmdb_object] Send Webhook Event Exception: %s, Type:%s", error, type(error)
@@ -970,7 +970,6 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
 
         state = None
 
@@ -1018,10 +1017,11 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
 
         #EVENT: UPDATE-EVENT
         try:
-            webhooks_manager.send_webhook_event(WebhookEventType.UPDATE,
-                                                CmdbObject.to_json(found_object),
-                                                CmdbObject.to_json(object_after),
-                                                {'state': state})
+            send_webhook_event(request_user,
+                               WebhookEventType.UPDATE,
+                               CmdbObject.to_json(found_object),
+                               CmdbObject.to_json(object_after),
+                               {'state': state})
         except Exception as error:
             LOGGER.error(
                 "[update_cmdb_object] Send Webhook Event Exception: %s, Type:%s", error, type(error)
