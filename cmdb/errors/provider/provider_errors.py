@@ -52,3 +52,21 @@ class AuthenticationError(ProviderError):
     """
     Raised when user could not be authenticated via provider
     """
+
+
+class OIDCDiscoveryError(ProviderError):
+    """
+    Raised if OIDC discovery fails or resolves to an incomplete/mismatched configuration
+    """
+
+
+class OIDCTokenValidationError(ProviderError):
+    """
+    Raised if an OIDC ID token can not be validated
+    """
+
+
+class OIDCStateMismatchError(ProviderError):
+    """
+    Raised if the OIDC callback state can not be matched to a stored request (CSRF/replay)
+    """

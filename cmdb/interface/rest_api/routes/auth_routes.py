@@ -16,11 +16,15 @@
 """
 Implementation of all authentication related API routes
 """
+import json
 from logging import Logger, getLogger
 from typing import Any, Tuple
 from datetime import datetime, timezone
+from urllib.parse import quote, urlencode, urlsplit
 
-from flask import request, current_app, abort
+import requests
+
+from flask import request, current_app, abort, redirect, url_for
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -35,6 +39,8 @@ from cmdb.manager import (
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.security.auth.providers.oidc_auth_provider import OpenIDConnectAuthenticationProvider
+from cmdb.security.auth.providers.oidc_auth_config import OpenIDConnectAuthenticationProviderConfig
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -50,7 +56,10 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
 
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
-from cmdb.errors.provider import AuthenticationProviderNotActivated, AuthenticationProviderNotFoundError
+from cmdb.errors.provider import (
+    AuthenticationProviderNotActivated,
+    AuthenticationProviderNotFoundError,
+)
 from cmdb.errors.security.security_errors import (
     InvalidCloudUserError,
     NoAccessTokenError,
@@ -396,3 +405,195 @@ def generate_token_with_params(
     token_expire = int(tg.get_expire_time().timestamp())
 
     return token, token_issued_at, token_expire
+
+# ------------------------------------------------------- OIDC ------------------------------------------------------- #
+
+OIDC_PROVIDER_CLASS = 'OpenIDConnectAuthenticationProvider'
+
+
+def _build_oidc_provider() -> Tuple[OpenIDConnectAuthenticationProvider, AuthModule]:
+    """
+    Construct an OIDC provider instance (with request store) from the current auth settings
+
+    Returns:
+        Tuple[OpenIDConnectAuthenticationProvider, AuthModule]: The provider and its AuthModule
+    """
+    users_manager = UsersManager(current_app.database_manager)
+    security_manager = SecurityManager(current_app.database_manager)
+    settings_manager = SettingsManager(current_app.database_manager)
+
+    auth_module = AuthModule(
+        settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__),
+        security_manager=security_manager,
+        users_manager=users_manager
+    )
+
+    provider_config_values = auth_module.settings.get_provider_settings(OIDC_PROVIDER_CLASS)
+    provider_config = OpenIDConnectAuthenticationProviderConfig(**provider_config_values)
+
+    provider = OpenIDConnectAuthenticationProvider(
+        config=provider_config,
+        security_manager=security_manager,
+        users_manager=users_manager,
+        database_manager=current_app.database_manager
+    )
+
+    return provider, auth_module
+
+
+def _resolve_spa_origin(requested: str | None, config: OpenIDConnectAuthenticationProviderConfig) -> str:
+    """
+    Resolve and validate the SPA origin the browser should be returned to (open-redirect guard)
+
+    Args:
+        requested (str | None): The origin requested by the SPA
+        config (OpenIDConnectAuthenticationProviderConfig): The OIDC config (frontend allowlist)
+
+    Returns:
+        str: A normalized 'scheme://netloc' origin that is allowed
+    """
+    backend_origin = request.host_url.rstrip('/')
+
+    if not requested:
+        return backend_origin
+
+    parts = urlsplit(requested)
+
+    if parts.scheme not in ('http', 'https') or not parts.netloc or parts.path or parts.query or parts.fragment:
+        abort(400, 'Invalid origin')
+
+    normalized = f"{parts.scheme}://{parts.netloc}"
+
+    if normalized == backend_origin or normalized in config.frontend_origins:
+        return normalized
+
+    abort(400, 'Origin not allowed')
+
+
+def _oidc_callback_uri(config: OpenIDConnectAuthenticationProviderConfig) -> str:
+    """
+    Resolve the backend callback URL (explicit override wins, else url_for)
+    """
+    return config.redirect_uri or url_for('auth.oidc_callback', _external=True)
+
+
+@auth_blueprint.route('/oidc/status', methods=['GET'])
+def get_oidc_status() -> Response:
+    """
+    Public status endpoint rendered on every login page. Config only, no network I/O.
+    """
+    if current_app.cloud_mode:
+        return DefaultResponse({'available': False, 'auto_redirect': False}).make_response()
+
+    try:
+        provider, auth_module = _build_oidc_provider()
+        config = provider.config
+
+        has_endpoints = bool(config.discovery_url) or bool(
+            config.authorization_endpoint and config.token_endpoint and config.jwks_uri)
+        available = bool(auth_module.settings.enable_external and config.active and config.client_id and has_endpoints)
+
+        return DefaultResponse({
+            'available': available,
+            'auto_redirect': bool(config.auto_redirect),
+        }).make_response()
+    except Exception as err:
+        LOGGER.error("[get_oidc_status] Exception: %s. Type: %s", err, type(err))
+        return DefaultResponse({'available': False, 'auto_redirect': False}).make_response()
+
+
+@auth_blueprint.route('/oidc/login', methods=['GET'])
+def oidc_login() -> Response:
+    """
+    Initiate the OIDC Authorization Code Flow: validate origin, run discovery, redirect to IdP
+    """
+    if current_app.cloud_mode:
+        abort(404)
+
+    try:
+        provider, auth_module = _build_oidc_provider()
+    except Exception as err:
+        LOGGER.error("[oidc_login] Could not build provider: %s", err, exc_info=True)
+        abort(500, "Could not initialise OIDC login")
+
+    spa_origin = _resolve_spa_origin(request.args.get('origin'), provider.config)
+
+    try:
+        if not (auth_module.settings.enable_external and provider.config.active):
+            return redirect(f"{spa_origin}/auth?error={quote('OIDC login is not available')}")
+
+        redirect_uri = _oidc_callback_uri(provider.config)
+        provider._ensure_endpoints()
+
+        return redirect(provider.get_authorization_url(redirect_uri, spa_origin))
+    except Exception as err:
+        LOGGER.error("[oidc_login] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        return redirect(f"{spa_origin}/auth?error={quote('Could not start OIDC login')}")
+
+
+@auth_blueprint.route('/oidc/callback', methods=['GET'])
+def oidc_callback() -> Response:
+    """
+    Handle the IdP redirect: exchange the code, validate the ID token, provision the user,
+    mint a DataGerry JWT and hand it to the SPA via the URL fragment (never a query string)
+    """
+    if current_app.cloud_mode:
+        abort(404)
+
+    spa_origin = request.host_url.rstrip('/')
+
+    try:
+        provider, _ = _build_oidc_provider()
+        redirect_uri = _oidc_callback_uri(provider.config)
+        provider._ensure_endpoints()
+
+        user, spa_origin = provider.handle_callback(request.args.to_dict(), redirect_uri)
+
+        token, token_issued_at, token_expire = generate_token_with_params(user, current_app.database_manager)
+        token_str = token.decode('utf-8') if isinstance(token, bytes) else token
+
+        fragment = urlencode({
+            'token': token_str,
+            'user': json.dumps(CmdbUser.to_json(user), default=str),
+            'token_issued_at': token_issued_at,
+            'token_expire': token_expire,
+        })
+
+        return redirect(f"{spa_origin}/oidc-callback#{fragment}")
+    except Exception as err:
+        LOGGER.error("[oidc_callback] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        return redirect(f"{spa_origin}/auth?error={quote('OIDC authentication failed')}")
+
+
+@auth_blueprint.route('/oidc/discover', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@auth_blueprint.protect(auth=True, right='base.system.edit')
+def oidc_discover(request_user: CmdbUser) -> Response:
+    """
+    Admin-only server-side discovery fetch for the settings form (avoids browser CORS to IdP)
+    """
+    if current_app.cloud_mode:
+        abort(404)
+
+    body = request.get_json(silent=True) or {}
+    discovery_url = (body.get('discovery_url') or '').strip()
+
+    if not discovery_url:
+        abort(400, 'discovery_url is required')
+
+    try:
+        response = requests.get(discovery_url, timeout=10)
+        response.raise_for_status()
+        document = response.json()
+    except Exception as err:
+        LOGGER.error("[oidc_discover] Discovery failed: %s", err)
+        abort(400, 'Could not fetch the discovery document')
+
+    return DefaultResponse({
+        'issuer': document.get('issuer', ''),
+        'authorization_endpoint': document.get('authorization_endpoint', ''),
+        'token_endpoint': document.get('token_endpoint', ''),
+        'userinfo_endpoint': document.get('userinfo_endpoint', ''),
+        'jwks_uri': document.get('jwks_uri', ''),
+    }).make_response()

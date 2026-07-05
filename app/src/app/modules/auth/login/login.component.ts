@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, OnDestroy, OnInit, Renderer2 } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 
 import { Subscription, finalize, first } from 'rxjs';
@@ -65,6 +65,8 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     public  isCloudMode = environment.cloudMode;
 
+    public showOidcLogin = false;
+
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
     get controls() {
         return this.loginForm?.controls;
@@ -74,6 +76,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     constructor(
         private router: Router,
+        private route: ActivatedRoute,
         private userSettingsDB: UserSettingsDBService,
         private authenticationService: AuthService,
         private permissionService: PermissionService,
@@ -107,6 +110,51 @@ export class LoginComponent implements OnInit, OnDestroy {
             password: new UntypedFormControl('', [Validators.required]),
             subscription: new UntypedFormControl(null)
         });
+
+        this.initOidc();
+    }
+
+
+    /**
+     * Determines OIDC availability and, when configured, either shows the SSO button or
+     * transparently redirects to the IdP. The '?local=true' and '?error=' fallbacks always
+     * suppress the auto-redirect so the local login form stays reachable (no redirect trap).
+     */
+    private initOidc(): void {
+        if (this.isCloudMode) {
+            return;
+        }
+
+        const params = this.route.snapshot.queryParams;
+        const error = params['error'];
+        const skipAutoRedirect = params['local'] === 'true' || !!error;
+
+        if (error) {
+            this.toastService?.error(error);
+        }
+
+        this.authenticationService.checkOidcAvailability()
+            .pipe(first())
+            .subscribe({
+                next: (status) => {
+                    this.showOidcLogin = !!status?.available;
+
+                    if (status?.available && status?.auto_redirect && !skipAutoRedirect) {
+                        window.location.href = this.authenticationService.getOidcLoginUrl();
+                    }
+                },
+                error: () => {
+                    this.showOidcLogin = false;
+                }
+            });
+    }
+
+
+    /**
+     * Redirects the browser to the backend OIDC login-initiation endpoint.
+     */
+    public onOidcLogin(): void {
+        window.location.href = this.authenticationService.getOidcLoginUrl();
     }
 
     public ngOnDestroy(): void {

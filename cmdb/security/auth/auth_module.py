@@ -31,6 +31,7 @@ from cmdb.security.auth.base_authentication_provider import BaseAuthenticationPr
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
+from cmdb.security.auth.providers.oidc_auth_provider import OpenIDConnectAuthenticationProvider
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 
 from cmdb.errors.provider import (
@@ -53,7 +54,8 @@ class AuthModule:
 
     __pre_installed_providers: list[BaseAuthenticationProvider] = [
         LocalAuthenticationProvider,
-        LdapAuthenticationProvider
+        LdapAuthenticationProvider,
+        OpenIDConnectAuthenticationProvider
     ]
 
     __installed_providers: list[BaseAuthenticationProvider] = __pre_installed_providers
@@ -89,7 +91,10 @@ class AuthModule:
 
         for provider in installed_providers:
             if not any(p['class_name'] == provider.get_name() for p in provider_config_list):
-                auth_settings_values['providers'].append(provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES)
+                auth_settings_values['providers'].append({
+                    'class_name': provider.get_name(),
+                    'config': provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
+                })
             else:
                 provider_index = next(
                     (i for i, item in enumerate(provider_config_list) if item['class_name'] == provider.get_name()), -1)

@@ -73,6 +73,15 @@
                     [disabled]="!loginForm.valid" (click)="onSubmit()">
                     Login
                   </button>
+
+                  <!-- OIDC / SSO login -->
+                  <div *ngIf="showOidcLogin" class="mt-2">
+                    <button type="button" id="oidc-login-button"
+                      class="btn btn-lg btn-outline-primary w-100 btn-login text-uppercase font-weight-bold"
+                      (click)="onOidcLogin()">
+                      <i class="fas fa-sign-in-alt me-2"></i> Login with SSO
+                    </button>
+                  </div>
                 </ng-container>
 
                 <!-- Subscription Selection -->

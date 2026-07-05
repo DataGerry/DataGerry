@@ -55,6 +55,12 @@
                             [groups]="groups"
                             *ngSwitchCase="'LdapAuthenticationProvider'"
                         />
+                        <cmdb-oidc-authentication-provider-form
+                            [provider]="providerSettings"
+                            [parent]="providersArray"
+                            [groups]="groups"
+                            *ngSwitchCase="'OpenIDConnectAuthenticationProvider'"
+                        />
                     </div>
                 </ng-container>
             </div>
