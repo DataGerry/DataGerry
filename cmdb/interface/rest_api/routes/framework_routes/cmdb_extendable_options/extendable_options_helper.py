@@ -18,6 +18,7 @@ Helper methods shared by the CmdbExtendableOption REST routes
 """
 from typing import Any
 
+from cmdb.manager import ExtendableOptionsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
@@ -28,6 +29,39 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.ext
     ExtendableOptionUsageField,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+def option_value_exists(
+        extendable_options_manager: ExtendableOptionsManager,
+        value: str,
+        option_type: str,
+        exclude_id: int | None = None) -> bool:
+    """
+    Checks whether a CmdbExtendableOption with the given value already exists for the given OptionType
+
+    Used as the uniqueness guard shared by the create and update routes. On update, ``exclude_id`` is
+    the public_id of the option being edited so it does not conflict with itself (a save that keeps the
+    value unchanged is allowed).
+
+    Args:
+        extendable_options_manager (ExtendableOptionsManager): Manager used to query options
+        value (str): The option value to check for
+        option_type (str): The OptionType the value belongs to
+        exclude_id (int | None): A public_id to exclude from the match (the option being updated).
+                                 Defaults to None
+
+    Returns:
+        bool: True if a (different) option with the same value + option_type exists, otherwise False
+    """
+    criteria: dict[str, Any] = {
+        ExtendableOptionKey.VALUE: value,
+        ExtendableOptionKey.OPTION_TYPE: option_type,
+    }
+
+    if exclude_id is not None:
+        criteria[ExtendableOptionKey.PUBLIC_ID] = {'$ne': exclude_id}
+
+    return extendable_options_manager.get_one_by(criteria) is not None
 
 
 def is_extendable_option_used(extendable_option: dict[str, Any], request_user: CmdbUser) -> bool:

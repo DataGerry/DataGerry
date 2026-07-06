@@ -41,6 +41,16 @@ from cmdb.errors.manager.users_manager import (
 
 LOGGER: Logger = getLogger(__name__)
 
+# Minimal projection for displaying a user (e.g. as a log author) without loading the full document
+MINIMAL_USER_PROJECTION: dict[str, int] = {
+    'public_id': 1,
+    'first_name': 1,
+    'last_name': 1,
+    'image': 1,
+    'user_name': 1,
+    '_id': 0,
+}
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 UsersManager - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -62,6 +72,27 @@ class UsersManager(BaseManager):
             super().__init__(CmdbUser.COLLECTION, dbm, database)
         except Exception as err:
             raise UsersManagerInitError(str(err)) from err
+
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+    def get_minimal_users_by_ids(self, public_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves a minimal projection of the CmdbUsers with the given public_ids
+
+        Only the fields needed to display a user (e.g. as a log author) are returned - public_id,
+        first_name, last_name, image, user_name - in a single query; no full user documents are loaded.
+        Ids without a matching user are simply absent from the result.
+
+        Args:
+            public_ids (list[int]): public_ids of the CmdbUsers to retrieve
+
+        Returns:
+            list[dict[str, Any]]: Minimal user dicts; an empty list when no ids are provided
+        """
+        if not public_ids:
+            return []
+
+        return self.find(criteria={'public_id': {'$in': list(public_ids)}}, projection=MINIMAL_USER_PROJECTION)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 

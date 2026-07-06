@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbExtendableOption.SCHEMA.
 """
 from typing import Any
+
+from cmdb.models.extendable_option_model.option_type_enum import OptionType
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_extendable_option_schema() -> dict[str, Any]:
@@ -42,10 +44,11 @@ def get_cmdb_extendable_option_schema() -> dict[str, Any]:
             'required': True,
             'empty': False,
         },
-        'option_type': {  # Which OptionType this value belongs to (an OptionType value)
+        'option_type': {  # Which OptionType this value belongs to (must be a defined OptionType value)
             'type': 'string',
             'required': True,
             'empty': False,
+            'allowed': [option_type.value for option_type in OptionType],
         },
         'predefined': {  # True if provided by DataGerry rather than user-created
             'type': 'boolean',

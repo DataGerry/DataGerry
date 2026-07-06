@@ -122,7 +122,7 @@ def _group_members(database_manager: MongoDatabaseManager, database_name: str, p
 class TestPostPerson:
     """POST /persons/ creates a CmdbPerson."""
 
-    def test_creates_person(self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    def test_creates_person(self, rest_api) -> None:
         """A POST with a fresh id succeeds and the person becomes retrievable."""
         response = rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET))
 
@@ -135,6 +135,32 @@ class TestPostPerson:
         response = rest_api.post(f'{ROUTE_URL}/', json={'first_name': 'NoDisplayName'})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_create_with_groups_syncs_membership(self, rest_api,
+                                                database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Creating a person with groups adds the person to those groups (reciprocal sync)."""
+        _insert_group(database_manager, database_name, GROUP_ID_A)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET, groups=[GROUP_ID_A]))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        assert _group_members(database_manager, database_name, GROUP_ID_A) == [PERSON_ID_FOR_GET]
+
+    def test_created_retrieval_missing_returns_404(self, rest_api, monkeypatch) -> None:
+        """If the created person cannot be retrieved afterwards, the route returns 404."""
+        monkeypatch.setattr(PersonsManager, 'get_item', lambda *_args, **_kwargs: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(PersonsManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 class TestGetPerson:
@@ -201,6 +227,20 @@ class TestPutPerson:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
+    def test_public_id_pinned_to_url(self, rest_api,
+                                    database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A body public_id different from the URL cannot rewrite the document identity."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE)
+        payload = _person_payload(PERSON_ID_FOR_UPDATE)
+        payload['public_id'] = PERSON_ID_FOR_GET  # forged, different from the URL id
+
+        response = rest_api.put(f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        # the document keeps its URL id; nothing was written under the forged id
+        assert rest_api.get(f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}').status_code == HTTPStatus.OK
+        assert rest_api.get(f'{ROUTE_URL}/{PERSON_ID_FOR_GET}').status_code == HTTPStatus.NOT_FOUND
+
 
 class TestDeletePerson:
     """DELETE /persons/<id> removes the person."""
@@ -218,6 +258,16 @@ class TestDeletePerson:
     def test_delete_missing_returns_404(self, rest_api) -> None:
         """Deleting a non-existent person returns 404."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_PERSON_ID}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_returns_deleted_person(self, rest_api,
+                                          database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The delete response carries the deleted person (retrieved as a dict via as_dict=True)."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_DELETE)
+
+        response = rest_api.delete(f'{ROUTE_URL}/{PERSON_ID_FOR_DELETE}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert response.get_json()['raw']['public_id'] == PERSON_ID_FOR_DELETE
 
 
 def _raiser(exc: Exception):
@@ -267,3 +317,54 @@ class TestErrorMapping:
         monkeypatch.setattr(PersonsManager, 'delete_with_follow_up', _raiser(PersonsManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{PERSON_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A PersonsManagerGetError while retrieving the created person surfaces as 400."""
+        monkeypatch.setattr(PersonsManager, 'get_item', _raiser(PersonsManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET)).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A PersonsManagerGetError while loading the person to update surfaces as 400."""
+        monkeypatch.setattr(PersonsManager, 'get_item', _raiser(PersonsManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}',
+                            json=_person_payload(PERSON_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A PersonsManagerGetError while loading the person to delete surfaces as 400."""
+        monkeypatch.setattr(PersonsManager, 'get_item', _raiser(PersonsManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{PERSON_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_list_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(PersonsManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(PersonsManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{PERSON_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_internal_error_returns_500(self, rest_api, monkeypatch,
+                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """An unexpected error on update surfaces as 500."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE)
+        monkeypatch.setattr(PersonsManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}',
+                            json=_person_payload(PERSON_ID_FOR_UPDATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_internal_error_returns_500(self, rest_api, monkeypatch,
+                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """An unexpected error on delete surfaces as 500."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_DELETE)
+        monkeypatch.setattr(PersonsManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{PERSON_ID_FOR_DELETE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR

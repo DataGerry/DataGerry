@@ -40,7 +40,7 @@ class KeyHolder:
     - In local mode, it retrieves keys from the application's configuration settings
     """
 
-    def __init__(self, dbm: MongoDatabaseManager):
+    def __init__(self, dbm: MongoDatabaseManager) -> None:
         """
         Initializes the KeyHolder instance, loading the RSA public and private keys
 
@@ -52,9 +52,9 @@ class KeyHolder:
             rsa_public (bytes): The RSA public key used for encryption
             rsa_private (bytes): The RSA private key used for decryption
         """
-        self.settings_manager = SettingsManager(dbm)
-        self.rsa_public = self.get_public_key()
-        self.rsa_private = self.get_private_key()
+        self.settings_manager: SettingsManager = SettingsManager(dbm)
+        self.rsa_public: bytes = self.get_public_key()
+        self.rsa_private: bytes = self.get_private_key()
 
 
     def get_public_key(self) -> bytes:
@@ -67,18 +67,21 @@ class KeyHolder:
 
         Returns:
             bytes: The RSA public key, decoded from base64 if retrieved from environment variables
+
+        Raises:
+            ValueError: In cloud (non-local) mode when 'DG_RSA_PUBLIC_KEY' is not set
         """
         if current_app.cloud_mode:
-            # return current_app.asymmetric_key['public']
             if current_app.local_mode:
                 return current_app.asymmetric_key['public']
 
-            public_key = base64.b64decode(os.getenv("DG_RSA_PUBLIC_KEY"))
+            env_public_key = os.getenv("DG_RSA_PUBLIC_KEY")
 
-            if not public_key:
-                LOGGER.error("Error: No RSA public key provided!")
+            if not env_public_key:
+                LOGGER.error("[get_public_key] No RSA public key provided via 'DG_RSA_PUBLIC_KEY'!")
+                raise ValueError("No RSA public key provided via the 'DG_RSA_PUBLIC_KEY' environment variable")
 
-            return public_key
+            return base64.b64decode(env_public_key)
 
         return self.settings_manager.get_value('asymmetric_key', 'security')['public']
 
@@ -93,17 +96,20 @@ class KeyHolder:
 
         Returns:
             bytes: The RSA private key, decoded from base64 if retrieved from environment variables
+
+        Raises:
+            ValueError: In cloud (non-local) mode when 'DG_RSA_PRIVATE_KEY' is not set
         """
         if current_app.cloud_mode:
-            # return current_app.asymmetric_key['private']
             if current_app.local_mode:
                 return current_app.asymmetric_key['private']
 
-            private_key = base64.b64decode(os.getenv("DG_RSA_PRIVATE_KEY"))
+            env_private_key = os.getenv("DG_RSA_PRIVATE_KEY")
 
-            if not private_key:
-                LOGGER.error("Error: No RSA private key provided!")
+            if not env_private_key:
+                LOGGER.error("[get_private_key] No RSA private key provided via 'DG_RSA_PRIVATE_KEY'!")
+                raise ValueError("No RSA private key provided via the 'DG_RSA_PRIVATE_KEY' environment variable")
 
-            return private_key
+            return base64.b64decode(env_private_key)
 
         return self.settings_manager.get_value('asymmetric_key', 'security')['private']

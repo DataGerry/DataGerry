@@ -28,9 +28,20 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import CiExplorerProfileManager, ObjectsManager, TypesManager
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
+from cmdb.errors.manager.ci_explorer_profile_manager import (
+    CiExplorerProfileManagerInsertError,
+    CiExplorerProfileManagerGetError,
+    CiExplorerProfileManagerUpdateError,
+    CiExplorerProfileManagerDeleteError,
+    CiExplorerProfileManagerIterationError,
+)
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
+import cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes as ci_explorer_routes_module
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/ci_explorer'
@@ -267,3 +278,191 @@ class TestTooltipAndTypeLabel:
             assert types.find_one({'public_id': TYPE_FOR_LABEL})['ci_explorer_label'] == LABEL_TEXT
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
+
+    def test_update_type_label_missing_body_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """PUT /type_label without the label key is rejected with 400."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.insert_one(_type_doc(TYPE_FOR_LABEL))
+        try:
+            assert rest_api.put(
+                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}', json={},
+            ).status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            types.delete_one({'public_id': TYPE_FOR_LABEL})
+
+    def test_update_type_label_missing_type_returns_404(self, rest_api) -> None:
+        """PUT /type_label for a missing type returns 404."""
+        assert rest_api.put(
+            f'{ROUTE_URL}/type_label/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
+        ).status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  ERROR MAPPING                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _raiser(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+    return _fail
+
+
+class TestErrorMapping:
+    """Manager failures map to 400 (typed) / 500 (unexpected) across the CI Explorer routes."""
+
+    def test_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A CiExplorerProfileManagerInsertError on create surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'insert_item',
+                            _raiser(CiExplorerProfileManagerInsertError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/profile',
+                             json=_profile_payload(PROFILE_FOR_CREATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_retrieval_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A get error while re-reading the created profile surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'insert_item', lambda *_a, **_k: 999)
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item',
+                            _raiser(CiExplorerProfileManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/profile',
+                             json=_profile_payload(PROFILE_FOR_CREATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_retrieval_none_returns_404(self, rest_api, monkeypatch) -> None:
+        """A None result while re-reading the created profile surfaces as 404."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'insert_item', lambda *_a, **_k: 999)
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/profile',
+                             json=_profile_payload(PROFILE_FOR_CREATE)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/profile',
+                             json=_profile_payload(PROFILE_FOR_CREATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A CiExplorerProfileManagerIterationError on list surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'iterate_items',
+                            _raiser(CiExplorerProfileManagerIterationError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/profile').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/profile').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A get error while loading the profile to update surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item',
+                            _raiser(CiExplorerProfileManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/profile/{PROFILE_FOR_UPDATE}',
+                            json=_profile_payload(PROFILE_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A CiExplorerProfileManagerUpdateError on update surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item', lambda *_a, **_k: {'public_id': PROFILE_FOR_UPDATE})
+        monkeypatch.setattr(CiExplorerProfileManager, 'update_item',
+                            _raiser(CiExplorerProfileManagerUpdateError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/profile/{PROFILE_FOR_UPDATE}',
+                            json=_profile_payload(PROFILE_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on update surfaces as 500."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item', lambda *_a, **_k: {'public_id': PROFILE_FOR_UPDATE})
+        monkeypatch.setattr(CiExplorerProfileManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/profile/{PROFILE_FOR_UPDATE}',
+                            json=_profile_payload(PROFILE_FOR_UPDATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_missing_returns_404(self, rest_api) -> None:
+        """DELETE against a missing profile id returns 404."""
+        assert rest_api.delete(f'{ROUTE_URL}/profile/{MISSING_ID}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A get error while loading the profile to delete surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item',
+                            _raiser(CiExplorerProfileManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/profile/{PROFILE_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A CiExplorerProfileManagerDeleteError on delete surfaces as 400."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item', lambda *_a, **_k: object())
+        monkeypatch.setattr(CiExplorerProfileManager, 'delete_item',
+                            _raiser(CiExplorerProfileManagerDeleteError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/profile/{PROFILE_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on delete surfaces as 500."""
+        monkeypatch.setattr(CiExplorerProfileManager, 'get_item', lambda *_a, **_k: object())
+        monkeypatch.setattr(CiExplorerProfileManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/profile/{PROFILE_FOR_DELETE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_tooltip_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManager error while updating the tooltip surfaces as 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
+                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_tooltip_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerUpdateError while persisting the tooltip surfaces as 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', lambda *_a, **_k: {'public_id': OBJECT_FOR_TOOLTIP})
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(ObjectsManagerUpdateError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
+                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_tooltip_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating the tooltip surfaces as 500."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
+                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_type_label_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManager error while updating the label surfaces as 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+                            json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_type_label_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerUpdateError while persisting the label surfaces as 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', lambda *_a, **_k: {'public_id': TYPE_FOR_LABEL})
+        monkeypatch.setattr(TypesManager, 'update_type', _raiser(TypesManagerUpdateError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+                            json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_type_label_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating the label surfaces as 500."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+                            json={'ci_explorer_label': LABEL_TEXT}).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_items_missing_target_id_returns_400(self, rest_api) -> None:
+        """GET /items without target_id is rejected with 400 (argparsing abort, re-raised)."""
+        assert rest_api.get(f'{ROUTE_URL}/items').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_items_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while building the graph surfaces as 500."""
+        monkeypatch.setattr(ci_explorer_routes_module, 'build_ci_explorer_graph', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/items?target_id=1').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

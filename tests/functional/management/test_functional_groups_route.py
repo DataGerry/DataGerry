@@ -30,8 +30,21 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import GroupsManager, UsersManager
 from cmdb.models.group_model import CmdbUserGroup, GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
+from cmdb.errors.manager.groups_manager import (
+    GroupsManagerInsertError,
+    GroupsManagerGetError,
+    GroupsManagerIterationError,
+    GroupsManagerUpdateError,
+    GroupsManagerDeleteError,
+)
+from cmdb.errors.manager.users_manager import (
+    UsersManagerGetError,
+    UsersManagerUpdateError,
+    UsersManagerDeleteError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/groups'
@@ -406,3 +419,177 @@ class TestDeleteGroup:
             assert response.status_code == HTTPStatus.NOT_FOUND
         finally:
             _drop_group(database_manager, database_name, GROUP_ID_FOR_DELETE_MOVE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   ERROR MAPPING                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _raiser(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+    return _fail
+
+
+def _patch_get_group(monkeypatch, ids, *, raises: Exception | None = None, returns: Any = None) -> None:
+    """
+    Selectively patches GroupsManager.get_group for the given target ids only
+
+    The lookup for any other id (notably the request user's own group, resolved by the ACL
+    ``protect`` check) delegates to the real method, so authorization still succeeds and only the
+    route's target lookup is stubbed / raised.
+    """
+    id_set = {ids} if isinstance(ids, int) else set(ids)
+    original = GroupsManager.get_group
+
+    def _selective(self, public_id):
+        if public_id in id_set:
+            if raises is not None:
+                raise raises
+            return returns
+        return original(self, public_id)
+
+    monkeypatch.setattr(GroupsManager, 'get_group', _selective)
+
+
+class TestErrorMapping:
+    """Manager failures map to the documented HTTP statuses across the /groups routes."""
+
+    def test_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerInsertError on create surfaces as 400."""
+        monkeypatch.setattr(GroupsManager, 'insert_group', _raiser(GroupsManagerInsertError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/',
+                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_retrieval_none_returns_404(self, rest_api, monkeypatch) -> None:
+        """A None result while re-reading the created group surfaces as 404."""
+        monkeypatch.setattr(GroupsManager, 'insert_group', lambda *_a, **_k: 999)
+        _patch_get_group(monkeypatch, 999, returns=None)
+
+        assert rest_api.post(f'{ROUTE_URL}/',
+                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_created_retrieval_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A get error while re-reading the created group surfaces as 500 (server-side)."""
+        monkeypatch.setattr(GroupsManager, 'insert_group', lambda *_a, **_k: 999)
+        _patch_get_group(monkeypatch, 999, raises=GroupsManagerGetError('boom'))
+
+        assert rest_api.post(f'{ROUTE_URL}/',
+                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(GroupsManager, 'insert_group', _raiser(RuntimeError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/',
+                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerIterationError on list surfaces as 400."""
+        monkeypatch.setattr(GroupsManager, 'iterate', _raiser(GroupsManagerIterationError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(GroupsManager, 'iterate', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerGetError on get-single surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_GET, raises=GroupsManagerGetError('boom'))
+
+        assert rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_GET, raises=RuntimeError('boom'))
+
+        assert rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerGetError while loading the group to update surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, raises=GroupsManagerGetError('boom'))
+
+        assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerUpdateError on update surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'update_group', _raiser(GroupsManagerUpdateError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on update surfaces as 500."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'update_group', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerGetError while loading the group to delete surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_NONE, raises=GroupsManagerGetError('boom'))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerDeleteError on delete surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_NONE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(GroupsManager, 'delete_group', _raiser(GroupsManagerDeleteError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on delete surfaces as 500."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_NONE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(GroupsManager, 'delete_group', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_move_user_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A UsersManagerUpdateError while moving members surfaces as 400."""
+        _patch_get_group(monkeypatch, {GROUP_ID_FOR_DELETE_MOVE, GROUP_ID_FOR_DELETE_MOVE_TARGET}, returns=object())
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
+                            _raiser(UsersManagerUpdateError('boom')))
+
+        assert rest_api.delete(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MOVE}',
+            query_string={'action': GroupDeleteMode.MOVE.value, 'group_id': GROUP_ID_FOR_DELETE_MOVE_TARGET},
+        ).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_user_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A UsersManagerGetError while resolving members surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_MODE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
+                            _raiser(UsersManagerGetError('boom')))
+
+        assert rest_api.delete(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}',
+            query_string={'action': GroupDeleteMode.DELETE.value},
+        ).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_admin_in_group_maps_user_delete_error_to_400(self, rest_api, monkeypatch) -> None:
+        """A UsersManagerDeleteError (admin-protection business rule) surfaces as 400."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_MODE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
+                            _raiser(UsersManagerDeleteError('boom')))
+
+        assert rest_api.delete(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}',
+            query_string={'action': GroupDeleteMode.DELETE.value},
+        ).status_code == HTTPStatus.BAD_REQUEST

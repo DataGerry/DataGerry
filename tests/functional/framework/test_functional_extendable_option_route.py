@@ -26,8 +26,16 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.models.isms_model.isms_risk import IsmsRisk
+from cmdb.errors.manager.extendable_options_manager import (
+    ExtendableOptionsManagerInsertError,
+    ExtendableOptionsManagerGetError,
+    ExtendableOptionsManagerUpdateError,
+    ExtendableOptionsManagerDeleteError,
+    ExtendableOptionsManagerIterationError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/extendable_options'
@@ -200,6 +208,57 @@ class TestUpdate:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert options.find_one({'public_id': OPTION_ID_PREDEFINED})['value'] == 'system-option'
 
+    def test_update_keeping_same_value_succeeds(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Re-saving an option with its value unchanged succeeds (regression: self-match used to 400)."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+
+        response = rest_api.put(f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(value=ORIGINAL_VALUE))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_update_to_value_of_another_option_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Updating to a value already used by a different option is rejected with 400."""
+        options = _options(database_manager, database_name)
+        options.insert_one(_option_doc(OPTION_ID_FOR_UPDATE, ORIGINAL_VALUE))
+        options.insert_one(_option_doc(OPTION_ID_DUPLICATE, 'taken-value'))
+
+        response = rest_api.put(f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(value='taken-value'))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_option_type_change_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Changing the option_type of an existing option is rejected with 400."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}',
+            json=_payload(option_type=OptionType.OBJECT_GROUP.value),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_predefined_flag_change_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Flipping the predefined flag of an existing option is rejected with 400."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+
+        response = rest_api.put(f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(predefined=True))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_missing_returns_404(self, rest_api) -> None:
+        """Updating a non-existent option returns 404."""
+        assert rest_api.put(
+            f'{ROUTE_URL}/{MISSING_OPTION_ID}', json=_payload(),
+        ).status_code == HTTPStatus.NOT_FOUND
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      DELETE                                                          #
@@ -243,3 +302,131 @@ class TestDelete:
         )
 
         assert rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_IN_USE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  ERROR MAPPING                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _raiser(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+    return _fail
+
+
+class TestErrorMapping:
+    """The routes map manager failures to the documented HTTP statuses (400 typed / 500 unexpected)."""
+
+    def test_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ExtendableOptionsManagerInsertError on create surfaces as 400."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item',
+                            _raiser(ExtendableOptionsManagerInsertError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_retrieval_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ExtendableOptionsManagerGetError while retrieving the created option surfaces as 400."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item', lambda *_a, **_k: 12345)
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item',
+                            _raiser(ExtendableOptionsManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_retrieval_none_returns_404(self, rest_api, monkeypatch) -> None:
+        """A None result while retrieving the created option surfaces as 404."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item', lambda *_a, **_k: 12345)
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ExtendableOptionsManagerIterationError on list surfaces as 400."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'iterate_items',
+                            _raiser(ExtendableOptionsManagerIterationError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ExtendableOptionsManagerGetError on get-single surfaces as 400."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item',
+                            _raiser(ExtendableOptionsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OPTION_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OPTION_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ExtendableOptionsManagerGetError while loading the option to update surfaces as 400."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item',
+                            _raiser(ExtendableOptionsManagerGetError('boom')))
+
+        assert rest_api.put(
+            f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(),
+        ).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_error_returns_400(
+        self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An ExtendableOptionsManagerUpdateError on update surfaces as 400."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+        monkeypatch.setattr(ExtendableOptionsManager, 'update_item',
+                            _raiser(ExtendableOptionsManagerUpdateError('boom')))
+
+        assert rest_api.put(
+            f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(value=UPDATED_VALUE),
+        ).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(
+        self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An unexpected error on update surfaces as 500."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+        monkeypatch.setattr(ExtendableOptionsManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(
+            f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(value=UPDATED_VALUE),
+        ).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ExtendableOptionsManagerGetError while loading the option to delete surfaces as 400."""
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item',
+                            _raiser(ExtendableOptionsManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_error_returns_400(
+        self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An ExtendableOptionsManagerDeleteError on delete surfaces as 400."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_DELETE))
+        monkeypatch.setattr(ExtendableOptionsManager, 'delete_item',
+                            _raiser(ExtendableOptionsManagerDeleteError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(
+        self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An unexpected error on delete surfaces as 500."""
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_DELETE))
+        monkeypatch.setattr(ExtendableOptionsManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_FOR_DELETE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR

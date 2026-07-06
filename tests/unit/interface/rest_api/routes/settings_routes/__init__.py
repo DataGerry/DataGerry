@@ -14,5 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-REST API routes for system-wide settings (DateSettings and general system/config information)
+Unit tests for the pure helpers of the settings REST route modules
 """

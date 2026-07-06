@@ -123,7 +123,7 @@ def _person_groups(database_manager: MongoDatabaseManager, database_name: str, p
 class TestPostPersonGroup:
     """POST /person_groups/ creates a CmdbPersonGroup."""
 
-    def test_creates_group(self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    def test_creates_group(self, rest_api) -> None:
         """A POST with a fresh id succeeds and the group becomes retrievable."""
         response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET))
 
@@ -136,6 +136,32 @@ class TestPostPersonGroup:
         response = rest_api.post(f'{ROUTE_URL}/', json={'email': ''})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_create_with_members_syncs_membership(self, rest_api,
+                                                 database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Creating a group with members adds the group to those persons (reciprocal sync)."""
+        _insert_person(database_manager, database_name, PERSON_ID_A)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET, group_members=[PERSON_ID_A]))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        assert _person_groups(database_manager, database_name, PERSON_ID_A) == [GROUP_ID_FOR_GET]
+
+    def test_created_retrieval_missing_returns_404(self, rest_api, monkeypatch) -> None:
+        """If the created group cannot be retrieved afterwards, the route returns 404."""
+        monkeypatch.setattr(PersonGroupsManager, 'get_item', lambda *_args, **_kwargs: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(PersonGroupsManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 class TestGetPersonGroup:
@@ -203,6 +229,20 @@ class TestPutPersonGroup:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
+    def test_public_id_pinned_to_url(self, rest_api,
+                                    database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A body public_id different from the URL cannot rewrite the document identity."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+        payload = _group_payload(GROUP_ID_FOR_UPDATE)
+        payload['public_id'] = GROUP_ID_FOR_GET  # forged, different from the URL id
+
+        response = rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        # the document keeps its URL id; nothing was written under the forged id
+        assert rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}').status_code == HTTPStatus.OK
+        assert rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_GET}').status_code == HTTPStatus.NOT_FOUND
+
 
 class TestDeletePersonGroup:
     """DELETE /person_groups/<id> removes the group."""
@@ -220,6 +260,16 @@ class TestDeletePersonGroup:
     def test_delete_missing_returns_404(self, rest_api) -> None:
         """Deleting a non-existent group returns 404."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_GROUP_ID}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_returns_deleted_group(self, rest_api,
+                                         database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The delete response carries the deleted group (retrieved as a dict via as_dict=True)."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_DELETE)
+
+        response = rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert response.get_json()['raw']['public_id'] == GROUP_ID_FOR_DELETE
 
 
 def _raiser(exc: Exception):
@@ -270,3 +320,54 @@ class TestErrorMapping:
                             _raiser(PersonGroupsManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A PersonGroupsManagerGetError while retrieving the created group surfaces as 400."""
+        monkeypatch.setattr(PersonGroupsManager, 'get_item', _raiser(PersonGroupsManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET)).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A PersonGroupsManagerGetError while loading the group to update surfaces as 400."""
+        monkeypatch.setattr(PersonGroupsManager, 'get_item', _raiser(PersonGroupsManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A PersonGroupsManagerGetError while loading the group to delete surfaces as 400."""
+        monkeypatch.setattr(PersonGroupsManager, 'get_item', _raiser(PersonGroupsManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_list_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(PersonGroupsManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(PersonGroupsManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_internal_error_returns_500(self, rest_api, monkeypatch,
+                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """An unexpected error on update surfaces as 500."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+        monkeypatch.setattr(PersonGroupsManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_internal_error_returns_500(self, rest_api, monkeypatch,
+                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """An unexpected error on delete surfaces as 500."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_DELETE)
+        monkeypatch.setattr(PersonGroupsManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR

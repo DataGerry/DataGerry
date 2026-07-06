@@ -32,6 +32,7 @@ from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/logs'
@@ -54,11 +55,25 @@ OBJECT_ID_FOR_DELETE_LOG: int = 90550
 EXISTING_OBJECT_ID: int = 90600
 DELETED_OBJECT_ID: int = 90700
 
+# include_users feature: logs for a dedicated object, two seeded users + one deleted (unseeded) user
+LOG_ID_IU_A: int = 90010
+LOG_ID_IU_B: int = 90011
+LOG_ID_IU_DUP: int = 90012
+LOG_ID_IU_MISSING_USER: int = 90013
+OBJECT_ID_IU: int = 90560
+USER_ID_A: int = 90800
+USER_ID_B: int = 90801
+USER_ID_MISSING: int = 90899
+
+MINIMAL_USER_FIELDS: set[str] = {'public_id', 'first_name', 'last_name', 'image', 'user_name'}
+
 ALL_LOG_IDS: list[int] = [
     LOG_ID_SINGLE, LOG_ID_EDIT_A, LOG_ID_EDIT_B, LOG_ID_DELETE_ACTION,
     LOG_ID_OBJECT_EXISTS, LOG_ID_OBJECT_DELETED, LOG_ID_FOR_DELETE,
+    LOG_ID_IU_A, LOG_ID_IU_B, LOG_ID_IU_DUP, LOG_ID_IU_MISSING_USER,
 ]
 ALL_OBJECT_IDS: list[int] = [EXISTING_OBJECT_ID]
+ALL_USER_IDS: list[int] = [USER_ID_A, USER_ID_B]
 
 
 def _logs(database_manager: MongoDatabaseManager, database_name: str):
@@ -91,12 +106,38 @@ def _log_doc(public_id: int,
     }
 
 
+def _users(database_manager: MongoDatabaseManager, database_name: str):
+    """Returns the users collection handle."""
+    return database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+
+
+def _iu_log_doc(public_id: int, user_id: int) -> dict[str, Any]:
+    """Builds an object log referencing OBJECT_ID_IU with a specific user_id (include_users tests)."""
+    doc = _log_doc(public_id, OBJECT_ID_IU)
+    doc['user_id'] = user_id
+    doc['user_name'] = f'stored-user-{user_id}'
+    return doc
+
+
+def _user_doc(public_id: int) -> dict[str, Any]:
+    """Builds a minimal CmdbUser doc for direct insertion."""
+    return {
+        'public_id': public_id,
+        'user_name': f'user-{public_id}',
+        'first_name': f'First{public_id}',
+        'last_name': f'Last{public_id}',
+        'image': None,
+        'active': True,
+    }
+
+
 @pytest.fixture(autouse=True)
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
-    """Removes all seeded logs + helper objects after each test."""
+    """Removes all seeded logs + helper objects + users after each test."""
     yield
     _logs(database_manager, database_name).delete_many({'public_id': {'$in': ALL_LOG_IDS}})
     _objects(database_manager, database_name).delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
+    _users(database_manager, database_name).delete_many({'public_id': {'$in': ALL_USER_IDS}})
 
 
 def _result_ids(payload: dict[str, Any]) -> set[int]:
@@ -250,3 +291,67 @@ class TestDelete:
     def test_delete_missing_returns_404(self, rest_api) -> None:
         """Bug-fix guard: deleting an unknown log yields 404 instead of a success-shaped response."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              INCLUDE USERS (?include_users)                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestIncludeUsers:
+    """``?include_users=true`` nests ``results`` as ``{logs, users}`` with the referenced users resolved.
+
+    Uses the by-object list route for isolation: only the seeded OBJECT_ID_IU logs are returned, so the
+    resolved ``users`` map is exactly the users those logs reference.
+    """
+
+    def _seed_iu_logs(self, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Seeds three logs for two users (one duplicated) + one log for a user that does not exist."""
+        _logs(database_manager, database_name).insert_many([
+            _iu_log_doc(LOG_ID_IU_A, USER_ID_A),
+            _iu_log_doc(LOG_ID_IU_B, USER_ID_B),
+            _iu_log_doc(LOG_ID_IU_DUP, USER_ID_A),
+            _iu_log_doc(LOG_ID_IU_MISSING_USER, USER_ID_MISSING),
+        ])
+        _users(database_manager, database_name).insert_many([_user_doc(USER_ID_A), _user_doc(USER_ID_B)])
+
+    def test_default_results_is_a_plain_log_list(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Without the flag, results stays the plain list of logs (unchanged default)."""
+        self._seed_iu_logs(database_manager, database_name)
+
+        response = rest_api.get(f'{ROUTE_URL}/object/{OBJECT_ID_IU}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert isinstance(response.get_json()['results'], list)
+
+    def test_include_users_nests_logs_and_users(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """With the flag, results becomes {logs, users}; users is keyed by public_id with minimal fields."""
+        self._seed_iu_logs(database_manager, database_name)
+
+        response = rest_api.get(f'{ROUTE_URL}/object/{OBJECT_ID_IU}?include_users=true')
+
+        assert response.status_code == HTTPStatus.OK
+        results = response.get_json()['results']
+        assert set(results) == {'logs', 'users'}
+        assert isinstance(results['logs'], list)
+
+        users_map = results['users']
+        # both referenced (existing) users are resolved, keyed by stringified public_id, deduped
+        assert set(users_map) == {str(USER_ID_A), str(USER_ID_B)}
+        user_a = users_map[str(USER_ID_A)]
+        assert user_a['public_id'] == USER_ID_A
+        # only the minimal fields are exposed (no password / group_id / etc.)
+        assert set(user_a) == MINIMAL_USER_FIELDS
+
+    def test_include_users_omits_deleted_user(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A log whose user_id has no matching user is omitted from the users map."""
+        self._seed_iu_logs(database_manager, database_name)
+
+        response = rest_api.get(f'{ROUTE_URL}/object/{OBJECT_ID_IU}?include_users=true')
+
+        users_map = response.get_json()['results']['users']
+        assert str(USER_ID_MISSING) not in users_map

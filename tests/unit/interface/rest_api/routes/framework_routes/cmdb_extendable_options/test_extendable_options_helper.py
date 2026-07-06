@@ -29,8 +29,12 @@ import pytest
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.extendable_option_model import OptionType
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_constants import (
+    ExtendableOptionKey,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
     is_extendable_option_used,
+    option_value_exists,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -120,3 +124,41 @@ def test_implementation_state_unused() -> None:
 def test_unrecognised_option_type_is_not_used() -> None:
     """An unrecognised option_type resolves to not-in-use."""
     assert _run('SOMETHING_ELSE', {}) is False
+
+
+class TestOptionValueExists:
+    """option_value_exists reflects get_one_by and adds the self-exclusion filter when given exclude_id."""
+
+    def test_true_when_match_found(self) -> None:
+        """A matching option makes the check return True."""
+        manager = MagicMock()
+        manager.get_one_by.return_value = {'public_id': 5}
+
+        assert option_value_exists(manager, 'value', OptionType.RISK.value) is True
+
+    def test_false_when_no_match(self) -> None:
+        """No matching option makes the check return False."""
+        manager = MagicMock()
+        manager.get_one_by.return_value = None
+
+        assert option_value_exists(manager, 'value', OptionType.RISK.value) is False
+
+    def test_without_exclude_id_has_no_public_id_filter(self) -> None:
+        """Without exclude_id the criteria only filters on value + option_type."""
+        manager = MagicMock()
+        manager.get_one_by.return_value = None
+
+        option_value_exists(manager, 'value', OptionType.RISK.value)
+
+        criteria = manager.get_one_by.call_args.args[0]
+        assert ExtendableOptionKey.PUBLIC_ID not in criteria
+
+    def test_with_exclude_id_adds_ne_filter(self) -> None:
+        """With exclude_id the criteria excludes that public_id via $ne (self-exclusion)."""
+        manager = MagicMock()
+        manager.get_one_by.return_value = None
+
+        option_value_exists(manager, 'value', OptionType.RISK.value, exclude_id=7)
+
+        criteria = manager.get_one_by.call_args.args[0]
+        assert criteria[ExtendableOptionKey.PUBLIC_ID] == {'$ne': 7}
