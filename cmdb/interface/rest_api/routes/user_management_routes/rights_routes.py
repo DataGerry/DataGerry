@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Implementation of all API routes for DataGerry Rights
 """
-import logging
+from logging import Logger, getLogger
+
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -36,9 +37,13 @@ from cmdb.interface.rest_api.responses import GetMultiResponse, GetSingleRespons
 from cmdb.errors.manager.rights_manager import RightsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 rights_blueprint = APIBlueprint('rights', __name__)
+
+# The rights are a static, in-memory tree (not database-backed), so a single shared manager
+# instance is reused across requests instead of rebuilding the flattened tree on every call
+rights_manager: RightsManager = RightsManager()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -47,17 +52,19 @@ rights_blueprint = APIBlueprint('rights', __name__)
 @rights_blueprint.parse_collection_parameters(sort='name', view='list')
 def get_rights(params: CollectionParameters) -> Response:
     """
-    HTTP `GET`/`HEAD` route for getting a iterable collection of resources.
+    HTTP `GET`/`HEAD` route for an iterable collection of DataGerry rights
+
+    Supports two views via the `view` query parameter: `tree` returns the nested rights tree
+    (unpaginated), any other value returns the flat, paginated and sorted list.
 
     Args:
         params (CollectionParameters): Passed parameters over the http query string
 
     Returns:
-        GetMultiResponse: Which includes a IterationResult of the BaseRight.
+        GetMultiResponse: Which includes an IterationResult of the BaseRight
     """
     try:
-        rights_manager = RightsManager()
-        body = request.method == 'HEAD'
+        body: bool = request.method == 'HEAD'
 
         if params.optional['view'] == 'tree':
             api_response = GetMultiResponse(rights_manager.tree_to_json(ALL_RIGHTS),
@@ -75,15 +82,17 @@ def get_rights(params: CollectionParameters) -> Response:
                                                                         order = params.order
                                                                       )
 
-        rights = [BaseRight.to_dict(type) for type in iteration_result.results]
+        rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
 
         api_response = GetMultiResponse(rights,
                                         total=iteration_result.total,
                                         params=params,
                                         url=request.url,
-                                        body=request.method == 'HEAD')
+                                        body=body)
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except Exception as err:
         LOGGER.error("[get_rights] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving DataGerry Rights!")
@@ -99,15 +108,14 @@ def get_right(name: str) -> Response:
         name (str): Name of the right
 
     Returns:
-        GetSingleResponse: Which includes the json data of a BaseRight
+        GetSingleResponse: Which includes the json data of a BaseRight; aborts 404 when no
+            right matches the given name
     """
     try:
-        rights_manager = RightsManager()
-
-        right = rights_manager.get_right(name)
+        right: BaseRight | None = rights_manager.get_right(name)
 
         if not right:
-            abort(404, f"Right with name: {name} was not found in the database!")
+            abort(404, f"Right with name: {name} was not found!")
 
         return GetSingleResponse(BaseRight.to_dict(right), body=request.method == 'HEAD').make_response()
     except HTTPException as http_err:

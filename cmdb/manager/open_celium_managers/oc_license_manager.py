@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -33,14 +33,14 @@ LOGGER: Logger = getLogger(__name__)
 LICENSE_URL: str = "/subs"
 LICENSE_ACTIVATION_URL: str = f"{LICENSE_URL}/activation/request/generate"
 ACTIVE_LICENSE_URL: str = f"{LICENSE_URL}/active"
-LINCENSE_USAGE_URL: str = f"{LICENSE_URL}/operation/usage"
+LICENSE_USAGE_URL: str = f"{LICENSE_URL}/operation/usage"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               OcLicenseManager - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class OcLicenseManager(OcBaseManager):
     """
-    Manages Invokers of OpenCelium
+    Manages Licenses of OpenCelium
     """
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -82,10 +82,10 @@ class OcLicenseManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved OpenCelium License usage
         """
-        start_date, end_date = self.get_current_month_bounderies()
+        start_date, end_date = self.get_current_month_boundaries()
 
         license_usage_response: Response = self.oc_connector.oc_get(
-            f"{LINCENSE_USAGE_URL}?page={page}&size={size}&startDate={start_date}&endDate={end_date}"
+            f"{LICENSE_USAGE_URL}?page={page}&size={size}&startDate={start_date}&endDate={end_date}"
         )
 
         if self.is_valid_response(license_usage_response):
@@ -95,7 +95,7 @@ class OcLicenseManager(OcBaseManager):
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-    def get_current_month_bounderies(self) -> tuple[int, int]:
+    def get_current_month_boundaries(self) -> tuple[int, int]:
         """
         Retrieves the start and end of the current month as timestamps
 

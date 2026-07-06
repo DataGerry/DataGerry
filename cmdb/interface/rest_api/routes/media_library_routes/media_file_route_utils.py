@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of MediaFile API Route utility methods
 """
 import json
-import logging
+from logging import Logger, getLogger
 
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
@@ -27,9 +27,11 @@ from cmdb.manager import MediaFilesManager
 from cmdb.manager.query_builder import Builder
 
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+
+from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -46,11 +48,14 @@ def get_file_in_request(file_name: str) -> FileStorage:
     Returns:
         FileStorage: The file object retrieved from the request.
     """
-    try:
-        return request.files.get(file_name)
-    except Exception:
+    # request.files.get returns None (does not raise) for a missing file, so guard explicitly
+    uploaded_file = request.files.get(file_name)
+
+    if uploaded_file is None:
         LOGGER.error("[get_file_in_request] File with name: %s was not provided!", file_name)
         abort(400, f"File with name: {file_name} was not provided!")
+
+    return uploaded_file
 
 
 def get_element_from_data_request(element: str, _request: Request) -> dict | None:
@@ -72,7 +77,7 @@ def get_element_from_data_request(element: str, _request: Request) -> dict | Non
         return None
 
 
-def generate_metadata_filter(element, _request: Request = None, params:dict = None) -> dict:
+def generate_metadata_filter(element: str, _request: Request | None = None, params: dict | None = None) -> dict:
     """
     Generates a MongoDB filter query based on provided metadata either from request or parameters
 
@@ -170,11 +175,14 @@ def create_attachment_name(name: str, index: int, metadata: dict, media_files_ma
 
         return name
     except Exception as err:
-        #TODO: ERROR-FIX (proper exception)
-        raise Exception(err) from err
+        raise MediaFileManagerGetError(str(err)) from err
 
 
-def recursive_delete_filter(public_id: int, media_files_manager: MediaFilesManager, _ids: list[int] = None) -> list:
+def recursive_delete_filter(
+    public_id: int,
+    media_files_manager: MediaFilesManager,
+    _ids: list[int] | None = None,
+) -> list[int]:
     """
     Recursively collects and returns the list of public IDs for files to be deleted,
     including their child files in a parent-child file structure
@@ -185,16 +193,17 @@ def recursive_delete_filter(public_id: int, media_files_manager: MediaFilesManag
         _ids (list[int] | None): List of already collected IDs, used for recursion
 
     Returns:
-        list: A list of public IDs of the files to delete
+        list[int]: A list of public IDs of the files to delete
     """
-    if not _ids:
+    if _ids is None:
         _ids = []
 
-    root = media_files_manager.get_many_media_files(metadata={'public_id': public_id}).result[0]
-    output = media_files_manager.get_many_media_files(metadata={'metadata.parent': root['public_id']})
-    _ids.append(root['public_id'])
+    # public_id is already known - only the children need to be queried (one query per node, not two)
+    _ids.append(public_id)
 
-    for item in output.result:
+    children = media_files_manager.get_many_media_files(metadata={'metadata.parent': public_id}).result
+
+    for item in children:
         recursive_delete_filter(item['public_id'], media_files_manager, _ids)
 
     return _ids

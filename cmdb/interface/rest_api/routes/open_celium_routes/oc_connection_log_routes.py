@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-All API routes for OpenCelium Invokers
+All API routes for OpenCelium Connection Logs
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -45,7 +45,7 @@ oc_connection_log_blueprint = APIBlueprint('oc_connection_logs', __name__)
 @handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: int) -> Response:
+def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: str) -> Response:
     """
     GET/HEAD route to retrieve details about Method or Operator
 
@@ -66,6 +66,8 @@ def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: int) ->
 
         return DefaultResponse(requested_details).make_response()
 
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectionLogGetError as err:
         LOGGER.error("[oc_get_method_or_operator_details] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve details for Method/Operator with ID:{target_id}!")
@@ -75,7 +77,7 @@ def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: int) ->
 @handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def oc_get_operator_children(request_user: CmdbUser, target_id: int) -> Response:
+def oc_get_operator_children(request_user: CmdbUser, target_id: str) -> Response:
     """
     GET/HEAD route to retrieve Operator children
 
@@ -135,6 +137,8 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
                 flowchart["connectorName"] = unmap_oc_name(flowchart["connectorName"])
 
         return DefaultResponse(flowcharts).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectionLogGetError as err:
         LOGGER.error("[oc_get_flowcharts] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve Flowcharts for target with ID:{target_id}!")
@@ -144,7 +148,7 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
 @handle_oc_errors("retrieving the first level Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def oc_get_first_level_logs(request_user: CmdbUser, target_id: int) -> Response:
+def oc_get_first_level_logs(request_user: CmdbUser, target_id: str) -> Response:
     """
     GET/HEAD route to retrieve first level Logs
 
@@ -164,6 +168,8 @@ def oc_get_first_level_logs(request_user: CmdbUser, target_id: int) -> Response:
         requested_logs: dict[str, Any] = oc_connection_log_manager.get_first_level_logs(target_id)
 
         return DefaultResponse(requested_logs).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcConnectionLogGetError as err:
         LOGGER.error("[oc_get_first_level_logs] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve first level Logs for Flowchart with ID:{target_id}!")
@@ -197,7 +203,7 @@ def oc_get_log_list(request_user: CmdbUser) -> Response:
         if not scheduler_id:
             abort(400, "The 'schedulerId' was not provided!")
 
-        status: int | None = request.args.get("status")
+        status: str | None = request.args.get("status")
         if not status:
             abort(400, "The 'status' was not provided!")
 
@@ -207,12 +213,12 @@ def oc_get_log_list(request_user: CmdbUser) -> Response:
     except HTTPException as http_err:
         raise http_err
     except OcConnectionLogGetError as err:
-        LOGGER.error("[oc_get_operator_children] %s: %s", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[oc_get_log_list] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve the Log List!")
 
 # -------------------------------------------------- DELETE - ROUTES ------------------------------------------------- #
 
-oc_connection_log_blueprint.route('/connections/logs/<int:target_id>', methods=['DELETE'])
+@oc_connection_log_blueprint.route('/connections/logs/<int:target_id>', methods=['DELETE'])
 @handle_oc_errors("deleting execution Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -237,5 +243,5 @@ def oc_delete_logs(request_user: CmdbUser, target_id: int) -> Response:
 
         return DefaultResponse(requested_logs).make_response()
     except OcConnectionLogDeleteError as err:
-        LOGGER.error("[get_first_level_logs] %s: %s", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[oc_delete_logs] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to delete Logs for executionId:{target_id}!")

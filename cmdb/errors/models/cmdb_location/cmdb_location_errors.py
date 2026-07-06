@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -45,4 +45,10 @@ class CmdbLocationInitFromDataError(CmdbLocationError):
 class CmdbLocationToJsonError(CmdbLocationError):
     """
     Raised when a CmdbLocation could not be transformed into a json compatible dict
+    """
+
+
+class LocationNodeInitError(CmdbLocationError):
+    """
+    Raised when a LocationNode could not be initialised from a location dict
     """

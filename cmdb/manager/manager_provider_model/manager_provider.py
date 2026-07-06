@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 This class provides the different managers for the API routes
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from flask import current_app
 
 from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
@@ -33,7 +34,6 @@ from cmdb.manager import (
     LocationsManager,
     SectionTemplatesManager,
     ObjectsManager,
-    ObjectLinksManager,
     ObjectRelationsManager,
     ObjectRelationLogsManager,
     RelationsManager,
@@ -61,6 +61,9 @@ from cmdb.manager import (
     RiskAssessmentManager,
     ControlMeasureAssignmentManager,
     CachedUserManager,
+    LicenseActivationRequestsManager,
+    ActiveLicenseManager,
+    LicenseService,
 )
 
 from cmdb.models.user_model import CmdbUser
@@ -68,7 +71,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager import BaseManagerInitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ManagerProvider - CLASS                                               #
@@ -124,7 +127,6 @@ class ManagerProvider:
             ManagerType.TYPES: TypesManager,
             ManagerType.LOCATIONS: LocationsManager,
             ManagerType.SECTION_TEMPLATES: SectionTemplatesManager,
-            ManagerType.OBJECT_LINKS: ObjectLinksManager,
             ManagerType.SETTINGS: SettingsManager,
             ManagerType.SECURITY: SecurityManager,
             ManagerType.REPORT_CATEGORIES: ReportCategoriesManager,
@@ -151,6 +153,9 @@ class ManagerProvider:
             ManagerType.RISK_ASSESSMENT: RiskAssessmentManager,
             ManagerType.CONTROL_MEASURE_ASSIGNMENT: ControlMeasureAssignmentManager,
             ManagerType.CACHED_USER: CachedUserManager,
+            ManagerType.LICENSE_ACTIVATION_REQUESTS: LicenseActivationRequestsManager,
+            ManagerType.ACTIVE_LICENSE: ActiveLicenseManager,
+            ManagerType.LICENSE_SERVICE: LicenseService,
         }
 
         return manager_classes.get(manager_type)

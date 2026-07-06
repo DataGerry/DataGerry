@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,17 @@
 """
 This module manages the IPAM - Profile for the DataGerry assistant
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
-from cmdb.manager import TypesManager, SectionTemplatesManager
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.schemas.schema_provider import SchemaProvider
 
 from .profile_base import ProfileBase
+from .datagerry_assistant_constants import IPAM_SPECIAL_TYPE_DEFINITIONS, IpamSpecialTypeKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  IPAMProfile - CLASS                                                 #
@@ -31,134 +34,36 @@ LOGGER = logging.getLogger(__name__)
 class IPAMProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'IPAM'-Profile
+
+    The profile creates the three IPAM SpecialTypes (Supernet, Subnet, VLAN) from the canonical
+    SchemaProvider blueprints and wires their reference fields via handle_special_types.
     """
-    def __init__(
-            self,
-            created_type_ids: dict,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.created_type_ids = created_type_ids
-        super().__init__(created_type_ids, types_manager, section_templates_manager)
 
-
-    def create_ipam_profile(self) -> dict:
+    def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types from the 'IPAM'- Profile
+        Creates all SpecialTypes from the 'IPAM'-Profile
+
+        The SpecialTypes are created in the order declared in IPAM_SPECIAL_TYPE_DEFINITIONS
+        (Supernet, then Subnet, then VLAN) so that each type's reference fields can be wired to the
+        previously created ones.
 
         Returns:
             dict: The created type ids dict
         """
-        ipam_profile_data: dict = {
-            'network_id' : self.get_network_type()
-        }
+        schema_provider: SchemaProvider = SchemaProvider()
 
-        for type_name, type_dict in ipam_profile_data.items():
-            self.create_basic_type(type_name, type_dict)
+        definition: dict[str, Any]
+        for definition in IPAM_SPECIAL_TYPE_DEFINITIONS:
+            special_type: SpecialType = definition[IpamSpecialTypeKey.SPECIAL_TYPE]
+            schema: dict[str, Any] = schema_provider.get_schema(special_type)
 
-        #dependent types
-        self.create_basic_type('vlan_id', self.get_vlan_type(self.created_type_ids['network_id']))
+            type_dict: dict[str, Any] = self.type_constructor.create_special_type_config(
+                schema,
+                definition[IpamSpecialTypeKey.NAME],
+                definition[IpamSpecialTypeKey.LABEL],
+                definition[IpamSpecialTypeKey.ICON],
+            )
+
+            self.create_special_type(definition[IpamSpecialTypeKey.SLOT], special_type, type_dict)
 
         return self.created_type_ids
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  TYPE DATA - SECTION                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-    def get_network_type(self) -> dict:
-        """
-        Returns the 'Network'-Type for the 'IPAM'-Profile
-        """
-        network_sections: list = [
-            {
-                "name": "section-94720",
-                "label": "Information",
-                "fields": [
-                    {
-                        "type": "text",
-                        "name": "text-71148",
-                        "label": "Name",
-                        "is_summary": True
-                    }
-                ]
-            },
-            {
-                "name": "section-99747",
-                "label": "Network details",
-                "fields": [
-                    {
-                        "type": "text",
-                        "name": "text-66245",
-                        "label": "Suffix",
-                        "is_summary": True
-                    },
-                    {
-                        "type": "text",
-                        "name": "text-35330",
-                        "label": "IP",
-                        "is_summary": True
-                    }
-                ]
-            }
-        ]
-
-        network_type: dict = self.type_constructor.create_type_config(network_sections,
-                                                                      'network',
-                                                                      'Network',
-                                                                      'fas fa-network-wired')
-
-        return network_type
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-    def get_vlan_type(self, network_type_id: int) -> dict:
-        """
-        Returns the 'VLAN'-Type for the 'IPAM'-Profile
-
-        Args:
-            network_type_id (int): public_id of created 'Network'-Type
-        """
-        vlan_sections: list = [
-            {
-                "name": "section-23481",
-                "label": "Information",
-                "fields": [
-                    {
-                        "type": "text",
-                        "name": "text-45705",
-                        "label": "Name",
-                        "is_summary": True
-                    }
-                ]
-            },
-            {
-                "name": "section-39385",
-                "label": "VLAN data",
-                "fields": [
-                    {
-                        "type": "text",
-                        "name": "text-78263",
-                        "label": "VLAN ID",
-                        "is_summary": True
-                    },
-                    {
-                        "type": "ref",
-                        "name": "ref-43922",
-                        "label": "Network",
-                        "is_summary": True,
-                        "extras": {
-                            "ref_types": [
-                                network_type_id
-                            ],
-                            "summaries": []
-                        }
-                    }
-                ]
-            }
-        ]
-
-        vlan_type: dict = self.type_constructor.create_type_config(vlan_sections,
-                                                                    'vlan',
-                                                                    'VLAN',
-                                                                    'fas fa-wave-square')
-
-        return vlan_type

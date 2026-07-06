@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for CmdbReportCategories
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import abort, request
 from werkzeug import Response
@@ -43,24 +43,26 @@ from cmdb.errors.manager.report_categories_manager import (
     ReportCategoriesManagerIterationError,
     ReportCategoriesManagerUpdateError,
 )
+
+from cmdb.interface.rest_api.routes.report_routes.report_constants import ReportKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 report_categories_blueprint = APIBlueprint('report_categories', __name__)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @report_categories_blueprint.route('/', methods=['POST'])
-@report_categories_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@report_categories_blueprint.parse_request_parameters()
 def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbReportCategory into the database
 
     Args:
-        data (CmdbReportCategory.SCHEMA): Data of the CmdbReportCategory which should be inserted
+        params (dict[str, Any]): Data of the CmdbReportCategory which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -71,14 +73,16 @@ def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) 
                                                                                 ManagerType.REPORT_CATEGORIES,
                                                                                 request_user)
 
-        # It is not possible to create a predefined CmdbReportCategory
-        #TODO: FIX in Frontend (do not send the public_id)
-        params['public_id'] = report_categories_manager.get_next_public_id(inc_id=True)
+        # Ignore any client-sent public_id (insert assigns the next one); predefined is
+        # system-controlled, so a client can never create a predefined CmdbReportCategory
+        params.pop('public_id', None)
         params['predefined'] = False
 
         new_report_category_id = report_categories_manager.insert_item(params)
 
         return DefaultResponse(new_report_category_id).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ReportCategoriesManagerInsertError as err:
         LOGGER.error("[create_cmdb_report_category] ReportCategoriesManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new ReportCategory into the database!")
@@ -93,7 +97,7 @@ def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) 
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route to retrieve a single CmdbReportCategory
+    HTTP `GET` route to retrieve a single CmdbReportCategory
 
     Args:
         public_id (int): public_id of the CmdbReportCategory
@@ -124,9 +128,9 @@ def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response
 
 
 @report_categories_blueprint.route('/', methods=['GET', 'HEAD'])
-@report_categories_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@report_categories_blueprint.parse_collection_parameters()
 def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbReportCategories
@@ -166,16 +170,16 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @report_categories_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
-@report_categories_blueprint.parse_request_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@report_categories_blueprint.parse_request_parameters()
 def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbReportCategory
 
     Args:
         public_id (int): public_id of the CmdbReportCategory which should be updated
-        data (CmdbReportCategory.SCHEMA): New CmdbReportCategory data
+        params (dict[str, Any]): New CmdbReportCategory data
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -185,17 +189,21 @@ def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_
         report_categories_manager: ReportCategoriesManager = ManagerProvider.get_manager(
                                                                             ManagerType.REPORT_CATEGORIES,
                                                                             request_user)
-        params['public_id'] = int(params['public_id'])
-        params['predefined'] = params['predefined'] in ["True", "true"]
 
         current_category = report_categories_manager.get_item(public_id)
 
-        if current_category:
-            report_categories_manager.update_item(public_id, params)
+        if not current_category:
+            abort(404, f"The ReportCategory with ID:{public_id} was not found!")
 
-            return UpdateSingleResponse(params).make_response()
+        # Pin the identity to the URL id (never trust a body public_id, which would rewrite the
+        # document's identity) and keep 'predefined' immutable via update - it is set by the
+        # system (create forces it False), not by the client
+        params['public_id'] = public_id
+        params['predefined'] = current_category.predefined
 
-        abort(404, f"The ReportCategory with ID:{public_id} was not found!")
+        report_categories_manager.update_item(public_id, params)
+
+        return UpdateSingleResponse(params).make_response()
     except HTTPException as http_err:
         raise http_err
     except ReportCategoriesManagerGetError as err:
@@ -216,16 +224,15 @@ def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_
 def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes the CmdbReportCategory with the given public_id
-    
+
     Args:
-        public_id (int): public_id of CmdbReportCategory which should be retrieved
-        request_user (CmdbUser): User which is requesting the CmdbReportCategory
+        public_id (int): public_id of the CmdbReportCategory which should be deleted
+        request_user (CmdbUser): User which is requesting the deletion
     """
     try:
         report_categories_manager: ReportCategoriesManager = ManagerProvider.get_manager(
                                                                             ManagerType.REPORT_CATEGORIES,
                                                                             request_user)
-
 
         to_delete_report_category: CmdbReportCategory = report_categories_manager.get_item(public_id)
 
@@ -233,23 +240,26 @@ def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Respo
             abort(404, f"The ReportCategory with ID:{public_id} was not found!")
 
         if to_delete_report_category.predefined:
-            abort(405, "Deletion of a predefined ReportCategory is not allowed!")
+            abort(403, "Deletion of a predefined ReportCategory is not allowed!")
 
-        # It is not possbile to delete a category if a report is using it
-        reports_wtih_category = report_categories_manager.get_many_from_other_collection(CmdbReport.COLLECTION,
-                                                                                        report_category_id=public_id)
+        # It is not possible to delete a category if a report is using it
+        reports_using_category = report_categories_manager.count_from_other_collection(
+            CmdbReport.COLLECTION, {ReportKey.REPORT_CATEGORY_ID: public_id}
+        )
 
-        if len(reports_wtih_category) > 0:
+        if reports_using_category > 0:
             abort(403, f"ReportCategory with ID: {public_id} can not be deleted because it is used by Reports!")
 
         ack = report_categories_manager.delete_item(public_id)
 
         return DefaultResponse(ack).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ReportCategoriesManagerGetError as err:
         LOGGER.error("[delete_cmdb_report_category] ReportCategoriesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ReportCategory with ID: {public_id} from the database!")
     except ReportCategoriesManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_report_category] ReportCategoriesManagerUpdateError: %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_report_category] ReportCategoriesManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the ReportCategory with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_report_category] Exception: %s. Type: %s", err, type(err), exc_info=True)

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,46 +16,32 @@
 """
 This module manages the 'Server Management'-Profile for the DataGerry assistant
 """
-import logging
-
-from cmdb.manager.types_manager import TypesManager
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from logging import Logger, getLogger
+from typing import Any
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
-
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            ServerManagementProfile - CLASS                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
 class ServerManagementProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'Server Management'-Profile
     """
-    def __init__(
-            self,
-            created_type_ids: dict,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.created_type_ids = created_type_ids
-        super().__init__(created_type_ids, types_manager, section_templates_manager)
-
-
-    def create_server_management_profile(self) -> dict:
+    def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types from the 'Server Management'- Profile
+        Creates all types of the 'Server Management' profile (Server, Appliance, Virtual Server)
 
         Returns:
-            dict: The created type ids dict
+            dict[str, int | None]: The shared slot map of created type ids
         """
-        # Do NOT change the order of data due dependency
-        server_management_profile_data: dict = {
-            'server_id' : self.get_server_type(),
-            'appliance_id': self.get_appliance_type(),
-        }
-
-        for type_name, type_dict in server_management_profile_data.items():
-            self.create_basic_type(type_name, type_dict)
-
+        # Each type is created (inserted) before the next is built, so a type's reference fields can
+        # resolve the public_ids of types created earlier in this profile (Virtual Server -> Server)
+        self.create_basic_type('server_id', self.get_server_type())
+        self.create_basic_type('appliance_id', self.get_appliance_type())
         self.create_basic_type('virtual_server_id', self.get_virtual_server_type(self.created_type_ids['server_id']))
 
         return self.created_type_ids
@@ -64,11 +50,17 @@ class ServerManagementProfile(ProfileBase):
 #                                                  TYPE DATA - SECTION                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_server_type(self) -> dict:
+    def get_server_type(self) -> dict[str, Any]:
         """
-        Returns the 'Server'-Type for the 'Server Management'-Profile
+        Builds the 'Server' type for the 'Server Management' profile
+
+        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        reference sections to the Operating System and User / Customer User types.
+
+        Returns:
+            dict[str, Any]: The Server CmdbType config
         """
-        server_sections: list = [
+        server_sections: list[dict[str, Any]] = [
             {
                 "name": "section-64307",
                 "label": "Information",
@@ -96,7 +88,7 @@ class ServerManagementProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             self.type_constructor.get_predefined_template_data('dg-rackmounting'),
             {
                 "name": "section-77142",
@@ -111,12 +103,14 @@ class ServerManagementProfile(ProfileBase):
             },
         ]
 
-        server_type: dict = self.type_constructor.create_type_config(server_sections,
-                                                                        'server',
-                                                                        'Server',
-                                                                        'fas fa-server')
+        server_type: dict[str, Any] = self.type_constructor.create_type_config(
+            server_sections,
+            'server',
+            'Server',
+            'fas fa-server'
+        )
 
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-38286",
                                         "OS",
@@ -142,11 +136,17 @@ class ServerManagementProfile(ProfileBase):
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_appliance_type(self) -> dict:
+    def get_appliance_type(self) -> dict[str, Any]:
         """
-        Returns the 'Appliance'-Type for the 'Server Management'-Profile
+        Builds the 'Appliance' type for the 'Server Management' profile
+
+        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        reference sections to the Operating System and User / Customer User types.
+
+        Returns:
+            dict[str, Any]: The Appliance CmdbType config
         """
-        appliance_sections: list = [
+        appliance_sections: list[dict[str, Any]] = [
             {
                 "name": "section-63931",
                 "label": "Information",
@@ -160,7 +160,7 @@ class ServerManagementProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             self.type_constructor.get_predefined_template_data('dg-rackmounting'),
             {
                 "name": "section-21475",
@@ -175,12 +175,14 @@ class ServerManagementProfile(ProfileBase):
             }
         ]
 
-        appliance_type: dict = self.type_constructor.create_type_config(appliance_sections,
-                                                                'appliance',
-                                                                'Appliance',
-                                                                'fas fa-wrench')
+        appliance_type: dict[str, Any] = self.type_constructor.create_type_config(
+            appliance_sections,
+            'appliance',
+            'Appliance',
+            'fas fa-wrench'
+        )
 
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-72670",
                                         "OS",
@@ -206,14 +208,17 @@ class ServerManagementProfile(ProfileBase):
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_virtual_server_type(self, server_type_id: int) -> dict:
+    def get_virtual_server_type(self, server_type_id: int) -> dict[str, Any]:
         """
-        Returns the 'Virtual Server'-Type for the 'Server Management'-Profile
+        Builds the 'Virtual Server' type for the 'Server Management' profile
 
         Args:
-            server_type_id(int): public_id of 'Server'-Type
+            server_type_id (int): public_id of the created 'Server' type, referenced by this type
+
+        Returns:
+            dict[str, Any]: The Virtual Server CmdbType config
         """
-        virtual_server_sections: list = [
+        virtual_server_sections: list[dict[str, Any]] = [
             {
                 "name": "section-60610",
                 "label": "Information",
@@ -226,7 +231,7 @@ class ServerManagementProfile(ProfileBase):
                     }
                 ]
             },
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             {
                 "name": "section-28198",
                 "label": "Virtual host",
@@ -247,12 +252,14 @@ class ServerManagementProfile(ProfileBase):
             }
         ]
 
-        virtual_server_type: dict = self.type_constructor.create_type_config(virtual_server_sections,
-                                                                            'virtual_server',
-                                                                            'Virtual Server',
-                                                                            'fas fa-cubes')
+        virtual_server_type: dict[str, Any] = self.type_constructor.create_type_config(
+            virtual_server_sections,
+            'virtual_server',
+            'Virtual Server',
+            'fas fa-cubes'
+        )
 
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-43625",
                                         "OS",

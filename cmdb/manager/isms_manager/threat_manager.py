@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,13 @@
 """
 This module contains the implementation of the ThreatManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
 
-from cmdb.models.isms_model import IsmsThreat, IsmsRisk
+from cmdb.models.isms_model import IsmsThreat
 
 from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
 from cmdb.errors.manager.threat_manager.threat_manager_errors import (
@@ -31,7 +31,7 @@ from cmdb.errors.manager.threat_manager.threat_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ThreatManager - CLASS                                                #
@@ -61,18 +61,11 @@ class ThreatManager(GenericManager):
         Returns:
             bool: True if success, else False
         """
-        try:
-            # Only deletable if no Risk is using this IsmsThreat
-            risk_using_threat = self.get_one_by(
-                {'threats': public_id},
-                IsmsRisk.COLLECTION,
-            )
-
-            if risk_using_threat:
-                raise ThreatManagerRiskUsageError('Threat is used by IsmsRisks!')
-
-            return self.delete_item(public_id)
-        except ThreatManagerRiskUsageError as err:
-            raise err
-        except Exception as err:
-            raise ThreatManagerDeleteError(err) from err
+        return delete_isms_item_if_unused_by_risk(
+            self,
+            public_id,
+            'threats',
+            ThreatManagerRiskUsageError,
+            ThreatManagerDeleteError,
+            'Threat is used by IsmsRisks!',
+        )

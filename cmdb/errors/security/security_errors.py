@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -105,4 +105,11 @@ class WrongPasswordError(SecurityError):
 class NoValidSubscriptionError(SecurityError):
     """
     Raised when no subscription matches the given API-KEY
+    """
+
+
+class LicenseDecryptionError(SecurityError):
+    """
+    Raised when a license blob cannot be decrypted or parsed (bad Base64, wrong ciphertext length,
+    malformed PKCS#1 padding or invalid JSON); the verification chain degrades to Community on this
     """

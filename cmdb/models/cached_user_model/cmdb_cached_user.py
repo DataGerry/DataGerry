@@ -1,20 +1,5 @@
-# DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -38,6 +23,8 @@ from dateutil.parser import parse
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.cached_user_model.cmdb_cached_user_schema import get_cmdb_cached_user_schema
+
 from cmdb.errors.models.cmdb_cached_user import (
     CmdbCachedUserInitError,
     CmdbCachedUserInitFromDataError,
@@ -52,7 +39,7 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbCachedUser(CmdbDAO):
     """
-    Implementation of a CmdbUser in DataGerry
+    Implementation of CmdbCachedUser, a cached cloud user with their subscriptions
 
     Extends: CmdbDAO
     """
@@ -72,81 +59,7 @@ class CmdbCachedUser(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict[str, Any] = {
-        'public_id': {
-            'type': 'integer',
-        },
-        'user_name': {
-            'type': 'string',
-            'required': True,
-        },
-        'password': {
-            'type': 'string',
-            'nullable': True,
-            'empty': True,
-            'required': False,
-        },
-        'email': {
-            'type': 'string',
-            'nullable': True,
-            'empty': True,
-            'required': False,
-        },
-        'active': {
-            'type': 'boolean',
-            'required': False,
-            'default': True,
-        },
-        'subscriptions': {
-            'type': 'list',
-            'nullable': False,
-            'empty': False,
-            'required': True,
-            'schema': {
-                'type': 'dict',
-                'schema': {
-                    "id": {
-                        'type': 'string',
-                        'required': True,
-                        'default': None,
-                    },
-                    "name": {
-                        'type': 'string',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                    },
-                    "api_key": {
-                        'type': 'string',
-                        'default': None,
-                    },
-                    "is_valid": {
-                        'type': 'boolean',
-                        'required': True,
-                    },
-                    "database": {
-                        'type': 'string',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                    },
-                    "api_level": {
-                        'type': 'integer',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                    },
-                    "config_item_limit": {
-                        'type': 'integer',
-                        'nullable': False,
-                        'empty': False,
-                        'required': True,
-                        'min': 1,
-                    },
-                }
-            }
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_cached_user_schema()
 
     #pylint: disable=R0917
     def __init__(

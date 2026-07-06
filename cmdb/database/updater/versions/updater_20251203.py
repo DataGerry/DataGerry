@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Update20251203
+Database update 20251203: backfill 'with_locations' on CI-Explorer profiles
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
@@ -25,45 +25,37 @@ from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                Update20251203 - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class Update20251203(BaseDatabaseUpdate):
     """
-    Implementation of Update20251203
+    Backfills the 'with_locations' property (True) onto every CI-Explorer profile that lacks it
     """
     def creation_date(self) -> int:
         return 20251203
 
 
     def description(self) -> str:
-        return """
-               Adds CiExplorerProfiles a new property "with_locations" to be able to store if
-               the CI-Explorer should display locations
-               """
+        return ("Adds the 'with_locations' property to CiExplorerProfiles to store whether the "
+                "CI-Explorer should display locations")
 
 
     def start_update(self) -> None:
+        """
+        Adds 'with_locations' (defaulting to True) to every CI-Explorer profile that lacks it
+
+        Applied as a single bulk update targeting only the profiles missing the property.
+        """
         try:
-            # Update all CmdbObjects
-            ci_exp_profile_collection = CmdbCiExplorerProfile.COLLECTION
-            all_profiles: list[dict] = []
-
-            all_profiles = self.dbm.find_all(ci_exp_profile_collection, self.db_name)
-
-            for cur_obj in all_profiles:
-                # Check if the object already has the property 'ci_explorer_tooltip', else create it
-                if not 'with_locations' in cur_obj.keys():
-                    cur_public_id = cur_obj['public_id']
-                    cur_obj['with_locations'] = True
-
-                    self.dbm.update(collection=ci_exp_profile_collection,
-                                    db_name=self.db_name,
-                                    criteria={'public_id':cur_public_id},
-                                    data=cur_obj)
-                    LOGGER.info("Updated 'with_locations' for Profile-ID: %s", cur_public_id)
+            self.dbm.update_many_raw(
+                collection=CmdbCiExplorerProfile.COLLECTION,
+                db_name=self.db_name,
+                filter_query={'with_locations': {'$exists': False}},
+                update={'$set': {'with_locations': True}},
+            )
 
             self.increase_updater_version(self.creation_date())
         except Exception as err:

@@ -1,0 +1,57 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Shared helper logic for the ISMS REST routes
+"""
+from typing import Any
+
+from flask import abort
+
+from cmdb.manager.generic_manager import GenericManager
+
+from cmdb.models.cmdb_dao import CmdbDAO
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def get_item_or_404(
+        manager: GenericManager,
+        public_id: int,
+        not_found_message: str,
+        as_dict: bool = True) -> dict[str, Any] | CmdbDAO:
+    """
+    Fetches an ISMS item by public_id, aborting with HTTP 404 when it does not exist.
+
+    Collapses the repeated "get the item, and abort 404 if it is missing" preamble shared by the
+    ISMS get-single, update and delete routes.
+
+    Args:
+        manager (GenericManager): The manager to read the item from
+        public_id (int): public_id of the item to fetch
+        not_found_message (str): Message for the 404 response when the item is missing
+        as_dict (bool): If True return the raw document, otherwise a model instance. Defaults to True
+
+    Raises:
+        werkzeug.exceptions.NotFound: Aborts with 404 when no item matches public_id
+
+    Returns:
+        dict[str, Any] | CmdbDAO: The existing item as a dict (as_dict=True) or model instance
+    """
+    item = manager.get_item(public_id, as_dict=as_dict)
+
+    if not item:
+        abort(404, not_found_message)
+
+    return item

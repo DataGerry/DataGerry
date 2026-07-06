@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of BaseQueryBuilder
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import AccessControlQueryBuilder
@@ -26,9 +26,10 @@ from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 
 from .builder import Builder
 from .builder_parameters import BuilderParameters
+from .query_builder_constants import SortPipeline
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseQueryBuilder - CLASS                                               #
@@ -58,35 +59,21 @@ class BaseQueryBuilder(Builder):
     def build(self,
               builder_params: BuilderParameters,
               user: CmdbUser = None,
-              permission: AccessControlPermission = None,
-              object_builder_mode: bool = False) -> list[dict]:
+              permission: AccessControlPermission = None) -> list[dict]:
         """
         Converts the parameters from the call to a MongoDB aggregation pipeline
+
+        Sort keys that target a value inside the ``fields`` array (``fields.<name>``)
+        are handled by projecting the matching element's value into a temporary
+        ``_sort_value`` field and sorting on that. All other sort keys go through the
+        plain ``$sort`` stage.
 
         Returns:
             list[dict]: The build query
         """
-        self.query = self.__init_query(builder_params.get_criteria(), object_builder_mode)
+        self.query = self.__init_query(builder_params.get_criteria())
 
-        if object_builder_mode:
-            # TODO: Remove nasty quick hack
-            if builder_params.get_sort().startswith('fields'):
-                sort_value = builder_params.get_sort()[7:]
-
-                self.query.append({
-                    '$addFields': {
-                        'order': {
-                            '$filter': {
-                                'input': '$fields',
-                                'as': 'fields',
-                                'cond': {'$eq': ['$$fields.name', sort_value]}
-                            }
-                        }
-                    }
-                })
-                self.query.append({'$sort': {'order': builder_params.get_order()}})
-        else:
-            self.query.append(self.sort_(builder_params.get_sort(), builder_params.get_order()))
+        self._append_sort_stage(builder_params.get_sort(), builder_params.get_order())
 
         self.query.append(self.skip_(builder_params.get_skip()))
 
@@ -128,7 +115,61 @@ class BaseQueryBuilder(Builder):
         self.query = None
 
 
-    def __init_query(self, criteria: dict | list[dict], object_builder_mode: bool = False) -> list[dict]:
+    def _append_sort_stage(self, sort_key: str, sort_order: int) -> None:
+        """
+        Appends the sort stage(s) to ``self.query``
+
+        For keys starting with ``fields.``, the matching element of the ``fields`` array
+        is extracted, converted to a lowercased string, and stored in a temporary
+        ``_sort_value`` field which is then sorted on (and finally projected away).
+        ``public_id`` is used as a stable tiebreaker so pagination remains deterministic
+        when two rows share the same sort value
+
+        All other sort keys produce a plain ``$sort`` stage on the given path
+
+        Args:
+            sort_key (str): The sort key (e.g. ``"public_id"`` or ``"fields.text-19742"``)
+            sort_order (int): ``1`` for ascending, ``-1`` for descending
+        """
+        if sort_key and sort_key.startswith(SortPipeline.FIELDS_PREFIX):
+            field_name = sort_key[len(SortPipeline.FIELDS_PREFIX):]
+
+            self.query.append({
+                '$addFields': {
+                    SortPipeline.TEMP_KEY: {
+                        '$toLower': {
+                            '$convert': {
+                                'input': {
+                                    '$first': {
+                                        '$map': {
+                                            'input': {
+                                                '$filter': {
+                                                    'input': '$fields',
+                                                    'as': 'f',
+                                                    'cond': {'$eq': ['$$f.name', field_name]},
+                                                }
+                                            },
+                                            'as': 'f',
+                                            'in': '$$f.value',
+                                        }
+                                    }
+                                },
+                                'to': 'string',
+                                'onError': '',
+                                'onNull': '',
+                            }
+                        }
+                    }
+                }
+            })
+            self.query.append({'$sort': {SortPipeline.TEMP_KEY: sort_order, 'public_id': 1}})
+            self.query.append({'$project': {SortPipeline.TEMP_KEY: 0}})
+            return
+
+        self.query.append(self.sort_(sort_key, sort_order))
+
+
+    def __init_query(self, criteria: dict | list[dict]) -> list[dict]:
         """
         Initialises the query with valid format
 
@@ -140,17 +181,6 @@ class BaseQueryBuilder(Builder):
         """
         self.clear()
         query: list[dict] = []
-
-        if object_builder_mode:
-            query = [
-                self.lookup_(_from='framework.types', _local='type_id', _foreign='public_id', _as='type'),
-                self.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True}),
-                self.match_({'type': {'$ne': None}}),
-                self.lookup_(_from='management.users', _local='author_id', _foreign='public_id', _as='author'),
-                self.unwind_({'path': '$author', 'preserveNullAndEmptyArrays': True}),
-                self.lookup_(_from='management.users', _local='editor_id', _foreign='public_id', _as='editor'),
-                self.unwind_({'path': '$editor', 'preserveNullAndEmptyArrays': True}),
-            ]
 
         if isinstance(criteria, dict):
             query.append(self.match_(criteria))
@@ -181,12 +211,18 @@ class BaseQueryBuilder(Builder):
             }
         }})
 
+        # Only the existence of the referenced object matters here, so the lookup sub-pipeline
+        # caps at a single id-only document instead of hauling each full object into memory
         query.append({
             "$lookup": {
                 "from": "framework.objects",
                 "localField": "object_id",
                 "foreignField": "public_id",
-                "as": "object"
+                "as": "object",
+                "pipeline": [
+                    {"$limit": 1},
+                    {"$project": {"_id": 1}},
+                ],
             }
         })
 

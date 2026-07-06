@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of all API routes for Object Imports
 """
 import json
-import logging
+from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.datastructures import FileStorage
@@ -37,7 +37,7 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.framework.rendering.cmdb_render import CmdbRender
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -58,6 +58,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.blueprints import NestedBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import enforce_special_type_license
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
     get_file_in_request,
     get_element_from_data_request,
@@ -72,7 +73,7 @@ from cmdb.errors.render import InstanceRenderError
 from cmdb.errors.importer import ImportRuntimeError, ImporterLoadError, ParserLoadError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 importer_object_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/object')
 
@@ -81,7 +82,7 @@ importer_object_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/obj
 @importer_object_blueprint.route('/importer/', methods=['GET'])
 @importer_object_blueprint.route('/importer', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_object_importer():
+def get_object_importer() -> Response:
     """
     Retrieve a list of available object importers with their metadata.
 
@@ -114,9 +115,9 @@ def get_object_importer():
 
 #TODO: ROUTE-FIX (Remove one route)
 @importer_object_blueprint.route('/importer/config/<string:importer_type>/', methods=['GET'])
-@importer_object_blueprint.route('/importer/config<string:importer_type>', methods=['GET'])
+@importer_object_blueprint.route('/importer/config/<string:importer_type>', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_default_object_importer_config(importer_type: str):
+def get_default_object_importer_config(importer_type: str) -> Response:
     """
     Retrieve the default configuration for a specific object importer type.
 
@@ -133,7 +134,7 @@ def get_default_object_importer_config(importer_type: str):
     try:
         try:
             importer: ObjectImporterConfig = __OBJECT_IMPORTER_CONFIG__[importer_type]
-        except IndexError:
+        except KeyError:
             abort(404, f"ObjectImporter config with Type: {importer_type} not found!")
 
         return DefaultResponse({'manually_mapping': importer.MANUALLY_MAPPING}).make_response()
@@ -148,7 +149,7 @@ def get_default_object_importer_config(importer_type: str):
 @importer_object_blueprint.route('/parser/', methods=['GET'])
 @importer_object_blueprint.route('/parser', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_object_parser():
+def get_object_parser() -> Response:
     """
     Retrieve a list of available object parsers.
 
@@ -172,7 +173,7 @@ def get_object_parser():
 @importer_object_blueprint.route('/parser/default/<string:parser_type>', methods=['GET'])
 @importer_object_blueprint.route('/parser/default/<string:parser_type>/', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_default_object_parser_config(parser_type: str):
+def get_default_object_parser_config(parser_type: str) -> Response:
     """
     Retrieve the default configuration for a specific object parser.
 
@@ -189,7 +190,7 @@ def get_default_object_parser_config(parser_type: str):
     try:
         try:
             parser: BaseObjectParser = __OBJECT_PARSER__[parser_type]
-        except IndexError:
+        except KeyError:
             abort(404, f"ObjectParser config with Type: {parser_type} not found!")
 
         return DefaultResponse(parser.DEFAULT_CONFIG).make_response()
@@ -204,7 +205,7 @@ def get_default_object_parser_config(parser_type: str):
 @importer_object_blueprint.route('/parse/', methods=['POST'])
 @importer_object_blueprint.route('/parse', methods=['POST'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def parse_objects():
+def parse_objects() -> Response:
     """
     Parse uploaded object data using the specified parser configuration.
 
@@ -256,8 +257,8 @@ def parse_objects():
 
 #TODO: REFACTOR-FIX (reduce complexity)
 @importer_object_blueprint.route('/', methods=['POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @right_required('base.import.object.*')
 def import_objects(request_user: CmdbUser) -> Response:
     """
@@ -332,6 +333,10 @@ def import_objects(request_user: CmdbUser) -> Response:
             LOGGER.error("[import_objects] Exception: %s. Type: %s", error, type(error), exc_info=True)
             abort(400, "Could not import objects!")
 
+        # Importing objects of an IPAM special type requires a valid IPAM license. Placed outside the
+        # type-resolution try above so the 403 propagates (that block converts any exception to 400).
+        enforce_special_type_license(request_user, bool(type_ and type_.special_type))
+
         # Load parser
         try:
             parser_class = load_parser_class('object', file_format)
@@ -378,14 +383,13 @@ def import_objects(request_user: CmdbUser) -> Response:
         for message in import_response.success_imports:
             try:
                 # get object state of every imported object
-                current_type_instance = objects_manager.get_object_type(importer_config_request.get('type_id'))
                 current_object = objects_manager.get_object(message.public_id)
                 current_object = CmdbObject.from_data(current_object)
 
-                current_object_render_result = CmdbRender(current_object,
-                                                        current_type_instance,
-                                                        request_user,
-                                                        False).result()
+                current_object_render_result = CmdbMultiRender(
+                    [current_object],
+                    request_user
+                ).result(single_object=True)
 
                 # insert object create log
                 log_params = {

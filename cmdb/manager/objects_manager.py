@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,13 @@
 """
 This module contains the implementation of the ObjectsManager
 """
-import logging
+from logging import Logger, getLogger
+import copy
 import json
 from typing import Any
-from bson import Regex, json_util
+
+from bson import json_util
+from pymongo import UpdateOne
 from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
@@ -28,9 +31,17 @@ from cmdb.manager.query_builder import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import (
+    CmdbObject,
+    CmdbObjectKey,
+    CmdbObjectFieldKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+)
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskAssessment
 from cmdb.security.acl.helpers import verify_access
@@ -40,18 +51,17 @@ from cmdb.framework.results import IterationResult
 from cmdb.errors.manager import (
     BaseManagerGetError,
     BaseManagerIterationError,
-    BaseManagerUpdateError,
     BaseManagerDeleteError,
 )
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerInitError,
     ObjectsManagerGetError,
+    ObjectsManagerGetTypeError,
     ObjectsManagerDeleteError,
     ObjectsManagerInsertError,
     ObjectsManagerUpdateError,
     ObjectsManagerIterationError,
     ObjectsManagerMdsReferencesError,
-    ObjectsManagerCheckError,
     ObjectsManagerSummaryLineError,
 )
 from cmdb.errors.models.cmdb_object import (
@@ -61,7 +71,7 @@ from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ObjectsManager - CLASS                                                #
@@ -133,29 +143,58 @@ class ObjectsManager(BaseManager):
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerInsertError(str(err)) from err
 
+
+    def bulk_update_multi_data_sections(self, updated_objects: list[CmdbObject]) -> None:
+        """
+        Bulk updates the multi_data_sections field for a list of updated CmdbObjects.
+
+        Args:
+            updated_objects (list[CmdbObject]): Objects that have modified multi_data_sections.
+
+        Raises:
+            ObjectsManagerUpdateError: If the bulk write fails.
+        """
+        try:
+            if not updated_objects:
+                return
+
+            operations: list[UpdateOne] = [
+                UpdateOne(
+                    {"public_id": obj.public_id},
+                    {"$set": {"multi_data_sections": obj.multi_data_sections}}
+                )
+                for obj in updated_objects
+            ]
+
+            self.bulk_write(operations)
+        except Exception as err:
+            LOGGER.error("[bulk_update_multi_data_sections] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerUpdateError(str(err)) from err
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     def get_object(
         self,
         public_id: int,
         user: CmdbUser | None = None,
-        permission: AccessControlPermission | None = None
-    ) -> dict[str, Any] | None:
+        permission: AccessControlPermission | None = None,
+        as_dict: bool = True
+    ) -> dict[str, Any] | CmdbObject | None:
         """
         Retrieves a CmdbObject from the database
 
         Args:
             public_id (int): public_id of the CmdbObject
-            user (CmdbUser | None): CmdbUser requesting the action
-            permission (AccessControlPermission | None): Extended CmdbUser ACL rights
+            user (CmdbUser | None): CmdbUser requesting the CmdbObject or None
+            permission (AccessControlPermission | None): Extended CmdbUser ACL rights or None
+            as_dict (bool): If true the CmdbObject is returned as dictionary else as an CmdbObject
             
         Raises:
-            ObjectsManagerGetError: When a CmdbObject could not be retrieved
             AccessDeniedError: If the CmdbUser does not have the permission for this action
+            ObjectsManagerGetError: When a CmdbObject could not be retrieved
 
         Returns:
-            dict | None: A dictionary representation of the CmdbObject or the CmdbObject instace
-                                               if found in database, otherwise None
+            dict[str, Any] | Cmdbobject | None: The CmdbObject either as object or dict if found else None
         """
         try:
             requested_object = self.get_one(public_id)
@@ -165,13 +204,13 @@ class ObjectsManager(BaseManager):
                 object_type = self.get_object_type(requested_object.type_id)
                 verify_access(object_type, user, permission)
 
-                return CmdbObject.to_json(requested_object)
+                return CmdbObject.to_json(requested_object) if as_dict else requested_object
 
             return None
         except AccessDeniedError as err:
             raise err
         except Exception as err:
-            LOGGER.error("[insert_relation] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_object] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(str(err)) from err
 
 
@@ -239,17 +278,22 @@ class ObjectsManager(BaseManager):
             valid_objects = []
 
             objects = self.get_many(sort=sort, direction=direction, **requirements)
+            cmdb_objects: list[CmdbObject] = [CmdbObject.from_data(obj) for obj in objects]
 
-            for obj in objects:
-                cur_object = CmdbObject.from_data(obj)
+            # Batch-load the types once instead of one get_object_type call per object (no N+1):
+            # a type query for thousands of same-type objects collapses to a single lookup
+            types_lookup: dict[int, CmdbType] = self._load_types_lookup(
+                list({cur_object.type_id for cur_object in cmdb_objects})
+            )
 
-                cur_type = self.get_object_type(cur_object.type_id)
+            for cur_object in cmdb_objects:
+                cur_type = types_lookup.get(cur_object.type_id)
 
                 try:
                     verify_access(cur_type, user, permission)
                     valid_objects.append(cur_object)
-                except Exception:
-                    # Skip objects that the user doesn't have access to
+                except AccessDeniedError:
+                    # Skip objects the user does not have access to (other errors propagate)
                     continue
 
             return valid_objects
@@ -314,8 +358,8 @@ class ObjectsManager(BaseManager):
                     cur_type = self.get_object_type(cur_object.type_id)
                     verify_access(cur_type, user, permission)
                     grouped_objects.append(obj)
-                except Exception:
-                    # If access verification fails, skip this object
+                except AccessDeniedError:
+                    # If access verification fails, skip this object (other errors propagate)
                     continue
 
             return grouped_objects
@@ -324,52 +368,83 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(str(err)) from err
 
 
-    #TODO: ERROR-FIX (Create a ObjectsManagerGetTypeError)
-    def get_object_type(self, type_id: int) -> CmdbType | None:
+    def get_object_type(self, type_id: int, as_dict: bool = False) -> dict[str, Any] | CmdbType | None:
         """
-        Retrieves the CmdbType for the given public_id of the CmdbType
+        Retrieves the CmdbType with the given public_id
 
         Args:
             type_id (int): public_id of the CmdbType
+            as_dict(bool = False): If True the CmdbType will be returned as a dictionary instead of a CmdbType
 
         Raises:
-            ObjectsManagerGetError: If the operation fails
+            ObjectsManagerGetTypeError: If the CmdbType could not be retrieved or initialised
+            ObjectsManagerGetTypeError: If an unexpected Exception occurs
 
         Returns:
-            CmdbType | None: CmdbType with the given type_id if found in database
+            dict[str, Any], CmdbType | None: CmdbType with the given type_id either as dict or object if found
+                                             in database else None
         """
         try:
-            requested_type = self.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
-            requested_type = CmdbType.from_data(requested_type)
+            requested_type: dict[str, Any] | None = self.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
 
-            return requested_type
+            if requested_type:
+                requested_type: CmdbType = CmdbType.from_data(requested_type)
+
+                if as_dict:
+                    requested_type: dict[str, Any] = CmdbType.to_json(requested_type)
+
+                return requested_type
+
+            return None
         except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetTypeError(str(err)) from err
         except Exception as err:
             LOGGER.error("[get_object_type] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetTypeError(str(err)) from err
 
 
-    def count_objects(self, criteria: dict[str, Any] | None = None) -> int:
+    def find_objects(
+            self,
+            criteria: dict[str, Any],
+            as_dict: bool = False,
+            projection: dict[str, Any] | None = None,
+        ) -> list[CmdbObject] | list[dict[str, Any]]:
         """
-        Returns the number of objects with the given criteria
+        Get a list of CmdbObjects by a filter
 
         Args:
-            criteria (dict): Filter for counting documents like {'type_id: 1} 
+            criteria: Filter which should be applied during the search
+            as_dict (bool = False): If True the list will contain dictionaries instead of CmdbObjects
+            projection (dict[str, Any] | None): Optional Mongo projection limiting the returned
+                fields. Only valid together with as_dict=True - a partial document cannot be
+                deserialized into a CmdbObject
 
         Raises:
-            ObjectsManagerGetError: When an error occures during counting objects
+            ObjectsManagerGetError: When the retrieval of CmdbObjects failed, or when a
+                projection is combined with as_dict=False
 
         Returns:
-            (int): Returns the number of CmdbObjects with the given criteria
+            list[CmdbObject] | list[dict[str, Any]]: list of CmdbObjects matching the criteria
         """
-        try:
-            if criteria:
-                return self.count_documents(self.collection, criteria=criteria)
+        if projection is not None and not as_dict:
+            raise ObjectsManagerGetError("'projection' requires as_dict=True!")
 
-            return self.count_documents(self.collection)
-        except BaseManagerGetError as err:
-            raise ObjectsManagerGetError(err) from err
+        try:
+            if projection is not None:
+                # Preserve the default '_id' exclusion the projection-less path applies in
+                # MongoDatabaseManager.find, unless the caller addressed '_id' explicitly
+                safe_projection: dict[str, Any] = {'_id': 0, **projection}
+                found_objects: list[dict[str, Any]] = list(self.find(criteria=criteria, projection=safe_projection))
+            else:
+                found_objects = list(self.find(criteria=criteria))
+
+            if as_dict:
+                return found_objects
+
+            return [CmdbObject.from_data(found_object) for found_object in found_objects]
+        except Exception as err:
+            LOGGER.error("[find_objects] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerGetError(str(err)) from err
 
 
     def get_new_object_public_id(self) -> int:
@@ -411,7 +486,6 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
 
-    #TODO: REFACTOR-FIX
     def get_mds_references_for_object(self,
                                       referenced_object: CmdbObject,
                                       query_filter: dict | list) -> list[dict]:
@@ -438,21 +512,25 @@ class ObjectsManager(BaseManager):
 
             query_pipeline = []
 
+            # Work on a copy: the caller (references()) shares this filter with its own query, so
+            # the type_id -> public_id swap below must not mutate the caller's filter in place
+            query_filter = copy.deepcopy(query_filter)
+
             if isinstance(query_filter, dict):
                 query_pipeline.append(query_filter)
             elif isinstance(query_filter, list):
                 for filter_item in query_filter:
                     if "$match" in filter_item and filter_item["$match"]:
-                        if "type_id" in filter_item["$match"]:
-                            filter_type_id = filter_item["$match"]["type_id"]
-                            del filter_item["$match"]["type_id"]
-                            filter_item["$match"]["public_id"] = filter_type_id
+                        if CmdbObjectKey.TYPE_ID.value in filter_item["$match"]:
+                            filter_type_id = filter_item["$match"][CmdbObjectKey.TYPE_ID.value]
+                            del filter_item["$match"][CmdbObjectKey.TYPE_ID.value]
+                            filter_item["$match"][CmdbObjectKey.PUBLIC_ID.value] = filter_type_id
 
                 query_pipeline += query_filter
 
             # Get all types which reference this type
             query_pipeline.append({'$match': {"$and": [
-                                        {"fields.type": "ref"},
+                                        {"fields.type": FieldType.REFERENCE.value},
                                         {"fields.ref_types": object_type_id}
                                     ]}
                         })
@@ -485,44 +563,103 @@ class ObjectsManager(BaseManager):
 
             results = list(self.aggregate_from_other_collection(CmdbType.COLLECTION, query_pipeline))
 
-            matching_results = []
-
-            # Check if the mds data references the current object
-            for result in results:
-                try:
-                    for mds_entry in result.get("multi_data_sections", []):
-                        for value in mds_entry.get("values", []):
-                            data_set: dict
-                            for data_set in value.get("data", []):
-                                if (
-                                    self.is_ref_field(data_set["name"], result)
-                                    and "value" in data_set
-                                    and data_set["value"] == referenced_object.public_id
-                                ):
-                                    matching_results.append(result)
-                                    # this result is a match => go back to outer loop
-                                    raise StopIteration()
-                except StopIteration:
-                    pass
-                except ObjectsManagerCheckError as err:
-                    raise BaseManagerIterationError(err) from err
-
-            return matching_results
+            return self._filter_mds_results_referencing(results, referenced_object.public_id)
         except Exception as err:
             LOGGER.error("[get_mds_references_for_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
 
 
-    #TODO: REFACTOR-FIX
-    def references(self,
-                   object_: CmdbObject,
-                   criteria: dict,
-                   limit: int,
-                   skip: int,
-                   sort: str,
-                   order: int,
-                   user: CmdbUser = None,
-                   permission: AccessControlPermission = None) -> IterationResult[CmdbObject]:
+    def _ref_field_names_by_type(self, type_ids: list[int]) -> dict[int, set[str]]:
+        """
+        Resolves the set of 'ref'-type field names for each given CmdbType, in one batch
+
+        Replaces a per-row type lookup with a single batched load so MDS-reference checking does
+        not round-trip to the database for every candidate object
+
+        Args:
+            type_ids (list[int]): The CmdbType public_ids to resolve
+
+        Returns:
+            dict[int, set[str]]: Mapping of type public_id to the names of its 'ref'-type fields
+        """
+        types_lookup: dict[int, CmdbType] = self._load_types_lookup(type_ids)
+
+        return {
+            type_id: {
+                field[CmdbObjectFieldKey.NAME.value]
+                for field in cmdb_type.fields
+                if field.get(CmdbObjectFieldKey.TYPE.value) == FieldType.REFERENCE.value
+            }
+            for type_id, cmdb_type in types_lookup.items()
+        }
+
+
+    def _filter_mds_results_referencing(self, results: list[dict], referenced_public_id: int) -> list[dict]:
+        """
+        Keeps only the result objects whose MDS rows reference the given object via a ref field
+
+        Args:
+            results (list[dict]): Candidate CmdbObject documents (must carry multi_data_sections)
+            referenced_public_id (int): public_id the MDS ref field must point at
+
+        Returns:
+            list[dict]: The subset of results that reference the given object in their MDS data
+        """
+        # Pre-resolve the ref-field names per type once instead of per MDS row (no N+1 type fetch)
+        result_type_ids: list[int] = list({
+            result.get(CmdbObjectKey.TYPE_ID.value)
+            for result in results
+            if isinstance(result.get(CmdbObjectKey.TYPE_ID.value), int)
+        })
+        ref_field_names_by_type: dict[int, set[str]] = self._ref_field_names_by_type(result_type_ids)
+
+        matching_results: list[dict] = []
+
+        for result in results:
+            ref_field_names: set[str] = ref_field_names_by_type.get(result.get(CmdbObjectKey.TYPE_ID.value), set())
+
+            if self._mds_rows_reference(result, ref_field_names, referenced_public_id):
+                matching_results.append(result)
+
+        return matching_results
+
+
+    @staticmethod
+    def _mds_rows_reference(result: dict, ref_field_names: set[str], referenced_public_id: int) -> bool:
+        """
+        Reports whether any MDS row of the object holds a ref field pointing at the given id
+
+        Args:
+            result (dict): A CmdbObject document carrying multi_data_sections
+            ref_field_names (set[str]): Names of the object type's 'ref'-type fields
+            referenced_public_id (int): public_id the ref field must point at
+
+        Returns:
+            bool: True if any MDS ref field references the given object
+        """
+        for mds_entry in result.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value, []):
+            for value in mds_entry.get(CmdbObjectMdsKey.VALUES.value, []):
+                for data_set in value.get(CmdbObjectMdsRowKey.DATA.value, []):
+                    if (
+                        data_set.get(CmdbObjectFieldKey.NAME.value) in ref_field_names
+                        and data_set.get(CmdbObjectFieldKey.VALUE.value) == referenced_public_id
+                    ):
+                        return True
+
+        return False
+
+
+    def references(
+        self,
+        object_: CmdbObject,
+        criteria: dict,
+        limit: int,
+        skip: int,
+        sort: str,
+        order: int,
+        user: CmdbUser = None,
+        permission: AccessControlPermission = None
+    ) -> IterationResult[CmdbObject]:
         """
         Retrieves all CmdbObjects that reference the given CmdbObject
 
@@ -561,21 +698,8 @@ class ObjectsManager(BaseManager):
             query.append(Builder.lookup_(_from='framework.types', _local='type_id', _foreign='public_id', _as='type'))
             query.append(Builder.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True}))
 
-            # Define reference conditions for both field-based and section-based references
-            field_ref_query = {
-                    'type.fields.type': 'ref',
-                    '$or': [
-                        {'type.fields.ref_types': Regex(f'.*{object_.type_id}.*', 'i')},
-                        {'type.fields.ref_types': object_.type_id}
-                    ]
-            }
-
-            section_ref_query = {
-                    'type.render_meta.sections.type': 'ref-section',
-                    'type.render_meta.sections.reference.type_id': object_.type_id
-            }
-
-            query.append(Builder.match_(Builder.or_([field_ref_query, section_ref_query])))
+            # Keep only objects whose type references object_'s type and which point at its public_id
+            query.append(Builder.match_(Builder.or_(self._build_reference_match_queries(object_))))
             query.append(Builder.match_({'fields.value': object_.public_id}))
 
             builder_params = BuilderParameters(criteria=query, sort=sort, order=order)
@@ -594,6 +718,95 @@ class ObjectsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
+
+
+    @staticmethod
+    def _build_reference_match_queries(object_: CmdbObject) -> list[dict[str, Any]]:
+        """
+        Builds the field-based and section-based reference match queries for ``references()``
+
+        Both match against the joined 'type' document. ref_types is always a list of integer type
+        public_ids, so an exact match is correct (the former substring-regex alternative never
+        matched a numeric field anyway)
+
+        Args:
+            object_ (CmdbObject): The object whose referencing objects are being searched
+
+        Returns:
+            list[dict[str, Any]]: The field-ref and section-ref match queries, for an `$or`
+        """
+        field_ref_query: dict[str, Any] = {
+            'type.fields.type': FieldType.REFERENCE.value,
+            'type.fields.ref_types': object_.type_id,
+        }
+
+        section_ref_query: dict[str, Any] = {
+            'type.render_meta.sections.type': SectionType.REF_SECTION.value,
+            'type.render_meta.sections.reference.type_id': object_.type_id,
+        }
+
+        return [field_ref_query, section_ref_query]
+
+
+    def get_object_field_name_sets_by_type(self, type_ids: list[int]) -> dict[int, list[set[str]]]:
+        """
+        Returns the distinct sets of object field-names per CmdbType, deduplicated in the database
+
+        For each given CmdbType public_id, aggregates the field-name lists of its CmdbObjects and
+        returns only the distinct (order-independent) sets - so a type with thousands of identically
+        shaped objects yields a single set. Lets callers evaluate a type's 'clean status' without
+        materializing every object in memory
+
+        Args:
+            type_ids (list[int]): public_ids of the CmdbTypes whose objects should be inspected
+
+        Raises:
+            ObjectsManagerGetError: If the aggregation fails
+
+        Returns:
+            dict[int, list[set[str]]]: Mapping of type public_id to the distinct field-name sets
+                found across its objects (types with no objects are absent from the mapping)
+        """
+        if not type_ids:
+            return {}
+
+        field_names_path: str = f'${CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.NAME.value}'
+
+        pipeline: list[dict[str, Any]] = [
+            {'$match': {CmdbObjectKey.TYPE_ID.value: {'$in': type_ids}}},
+            {'$group': {
+                '_id': f'${CmdbObjectKey.TYPE_ID.value}',
+                # $sortArray makes the signature order-independent so $addToSet dedups (fine on the 7.0 floor)
+                'signatures': {'$addToSet': {
+                    '$sortArray': {'input': {'$ifNull': [field_names_path, []]}, 'sortBy': 1},
+                }},
+            }},
+        ]
+
+        try:
+            result = list(self.aggregate_objects(pipeline))
+
+            return {row['_id']: [set(signature) for signature in row['signatures']] for row in result}
+        except Exception as err:
+            LOGGER.error("[get_object_field_name_sets_by_type] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerGetError(str(err)) from err
+
+
+    def get_objects_lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
+        """
+        Batch-loads the CmdbObjects for the given public_ids and returns them keyed by public_id
+
+        Issues a single query over all ids instead of one lookup per id
+
+        Args:
+            public_ids (list[int]): The CmdbObject public_ids to load
+
+        Returns:
+            dict[int, CmdbObject]: Mapping of public_id to its CmdbObject for every id that resolved
+        """
+        all_objects: list[CmdbObject] = self.find_objects(criteria={"public_id": {"$in": public_ids}})
+
+        return {obj.public_id: obj for obj in all_objects}
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -623,6 +836,9 @@ class ObjectsManager(BaseManager):
 
             object_type = self.get_object_type(instance.get('type_id'))
 
+            if not object_type:
+                raise ObjectsManagerUpdateError("CmdbType of CmdbObject not found in database!")
+
             if not object_type.active:
                 raise AccessDeniedError(
                     f'Objects cannot be updated because type `{object_type.name}` is deactivated.'
@@ -634,25 +850,6 @@ class ObjectsManager(BaseManager):
             raise err
         except Exception as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerUpdateError(err) from err
-
-
-    def update_many_objects(self, query: dict, update: dict, add_to_set: bool = False) -> None:
-        """
-        Update multiple CmdbObjects that match the given filter
-
-        Args:
-            query (dict): The filter criteria to select the CmdbObjects to update
-            update (dict): The changes to apply to the matching CmdbObjects
-            add_to_set (bool): If True, uses `$addToSet` to append unique values 
-                                         to an array field instead of overwriting. Defaults to False
-
-        Raises:
-            ObjectsManagerUpdateError: If an error occurs during the update operation
-        """
-        try:
-            self.update_many(criteria=query, update=update, add_to_set=add_to_set)
-        except BaseManagerUpdateError as err:
             raise ObjectsManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -677,7 +874,9 @@ class ObjectsManager(BaseManager):
             bool: True if the CmdbObject was successfully deleted, False otherwise
         """
         try:
-            to_delete_object = self.get_object(public_id)
+            # get_one (raw) instead of get_object: get_object would fetch the type internally for
+            # its own access check, so we'd resolve the type twice. We fetch it once below
+            to_delete_object = self.get_one(public_id)
 
             if not to_delete_object:
                 return False
@@ -685,6 +884,9 @@ class ObjectsManager(BaseManager):
             type_id = CmdbObject.from_data(to_delete_object).type_id
 
             object_type = self.get_object_type(type_id)
+
+            if not object_type:
+                raise ObjectsManagerDeleteError("CmdbType of CmdbObject not found in database!")
 
             if not object_type.active:
                 raise AccessDeniedError(
@@ -706,7 +908,8 @@ class ObjectsManager(BaseManager):
     def delete_with_follow_up(
             self, public_id: int,
             user: CmdbUser = None,
-            permission: AccessControlPermission = None) -> None:
+            permission: AccessControlPermission = None
+        ) -> bool:
         """
         Deletes a CmdbObject by its public_id after verifying access and type status and also deletes
         RiskAssessments using this Object!
@@ -728,72 +931,110 @@ class ObjectsManager(BaseManager):
         return self.delete_object(public_id, user, permission)
 
 
-    def delete_all_object_references(self, public_id: int) -> None:
+    def delete_all_object_references(self, public_ids: int | list[int]) -> None:
         """
-        Removes all references to the specified object by clearing its reference fields
-
-        Args:
-            public_id (int): The public_id of the target CmdbObject whose references should be deleted
-
-        Raises:
-            ObjectsManagerDeleteError: If an error occurs during retrieval, iteration, or update
+        Remove one or multiple public_id references from all objects.
+        Only fields with type 'ref' or 'ref-section-field' are affected.
+        Also removes references inside multi_data_sections.
         """
         try:
-            object_instance = self.get_object(public_id)
-            object_instance = CmdbObject.from_data(object_instance)
-            # Get all objects which reference the targeted object
-            referenced_objects = self.references(
-                                    object_=object_instance,
-                                    criteria={'$match': {'active': {'$eq': True}}},
-                                    limit=0,
-                                    skip=0,
-                                    sort='public_id',
-                                    order=1
-                                ).results
+            if isinstance(public_ids, list):
+                # An empty list is a no-op rather than an error (nothing to scrub)
+                if not public_ids:
+                    return
 
-            # Iterate over referenced objects and remove the target reference
-            for obj in referenced_objects:
-                updated = False  # Track if any field is modified
+                ids_filter: dict[str, list[int]] = {"$in": public_ids}
+            elif public_ids:
+                ids_filter: int = public_ids
+            else:
+                raise ObjectsManagerUpdateError("No public ids provided to delete from references!")
 
-                for field in obj.fields:
-                    if field['name'].startswith('ref-') and field['value'] == public_id:
-                        field['value'] = ""  # Clear reference
-                        updated = True  # Mark object as modified
+            # Both plain ref fields and ref-section fields hold object references
+            ref_field_types: list[str] = [FieldType.REFERENCE.value, FieldType.REF_SECTION.value]
 
-                if updated:
-                    self.update_object(obj.public_id, obj.__dict__)
-        except (ObjectsManagerGetError,
-                CmdbObjectInitFromDataError,
-                ObjectsManagerIterationError,
-                ObjectsManagerUpdateError) as err:
-            raise ObjectsManagerDeleteError(err) from err
+            # Remove from normal fields
+            filter_query: dict[str, Any] = {
+                "fields": {
+                    "$elemMatch": {
+                        "type": {"$in": ref_field_types},
+                        "value": ids_filter,
+                    }
+                }
+            }
+
+            update: dict[str, Any] = {
+                "$set": {
+                    "fields.$[f].value": ""
+                }
+            }
+
+            array_filters: list[dict[str, Any]] = [
+                {
+                    "f.type": {"$in": ref_field_types},
+                    "f.value": ids_filter,
+                }
+            ]
+
+            self.update_many_raw(
+                filter_query=filter_query,
+                update=update,
+                array_filters=array_filters,
+            )
+
+            # Remove from multi_data_sections[].values[].data[]
+            filter_query_multi: dict[str, Any] = {
+                "multi_data_sections.values.data": {
+                    "$elemMatch": {
+                        "type": {"$in": ref_field_types},
+                        "value": ids_filter,
+                    }
+                }
+            }
+
+            update_multi: dict[str, Any] = {
+                "$set": {
+                    "multi_data_sections.$[].values.$[].data.$[f].value": ""
+                }
+            }
+
+            array_filters_multi: list[dict[str, Any]] = [
+                {
+                    "f.type": {"$in": ref_field_types},
+                    "f.value": ids_filter,
+                }
+            ]
+
+            self.update_many_raw(
+                filter_query=filter_query_multi,
+                update=update_multi,
+                array_filters=array_filters_multi,
+            )
         except Exception as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerDeleteError(err) from err
+            raise ObjectsManagerUpdateError(str(err)) from err
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
     def delete_object_from_risk_assessment_cascade(self, deleted_object_id: int) -> None:
         """
-        Deletes all RiskAssessments and their associated ControlMeasureAssignments that reference 
-        the given CmdbObjectGroup.
+        Deletes all RiskAssessments and their ControlMeasureAssignments that reference an Object
 
-        This function performs the following steps:
-        1. Finds all RiskAssessments where 'object_id_ref_type' is 'OBJECT_GROUP' and 
-        'object_id' matches the deleted group ID
-        2. Deletes these RiskAssessments
-        3. Deletes all ControlMeasureAssignments referencing the deleted RiskAssessments
+        Performed in three steps:
+        1. Find all RiskAssessments whose 'object_id_ref_type' is OBJECT and whose 'object_id'
+           matches the deleted object's public_id
+        2. Delete those RiskAssessments
+        3. Delete all ControlMeasureAssignments referencing the deleted RiskAssessments
 
         Args:
-            deleted_group_id (int): The public_id of the deleted CmdbObjectGroup
+            deleted_object_id (int): The public_id of the deleted CmdbObject
         """
         # Find all RiskAssessments referencing this Object
-        risk_assessment_query = {
+        risk_assessment_query: dict[str, Any] = {
             'object_id_ref_type': ObjectReferenceType.OBJECT,
             'object_id': deleted_object_id
         }
 
-        matching_risk_assessments = list(self.dbm.find(
+        matching_risk_assessments: list[dict[str, Any]] = list(self.dbm.find(
             IsmsRiskAssessment.COLLECTION,
             self.db_name,
             risk_assessment_query,
@@ -801,24 +1042,22 @@ class ObjectsManager(BaseManager):
         ))
 
         if not matching_risk_assessments:
-            return  # Nothing to delete
+            return
 
         # Collect all RiskAssessment public_ids
         risk_assessment_ids = [ra['public_id'] for ra in matching_risk_assessments]
 
         if risk_assessment_ids:
             # Delete the RiskAssessments
-            self.dbm.delete_many(
+            self.delete_many_from_other_collection(
                 IsmsRiskAssessment.COLLECTION,
-                self.db_name,
-                **{'public_id': {'$in': risk_assessment_ids}},
+                {'public_id': {'$in': risk_assessment_ids}}
             )
 
             # Delete all ControlMeasureAssignments referencing those RiskAssessments
-            self.dbm.delete_many(
+            self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
-                self.db_name,
-                **{'risk_assessment_id': {'$in': risk_assessment_ids}},
+                {'risk_assessment_id': {'$in': risk_assessment_ids}}
             )
 
 
@@ -881,33 +1120,67 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerMdsReferencesError(err) from err
 
 
-    def is_ref_field(self, field_name: str, ref_object: dict) -> bool:
+    def _compose_summary_line(
+        self,
+        target_object: dict[str, Any],
+        target_object_type: Any,
+        with_type: bool = True,
+    ) -> str:
         """
-        Checks if the given field in the referenced object is of type 'ref'
+        Composes the summary line for a CmdbObject that has already been loaded
+
+        Pure composition over already-loaded data: the object as a dict and its CmdbType
+        instance. The 'type label + public_id' prefix is built first, then the configured
+        summary fields are appended in declaration order (separator '-' before the first
+        field, '|' between fields). If anything goes wrong while walking the configured
+        fields the helper falls back to the default prefix line and logs at debug level -
+        a partially broken type definition should not block the caller. Centralizing this
+        composition lets `get_summary_line` and `get_summary_lines_lookup` share one body
 
         Args:
-            field_name (str): The name of the field to check
-            referenced_object (dict): The referenced object containing the field's information
-
-        Raises:
-            ObjectsManagerCheckError: If the field could not be checked
+            target_object (dict[str, Any]): The CmdbObject document (as_dict=True shape)
+            target_object_type: The CmdbType instance of the object
+            with_type (bool): If True the type label is included in the prefix
 
         Returns:
-            bool: True if the field is a reference field, otherwise False
+            str: The composed summary line
         """
+        if with_type:
+            default_line = f"{target_object_type.label} #{target_object.get('public_id')}"
+        else:
+            default_line = f"#{target_object.get('public_id')}"
+
+        if not target_object_type.has_summaries():
+            return default_line
+
+        summary_line = default_line
+
         try:
-            ref_type = self.get_object_type(ref_object["type_id"])
+            summary_fields = target_object_type.get_summary().fields
+            first = True
 
-            for field in ref_type.fields:
-                if field["name"] == field_name and field["type"] == "ref":
-                    return True
+            line: dict
+            for line in summary_fields:
+                field_name = line.get('name')
+                field_value = next(
+                    (field['value'] for field in target_object['fields'] if field['name'] == field_name), None
+                )
 
-            return False
-        except ObjectsManagerGetError as err:
-            raise ObjectsManagerCheckError(err) from err
+                if first:
+                    summary_line += f' - {field_value}'
+                    first = False
+                else:
+                    summary_line += f' | {field_value}'
         except Exception as err:
-            LOGGER.error("[is_ref_field] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerCheckError(err) from err
+            LOGGER.debug(
+                "Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
+                target_object.get('public_id'),
+                target_object_type.public_id,
+                err
+            )
+            summary_line = default_line
+
+        return summary_line
 
 
     def get_summary_line(self, public_id: int, with_type: bool = True) -> str:
@@ -939,41 +1212,113 @@ class ObjectsManager(BaseManager):
             if not target_object_type:
                 return default_line
 
-            if with_type:
-                default_line = f"{target_object_type.label} #{target_object.get('public_id')}"
-            else:
-                default_line = f"#{target_object.get('public_id')}"
-
-            if not target_object_type.has_summaries():
-                return default_line
-
-            summary_line = default_line
-
-            try:
-                summary_fields = target_object_type.get_summary().fields
-                first = True
-
-                line:dict
-                for line in summary_fields:
-                    field_name = line.get('name')
-                    field_value = next(
-                        (field['value'] for field in target_object['fields'] if field['name'] == field_name), None
-                    )
-
-                    if first:
-                        summary_line += f' - {field_value}'
-                        first = False
-                    else:
-                        summary_line += f' | {field_value}'
-            except Exception as err:
-                LOGGER.debug(
-                    "Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
-                    target_object.get('public_id'),
-                    target_object_type.public_id,
-                    err
-                )
-                summary_line = default_line
-
-            return summary_line
+            return self._compose_summary_line(target_object, target_object_type, with_type=with_type)
         except Exception as err:
             raise ObjectsManagerSummaryLineError(err) from err
+
+
+    def _load_types_lookup(self, type_ids: list[int]) -> dict[int, CmdbType]:
+        """
+        Batch-loads the CmdbTypes whose public_id is in ``type_ids`` and returns them by id
+
+        One ``get_many_from_other_collection`` call followed by per-row deserialization. Rows
+        that fail to deserialize are skipped with a debug-level log so a single drifted type
+        document does not break the entire batch
+
+        Args:
+            type_ids (list[int]): The CmdbType public_ids to resolve
+
+        Returns:
+            dict[int, CmdbType]: {type_id: CmdbType} for every type that loaded successfully
+        """
+        if not type_ids:
+            return {}
+
+        type_docs: list[dict[str, Any]] = self.get_many_from_other_collection(
+            CmdbType.COLLECTION, public_id={'$in': type_ids},
+        )
+        lookup: dict[int, CmdbType] = {}
+
+        for type_doc in type_docs:
+            try:
+                type_instance: CmdbType = CmdbType.from_data(type_doc)
+            except Exception as err:
+                LOGGER.debug(
+                    "Failed to load CmdbType with ID: %s. Error: %s",
+                    type_doc.get('public_id'), err,
+                )
+                continue
+
+            lookup[type_instance.public_id] = type_instance
+
+        return lookup
+
+
+    def get_summary_lines_lookup(
+        self,
+        public_ids: list[int],
+        with_type: bool = True,
+        object_docs: list[dict[str, Any]] | None = None,
+    ) -> dict[int, str]:
+        """
+        Batch-resolves summary lines for many CmdbObjects in a single round-trip pair
+
+        Used by callers that need summary lines for a known list of public_ids and would
+        otherwise issue O(N) per-object lookups via ``get_summary_line``. Issues at most two
+        bulk queries: one ``find_objects`` over the requested ids (skipped entirely when the
+        caller already holds the documents and passes them via ``object_docs``), then one
+        ``get_types_lookup`` over the distinct type ids referenced by those objects. Summary
+        lines are composed locally via ``_compose_summary_line`` so the wire-format matches
+        ``get_summary_line`` byte-for-byte. Duplicates in ``public_ids`` are collapsed before
+        the bulk fetch
+
+        Objects that cannot be resolved (deleted, no longer matching their type id, etc.) are
+        absent from the returned dict - callers should treat a missing key as "no summary
+        line available" rather than as a hard error
+
+        Args:
+            public_ids (list[int]): public_ids to resolve; duplicates are allowed
+            with_type (bool): If True the type label is included in each prefix
+            object_docs (list[dict[str, Any]] | None): Already-loaded full CmdbObject
+                documents covering the requested ids; when given, the per-id fetch is
+                skipped and docs outside ``public_ids`` are ignored
+
+        Returns:
+            dict[int, str]: {public_id: summary_line} for every public_id whose object and
+                type both resolved
+        """
+        if not public_ids:
+            return {}
+
+        unique_ids: list[int] = list(set(public_ids))
+
+        if object_docs is not None:
+            id_set: set[int] = set(unique_ids)
+            object_docs = [doc for doc in object_docs if doc.get('public_id') in id_set]
+        else:
+            object_docs = self.find_objects(
+                criteria={'public_id': {'$in': unique_ids}},
+                as_dict=True,
+            )
+
+        types_lookup: dict[int, CmdbType] = self._load_types_lookup(list({
+            doc.get('type_id') for doc in object_docs if isinstance(doc.get('type_id'), int)
+        }))
+
+        result: dict[int, str] = {}
+
+        for doc in object_docs:
+            doc_id: Any = doc.get('public_id')
+            doc_type_id: Any = doc.get('type_id')
+
+            if not isinstance(doc_id, int):
+                continue
+
+            doc_type: CmdbType | None = types_lookup.get(doc_type_id) if isinstance(doc_type_id, int) else None
+
+            if doc_type is None:
+                continue
+
+            result[doc_id] = self._compose_summary_line(doc, doc_type, with_type=with_type)
+
+        return result

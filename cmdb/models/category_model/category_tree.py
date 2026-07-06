@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,54 @@
 """
 Represents a CategoryTree of CmdbCategories in DataGerry
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model.cmdb_category import CmdbCategory
 from cmdb.models.category_model.category_node import CategoryNode
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    INDEX HELPERS                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def index_types_by_id(types: list[CmdbType] | None) -> dict[int, CmdbType]:
+    """
+    Builds a {public_id: CmdbType} lookup so a CategoryNode resolves its types in O(1) per id
+
+    Args:
+        types (list[CmdbType] | None): All available CmdbTypes, or None
+
+    Returns:
+        dict[int, CmdbType]: Mapping of every CmdbType's public_id to the CmdbType
+    """
+    return {a_type.public_id: a_type for a_type in types or []}
+
+
+def group_categories_by_parent(
+        categories: list[CmdbCategory]) -> dict[int | None, list[CmdbCategory]]:
+    """
+    Groups CmdbCategories by their parent public_id so the tree build never re-scans the full list
+
+    The per-parent lists keep the input order, so the resulting tree preserves the original
+    CmdbCategory ordering before each node's children are sorted by their own order value
+
+    Args:
+        categories (list[CmdbCategory]): The CmdbCategories to group
+
+    Returns:
+        dict[int | None, list[CmdbCategory]]: Mapping of parent public_id (None for roots) to its
+            direct child CmdbCategories
+    """
+    grouped: dict[int | None, list[CmdbCategory]] = {}
+
+    for category in categories:
+        grouped.setdefault(category.parent, []).append(category)
+
+    return grouped
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CategoryTree - CLASS                                                 #
@@ -34,20 +74,22 @@ class CategoryTree:
     """
     MODEL = 'CategoryTree'
 
-    def __init__(self, categories: list[CmdbCategory], types: list[CmdbType] = None):
+    def __init__(self, categories: list[CmdbCategory], types: list[CmdbType] | None = None) -> None:
         """
-        Initializes the CategoryTree with the given CmdbCategories and CmdbTypes. Builds a sorted tree structure 
+        Initializes the CategoryTree with the given CmdbCategories and CmdbTypes. Builds a sorted tree structure
         based on the CmdbCategories' order
 
         Args:
             categories (list[CmdbCategory]): A list of CmdbCategories to create the CategoryTree
-            types (list[CmdbType], optional): A list of CmdbTypes to associate with the CmdbCategories.
-                                              Defaults to None
+            types (list[CmdbType] | None, optional): A list of CmdbTypes to associate with the CmdbCategories.
+                                                     Defaults to None
         """
         self.categories = categories
         self.types = types
+        types_by_id: dict[int, CmdbType] = index_types_by_id(types)
+        children_by_parent: dict[int | None, list[CmdbCategory]] = group_categories_by_parent(categories)
         self._tree: list[CategoryNode] = sorted(
-            self.__create_tree(self.categories, types=self.types),
+            self.__create_tree(children_by_parent, types_by_id),
             key=lambda node: (node.get_order() is None, node.get_order())
         )
 
@@ -67,96 +109,74 @@ class CategoryTree:
     def tree(self) -> list[CategoryNode]:
         """
         Returns the CategoryTree
+
+        Returns:
+            list[CategoryNode]: The root CategoryNodes in display order
         """
         return self._tree
-
-
-    @tree.setter
-    def tree(self, value):
-        """
-        Sets the CategoryTree
-        """
-        self._tree = value
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
     def __create_tree(
             cls,
-            categories: list[CmdbCategory],
-            parent: int = None, types: list[CmdbType] = None) -> list[CategoryNode]:
+            children_by_parent: dict[int | None, list[CmdbCategory]],
+            types_by_id: dict[int, CmdbType],
+            parent: int | None = None,
+            visited: set[int] | None = None) -> list[CategoryNode]:
         """
-        Recursively generate a CmdbCategory tree from a list of CmdbCategories
+        Recursively generate a CmdbCategory tree from a parent-grouped CmdbCategory index
+
+        Linear in the number of CmdbCategories: each level reads only its direct children from
+        ``children_by_parent`` instead of re-scanning the full list, and every CategoryNode
+        resolves its types through the shared ``types_by_id`` lookup.
+
+        Cycle-safe: every CmdbCategory is placed into the tree at most once, tracked via the
+        shared ``visited`` set. Stored data containing a self-parent or a parent cycle (the
+        write path rejects these, but legacy / hand-edited documents may still carry them)
+        therefore cannot recurse infinitely - the offending CmdbCategories are simply not
+        re-entered
 
         Args:
-            categories list[CmdbCategory]: list of root/child CmdbCategories
-            parent (int, optional): The parent public_id of the CmdbCategory for the current subset of CmdbCategories.
-                    Defaults to None (for root CmdbCategories)
-            types (list[CmdbType], optional): A list of all available CmdbTypes to associate with the CmdbCategories.
-                                              Defaults to None
+            children_by_parent (dict[int | None, list[CmdbCategory]]): CmdbCategories grouped by
+                    their parent public_id (None for roots), as built by group_categories_by_parent
+            types_by_id (dict[int, CmdbType]): {public_id: CmdbType} lookup of all available CmdbTypes
+            parent (int | None, optional): The parent public_id for the current subset of
+                    CmdbCategories. Defaults to None (for root CmdbCategories)
+            visited (set[int] | None, optional): public_ids already placed in the tree; shared
+                    across the recursion. Defaults to None (a fresh set at the root call)
 
         Returns:
             list[CategoryNode]: A list of CategoryNodes representing the CmdbCategory hierarchy
         """
-        # Avoid infinite recursion by filtering out categories already in the tree
-        child_categories = [
-            category for category in categories if category.parent == parent
-        ]
+        placed: set[int] = set() if visited is None else visited
+        nodes: list[CategoryNode] = []
 
-        if not child_categories:
-            return []  # Base case: return empty if no children for this parent
+        for category in children_by_parent.get(parent, []):
+            public_id: int = category.get_public_id()
 
-        # Recursively create nodes for each child category
-        nodes = []
-        for category in child_categories:
-            # Avoid adding categories already in the tree to prevent circular references
-            if category not in [node.category for node in nodes]:  # Check if category is already in the nodes list
-                node = CategoryNode(
-                    category,
-                    cls.__create_tree(categories, category.get_public_id(), types),
-                    types
-                )
-                nodes.append(node)
+            if public_id in placed:
+                continue
+
+            placed.add(public_id)
+            nodes.append(CategoryNode(
+                category,
+                cls.__create_tree(children_by_parent, types_by_id, public_id, placed),
+                types_by_id
+            ))
 
         return nodes
 
 
     @classmethod
-    def from_data(cls, raw_categories: list[dict]) -> "CategoryTree":
+    def to_json(cls, instance: "CategoryTree") -> list[dict]:
         """
-        Initialises a CategoryTree from a dict
-
-        Args:
-            data (dict): Data with which the CategoryTree should be initialised
-
-        Returns:
-            CategoryTree: CategoryTree with the given data
-        """
-        categories: list[CmdbCategory] = [CmdbCategory.from_data(category) for category in raw_categories]
-
-        return cls(categories=categories)
-
-
-    @classmethod
-    def to_json(cls, instance: "CategoryTree"):
-        """
-        Converts a CategoryTree into a json compatible dict
+        Converts a CategoryTree into a json compatible list of dicts
 
         Args:
             instance (CategoryTree): The CategoryTree which should be converted
 
         Returns:
-            dict: Json compatible dict of the CategoryTree values
+            list[dict]: Json compatible list of the CategoryTree's root nodes
         """
         return [CategoryNode.to_json(node) for node in instance.tree]
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-    def flatten(self) -> list[CmdbCategory]:
-        """
-        Flattens the CategoryTree into a list of CmdbCategories, maintaining the hierarchy order
-        
-        Returns:
-            list[CmdbCategory]: A list of CmdbCategories representing the flattened CategoryTree
-        """
-        return [category for node in self.tree for category in node.flatten()]

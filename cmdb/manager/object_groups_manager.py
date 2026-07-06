@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,19 +16,24 @@
 """
 This module contains the implementation of the ObjectGroupsManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
+from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.object_group_model import CmdbObjectGroup, ObjectReferenceType
+from cmdb.models.object_group_model import CmdbObjectGroup, ObjectReferenceType, ObjectGroupMode
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 
-from cmdb.errors.manager.object_groups_manager import OBJECT_GROUPS_MANAGER_ERRORS
+from cmdb.errors.manager.object_groups_manager import (
+    OBJECT_GROUPS_MANAGER_ERRORS,
+    ObjectGroupsManagerDeleteError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ObjectGroupsManager- CLASS                                              #
@@ -39,7 +44,7 @@ class ObjectGroupsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
         super().__init__(dbm, CmdbObjectGroup, OBJECT_GROUPS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -51,24 +56,34 @@ class ObjectGroupsManager(GenericManager):
         Args:
             public_id (int): public_id of CmdbObjectGroup which should be deleted
 
+        Raises:
+            ObjectGroupsManagerDeleteError: If the deletion or any cascade step fails
+
         Returns:
             bool: True if deletion was a success, else False
         """
-        self.delete_object_group_from_risk_assessment_cascade(public_id)
+        try:
+            self.delete_object_group_from_risk_assessment_cascade(public_id)
 
-        return self.delete_item(public_id)
+            return self.delete_item(public_id)
+        except Exception as err:
+            raise ObjectGroupsManagerDeleteError(str(err)) from err
 
 
     def delete_object_group_from_risk_assessment_cascade(self, deleted_group_id: int) -> None:
         """
-        Deletes all RiskAssessments and their associated ControlMeasureAssignments that reference 
+        Deletes all RiskAssessments and their associated ControlMeasureAssignments that reference
         the given CmdbObjectGroup.
 
         This function performs the following steps:
-        1. Finds all RiskAssessments where 'object_id_ref_type' is 'OBJECT_GROUP' and 
+        1. Finds all RiskAssessments where 'object_id_ref_type' is 'OBJECT_GROUP' and
         'object_id' matches the deleted group ID
         2. Deletes these RiskAssessments
         3. Deletes all ControlMeasureAssignments referencing the deleted RiskAssessments
+
+        The cascade is intentionally self-contained (using the cross-collection delete primitive)
+        rather than delegating to the RiskAssessment/ControlMeasureAssignment managers, since a
+        manager must not depend on another manager.
 
         Args:
             deleted_group_id (int): The public_id of the deleted CmdbObjectGroup
@@ -92,17 +107,41 @@ class ObjectGroupsManager(GenericManager):
         # Collect all RiskAssessment public_ids
         risk_assessment_ids = [ra['public_id'] for ra in matching_risk_assessments]
 
-        if risk_assessment_ids:
-            # Delete the RiskAssessments
-            self.dbm.delete_many(
-                IsmsRiskAssessment.COLLECTION,
-                self.db_name,
-                **{'public_id': {'$in': risk_assessment_ids}},
-            )
+        # Delete the RiskAssessments
+        self.delete_many_from_other_collection(
+            IsmsRiskAssessment.COLLECTION,
+            {'public_id': {'$in': risk_assessment_ids}},
+        )
 
-            # Delete all ControlMeasureAssignments referencing those RiskAssessments
-            self.dbm.delete_many(
-                IsmsControlMeasureAssignment.COLLECTION,
-                self.db_name,
-                **{'risk_assessment_id': {'$in': risk_assessment_ids}},
-            )
+        # Delete all ControlMeasureAssignments referencing those RiskAssessments
+        self.delete_many_from_other_collection(
+            IsmsControlMeasureAssignment.COLLECTION,
+            {'risk_assessment_id': {'$in': risk_assessment_ids}},
+        )
+
+
+    def remove_ids_from_groups(self, public_ids: int | list[int], group_type: ObjectGroupMode) -> UpdateResult:
+        """
+        Removes a public_id or list of public_ids of CmdbObjects from the 'assigned_ids' of all CmdbObjectGroups
+        of the provided group_type
+
+        Args:
+            public_ids (int | list[int]): public_id or public_ids of the target CmdbObjects
+            group_type (ObjectGroupMode): It is either STATIC or DYNAMIC
+
+        Returns:
+            UpdateResult: Result of the deletion
+        """
+        criteria: dict[str, ObjectGroupMode] = {"group_type": group_type}
+
+        if isinstance(public_ids, list):
+            criteria["assigned_ids"] = {"$in": public_ids}
+            update: dict[str, Any] = {"assigned_ids": {"$in": public_ids}}
+        else:
+            criteria["assigned_ids"] = public_ids
+            update = {"assigned_ids": public_ids}
+
+        return self.update_many_pull(
+            criteria=criteria,
+            update=update,
+        )

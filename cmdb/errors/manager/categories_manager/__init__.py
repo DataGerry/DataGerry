@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the CategoriesManager
 """
+from typing import Any
+
 from .categories_manager_errors import (
     CategoriesManagerError,
     CategoriesManagerInitError,
@@ -37,4 +39,15 @@ __all__: list[str] = [
     'CategoriesManagerDeleteError',
     'CategoriesManagerIterationError',
     'CategoriesManagerTreeInitError',
+    'CATEGORIES_MANAGER_ERRORS',
 ]
+
+
+CATEGORIES_MANAGER_ERRORS: dict[str, Any] = {
+    "init": CategoriesManagerInitError,
+    "insert": CategoriesManagerInsertError,
+    "get": CategoriesManagerGetError,
+    "update": CategoriesManagerUpdateError,
+    "delete": CategoriesManagerDeleteError,
+    "iterate": CategoriesManagerIterationError,
+}

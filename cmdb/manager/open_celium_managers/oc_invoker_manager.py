@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,6 @@
 Implementation of OpenCelium InvokerManager
 """
 import json
-import os
 from logging import Logger, getLogger
 from typing import Any
 
@@ -52,10 +51,10 @@ class OcInvokerManager(OcBaseManager):
 
         Raises:
             OcInvokerGetError: When the name was not provided to this method
-            OcInvokerGetError: When  retrieving the Invoker failed
+            OcInvokerGetError: When retrieving the Invoker failed
 
         Returns:
-            dict[str, Any]: The retrieved OcConnector
+            dict[str, Any]: The retrieved Invoker
         """
         if not name:
             raise OcInvokerGetError("No name for Invoker provided!")
@@ -68,19 +67,19 @@ class OcInvokerManager(OcBaseManager):
         raise OcInvokerGetError(f"Failed to retrieve OpenCelium Invoker with name: {name}")
 
 
-    def check_invoker_exists(self, name: str) -> dict[str, Any]:
+    def check_invoker_exists(self, name: str) -> bool:
         """
-        Retrieves a single Invoker from OpenCelium
+        Checks if an Invoker with the given name exists in OpenCelium
 
         Args:
             name (str): name of the Invoker
 
         Raises:
             OcInvokerGetError: When the name was not provided to this method
-            OcInvokerGetError: When  retrieving the Invoker failed
+            OcInvokerGetError: When checking the Invoker failed
 
         Returns:
-            dict[str, Any]: The retrieved OcConnector
+            bool: True if the Invoker exists, else False
         """
         if not name:
             raise OcInvokerGetError("No name for Invoker provided!")
@@ -90,9 +89,7 @@ class OcInvokerManager(OcBaseManager):
         if self.is_valid_response(target_invoker_response):
             data: dict[str, Any] = json.loads(target_invoker_response.text)
 
-            # LOGGER.debug(f"[check_invoker_exists] result:{data}")
-
-            return data['result']
+            return data.get('result')
 
         raise OcInvokerGetError(f"Failed to check OpenCelium Invoker with name: {name}")
 

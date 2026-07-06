@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,11 @@
 """
 Implementation of CmdbPersonGroup
 """
-import logging
-
+from logging import Logger, getLogger
+from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.person_group_model.cmdb_person_group_schema import get_cmdb_person_group_schema
 
 from cmdb.errors.models.cmdb_person_group import (
     CmdbPersonGroupInitError,
@@ -27,7 +29,7 @@ from cmdb.errors.models.cmdb_person_group import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CmdbPersonGroup - CLASS                                               #
@@ -41,30 +43,11 @@ class CmdbPersonGroup(CmdbDAO):
     COLLECTION = "management.personGroup"
     MODEL = 'PersonGroup'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'email': {
-            'type': 'string',
-            'required': True,
-            'empty': True,
-            'regex': r'^(?!.*\.\.)[\w\.-]+@[a-zA-Z\d-]+(\.[a-zA-Z]{2,})+$',  # Email regex pattern
-        },
-        'group_members': {
-            'type': 'list',
-            'schema': {
-                'type': 'integer',
-                'min': 1,
-            },
-        },
-    }
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('group_members', CmdbDAO.DAO_ASCENDING)], 'name': 'group_members', 'unique': False}
+    ]
+
+    SCHEMA: dict = get_cmdb_person_group_schema()
 
 
     def __init__(

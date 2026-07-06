@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the RelationsManager
 """
+from typing import Any
+
 from .relations_manager_errors import (
     RelationsManagerError,
     RelationsManagerInitError,
@@ -35,4 +37,15 @@ __all__: list[str] = [
     'RelationsManagerUpdateError',
     'RelationsManagerDeleteError',
     'RelationsManagerIterationError',
+    'RELATIONS_MANAGER_ERRORS',
 ]
+
+
+RELATIONS_MANAGER_ERRORS: dict[str, Any] = {
+    "init": RelationsManagerInitError,
+    "insert": RelationsManagerInsertError,
+    "get": RelationsManagerGetError,
+    "update": RelationsManagerUpdateError,
+    "delete": RelationsManagerDeleteError,
+    "iterate": RelationsManagerIterationError,
+}

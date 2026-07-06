@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides all predefined data for CmdbDAO subclasses
+This package provides the predefined data for CmdbLocations (the locations root document)
 """
 from .cmdb_location_data import get_root_location_data
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,8 +18,7 @@ Implementation of all API routes for exporting CmdbTypes
 """
 import json
 import datetime
-import time
-import logging
+from logging import Logger, getLogger
 from flask import abort, Response
 from werkzeug.exceptions import HTTPException
 
@@ -32,9 +31,11 @@ from cmdb.models.type_model import CmdbType
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.blueprints import RootBlueprint
+
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 type_export_blueprint = RootBlueprint('type_export_rest', __name__, url_prefix='/export/type')
 
@@ -43,7 +44,7 @@ type_export_blueprint = RootBlueprint('type_export_rest', __name__, url_prefix='
 @type_export_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def export_cmdb_types(request_user: CmdbUser):
+def export_cmdb_types(request_user: CmdbUser) -> Response:
     """
     Export all CMDB types as a downloadable JSON file.
 
@@ -60,9 +61,9 @@ def export_cmdb_types(request_user: CmdbUser):
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        type_list = [CmdbType.to_json(type) for type in types_manager.get_all_types()]
+        type_list = [CmdbType.to_json(type_) for type_ in types_manager.get_all_types()]
         resp = json.dumps(type_list, default=default, indent=2)
-        timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d-%H_%M_%S')
+        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
 
         return Response(
             resp,
@@ -71,6 +72,9 @@ def export_cmdb_types(request_user: CmdbUser):
                 "Content-Disposition": f"attachment; filename={timestamp}.json"
             }
         )
+    except TypesManagerGetError as err:
+        LOGGER.error("[export_cmdb_types] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the Types to export!")
     except Exception as err:
         LOGGER.error("[export_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while exporting Types!")
@@ -79,7 +83,7 @@ def export_cmdb_types(request_user: CmdbUser):
 @type_export_blueprint.route('/<string:public_ids>', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def export_cmdb_types_by_ids(public_ids, request_user: CmdbUser):
+def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Response:
     """
     Export specific CMDB types by their public IDs as a downloadable JSON file.
 
@@ -98,19 +102,18 @@ def export_cmdb_types_by_ids(public_ids, request_user: CmdbUser):
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         query_list = []
-        for key, value in {'public_id': public_ids}.items():
-            for v in value.split(","):
-                try:
-                    query_list.append({key: int(v)})
-                except (ValueError, TypeError) as err:
-                    LOGGER.error("[export_cmdb_types_by_ids] (ValueError, TypeError): %s", err, exc_info=True)
-                    abort(400, "IDs provided in an invalid format. They need to be a comma seperated string!")
+        for raw_id in public_ids.split(","):
+            try:
+                query_list.append({'public_id': int(raw_id)})
+            except (ValueError, TypeError) as err:
+                LOGGER.error("[export_cmdb_types_by_ids] (ValueError, TypeError): %s", err, exc_info=True)
+                abort(400, "IDs provided in an invalid format. They need to be a comma seperated string!")
 
         type_list_data = json.dumps([CmdbType.to_json(type_) for type_ in
                                     types_manager.get_types_by(sort="public_id", **{'$or': query_list})],
                                     default=default, indent=2)
 
-        timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d-%H_%M_%S')
+        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
 
         return Response(
             type_list_data,
@@ -121,6 +124,9 @@ def export_cmdb_types_by_ids(public_ids, request_user: CmdbUser):
         )
     except HTTPException as http_err:
         raise http_err
+    except TypesManagerGetError as err:
+        LOGGER.error("[export_cmdb_types_by_ids] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the Types to export!")
     except Exception as err:
         LOGGER.error("[export_cmdb_types_by_ids] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while exporting Types by IDs!")

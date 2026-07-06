@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,14 +17,13 @@
 Implementation of all API routes for Search requests
 """
 import json
-import logging
+from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.query_builder import QuickSearchPipelineBuilder
-from cmdb.manager.query_builder.search_pipeline_builder import SearchPipelineBuilder #TODO: IMPORT-FIX
+from cmdb.manager.query_builder import QuickSearchPipelineBuilder, SearchPipelineBuilder
 from cmdb.manager import ObjectsManager
 
 from cmdb.framework.search.search_param import SearchParam
@@ -32,6 +31,7 @@ from cmdb.framework.search.searcher_framework import SearcherFramework
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.security.acl.permission import AccessControlPermission
@@ -39,7 +39,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 search_blueprint = APIBlueprint('search_rest', __name__, url_prefix='/search')
 
@@ -64,7 +64,7 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
 
         search_term = request.args.get('searchValue', SearcherFramework.DEFAULT_REGEX, str)
         builder = QuickSearchPipelineBuilder()
-        only_active = _fetch_only_active_objs()
+        only_active = fetch_only_active_objects()
         pipeline: list[dict] = builder.build(search_term=search_term,
                                         user=request_user,
                                         permission=AccessControlPermission.READ,
@@ -88,8 +88,8 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
 
 
 @search_blueprint.route('/', methods=['GET', 'POST'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def search_framework(request_user: CmdbUser) -> Response:
     """
     Processes a search request (GET or POST) using the SearcherFramework, applying filters, pagination, and 
@@ -108,13 +108,15 @@ def search_framework(request_user: CmdbUser) -> Response:
         try:
             limit = request.args.get('limit', SearcherFramework.DEFAULT_LIMIT, int)
             skip = request.args.get('skip', 0, int)
-            only_active = _fetch_only_active_objs()
+            only_active = fetch_only_active_objects()
             search_params: dict = request.args.get('query') or '{}'
-            resolve_object_references: bool = request.args.get('resolve', False)
+            resolve_object_references: bool = request.args.get('resolve', 'false') in ['True', 'true']
         except ValueError:
             abort(400, "Could not retrieve the parameters from the request!")
 
         try:
+            search_parameters: dict | list = {}
+
             if request.method == 'GET':
                 search_parameters = json.loads(search_params)
             elif request.method == 'POST':
@@ -155,19 +157,3 @@ def search_framework(request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[search_framework] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while processing the search request!")
-
-# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
-
-#TODO: REFACTOR-FIX (move to helper file since identical method in objects_routes.py)
-def _fetch_only_active_objs() -> bool:
-    """
-        Checking if request have cookie parameter for object active state
-        Returns:
-            True if cookie is set or value is true else false
-        """
-    if request.args.get('onlyActiveObjCookie') is not None:
-        value: str | None = request.args.get('onlyActiveObjCookie')
-        if value in ['True', 'true']:
-            return True
-
-    return False

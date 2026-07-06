@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -23,6 +23,8 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
 
+from cmdb.class_schema.object_group_model.cmdb_object_group_schema import get_cmdb_object_group_schema
+
 from cmdb.errors.models.cmdb_object_group import (
     CmdbObjectGroupInitError,
     CmdbObjectGroupInitFromDataError,
@@ -45,30 +47,12 @@ class CmdbObjectGroup(CmdbDAO):
     COLLECTION = "framework.objectGroups"
     MODEL = 'ObjectGroup'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'group_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'assigned_ids': {
-            'type': 'list',
-            'required': True,
-            'empty': False
-        },
-        'categories': {
-            'type': 'list',
-        },
-    }
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('group_type', CmdbDAO.DAO_ASCENDING)], 'name': 'group_type', 'unique': False},
+        {'keys': [('assigned_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'assigned_ids', 'unique': False}
+    ]
+
+    SCHEMA: dict = get_cmdb_object_group_schema()
 
     #pylint: disable=R0917
     def __init__(

@@ -16,65 +16,44 @@
 """
 Implementation of all authentication related API routes
 """
-import logging
-from typing import Any, Tuple
-from datetime import datetime, timezone
+from logging import Logger, getLogger
+from typing import Any
+
 from flask import request, current_app, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database import MongoDatabaseManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import (
-    SecurityManager,
-    SettingsManager,
-    UsersManager,
-)
+from cmdb.manager import SettingsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.security.auth.auth_module import AuthModule
-from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import (
-    insert_request_user,
-    check_db_exists,
-    init_db_routine,
-    set_admin_user,
-    retrive_user,
-    check_user_in_service_portal,
-    verify_api_access,
-)
-from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
+from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.auth_helper import cloud_login, local_login
 
-from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
-from cmdb.errors.provider import AuthenticationProviderNotActivated, AuthenticationProviderNotFoundError
-from cmdb.errors.security.security_errors import (
-    InvalidCloudUserError,
-    NoAccessTokenError,
-    RequestTimeoutError,
-    RequestError,
-)
-from cmdb.errors.database import DatabaseConnectionError
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 auth_blueprint = APIBlueprint('auth', __name__)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
-#TODO: REFACTOR-FIX (Reduce complexity)
+
 @auth_blueprint.route('/login', methods=['POST'])
 def post_login() -> Response:
     """
     Handles user login authentication
 
-    This function processes login credentials, verifies the user, and returns
-    an authentication token upon successful login. It supports both cloud mode
-    (where users authenticate via a service portal) and non-cloud mode (where
-    authentication is managed locally)
+    Parses the credentials from the request body and dispatches to the matching login flow: the
+    cloud (ServicePortal) flow when ``current_app.cloud_mode`` is set, otherwise the on-premise
+    AuthModule flow. Both flows (see ``auth_helper``) return an authentication token, and the cloud
+    flow may instead return the list of subscriptions the user must choose from. This outer handler
+    only guards the credential parsing; each flow maps its own errors to HTTP statuses.
 
     Returns:
         Response: A response containing authentication tokens or subscription options
@@ -92,115 +71,10 @@ def post_login() -> Response:
         if 'subscription' in login_data:
             request_subscription = login_data['subscription']
 
-        try:
-            if current_app.cloud_mode:
-                request_user_name = request_user_name.lower()
-                user_data = check_user_in_service_portal(request_user_name, request_password)
+        if current_app.cloud_mode:
+            return cloud_login(request_user_name, request_password, request_subscription)
 
-                if not user_data:
-                    LOGGER.error("[post_login] Could not retrieve User from ServicePortal!")
-                    abort(401, 'Invalid user data. Failed to login!')
-
-                user_database = None
-
-                # If only one subscription directly login the user
-                if len(user_data['subscriptions']) == 1:
-                    user_database = user_data['subscriptions'][0]['database']
-
-                    if not check_db_exists(user_database):
-                        init_db_routine(user_database)
-
-                    set_admin_user(user_data, user_data['subscriptions'][0])
-
-                # In this case the user selected a subscription in the frontend
-                elif request_subscription:
-                    user_database = request_subscription['database']
-
-                    if not check_db_exists(user_database):
-                        init_db_routine(user_database)
-
-                    set_admin_user(user_data, request_subscription)
-                # User have multiple subscriptions, send them to frontend to select
-                elif len(user_data['subscriptions']) > 1:
-                    return DefaultResponse(user_data['subscriptions']).make_response()
-                # There are either no subscriptions or something went wrong => failed path
-                else:
-                    LOGGER.error("[post_login] Error: Invalid data. No subscriptions!")
-                    abort(401, "The user has no assigned subscription!")
-
-                user: dict[str, Any] | None = retrive_user(user_data, user_database)
-
-                # User does not exist
-                if not user:
-                    LOGGER.error("[post_login] Could not retrieve User from database!")
-                    abort(401, "Invalid user or password. Could not login!")
-
-                token, token_issued_at, token_expire = generate_token_with_params(
-                                                                            user,
-                                                                            current_app.database_manager,
-                                                                            True
-                                                                        )
-
-                return LoginResponse(user, token, token_issued_at, token_expire).make_response()
-        except HTTPException as http_err:
-            raise http_err
-        except NoAccessTokenError as err:
-            LOGGER.error("[post_login] NoAccessTokenError: %s", err)
-            abort(500, "No access token found!")
-        except InvalidCloudUserError as err:
-            LOGGER.error("[post_login] InvalidCloudUserError: %s", err)
-            abort(403, "Invalid credentials!")
-        except RequestTimeoutError as err:
-            LOGGER.error("[post_login] RequestTimeoutError: %s", err)
-            abort(500, "Login request timed out!")
-        except DatabaseConnectionError as err:
-            LOGGER.error("[post_login] DatabaseConnectionError: %s", err, exc_info=True)
-            abort(500, "Failed to establish a connection to the database!")
-        except RequestError as err:
-            LOGGER.error("[post_login] RequestError: %s", err)
-            abort(500, "Login failed due a malformed request!")
-        except UsersManagerGetError as err:
-            LOGGER.error("[post_login] UsersManagerGetError: %s", err, exc_info=True)
-            abort(500, "Could not login because user can't be retrieved from database!")
-        except UsersManagerInsertError as err:
-            LOGGER.error("[post_login] UsersManagerInsertError: %s", err, exc_info=True)
-            abort(500, "Could not login because user can't be inserted in database!")
-        except Exception as err:
-            LOGGER.error("[post_login] Exception: %s, Type: %s", err, type(err), exc_info=True)
-            abort(500, "An internal server error occured while trying to login!")
-
-        # PATH when its not cloud mode
-        users_manager = UsersManager(current_app.database_manager)
-        security_manager = SecurityManager(current_app.database_manager)
-        settings_manager = SettingsManager(current_app.database_manager)
-
-        auth_module = AuthModule(
-            settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__),
-            security_manager=security_manager,
-            users_manager=users_manager
-        )
-
-        user_instance: CmdbUser | None = None
-
-        try:
-            user_instance = auth_module.login(request_user_name, request_password)
-
-            if user_instance:
-                token, token_issued_at, token_expire = generate_token_with_params(user_instance,
-                                                                                current_app.database_manager)
-
-                login_response = LoginResponse(user_instance, token, token_issued_at, token_expire)
-
-                return login_response.make_response()
-
-            abort(401, 'Could not login!')
-        except AuthenticationProviderNotActivated:
-            abort(400, "The Authentication provider is not active!")
-        except AuthenticationProviderNotFoundError:
-            abort(400, "The authentication provider was not found!")
-        except Exception as err: #pylint: disable=broad-exception-caught
-            LOGGER.error("[post_login] Exception: %s, Type: %s", err, type(err))
-            abort(500, "Could not login")
+        return local_login(request_user_name, request_password)
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
@@ -213,7 +87,7 @@ def post_login() -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.view')
-def get_auth_settings(request_user: CmdbUser):
+def get_auth_settings(request_user: CmdbUser) -> Response:
     """
     Retrieves the authentication settings for the given user.
 
@@ -242,7 +116,7 @@ def get_auth_settings(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.view')
-def get_installed_providers(request_user: CmdbUser):
+def get_installed_providers(request_user: CmdbUser) -> Response:
     """
     Retrieves a list of installed authentication providers
 
@@ -280,7 +154,7 @@ def get_installed_providers(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.view')
-def get_provider_config(provider_class: str, request_user: CmdbUser):
+def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response:
     """
     Retrieves the configuration for a specified authentication provider
 
@@ -301,12 +175,12 @@ def get_provider_config(provider_class: str, request_user: CmdbUser):
             settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
         )
 
-        try:
-            provider_class_config = auth_module.get_provider(provider_class).get_config()
-        except StopIteration:
+        provider = auth_module.get_provider(provider_class)
+
+        if provider is None:
             abort(404, f"Provider: '{provider_class}' not found!")
 
-        return DefaultResponse(provider_class_config).make_response()
+        return DefaultResponse(provider.get_config()).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
@@ -319,7 +193,7 @@ def get_provider_config(provider_class: str, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.edit')
-def update_auth_settings(request_user: CmdbUser):
+def update_auth_settings(request_user: CmdbUser) -> Response:
     """
     Updates authentication settings for the given user
 
@@ -343,8 +217,9 @@ def update_auth_settings(request_user: CmdbUser):
         try:
             new_auth_setting_instance = CmdbAuthSettings(**new_auth_settings_values)
         except AuthSettingsInitError as err:
+            # A malformed auth-settings payload is a client error, not a server fault
             LOGGER.error("[update_auth_settings] Error: %s", err)
-            abort(500, "Could not initialise auth settings!")
+            abort(400, "Could not initialise auth settings from the provided data!")
 
         update_result = settings_manager.write(_id='auth', data=new_auth_setting_instance.__dict__)
 
@@ -357,41 +232,3 @@ def update_auth_settings(request_user: CmdbUser):
     except Exception as err:
         LOGGER.error("[update_auth_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while updating auth settings!")
-
-# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
-
-def generate_token_with_params(
-        login_user: CmdbUser,
-        database_manager: MongoDatabaseManager,
-        cloud_mode: bool = False) -> Tuple[bytes, int, int]:
-    """
-    Generates an authentication token for the given user
-
-    This function creates a token containing user-specific data, including a 
-    public identifier and optionally the associated database (if cloud mode is enabled). 
-    The token's issue and expiration times are also returned
-
-    Args:
-        login_user (CmdbUser): The user for whom the token is generated
-        database_manager (MongoDatabaseManager): The database manager instance used for token generation
-        cloud_mode (bool, optional): Whether the application is running in cloud mode. Defaults to False
-
-    Returns:
-        Tuple[bytes, int, int]: A tuple containing:
-            - token (bytes): The generated authentication token
-            - token_issued_at (int): The timestamp (UTC) when the token was issued
-            - token_expire (int): The timestamp (UTC) when the token expires
-    """
-    tg = TokenGenerator(database_manager)
-
-    user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
-
-    if cloud_mode:
-        user_data['database'] = login_user.get_database()
-
-    token: bytes = tg.generate_token(payload={'user': user_data})
-
-    token_issued_at = int(datetime.now(timezone.utc).timestamp())
-    token_expire = int(tg.get_expire_time().timestamp())
-
-    return token, token_issued_at, token_expire

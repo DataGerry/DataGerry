@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -34,7 +34,7 @@ class TypeReferenceSectionEntry:
         section_name: str,
         selected_fields: list[str] | None = None
     ) -> None:
-        # TODO: document
+        """TODO: document"""
         self.type_id: int = type_id
         self.section_name: str = section_name
         self.selected_fields: list[str] = selected_fields or []
@@ -78,7 +78,7 @@ class TypeReferenceSectionEntry:
 
 
     def __repr__(self) -> str:
-        # TODO: document
+        """TODO: document"""
         return (f"{self.__class__.__name__}(\n"
                 f"type_id={self.type_id}\n "
                 f"section_name={repr(self.section_name)}\n "

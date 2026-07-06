@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of APIBlueprint
 """
 from functools import wraps
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from cerberus import Validator #type: ignore
 from flask import Blueprint, abort, request, current_app
@@ -33,13 +33,15 @@ from cmdb.security.token.validator import TokenValidator
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIBlueprint - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class APIBlueprint(Blueprint):
-    """Wrapper class for Blueprints with nested elements"""
+    """
+    Wrapper class for Blueprints with nested elements
+    """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -94,7 +96,6 @@ class APIBlueprint(Blueprint):
                                         users_manager = UsersManager(current_app.database_manager, database)
 
                                     user_dict: dict = CmdbUser.to_json(users_manager.get_user(user_id))
-
 
                                     for exe_key, exe_value in excepted.items():
                                         try:
@@ -219,6 +220,36 @@ class APIBlueprint(Blueprint):
                     abort(400, "Failed to parse the request parameters!")
 
                 return f(params=request_args, *args, **kwargs)
+
+            return _decorate
+
+        return _parse
+
+
+    @classmethod
+    def parse_request_body(cls, **optional):
+        """
+        Decorator to extract the JSON request body and pass it to the decorated function
+
+        Args:
+            **optional: (Currently unused) Additional optional keyword arguments
+
+        Returns:
+            function: A decorator that injects the parsed JSON body as a dictionary into the decorated function
+
+        Raises:
+            400 Bad Request: If the request body is missing or is not a valid JSON object
+        """
+        def _parse(f):
+            @wraps(f)
+            def _decorate(*args, **kwargs):
+                payload = request.get_json(silent=True)
+
+                if not isinstance(payload, dict):
+                    LOGGER.error("[parse_request_body] Request body is not a valid JSON object")
+                    abort(400, "Failed to parse the request body!")
+
+                return f(data=payload, *args, **kwargs)
 
             return _decorate
 

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,11 @@
 """
 Implementation of MediaFilesManager
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from gridfs.grid_file import GridOutCursor, GridOut
+
+from gridfs.grid_file import GridOutCursor
 from gridfs.errors import NoFile
 
 from cmdb.database import DatabaseGridFS, MongoDatabaseManager
@@ -37,7 +38,7 @@ from cmdb.errors.manager.media_files_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               MediaFilesManager - CLASS                                              #
@@ -46,17 +47,19 @@ class MediaFilesManager(BaseManager):
     """
     Manager class for handling MediaFile objects in a MongoDB GridFS.
 
-    Provides CRUD operations (Create, Read, Update, Delete) 
+    Provides CRUD operations (Create, Read, Update, Delete)
     for managing media files and their metadata.
     """
+    # GridFS exposes the underlying file document / id only via GridIn/GridOut ._file / ._id
+    # pylint: disable=protected-access
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
         """
         Initializes the MediaFilesManager with a database manager
 
         Args:
             dbm (MongoDatabaseManager): The database manager instance
-            database (str, optional): Specific database name to switch to
+            database (str | None): Specific database name to switch to
         """
         target_db = database if database else dbm.db_name
         self.fs = DatabaseGridFS(dbm.connector.get_database(target_db), MediaFile.COLLECTION)
@@ -64,17 +67,17 @@ class MediaFilesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_file(self, data, metadata: dict) -> dict:
+    def insert_file(self, data: Any, metadata: dict) -> dict:
         """
         Inserts a new media file into GridFS
 
         Args:
-            data: The file-like object containing the media data
+            data (Any): The file-like object containing the media data
             metadata (dict): Metadata describing the media file
 
         Returns:
             dict: The inserted MediaFile document
-        
+
         Raises:
             MediaFileManagerInsertError: If the file could not be inserted
         """
@@ -86,7 +89,7 @@ class MediaFilesManager(BaseManager):
 
             return media_file._file
         except Exception as err:
-            raise MediaFileManagerInsertError(err) from err
+            raise MediaFileManagerInsertError(str(err)) from err
 
 
 
@@ -102,7 +105,7 @@ class MediaFilesManager(BaseManager):
         return self.get_next_public_id(inc_id=True)
 
 
-    def get_file(self, metadata: dict, blob: bool = False) -> GridOut:
+    def get_file(self, metadata: dict, blob: bool = False) -> dict | bytes | None:
         """
         Retrieves a media file by its metadata
 
@@ -111,7 +114,7 @@ class MediaFilesManager(BaseManager):
             blob (bool, optional): If True, returns the raw binary content instead of metadata
 
         Returns:
-            dict or bytes or None: The file's metadata, raw content, or None if not found
+            dict | bytes | None: The file's metadata, raw content, or None if not found
         """
         try:
             result = self.fs.get_last_version(**metadata)
@@ -124,7 +127,8 @@ class MediaFilesManager(BaseManager):
             return None
 
 
-    def get_many_media_files(self, metadata: dict, **params: dict):
+    # params (limit/skip/sort) are not yet applied to the GridFS query - see discussion backlog #1
+    def get_many_media_files(self, metadata: dict, **params: dict) -> GridFsResponse:  # pylint: disable=unused-argument
         """
         Retrieves multiple media files matching the given metadata
 
@@ -164,7 +168,7 @@ class MediaFilesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_file(self, data):
+    def update_file(self, data: dict) -> dict:
         """
         Updates metadata for an existing media file
 
@@ -179,7 +183,8 @@ class MediaFilesManager(BaseManager):
         """
         try:
             data['uploadDate'] = datetime.now(timezone.utc)
-            self.update(criteria={'public_id':data['public_id']}, data=data, col="media.libary.files")
+            # GridFS stores file documents in the '<collection>.files' collection
+            self.update(criteria={'public_id': data['public_id']}, data=data, col=f"{MediaFile.COLLECTION}.files")
 
             return data
         except Exception as err:
@@ -187,7 +192,7 @@ class MediaFilesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-    def delete_file(self, public_id) -> bool:
+    def delete_file(self, public_id: int) -> bool:
         """
         Deletes a media file by its public ID
 
@@ -206,4 +211,5 @@ class MediaFilesManager(BaseManager):
 
             return True
         except Exception as err:
-            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {file_id}') from err
+            # reference public_id (always bound) - file_id may be unset if get_last_version failed
+            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}') from err

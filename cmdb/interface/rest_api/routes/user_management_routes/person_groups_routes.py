@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for CmdbPersonGroups
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
@@ -51,7 +51,7 @@ from cmdb.errors.manager.person_groups_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 person_group_blueprint = APIBlueprint('person_group', __name__)
 
@@ -80,16 +80,16 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 
         result_id = person_groups_manager.insert_item(data)
 
-        # Add the person to the selected groups
+        # Add the new group to each of its selected member persons
         selected_person_ids = data.get('group_members', [])
         persons_manager.add_group_to_persons(result_id, selected_person_ids)
 
         created_person_group = person_groups_manager.get_item(result_id, as_dict=True)
 
-        if created_person_group:
-            return InsertSingleResponse(created_person_group, result_id).make_response()
+        if not created_person_group:
+            abort(404, "Could not retrieve the created PersonGroup from the database!")
 
-        abort(404, "Could not retrieve the created PersonGroup from the database!")
+        return InsertSingleResponse(created_person_group, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except PersonGroupsManagerInsertError as err:
@@ -216,9 +216,13 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
         persons_to_add = updated_persons - existing_persons  # New persons
         persons_to_remove = existing_persons - updated_persons  # Removed persons
 
-        persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
+        # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
+        data['public_id'] = public_id
 
+        # Persist the PersonGroup first, then sync the reciprocal person membership only on success
         person_groups_manager.update_item(public_id, CmdbPersonGroup.from_data(data))
+
+        persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
 
         return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:
@@ -255,7 +259,7 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response
                                                                                  request_user)
         persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
 
-        to_delete_person_group = person_groups_manager.get_item(public_id)
+        to_delete_person_group = person_groups_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_person_group:
             abort(404, f"The PersonGroup with ID:{public_id} was not found!")

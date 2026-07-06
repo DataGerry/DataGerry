@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,7 +20,7 @@ import os
 import base64
 import functools
 import json
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 import time
 import hashlib
@@ -30,8 +30,6 @@ from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
 from flask import request, abort, current_app
 from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
-
-from pymongo.errors import NetworkTimeout, AutoReconnect
 
 from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
 from cmdb.manager import (
@@ -65,7 +63,7 @@ from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 DEFAULT_MIME_TYPE = 'application/json'
 
@@ -102,7 +100,11 @@ def user_has_right(required_right: str, request_user: CmdbUser | None = None) ->
         users_manager = UsersManager(current_app.database_manager)
         groups_manager = GroupsManager(current_app.database_manager)
 
-    token = parse_authorization_header(request.headers['Authorization'])
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        abort(401, "No Authorization header provided!")
+
+    token = parse_authorization_header(auth_header)
 
     try:
         decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
@@ -170,7 +172,7 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
                 raise http_err
             except AuthError as err:
                 LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
-                abort(500, str(err))
+                abort(500, "Authentication with OpenCelium failed!")
             except ConnectTimeout as err:
                 LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
                 abort(500, "Connection to OpenCelium could not be established!")
@@ -221,7 +223,11 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
             if current_app.cloud_mode and "x-api-key" in request.headers:
                 return func(*args, **kwargs)
 
-            token = parse_authorization_header(request.headers['Authorization'])
+            auth_header = request.headers.get('Authorization')
+            if not auth_header:
+                abort(401, "No Authorization header provided!")
+
+            token = parse_authorization_header(auth_header)
 
             with current_app.app_context():
                 decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
@@ -784,7 +790,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict[str, Any], database: str) -> dict[str, Any] | None:
+def retrive_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     """
     Retrieve a user from the database by email
 
@@ -884,6 +890,7 @@ def validate_subscrption_user(
         raise RequestError(str(err)) from err
 
 
+#TODO: Move this method to DataGerry ServicePortal Manager
 def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
     """
     Synchronize configuration items with the service portal
@@ -937,31 +944,6 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as err:
         LOGGER.error("[sync_config_items] Request Error: %s. Type: %s", err, type(err))
         return False
-
-
-def mongo_retry(retries: int = 3, delay:int = 2):
-    """
-    Decorator to retry MongoDB operations in case of transient errors.
-    
-    Args:
-        retries (int): Number of retries
-        delay (int): Seconds between retries
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for _ in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except (NetworkTimeout, AutoReconnect) as e:
-                    last_exception = e
-                    time.sleep(delay)
-            # After retries exhausted
-            raise last_exception
-        return wrapper
-    return decorator
-
 
 # --------------------------------------------------- USER CACHING --------------------------------------------------- #
 

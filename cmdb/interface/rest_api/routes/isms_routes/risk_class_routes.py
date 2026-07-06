@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for IsmsRiskClasses
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 from flask import request, abort
@@ -31,10 +31,12 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskClass
 from cmdb.models.isms_model.isms_helper import remove_deleted_risk_class_from_matrix
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_RISK_CLASSES
 
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -54,7 +56,7 @@ from cmdb.errors.manager.risk_class_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 risk_class_blueprint = APIBlueprint('risk_classes', __name__)
 
@@ -79,21 +81,18 @@ def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Resp
     try:
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        # There is a Limit of 10 Risk classes
-        risk_class_count: int = risk_class_manager.count_items()
-
-        if risk_class_count >= 10:
-            abort(403, "Only a maximum of 10 RiskClasses can be created!")
-
+        # There is a Limit of MAX_ISMS_RISK_CLASSES Risk classes
+        if risk_class_manager.count_documents() >= MAX_ISMS_RISK_CLASSES:
+            abort(403, f"Only a maximum of {MAX_ISMS_RISK_CLASSES} RiskClasses can be created!")
 
         result_id: int = risk_class_manager.insert_item(data)
 
         created_risk_class: dict = risk_class_manager.get_item(result_id, as_dict=True)
 
-        if created_risk_class:
-            return InsertSingleResponse(created_risk_class, result_id).make_response()
+        if not created_risk_class:
+            abort(404, "Could not retrieve the created RiskClass from the database!")
 
-        abort(404, "Could not retrieve the created RiskClass from the database!")
+        return InsertSingleResponse(created_risk_class, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskClassManagerInsertError as err:
@@ -167,12 +166,10 @@ def get_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     try:
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        requested_risk_class = risk_class_manager.get_item(public_id, as_dict=True)
+        requested_risk_class = get_item_or_404(risk_class_manager, public_id,
+                                               f"The RiskClass with ID:{public_id} was not found!")
 
-        if requested_risk_class:
-            return GetSingleResponse(requested_risk_class, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The RiskClass with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_risk_class, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskClassManagerGetError as err:
@@ -204,10 +201,8 @@ def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: C
     try:
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        to_update_risk_class = risk_class_manager.get_item(public_id)
-
-        if not to_update_risk_class:
-            abort(404, f"The RiskCLass with ID:{public_id} was not found!")
+        get_item_or_404(risk_class_manager, public_id,
+                        f"The RiskClass with ID:{public_id} was not found!", as_dict=False)
 
         risk_class_manager.update_item(public_id, IsmsRiskClass.from_data(data))
 
@@ -216,10 +211,10 @@ def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: C
         raise http_err
     except RiskClassManagerGetError as err:
         LOGGER.error("[update_isms_risk_class] RiskClassManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskCLass with ID: {public_id} from the database!")
+        abort(400, f"Failed to retrieve the RiskClass with ID: {public_id} from the database!")
     except RiskClassManagerUpdateError as err:
         LOGGER.error("[update_isms_risk_class] RiskClassManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the RiskCLass with ID: {public_id}!")
+        abort(400, f"Failed to update the RiskClass with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_isms_risk_class] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating the RiskClass with ID: {public_id}!")
@@ -233,12 +228,14 @@ def update_multiple_isms_risk_classes(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update multiple IsmsRiskClasses
 
+    The list of IsmsRiskClasses to update is read from the JSON request body; each entry is
+    processed independently and its per-item success/failure is reported in the response.
+
     Args:
-        data (list): New IsmsRiskClasses data
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        DefaultResponse: The new data of the IsmsRiskClass
+        DefaultResponse: A per-item result list describing which updates succeeded or failed
     """
     try:
         data = request.get_json()
@@ -248,7 +245,7 @@ def update_multiple_isms_risk_classes(request_user: CmdbUser) -> Response:
         results = []
         for item in data:
             public_id = item.get("public_id")
-            if not public_id:
+            if public_id is None:
                 results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
                 continue
 
@@ -313,10 +310,8 @@ def delete_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     try:
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        to_delete_risk_class: dict[str, Any] = risk_class_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_risk_class:
-            abort(404, f"The RiskClass with ID:{public_id} was not found!")
+        to_delete_risk_class: dict[str, Any] = get_item_or_404(risk_class_manager, public_id,
+                                                               f"The RiskClass with ID:{public_id} was not found!")
 
         risk_class_manager.delete_item(public_id)
 

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,8 @@ from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.isms_model.isms_impact_schema import get_isms_impact_schema
+
 from cmdb.errors.models.isms_impact import (
     IsmsImpactInitError,
     IsmsImpactInitFromDataError,
@@ -40,28 +42,7 @@ class IsmsImpact(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.impact"
-    # pylint: disable=R0801
-    SCHEMA: dict[str, Any] = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'calculation_basis': {
-            'type': 'float',
-            'min': 0.0,
-            'required': True,
-            'empty': False
-        },
-        'description': {
-            'type': 'string',
-            'required': False
-        }
-    }
+    SCHEMA: dict[str, Any] = get_isms_impact_schema()
 
 
     def __init__(

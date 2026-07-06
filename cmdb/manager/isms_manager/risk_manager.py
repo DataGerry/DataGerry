@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 This module contains the implementation of the RiskManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
 
@@ -24,10 +24,10 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment, IsmsControlMeasureAssignment
 
-from cmdb.errors.manager.risk_manager import RISK_MANAGER_ERRORS
+from cmdb.errors.manager.risk_manager import RISK_MANAGER_ERRORS, RiskManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  RiskManager - CLASS                                                 #
@@ -54,23 +54,30 @@ class RiskManager(GenericManager):
         Returns:
             bool: True if the Risk was successfully deleted, False otherwise
         """
-        # Get all RiskAssessments which are referencing this IsmsRisk
-        linked_risk_assessments = self.get_many_from_other_collection(
-            IsmsRiskAssessment.COLLECTION,
-            risk_id=public_id
-        )
-
-        # Extract the public_ids of the linked RiskAssessments
-        linked_risk_assessment_ids = [ra['public_id'] for ra in linked_risk_assessments]
-
-        if linked_risk_assessment_ids:
-            # Delete all ControlMeassureAssignments which are referencing the linked RiskAssessments
-            self.dbm.get_collection(IsmsControlMeasureAssignment.COLLECTION, self.db_name).delete_many(
-                {'risk_assessment_id': {'$in': linked_risk_assessment_ids}}
+        try:
+            # Get all RiskAssessments which are referencing this IsmsRisk
+            linked_risk_assessments = self.get_many_from_other_collection(
+                IsmsRiskAssessment.COLLECTION,
+                risk_id=public_id
             )
 
-        # Delete all RiskAssessments referencing this Risk
-        self.dbm.get_collection(IsmsRiskAssessment.COLLECTION, self.db_name).delete_many({'risk_id': public_id})
+            # Extract the public_ids of the linked RiskAssessments
+            linked_risk_assessment_ids = [ra['public_id'] for ra in linked_risk_assessments]
 
-        # Delete the Risk itself
-        return self.delete_item(public_id)
+            if linked_risk_assessment_ids:
+                # Delete all ControlMeasureAssignments referencing the linked RiskAssessments
+                self.delete_many_from_other_collection(
+                    IsmsControlMeasureAssignment.COLLECTION,
+                    {'risk_assessment_id': {'$in': linked_risk_assessment_ids}}
+                )
+
+            # Delete all RiskAssessments referencing this Risk
+            self.delete_many_from_other_collection(
+                IsmsRiskAssessment.COLLECTION,
+                {'risk_id': public_id}
+            )
+
+            # Delete the Risk itself
+            return self.delete_item(public_id)
+        except Exception as err:
+            raise RiskManagerDeleteError(str(err)) from err

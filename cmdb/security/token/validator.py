@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 Implementation of TokenValidator
 """
-import logging
+from logging import Logger, getLogger
 import time
+
 from authlib.jose import jwt, JsonWebToken
 from authlib.jose.errors import BadSignatureError, InvalidClaimError
 
@@ -28,7 +29,7 @@ from cmdb.security.key.holder import KeyHolder
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                TokenValidator - CLASS                                                #

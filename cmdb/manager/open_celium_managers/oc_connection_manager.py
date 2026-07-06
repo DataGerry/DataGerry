@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -95,7 +95,7 @@ class OcConnectionManager(OcBaseManager):
         raise OcConnectionCreateError("Failed to send the payload to remote API!")
 
 
-    def get_connections_by_ids(self, connection_ids: list[int]) -> dict[str, Any]:
+    def get_connections_by_ids(self, connection_ids: list[int]) -> list[dict[str, Any]]:
         """
         Retrieves a list of OcConnections with the provided 'connection_ids'
 
@@ -107,10 +107,10 @@ class OcConnectionManager(OcBaseManager):
             OcConnectionGetError: When the OcConnections could not be retrieved
 
         Returns:
-            dict[str, Any]: The OcConnections with the given connection_ids
+            list[dict[str, Any]]: The OcConnections with the given connection_ids
         """
         if not connection_ids:
-            raise OcConnectionGetError("No schedulerIds for Schedulers provided!")
+            raise OcConnectionGetError("No connectionIds for Connections provided!")
 
         params: dict[str, Any] = {
             "identifiers": connection_ids
@@ -197,7 +197,7 @@ class OcConnectionManager(OcBaseManager):
 
         if self.is_valid_response(conn_name_check_response):
             conn_resp: dict[str, Any] = json.loads(conn_name_check_response.text)
-            if conn_resp['message'] == UNIQUE_POSITIVE:
+            if conn_resp.get('message') == UNIQUE_POSITIVE:
                 return False
 
             return True

@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of JsonObjectParser
 """
 import json
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.framework.importer.content_types import JSONContent
@@ -25,7 +25,7 @@ from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               JsonObjectParser - CLASS                                               #

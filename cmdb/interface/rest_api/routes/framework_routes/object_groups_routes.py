@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,9 @@
 """
 Implementation of all API routes for the CmdbObjectGroups
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -27,7 +29,6 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_group_model import CmdbObjectGroup
-
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -50,7 +51,7 @@ from cmdb.errors.manager.object_groups_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 object_group_blueprint = APIBlueprint('object_group', __name__)
 
@@ -61,7 +62,7 @@ object_group_blueprint = APIBlueprint('object_group', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.add')
 @object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
-def insert_cmdb_object_group(data: dict, request_user: CmdbUser) -> Response:
+def insert_cmdb_object_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbObjectGroup into the database
 
@@ -74,18 +75,18 @@ def insert_cmdb_object_group(data: dict, request_user: CmdbUser) -> Response:
     """
     try:
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-                                                                            ManagerType.OBJECT_GROUP,
-                                                                            request_user
-                                                                         )
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
         result_id: int = object_groups_manager.insert_item(data)
 
-        created_object_group: dict = object_groups_manager.get_item(result_id, as_dict=True)
+        created_object_group: dict[str, Any] = object_groups_manager.get_item(result_id, as_dict=True)
 
-        if created_object_group:
-            return InsertSingleResponse(created_object_group, result_id).make_response()
+        if not created_object_group:
+            abort(404, "Could not retrieve the created ObjectGroup from the database!")
 
-        abort(404, "Could not retrieve the created ObjectGroup from the database!")
+        return InsertSingleResponse(created_object_group, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectGroupsManagerInsertError as err:
@@ -117,24 +118,27 @@ def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser)
         GetMultiResponse: All the CmdbObjectGroups matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body: bool = request.method == 'HEAD'
 
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-                                                                            ManagerType.OBJECT_GROUP,
-                                                                            request_user
-                                                                         )
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
-
         iteration_result: IterationResult[CmdbObjectGroup] = object_groups_manager.iterate_items(builder_params)
-        object_groups_list = [CmdbObjectGroup.to_json(object_group) for object_group
-                                 in iteration_result.results]
 
-        api_response = GetMultiResponse(object_groups_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+        object_groups_list: list[dict[str, Any]] = [
+            CmdbObjectGroup.to_json(object_group) for object_group in iteration_result.results
+        ]
+
+        api_response = GetMultiResponse(
+            object_groups_list,
+            iteration_result.total,
+            params,
+            request.url,
+            body
+        )
 
         return api_response.make_response()
     except ObjectGroupsManagerIterationError as err:
@@ -162,16 +166,16 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     try:
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-                                                                            ManagerType.OBJECT_GROUP,
-                                                                            request_user
-                                                                         )
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
-        requested_object_group = object_groups_manager.get_item(public_id, as_dict=True)
+        requested_object_group: dict[str, Any] | None = object_groups_manager.get_item(public_id, as_dict=True)
 
-        if requested_object_group:
-            return GetSingleResponse(requested_object_group, body = request.method == 'HEAD').make_response()
+        if not requested_object_group:
+            abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
 
-        abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_object_group, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectGroupsManagerGetError as err:
@@ -188,7 +192,7 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.edit')
 @object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
-def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectGroup
 
@@ -202,14 +206,17 @@ def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser)
     """
     try:
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-                                                                            ManagerType.OBJECT_GROUP,
-                                                                            request_user
-                                                                         )
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
-        to_update_object_group = object_groups_manager.get_item(public_id)
+        to_update_object_group: dict[str, Any] | None = object_groups_manager.get_item(public_id, as_dict=True)
 
         if not to_update_object_group:
             abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
+
+        # Pin the public_id from the URL so the body cannot overwrite or drop it
+        data['public_id'] = public_id
 
         object_groups_manager.update_item(public_id, CmdbObjectGroup.from_data(data))
 
@@ -245,11 +252,11 @@ def delete_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response
     """
     try:
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-                                                                            ManagerType.OBJECT_GROUP,
-                                                                            request_user
-                                                                         )
+            ManagerType.OBJECT_GROUP,
+            request_user
+        )
 
-        to_delete_object_group = object_groups_manager.get_item(public_id, as_dict=True)
+        to_delete_object_group: dict[str, Any] | None = object_groups_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_object_group:
             abort(404, f"The ObjectGroup with ID:{public_id} was not found!")

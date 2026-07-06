@@ -14,39 +14,75 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of ProcessController
+Supervises a single multiprocessing child process on behalf of ProcessManager
+
+A ProcessController is a Thread that blocks on its child's join() and, when the
+child exits, decides whether the exit was graceful (the shared shutdown flag is
+set) or a crash (the flag is unset). On crash it invokes the provided callback,
+which is wired by ProcessManager to its own stop_app so the whole application
+tears down when any registered service dies unexpectedly
 """
-import logging
+from logging import Logger, getLogger
+from multiprocessing import Process
 from threading import Thread, Event
+from typing import Callable
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ProcessController - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class ProcessController(Thread):
     """
-    Controlls the state of a process
+    Watches a single child process and triggers application shutdown on a crash
+
+    One ProcessController is attached per service spawned by ProcessManager. The
+    controller runs in its own daemon-style thread, blocks on the child's join,
+    and uses the shared shutdown flag to distinguish a requested stop from an
+    unexpected exit
     """
 
-    def __init__(self, process, flag_shutdown: Event, cb_shutdown):
+    def __init__(self, process: Process, flag_shutdown: Event, cb_shutdown: Callable[[], None]) -> None:
         """
-        Creates a new instance
-        
+        Initializes a ProcessController bound to a single child process
+
+        Stores references to the supervised process, the shared shutdown flag,
+        and the crash callback. No work happens here; the actual supervision
+        starts when start() is called by ProcessManager
+
         Args:
-            process(multiprocessingProcess): process to control
-            flag_shutdown(threading.Event): shutdown flag
-            cb_shutdown(func): callback function if a process crashed
+            process (Process): The multiprocessing.Process to supervise; the
+                controller will block on its join() in run()
+            flag_shutdown (Event): Shared Event set by ProcessManager.stop_app;
+                when set at the time the child exits, the exit is treated as
+                graceful and cb_shutdown is NOT invoked
+            cb_shutdown (Callable[[], None]): Invoked from this controller's
+                thread when the child exits while flag_shutdown is unset.
+                Typically ProcessManager.stop_app
         """
         super().__init__()
-        self.__process = process
-        self.__flag_shutdown = flag_shutdown
-        self.__cb_shutdown = cb_shutdown
+        self.__process: Process = process
+        self.__flag_shutdown: Event = flag_shutdown
+        self.__cb_shutdown: Callable[[], None] = cb_shutdown
 
 
-    def run(self):
+    def run(self) -> None:
+        """
+        Blocks on the supervised process and invokes the crash callback on unexpected exit
+
+        Waits for the child's join() to return, then checks the shared shutdown
+        flag: if the flag is set the exit was requested by ProcessManager and
+        nothing further is done; if it is unset the exit is treated as a crash
+        and cb_shutdown is invoked to tear the rest of the application down
+
+        Note: there is a small TOCTOU window between join() returning and the
+        flag check; if another path sets the flag inside that window the
+        callback will still fire. cb_shutdown (ProcessManager.stop_app) is not
+        synchronized, so concurrent invocations from sibling controllers or the
+        SIGTERM handler can race on the manager's registries
+        """
         self.__process.join()
-        # terminate app, if process crashed
+
         if not self.__flag_shutdown.is_set():
             self.__cb_shutdown()

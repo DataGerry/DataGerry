@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -27,7 +27,9 @@ from cmdb.models.type_model.type_summary import TypeSummary
 from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
-from cmdb.class_schema.cmdb_type_schema import get_cmdb_type_schema
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.class_schema.type_model.cmdb_type_schema import get_cmdb_type_schema
 
 from cmdb.errors.models.cmdb_type import (
     CmdbTypeInitError,
@@ -53,12 +55,10 @@ class CmdbType(CmdbDAO):
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
-    INDEX_KEYS: list[dict[str, Any]] = [{
-        'keys': [('name', CmdbDAO.DAO_ASCENDING)],
-        'name': 'name',
-        'unique': True
-    }]
-
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
+        {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
+    ]
 
     #pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
     def __init__(
@@ -71,6 +71,7 @@ class CmdbType(CmdbDAO):
         last_edit_time: datetime | None = None,
         editor_id: int | None = None,
         active: bool = True,
+        special_type: SpecialType |None = None,
         selectable_as_parent: bool = True,
         global_template_ids: list[int] | None = None,
         fields: list[dict[str, Any]] | None = None,
@@ -115,11 +116,12 @@ class CmdbType(CmdbDAO):
             self.selectable_as_parent: bool = selectable_as_parent
             self.global_template_ids: list[int] = global_template_ids or []
             self.active: bool = active
+            self.special_type: SpecialType | None = special_type
             self.author_id: int = author_id
             self.creation_time: datetime = creation_time or datetime.now(timezone.utc)
             self.editor_id: int | None = editor_id
             self.last_edit_time: datetime | None = last_edit_time
-            self.render_meta = render_meta
+            self.render_meta: TypeRenderMeta = render_meta
             self.fields: list[dict[str, Any]] = fields or []
             self.ci_explorer_label: str | None = ci_explorer_label
             self.ci_explorer_color: str | None = ci_explorer_color
@@ -162,6 +164,7 @@ class CmdbType(CmdbDAO):
                 selectable_as_parent = data.get('selectable_as_parent', True),
                 global_template_ids = data.get('global_template_ids', []),
                 active = data.get('active', True),
+                special_type = data.get('special_type'),
                 author_id = int(data["author_id"]),
                 creation_time = creation_time,
                 editor_id = int(raw_editor_id) if raw_editor_id is not None else None,
@@ -200,6 +203,7 @@ class CmdbType(CmdbDAO):
                 'selectable_as_parent': instance.selectable_as_parent,
                 'global_template_ids': instance.global_template_ids,
                 'active': instance.active,
+                'special_type': instance.special_type,
                 'author_id': instance.author_id,
                 'creation_time': instance.creation_time,
                 'editor_id': instance.editor_id,
@@ -454,23 +458,24 @@ class CmdbType(CmdbDAO):
         if field:
             return field
 
-        raise CmdbTypeFieldNotFoundError(f"Field '{name}' was not found!")
+        raise CmdbTypeFieldNotFoundError(f"Field '{name}' was not found on Type with ID: {self.public_id}!")
 
 
-    def get_all_mds_fields(self) -> list[dict[str, Any]]:
+    def get_all_mds_fields(self) -> list[str]:
         """
-        Retrieves all fields from multi-data sections
+        Retrieves all field names from multi-data sections
 
-        This method searches through the sections in the `render_meta` and collects all
-        fields that belong to sections of type "multi-data-section"
+        This method searches through the sections in the `render_meta` and collects the names of all
+        fields that belong to sections of type SectionType.MDS_SECTION (render_meta sections store
+        their fields as name strings)
 
         Returns:
-            list: A list containing all fields from multi-data sections
+            list[str]: A list containing the names of all fields from multi-data sections
         """
-        mds_fields: list[dict[str, Any]] = []
+        mds_fields: list[str] = []
 
         for section in self.render_meta.sections:
-            if section.type == "multi-data-section":
+            if section.type == SectionType.MDS_SECTION:
                 mds_fields.extend(section.fields)
 
         return mds_fields
@@ -492,3 +497,8 @@ class CmdbType(CmdbDAO):
         field_names = [field["name"] for field in self.fields if field["type"] == field_type]
 
         return field_names
+
+
+    def get_fields_with_type(self, field_type: str) -> dict[str, dict[str, Any]]:
+        """TODO: document"""
+        return {f["name"]: f for f in self.fields if f["type"] == field_type}

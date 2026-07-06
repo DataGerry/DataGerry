@@ -14,37 +14,42 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides all predefined data for CmdbExtendableOptions required for ISMS
+This module provides the predefined CmdbExtendableOptions required for ISMS
 """
+from typing import Any
+
 from cmdb.models.extendable_option_model import OptionType
+from cmdb.database.predefined_data.predefined_data_constants import ExtendableOptionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_default_isms_extendable_options() -> list:
+def get_default_isms_extendable_options() -> list[dict[str, Any]]:
     """
-    All predefined CmdbExtendableOptions as data. Used when DataGerry is setup
+    Returns the predefined CmdbExtendableOptions for ISMS, inserted at setup
+
+    Currently the IMPLEMENTATION_STATE options (None / Open / In Progress / Implemented).
 
     Returns:
-        list: All default CmdbExtendableOptions for ISMS as data
+        list[dict[str, Any]]: The default ISMS CmdbExtendableOptions as documents
     """
     return [
         {
-            'value': 'None',
-            'option_type': OptionType.IMPLEMENTATION_STATE,
-            'predefined': True,
+            ExtendableOptionKey.VALUE: 'None',
+            ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
+            ExtendableOptionKey.PREDEFINED: True,
         },
         {
-            'value': 'Open',
-            'option_type': OptionType.IMPLEMENTATION_STATE,
-            'predefined': True,
+            ExtendableOptionKey.VALUE: 'Open',
+            ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
+            ExtendableOptionKey.PREDEFINED: True,
         },
         {
-            'value': 'In Progress',
-            'option_type': OptionType.IMPLEMENTATION_STATE,
-            'predefined': True,
+            ExtendableOptionKey.VALUE: 'In Progress',
+            ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
+            ExtendableOptionKey.PREDEFINED: True,
         },
         {
-            'value': 'Implemented',
-            'option_type': OptionType.IMPLEMENTATION_STATE,
-            'predefined': True,
+            ExtendableOptionKey.VALUE: 'Implemented',
+            ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
+            ExtendableOptionKey.PREDEFINED: True,
         }
     ]

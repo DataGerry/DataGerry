@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,9 +17,11 @@
 This module contains the implementation of CmdbReportCategory, which is representing
 a category of a CmdbReport in DataGarry
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.reports_model.cmdb_report_category_schema import get_cmdb_report_category_schema
 
 from cmdb.errors.models.cmdb_report_category import (
     CmdbReportCategoryInitError,
@@ -28,7 +30,7 @@ from cmdb.errors.models.cmdb_report_category import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              CmdbReportCategory - CLASS                                              #
@@ -44,20 +46,7 @@ class CmdbReportCategory(CmdbDAO):
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS = ['name', 'predefined']
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False,
-        },
-        'predefined': {
-            'type': 'boolean',
-            'default': False
-        },
-    }
+    SCHEMA: dict = get_cmdb_report_category_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 

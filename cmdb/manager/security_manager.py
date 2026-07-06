@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,38 +18,31 @@ Implementation of SecurityManager
 """
 import os
 import base64
-import logging
+from logging import Logger, getLogger
 import hashlib
 import hmac
-import json
+
 from Crypto import Random
-from Crypto.Cipher import AES
-from bson import json_util
-from bson.json_util import dumps
 from flask import current_app
+from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                SecurityManager - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class SecurityManager:
     """
-    A class to handle various security-related operations, including HMAC generation,
-    AES encryption and decryption, and symmetric key management.
+    Handles password HMAC generation and symmetric AES key management.
 
-    This class is used to manage encryption keys, securely encrypt/decrypt data, and 
-    generate HMACs for integrity checks. It relies on symmetric AES encryption and 
-    HMAC using SHA256.
+    The symmetric AES key is used to key the HMAC-SHA256 used for password storage/verification;
+    the key itself is resolved from the app (cloud+local dev), an environment variable (cloud), or
+    the 'security' settings section (on-premise, generated on first use).
     """
-
-    DEFAULT_BLOCK_SIZE = 32
-    DEFAULT_ALG = 'HS512'
-    DEFAULT_EXPIRES = int(10)
 
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
@@ -59,19 +52,28 @@ class SecurityManager:
             dbm (MongoDatabaseManager): The database manager to interact with the database
             database (str, optional): The database name to use. Defaults to None
         """
-        self.settings_manager = SettingsManager(dbm, database)
-        self.salt = "cmdb"
+        self.settings_manager: SettingsManager = SettingsManager(dbm, database)
+        self.salt: str = "cmdb"
 
 
     def generate_hmac(self, data: str) -> str:
         """
-        Generates an HMAC using the stored symmetric AES key and the provided data
+        Generates a deterministic HMAC-SHA256 of the given data, keyed with the stored symmetric AES key
+
+        This is the password-storage primitive: the same input always maps to the same hash (keyed by
+        the instance's symmetric AES key plus a fixed application salt), so a login attempt can be
+        hashed and compared against the stored value.
+
+        Backend design note: there is intentionally NO per-user salt — the salt is a single
+        application-wide constant, so identical passwords hash to identical values. Changing the salt,
+        the hash algorithm, or the key derivation would invalidate every already-stored password, so
+        this scheme is kept stable rather than changed in place.
 
         Args:
-            data (str): The data to be hashed and used in HMAC generation
+            data (str): The data (e.g. a plaintext password) to hash
 
         Returns:
-            str: The base64-encoded HMAC hash
+            str: The base64-encoded HMAC-SHA256 digest
         """
         generated_hash = hmac.new(
             self.get_symmetric_aes_key(),
@@ -79,125 +81,50 @@ class SecurityManager:
             hashlib.sha256
         )
 
-        generated_hash.hexdigest()
-
         return base64.b64encode(generated_hash.digest()).decode("utf-8")
 
 
-    def encrypt_aes(self, raw: object) -> str:
+    def generate_symmetric_aes_key(self) -> UpdateResult:
         """
-        Encrypts the given data using AES encryption (CBC mode)
-
-        Args:
-            raw (object): The data to be encrypted. It can be a list or any object that can be converted to JSON
+        Generates a new random symmetric AES key and stores it in the 'security' settings section
 
         Returns:
-            str: The base64-encoded encrypted data
-        """
-        if isinstance(raw, list):
-            raw = json.dumps(raw, default=json_util.default)
-
-        raw = SecurityManager._pad(raw).encode('UTF-8')
-        iv = Random.new().read(AES.block_size)
-        cipher = AES.new(self.get_symmetric_aes_key(), AES.MODE_CBC, iv)
-
-        return base64.b64encode(iv + cipher.encrypt(raw))
-
-
-    def decrypt_aes(self, enc: str) -> str:
-        """
-        Decrypts the given AES encrypted data
-
-        Args:
-            enc (str): The base64-encoded encrypted data to be decrypted
-
-        Returns:
-            str: The decrypted data as a string
-        """
-        enc = base64.b64decode(enc)
-        iv = enc[:AES.block_size]
-        cipher = AES.new(self.get_symmetric_aes_key(), AES.MODE_CBC, iv)
-
-        return SecurityManager._unpad(cipher.decrypt(enc[AES.block_size:])).decode('utf-8')
-
-
-    @staticmethod
-    def _pad(s: str) -> str:
-        """
-        Pads the input string to ensure it is a multiple of the AES block size
-
-        Args:
-            s (str): The string to be padded
-
-        Returns:
-            str: The padded string
-        """
-        return s + (SecurityManager.DEFAULT_BLOCK_SIZE - len(s) % SecurityManager.DEFAULT_BLOCK_SIZE) * \
-               chr(SecurityManager.DEFAULT_BLOCK_SIZE - len(s) % SecurityManager.DEFAULT_BLOCK_SIZE)
-
-
-    @staticmethod
-    def _unpad(s: str) -> str:
-        """
-        Removes the padding from a string that was padded to match the AES block size
-
-        Args:
-            s (str): The padded string to be unpadded
-
-        Returns:
-            str: The unpadded string
-        """
-        return s[:-ord(s[len(s) - 1:])]
-
-
-    def generate_symmetric_aes_key(self) -> bytes:
-        """
-        Generates and stores a new symmetric AES key
-
-        Returns:
-            bytes: The generated symmetric AES key
+            UpdateResult: The result of the settings write operation
         """
         return self.settings_manager.write('security', {'symmetric_aes_key': Random.get_random_bytes(32)})
 
 
     def get_symmetric_aes_key(self) -> bytes:
         """
-        Retrieves the symmetric AES key, either from the application context or the settings manager
+        Retrieves the symmetric AES key used for HMAC and AES operations
+
+        Resolution order:
+            - cloud + local mode: the dev key carried on the app (``current_app.symmetric_key``)
+            - cloud (non-local): the base64-encoded key from the ``DG_SYMMETRIC_KEY`` env variable
+            - on-premise: the key stored in the 'security' settings section, generated on first use
 
         Returns:
             bytes: The symmetric AES key
+
+        Raises:
+            ValueError: In cloud (non-local) mode when ``DG_SYMMETRIC_KEY`` is not set
         """
-        with current_app.app_context():
-            if current_app.cloud_mode:
-                if current_app.local_mode:
-                    return current_app.symmetric_key
+        if current_app.cloud_mode:
+            if current_app.local_mode:
+                return current_app.symmetric_key
 
-                symmetric_key = base64.b64decode(os.getenv("DG_SYMMETRIC_KEY"))
+            env_symmetric_key = os.getenv("DG_SYMMETRIC_KEY")
 
-                if not symmetric_key:
-                    LOGGER.error("Error: No symmetric key provided!")
+            if not env_symmetric_key:
+                LOGGER.error("[get_symmetric_aes_key] No symmetric key provided via 'DG_SYMMETRIC_KEY'!")
+                raise ValueError("No symmetric AES key provided via the 'DG_SYMMETRIC_KEY' environment variable")
 
-                return symmetric_key
+            return base64.b64decode(env_symmetric_key)
 
+        symmetric_key = self.settings_manager.get_value('symmetric_aes_key', 'security')
 
+        if not symmetric_key:
+            self.generate_symmetric_aes_key()
             symmetric_key = self.settings_manager.get_value('symmetric_aes_key', 'security')
 
-            if not symmetric_key:
-                self.generate_symmetric_aes_key()
-                symmetric_key = self.settings_manager.get_value('symmetric_aes_key', 'security')
-
-            return symmetric_key
-
-
-    @staticmethod
-    def encode_object_base_64(data: object) -> str:
-        """
-        Encodes a given object into base64 string after converting it to JSON format
-
-        Args:
-            data (object): The object to be encoded into base64
-
-        Returns:
-            str: The base64-encoded string representing the JSON-serialized object
-        """
-        return base64.b64encode(dumps(data).encode('utf-8')).decode("utf-8")
+        return symmetric_key

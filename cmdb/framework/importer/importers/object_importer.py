@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,8 @@
 Implementation of ObjectImporter
 """
 from datetime import datetime, timezone
-import logging
+from logging import Logger, getLogger
+
 from flask import current_app
 
 from cmdb.manager import ObjectsManager
@@ -39,7 +40,7 @@ from cmdb.errors.manager.objects_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ObjectImporter - CLASS                                                #
@@ -139,7 +140,7 @@ class ObjectImporter(BaseImporter):
 
                     try:
                         if current_app.cloud_mode:
-                            objects_count = self.objects_manager.count_objects()
+                            objects_count = self.objects_manager.count_documents()
 
                             success = sync_config_items(self.request_user.email,
                                                         self.request_user.database,
@@ -157,6 +158,7 @@ class ObjectImporter(BaseImporter):
                     success_imports.append(ImportSuccessMessage(public_id=current_public_id, obj=current_import_object))
             else:
                 try:
+                    #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
                     self.objects_manager.delete_with_follow_up(current_public_id, self.request_user)
                 except ObjectsManagerDeleteError as err:
                     LOGGER.error("[_import] ObjectsManagerDeleteError: %s", err, exc_info=True)
@@ -173,7 +175,7 @@ class ObjectImporter(BaseImporter):
 
                         try:
                             if current_app.cloud_mode:
-                                objects_count = self.objects_manager.count_objects()
+                                objects_count = self.objects_manager.count_documents()
 
                                 success = sync_config_items(self.request_user.email,
                                                             self.request_user.database,
@@ -221,6 +223,6 @@ class ObjectImporter(BaseImporter):
         Returns:
             bool: True if the limit has been reached, else False
         """
-        objects_count: int = self.objects_manager.count_objects()
+        objects_count: int = self.objects_manager.count_documents()
 
         return objects_count >= request_user.config_items_limit

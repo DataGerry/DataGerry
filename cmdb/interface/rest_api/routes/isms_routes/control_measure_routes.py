@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Implementation of all API routes for the IsmsControlMeasures
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -31,6 +32,7 @@ from cmdb.models.isms_model import IsmsControlMeasure
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -50,7 +52,7 @@ from cmdb.errors.manager.control_measure_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 control_measure_blueprint = APIBlueprint('control_measure', __name__)
 
@@ -61,7 +63,7 @@ control_measure_blueprint = APIBlueprint('control_measure', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
 @control_measure_blueprint.validate(IsmsControlMeasure.SCHEMA)
-def insert_isms_control_measure(data: dict, request_user: CmdbUser) -> Response:
+def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasure into the database
 
@@ -80,10 +82,10 @@ def insert_isms_control_measure(data: dict, request_user: CmdbUser) -> Response:
 
         created_control_measure: dict = control_measure_manager.get_item(result_id, as_dict=True)
 
-        if created_control_measure:
-            return InsertSingleResponse(created_control_measure, result_id).make_response()
+        if not created_control_measure:
+            abort(404, "Could not retrieve the created ControlMeasure from the database!")
 
-        abort(404, "Could not retrieve the created ControlMeasure from the database!")
+        return InsertSingleResponse(created_control_measure, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except ControlMeasureManagerInsertError as err:
@@ -160,12 +162,10 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                        request_user)
 
-        requested_control_measure = control_measure_manager.get_item(public_id, as_dict=True)
+        requested_control_measure = get_item_or_404(control_measure_manager, public_id,
+                                                    f"The ControlMeasure with ID:{public_id} was not found!")
 
-        if requested_control_measure:
-            return GetSingleResponse(requested_control_measure, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The ControlMeasure with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_control_measure, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except ControlMeasureManagerGetError as err:
@@ -182,7 +182,7 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.edit')
 @control_measure_blueprint.validate(IsmsControlMeasure.SCHEMA)
-def update_isms_control_measure(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_isms_control_measure(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasure
 
@@ -198,10 +198,8 @@ def update_isms_control_measure(public_id: int, data: dict, request_user: CmdbUs
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                        request_user)
 
-        to_update_control_measure = control_measure_manager.get_item(public_id)
-
-        if not to_update_control_measure:
-            abort(404, f"The ControlMeasure with ID:{public_id} was not found!")
+        get_item_or_404(control_measure_manager, public_id,
+                        f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False)
 
         control_measure_manager.update_item(public_id, IsmsControlMeasure.from_data(data))
 
@@ -224,7 +222,7 @@ def update_isms_control_measure(public_id: int, data: dict, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
-def delete_isms_control_measure(public_id: int, request_user: CmdbUser):
+def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsControlMeasure
 
@@ -239,10 +237,8 @@ def delete_isms_control_measure(public_id: int, request_user: CmdbUser):
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                        request_user)
 
-        to_delete_control_measure = control_measure_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_control_measure:
-            abort(404, f"The ControlMeasure with ID:{public_id} was not found!")
+        to_delete_control_measure = get_item_or_404(control_measure_manager, public_id,
+                                                    f"The ControlMeasure with ID:{public_id} was not found!")
 
         if control_measure_manager.is_control_measure_used(public_id):
             abort(400, f"ControlMeasure with ID:{public_id} is not deletable while used by ControlMeasureAssignments!")

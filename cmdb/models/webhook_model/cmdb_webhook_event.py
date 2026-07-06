@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,6 +22,8 @@ from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+
+from cmdb.class_schema.webhook_model.cmdb_webhook_event_schema import get_cmdb_webhook_event_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -49,41 +51,7 @@ class CmdbWebhookEvent(CmdbDAO):
         'response_code',
     ]
 
-    SCHEMA: dict[str, Any] = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'event_time': {
-            'type': 'dict',
-            'nullable': True,
-        },
-        'operation': {
-            'type': 'string',
-        },
-        'webhook_id': {
-            'type': 'integer'
-        },
-        'object_before': {
-            'type': 'dict',
-            'required': False
-        },
-        'object_after': {
-            'type': 'dict',
-            'required': False
-        },
-        'changes': {
-            'type': 'dict',
-            'required': False
-        },
-        'response_code': {
-            'type': 'integer',
-            'default': 200,
-        },
-        'status': {
-            'type': 'boolean',
-            'required': False,
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_webhook_event_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
@@ -98,7 +66,8 @@ class CmdbWebhookEvent(CmdbDAO):
             changes: dict,
             response_code: int,
             status: bool,
-            **kwargs):
+            **kwargs
+        ) -> None:
         """
         Initializes a new instance of the CmdbWebhookEvent class, representing the result of a webhook event operation
 

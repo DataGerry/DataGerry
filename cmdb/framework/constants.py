@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,6 @@ from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model import CmdbCategory
-from cmdb.models.object_link_model import CmdbObjectLink
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.cmdb_log import CmdbLog
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
@@ -67,7 +66,6 @@ __COLLECTIONS__: list[Any] = [
     CmdbCategory,
     CmdbCiExplorerProfile,
     CmdbMetaLog,
-    CmdbObjectLink,
     CmdbLocation,
     CmdbSectionTemplate,
     CmdbReportCategory,
