@@ -26,7 +26,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import build_object_logs_response
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import (
+    build_object_logs_response,
+    resolve_log_users,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper'
@@ -47,10 +50,11 @@ def _params() -> MagicMock:
 
 
 def _request(method: str = 'GET') -> MagicMock:
-    """A Flask request stand-in exposing url + method."""
+    """A Flask request stand-in exposing url + method; include_users defaults off."""
     request = MagicMock()
     request.url = REQUEST_URL
     request.method = method
+    request.args.get.return_value = 'false'
     return request
 
 
@@ -74,7 +78,7 @@ def test_builds_params_serializes_rows_and_wraps_response() -> None:
     with patch(f'{HELPER_PATH}.BuilderParameters') as builder_cls, \
          patch(f'{HELPER_PATH}.CmdbObjectLog.to_json', side_effect=lambda row: {'row': id(row)}) as to_json_mock, \
          patch(f'{HELPER_PATH}.GetMultiResponse') as response_cls:
-        result = build_object_logs_response(manager, QUERY, params, request)
+        result = build_object_logs_response(manager, QUERY, params, request, MagicMock())
 
     builder_cls.assert_called_once_with(QUERY, params.limit, params.skip, params.sort, params.order)
     manager.iterate.assert_called_once_with(builder_cls.return_value)
@@ -95,7 +99,48 @@ def test_head_flag_reflects_request_method(method: str, expected_head: bool) -> 
     with patch(f'{HELPER_PATH}.BuilderParameters'), \
          patch(f'{HELPER_PATH}.CmdbObjectLog.to_json'), \
          patch(f'{HELPER_PATH}.GetMultiResponse') as response_cls:
-        build_object_logs_response(manager, QUERY, params, request)
+        build_object_logs_response(manager, QUERY, params, request, MagicMock())
 
     _, _, _, _, body_flag = response_cls.call_args.args
     assert body_flag is expected_head
+
+
+class TestResolveLogUsers:
+    """resolve_log_users dedupes user_ids, keys by stringified public_id, and omits missing users."""
+
+    def test_dedupes_ids_and_keys_by_public_id(self) -> None:
+        """Distinct user_ids are queried once; the map is keyed by the stringified public_id."""
+        manager = MagicMock()
+        manager.get_minimal_users_by_ids.return_value = [
+            {'public_id': 1, 'first_name': 'Ada', 'last_name': 'Lovelace', 'image': None, 'user_name': 'ada'},
+            {'public_id': 2, 'first_name': '', 'last_name': '', 'image': None, 'user_name': 'grace'},
+        ]
+        logs = [{'user_id': 1}, {'user_id': 2}, {'user_id': 1}]
+
+        result = resolve_log_users(manager, logs)
+
+        assert set(manager.get_minimal_users_by_ids.call_args.args[0]) == {1, 2}
+        assert set(result) == {'1', '2'}
+        assert result['1']['user_name'] == 'ada'
+
+    def test_omits_missing_users_and_skips_null_ids(self) -> None:
+        """A user_id with no matching user is omitted; None/absent user_ids are not queried."""
+        manager = MagicMock()
+        manager.get_minimal_users_by_ids.return_value = [
+            {'public_id': 1, 'first_name': 'Ada', 'last_name': 'Lovelace', 'image': None, 'user_name': 'ada'},
+        ]
+        logs = [{'user_id': 1}, {'user_id': 2}, {'user_id': None}, {}]
+
+        result = resolve_log_users(manager, logs)
+
+        assert set(manager.get_minimal_users_by_ids.call_args.args[0]) == {1, 2}
+        assert set(result) == {'1'}
+
+    def test_no_user_ids_returns_empty_without_query(self) -> None:
+        """With no resolvable user_ids the manager is not queried and an empty map is returned."""
+        manager = MagicMock()
+
+        result = resolve_log_users(manager, [{'user_id': None}, {}])
+
+        assert result == {}
+        manager.get_minimal_users_by_ids.assert_not_called()

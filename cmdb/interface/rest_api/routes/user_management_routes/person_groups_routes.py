@@ -86,10 +86,10 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 
         created_person_group = person_groups_manager.get_item(result_id, as_dict=True)
 
-        if created_person_group:
-            return InsertSingleResponse(created_person_group, result_id).make_response()
+        if not created_person_group:
+            abort(404, "Could not retrieve the created PersonGroup from the database!")
 
-        abort(404, "Could not retrieve the created PersonGroup from the database!")
+        return InsertSingleResponse(created_person_group, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except PersonGroupsManagerInsertError as err:
@@ -216,6 +216,9 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
         persons_to_add = updated_persons - existing_persons  # New persons
         persons_to_remove = existing_persons - updated_persons  # Removed persons
 
+        # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
+        data['public_id'] = public_id
+
         # Persist the PersonGroup first, then sync the reciprocal person membership only on success
         person_groups_manager.update_item(public_id, CmdbPersonGroup.from_data(data))
 
@@ -256,7 +259,7 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response
                                                                                  request_user)
         persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
 
-        to_delete_person_group = person_groups_manager.get_item(public_id)
+        to_delete_person_group = person_groups_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_person_group:
             abort(404, f"The PersonGroup with ID:{public_id} was not found!")

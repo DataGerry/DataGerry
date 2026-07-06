@@ -42,26 +42,26 @@ class RootBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_assistant_parameters(cls, **optional):
+    def parse_assistant_parameters(cls, **optional):  # pylint: disable=unused-argument
+        # '**optional' is an extensibility placeholder, matching the other parameter decorators
         """
-        Decorator to parse and extract parameters from an HTTP request
+        Decorator to parse and extract query parameters from an HTTP request
 
         This class method returns a decorator that:
         - Extracts query parameters from the current request (via `request.args.to_dict()`)
-        - Passes the extracted parameters as a dictionary to the decorated function
+        - Injects them as the FIRST positional argument of the decorated function
+        - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
+          outer decorator) unchanged
         - Aborts with a 400 Bad Request if the parameters cannot be parsed
 
         Args:
-            **optional: 
-                Placeholder for optional keyword arguments (currently unused)
+            **optional: Placeholder for optional keyword arguments (currently unused)
 
         Raises:
-            400 Bad Request: 
-                If there is an error while accessing or parsing the request arguments
+            400 Bad Request: If there is an error while accessing or parsing the request arguments
 
         Returns:
-            Callable: 
-                A decorator that injects parsed request parameters into the decorated function
+            Callable: A decorator that injects parsed request parameters into the decorated function
         """
         def _parse(f):
             @wraps(f)
@@ -69,10 +69,11 @@ class RootBlueprint(Blueprint):
                 try:
                     location_args = request.args.to_dict()
                 except Exception as err:
-                    LOGGER.error("[parse_arguments] Exception: %s. Type: %s", err, type(err), exc_info=True)
+                    LOGGER.error("[parse_assistant_parameters] Exception: %s. Type: %s",
+                                 err, type(err), exc_info=True)
                     abort(400, "Failed to parse the request arguments!")
 
-                return f(location_args)
+                return f(location_args, *args, **kwargs)
 
             return _decorate
 

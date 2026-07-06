@@ -36,8 +36,20 @@ class LogKey(BaseStrEnum):
     LOG_TYPE = 'log_type'
     OBJECT_ID = 'object_id'
     ACTION = 'action'
+    USER_ID = 'user_id'
+
+
+class LogResultKey(BaseStrEnum):
+    """Keys nested inside the ``results`` payload when users are requested (``include_users=true``)."""
+    LOGS = 'logs'
+    USERS = 'users'
 
 
 class LogQueryOperator(BaseStrEnum):
     """MongoDB operator literals used when assembling CmdbLog queries."""
     NOR = '$nor'
+
+
+# Query-string flag: when truthy, the object-log list ``results`` becomes ``{logs, users}`` with the
+# referenced users resolved server-side (default off, so the plain list is preserved for API clients)
+INCLUDE_USERS_PARAM: str = 'include_users'

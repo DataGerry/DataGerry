@@ -41,7 +41,7 @@ class PersonGroupsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         super().__init__(dbm, CmdbPersonGroup, PERSON_GROUPS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #

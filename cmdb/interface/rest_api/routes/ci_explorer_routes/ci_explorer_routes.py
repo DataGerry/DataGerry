@@ -66,6 +66,8 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerDeleteError,
     CiExplorerProfileManagerIterationError,
 )
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants import (
     CiExplorerParam,
     CiExplorerField,
@@ -176,7 +178,8 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
 @ci_explorer_blueprint.route('/items', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:
+# The locals are the 8 parsed query args + the 5 managers the framework graph builder requires
+def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: disable=too-many-locals
     """
     HTTP `GET` route returning the CI Explorer node/edge payload
 
@@ -267,8 +270,8 @@ def update_tooltip(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the tooltip is missing from the body; 404 when the Object does not
-                       exist; 500 on an unexpected failure
+        HTTPException: 400 when the tooltip is missing from the body or the ObjectsManager fails;
+                       404 when the Object does not exist; 500 on an unexpected failure
 
     Returns:
         DefaultResponse: The tooltip which was set for the CmdbObject
@@ -288,6 +291,9 @@ def update_tooltip(public_id: int, request_user: CmdbUser) -> Response:
         return DefaultResponse({CiExplorerField.TOOLTIP.value: tooltip}).make_response()
     except HTTPException as http_err:
         raise http_err
+    except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
+        LOGGER.error("[update_tooltip] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to update the Tooltip for Object-ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_tooltip] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating the Tooltip for Object-ID: {public_id}!")
@@ -308,8 +314,8 @@ def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the label is missing from the body; 404 when the Type does not
-                       exist; 500 on an unexpected failure
+        HTTPException: 400 when the label is missing from the body or the TypesManager fails;
+                       404 when the Type does not exist; 500 on an unexpected failure
 
     Returns:
         DefaultResponse: The label which was set for the CmdbType
@@ -329,6 +335,9 @@ def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
         return DefaultResponse({CiExplorerField.LABEL.value: label}).make_response()
     except HTTPException as http_err:
         raise http_err
+    except (TypesManagerGetError, TypesManagerUpdateError) as err:
+        LOGGER.error("[update_type_label] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to update the Label for Type-ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_type_label] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating the Label for Type-ID: {public_id}!")

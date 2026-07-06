@@ -254,3 +254,26 @@ class TestErrorWrapping:
 
         with pytest.raises(UsersManagerDeleteError):
             users_manager.delete_user(USER_A)
+
+
+class TestGetMinimalUsersByIds:
+    """get_minimal_users_by_ids returns a minimal projection for the requested ids in one query."""
+
+    def test_returns_minimal_projection_for_requested_ids(self, users_manager: UsersManager) -> None:
+        """Only the display fields are returned, for exactly the existing requested users."""
+        _seed(users_manager, USER_A, SRC_GROUP_ID)
+        _seed(users_manager, USER_B, SRC_GROUP_ID)
+
+        result = users_manager.get_minimal_users_by_ids([USER_A, USER_B, MISSING_USER_ID])
+
+        by_id = {user['public_id']: user for user in result}
+        # the missing id is simply absent
+        assert set(by_id) == {USER_A, USER_B}
+        # only minimal display fields are ever exposed - never password / group_id / etc.
+        assert set(by_id[USER_A]) <= {'public_id', 'first_name', 'last_name', 'image', 'user_name'}
+        assert by_id[USER_A]['public_id'] == USER_A
+        assert 'user_name' in by_id[USER_A]
+
+    def test_empty_ids_returns_empty_without_query(self, users_manager: UsersManager) -> None:
+        """No ids yields an empty list."""
+        assert users_manager.get_minimal_users_by_ids([]) == []

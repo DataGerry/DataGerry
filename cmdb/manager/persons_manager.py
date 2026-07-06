@@ -41,7 +41,7 @@ class PersonsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         super().__init__(dbm, CmdbPerson, PERSONS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -65,12 +65,12 @@ class PersonsManager(GenericManager):
 
     def update_group_in_persons(self, group_id: int, persons_to_add: list[int], persons_to_delete: list[int]) -> None:
         """
-        Updates a CmdbPerson in CmdbPersonGroups during an update operation
+        Syncs a CmdbPersonGroup reference across CmdbPersons during a group update operation
 
         Args:
-            group_id (int): public_id of CmdbPersonGroup which should be updated
-            persons_to_add (list[int]): public_id's of CmdbPersons where the CmdbPersonGroup should be added
-            persons_to_delete (list[int]): list of CmdbPerson public_id's which should be deleted
+            group_id (int): public_id of the CmdbPersonGroup whose membership changed
+            persons_to_add (list[int]): public_id's of CmdbPersons that should now reference the group
+            persons_to_delete (list[int]): public_id's of CmdbPersons that should no longer reference the group
         """
         self.add_group_to_persons(group_id, persons_to_add)
         self.delete_group_from_persons(group_id, persons_to_delete)

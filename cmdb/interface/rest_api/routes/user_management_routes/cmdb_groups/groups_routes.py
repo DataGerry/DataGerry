@@ -240,6 +240,15 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
     names through the manager's cached right tree, then persists with ``insert_mode`` serialization
     (rights stored as name strings)
 
+    Note:
+        Unlike the delete route, this route does NOT guard protected / bootstrap groups
+        (``is_protected_group``): an admin / user bootstrap group can currently be edited here,
+        including reducing its rights. This is a deliberate current behavior pending a product
+        decision on whether protected groups should be non-editable.
+        The response serializes ``rights`` as name strings (insert-mode), which differs from the
+        create / read routes (full right dicts); reconciling that shape is a pending FE-contract
+        decision.
+
     Status codes:
         202 ACCEPTED: Update applied; body is the persisted serialization
         400 BAD_REQUEST: Lookup or update failed at the manager layer
@@ -301,6 +310,11 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
       * ``DELETE`` — every user currently in the deleted group is deleted alongside the group;
         the bootstrap admin user is protected and the request is refused if it would be deleted
       * ``None`` — the group is deleted without touching its members
+
+    Note:
+        For ``MOVE`` / ``DELETE`` the member redistribution runs before the group delete. If the group
+        delete itself fails afterwards, the members have already been redistributed while the group
+        still exists (there is no cross-document transaction) — an accepted partial-failure window.
 
     Status codes:
         200 OK: Deleted; body is the serialized deleted group

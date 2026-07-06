@@ -117,7 +117,7 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
 
         query = logs_manager.query_builder.prepare_log_query()
 
-        return build_object_logs_response(logs_manager, query, params, request)
+        return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_logs_with_existing_objects] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve existing ObjectLogs from database!")
@@ -150,7 +150,7 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
 
         query = logs_manager.query_builder.prepare_log_query(False)
 
-        return build_object_logs_response(logs_manager, query, params, request)
+        return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_logs_with_deleted_objects]BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Logs of deleted Objects from database!")
@@ -186,7 +186,7 @@ def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser)
             LogKey.ACTION.value: LogAction.DELETE.value,
         }
 
-        return build_object_logs_response(logs_manager, query, params, request)
+        return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_object_delete_logs] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the deleted object logs from database!")
@@ -220,7 +220,7 @@ def get_logs_by_object(object_id: int, params: CollectionParameters, request_use
 
         query: dict[str, Any] = {LogKey.OBJECT_ID.value: object_id}
 
-        return build_object_logs_response(logs_manager, query, params, request)
+        return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
         LOGGER.debug("[get_logs_by_object] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve logs for Object with ID:{object_id}!")

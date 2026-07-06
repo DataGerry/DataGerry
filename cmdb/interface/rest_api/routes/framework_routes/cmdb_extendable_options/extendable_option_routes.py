@@ -17,8 +17,10 @@
 Implementation of all API routes for CmdbExtendableOptions
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ExtendableOptionsManager
@@ -26,7 +28,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
+from cmdb.models.extendable_option_model import CmdbExtendableOption
 
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
@@ -46,6 +48,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.ext
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
     is_extendable_option_used,
+    option_value_exists,
 )
 
 from cmdb.errors.manager.extendable_options_manager import (
@@ -68,7 +71,7 @@ extendable_option_blueprint = APIBlueprint('extendable_options', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.ADD.value)
 @extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
-def insert_cmdb_extendable_option(data: dict, request_user: CmdbUser):
+def insert_cmdb_extendable_option(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbExtendableOption into the database
 
@@ -88,17 +91,10 @@ def insert_cmdb_extendable_option(data: dict, request_user: CmdbUser):
         if data.get(ExtendableOptionKey.PREDEFINED):
             abort(400, "Predefined ExtendableOptions cannot be created via API!")
 
-        # Validate the OptionType
-        if not OptionType.is_valid(data.get(ExtendableOptionKey.OPTION_TYPE)):
-            abort(400, f"Invalid OptionType provided: {data.get(ExtendableOptionKey.OPTION_TYPE)}")
-
         # Validate that no ExtendableOption with the same value + option_type already exists
-        existing_extendable_option = extendable_options_manager.get_one_by({
-            ExtendableOptionKey.VALUE: data.get(ExtendableOptionKey.VALUE),
-            ExtendableOptionKey.OPTION_TYPE: data.get(ExtendableOptionKey.OPTION_TYPE),
-        })
-
-        if existing_extendable_option:
+        if option_value_exists(extendable_options_manager,
+                               data.get(ExtendableOptionKey.VALUE),
+                               data.get(ExtendableOptionKey.OPTION_TYPE)):
             abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
 
         result_id: int = extendable_options_manager.insert_item(data)
@@ -128,7 +124,7 @@ def insert_cmdb_extendable_option(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.VIEW.value)
 @extendable_option_blueprint.parse_collection_parameters()
-def get_cmdb_extendable_options(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_extendable_options(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbExtendableOptions
 
@@ -174,7 +170,7 @@ def get_cmdb_extendable_options(params: CollectionParameters, request_user: Cmdb
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.VIEW.value)
-def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
+def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbExtendableOption
 
@@ -213,7 +209,7 @@ def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.EDIT.value)
 @extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
-def update_cmdb_extendable_option(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbExtendableOption
 
@@ -230,9 +226,6 @@ def update_cmdb_extendable_option(public_id: int, data: dict, request_user: Cmdb
                                                                     ManagerType.EXTENDABLE_OPTIONS,
                                                                     request_user
                                                                 )
-        # Validate the OptionType
-        if not OptionType.is_valid(data.get(ExtendableOptionKey.OPTION_TYPE)):
-            abort(400, f"Invalid OptionType provided: {data.get(ExtendableOptionKey.OPTION_TYPE)}")
 
         to_update_extendable_option: CmdbExtendableOption = extendable_options_manager.get_item(public_id)
 
@@ -246,17 +239,15 @@ def update_cmdb_extendable_option(public_id: int, data: dict, request_user: Cmdb
         if data.get(ExtendableOptionKey.PREDEFINED) != to_update_extendable_option.predefined:
             abort(400, "The 'predefined' property of an ExtendableOption cannot be changed!")
 
-        # Validate that the OptionType is not changed
-        if data[ExtendableOptionKey.OPTION_TYPE] != to_update_extendable_option.option_type:
+        # The OptionType cannot be changed
+        if data.get(ExtendableOptionKey.OPTION_TYPE) != to_update_extendable_option.option_type:
             abort(400, "The OptionType of an ExtendableOption can not be changed!")
 
-        # Validate that the ExtendableOption with the updated values does not exist
-        existing_extendable_option = extendable_options_manager.get_one_by({
-            ExtendableOptionKey.VALUE: data.get(ExtendableOptionKey.VALUE),
-            ExtendableOptionKey.OPTION_TYPE: data.get(ExtendableOptionKey.OPTION_TYPE),
-        })
-
-        if existing_extendable_option:
+        # Validate that no other ExtendableOption already uses the updated value (self excluded)
+        if option_value_exists(extendable_options_manager,
+                               data.get(ExtendableOptionKey.VALUE),
+                               data.get(ExtendableOptionKey.OPTION_TYPE),
+                               exclude_id=public_id):
             abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
 
         # Pin the identity to the URL: a payload public_id can never rewrite the document's id
@@ -283,7 +274,7 @@ def update_cmdb_extendable_option(public_id: int, data: dict, request_user: Cmdb
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.DELETE.value)
-def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
+def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbExtendableOption
 

@@ -17,6 +17,7 @@
 Implementation of all API routes for DataGerry Assistant
 """
 from logging import Logger, getLogger
+from typing import Any
 from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -34,6 +35,7 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import RootBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.framework_routes.special_helper import has_framework_data
 from cmdb.framework.datagerry_assistant.profile_assistant import ProfileAssistant
 
 from cmdb.errors.manager.categories_manager import CategoriesManagerGetError
@@ -55,6 +57,9 @@ def show_datagerry_assistant(request_user: CmdbUser) -> Response:
     """
     Checks if the DataGerry assistant should be displayed when starting DataGerry
 
+    Args:
+        request_user (CmdbUser): User requesting this data
+
     Returns:
         DefaultResponse: True if there are no types, categories and objects in the database else False
     """
@@ -64,11 +69,7 @@ def show_datagerry_assistant(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        categories_total: int = categories_manager.count_documents()
-        types_total: int = types_manager.count_documents()
-        objects_total: int = objects_manager.count_documents()
-
-        show_assistant: bool = types_total == 0 and categories_total == 0 and objects_total == 0
+        show_assistant: bool = not has_framework_data(categories_manager, types_manager, objects_manager)
 
         return DefaultResponse(show_assistant).make_response()
     except (CategoriesManagerGetError, TypesManagerGetError, ObjectsManagerGetError) as err:
@@ -83,12 +84,14 @@ def show_datagerry_assistant(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @special_blueprint.parse_assistant_parameters()
 @insert_request_user
-def create_initial_profiles(data: str, request_user: CmdbUser) -> Response:
+def create_initial_profiles(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates all profiles selected in the assistant
 
     Args:
-        data (str): profile string seperated by '#'
+        data (dict[str, Any]): Parsed query parameters; the 'data' key holds the profile names as a
+                               single '#'-separated string
+        request_user (CmdbUser): User requesting this data
 
     Returns:
         Response: DefaultResponse wrapping the list of created CmdbType public_ids
@@ -101,14 +104,15 @@ def create_initial_profiles(data: str, request_user: CmdbUser) -> Response:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
                                                                                          request_user)
 
-        profiles: list[str] = data['data'].split('#')
+        profile_data = data.get('data')
 
-        categories_total: int = categories_manager.count_documents()
-        types_total: int = types_manager.count_documents()
-        objects_total: int = objects_manager.count_documents()
+        if not profile_data:
+            abort(400, "No profiles were provided!")
+
+        profiles: list[str] = profile_data.split('#')
 
         # Only execute if there are no categories, types and objects in the database
-        if categories_total > 0 or types_total > 0 or objects_total > 0:
+        if has_framework_data(categories_manager, types_manager, objects_manager):
             abort(400, "There are objects, types, or categories in the database which prevents this action!")
 
         profile_assistant = ProfileAssistant(categories_manager, types_manager, section_templates_manager)

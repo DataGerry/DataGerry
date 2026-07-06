@@ -214,6 +214,9 @@ def update_cmdb_person(public_id: int, data: dict[str, Any], request_user: CmdbU
         groups_to_add = updated_groups - existing_groups  # New groups
         groups_to_remove = existing_groups - updated_groups  # Removed groups
 
+        # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
+        data['public_id'] = public_id
+
         # Persist the Person first, then sync the reciprocal group membership only on success
         persons_manager.update_item(public_id, CmdbPerson.from_data(data))
 
@@ -254,7 +257,7 @@ def delete_cmdb_person(public_id: int, request_user: CmdbUser) -> Response | Non
         person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(ManagerType.PERSON_GROUP,
                                                                                  request_user)
 
-        to_delete_person = persons_manager.get_item(public_id)
+        to_delete_person = persons_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_person:
             abort(404, f"The Person with ID:{public_id} was not found!")

@@ -61,7 +61,7 @@ def apply_ci_explorer_field(
     if not entity:
         abort(404, f"The {entity_label} with ID:{public_id} was not found!")
 
-    value = (request_body or {}).get(field)
+    value = (request_body or {}).get(field.value)
 
     if value is None:
         abort(400, f"Missing '{field.value}' in the request body!")
