@@ -136,6 +136,18 @@ export class PremiumFeatureService {
     );
   }
 
+  /**
+   * Forces a fresh license lookup and reseeds the cache. Called on login so the whole app starts
+   * with an up-to-date entitlement instead of waiting for the first gated access to hydrate it.
+   */
+  refresh(): Observable<CurrentLicense | null> {
+    if (environment.cloudMode) {
+      return of(null);
+    }
+
+    return this.startHydration();
+  }
+
   /** Seeds the cache from a freshly imported license, so gated UI updates without a re-fetch. */
   seed(license: CurrentLicense): void {
     this.license.set(license);
@@ -174,12 +186,15 @@ export class PremiumFeatureService {
       return of(current);
     }
 
-    if (!this.hydration$) {
-      this.hydration$ = this.fetchLicense().pipe(
-        tap((license) => this.license.set(license)),
-        shareReplay(1)
-      );
-    }
+    return this.hydration$ ?? this.startHydration();
+  }
+
+  /** Kicks off a shared license fetch that populates the cache; concurrent callers reuse it. */
+  private startHydration(): Observable<CurrentLicense | null> {
+    this.hydration$ = this.fetchLicense().pipe(
+      tap((license) => this.license.set(license)),
+      shareReplay(1)
+    );
 
     return this.hydration$;
   }
