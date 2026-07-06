@@ -12,71 +12,86 @@
               </h3>
 
               <!-- Loading Spinner -->
-              <div *ngIf="isLoading" class="loading-overlay d-flex justify-content-center align-items-center">
+              @if (isLoading) {
+              <div class="loading-overlay d-flex justify-content-center align-items-center">
                 <div class="spinner-border text-primary" role="status">
                   <span class="sr-only">Loading...</span>
                 </div>
               </div>
+              }
               <!-- Login Form -->
               <form id="login-form" [formGroup]="loginForm" class="position-relative" (keydown)="onKeydown($event)">
-                <ng-container *ngIf="!isLoading && !showSubscriptions">
-                  <div class="form-label-group">
-                    <input type="text" class="form-control" [placeholder]="userIdentifierPlaceholder"
-                      formControlName="username" [ngClass]="{
+                @if (!isLoading && !showSubscriptions) {
+
+                <div class="form-label-group">
+                  <input type="text" class="form-control" [placeholder]="userIdentifierPlaceholder"
+                    formControlName="username" [ngClass]="{
                                           'is-invalid':
                                             (controls.username.touched || controls.username.dirty) &&
                                             controls.username.invalid
                                         }" required autofocus />
 
-                    <div class="text-danger mt-1" *ngIf="
-                                          (controls.username.touched || controls.username.dirty) &&
-                                          controls.username.invalid
-                                        ">
-                      <!-- Required Error -->
-                      <small *ngIf="controls.username.errors?.['required']">
-                        {{ userIdentifierPlaceholder }} is required.
-                      </small>
-                      <small *ngIf="
-                                            controls.username.errors?.['strictEmail'] &&
-                                            !controls.username.hasError('required')
-                                          ">
-                        Please enter a valid email address.
-                      </small>
-                    </div>
+                  @if (
+                  (controls.username.touched || controls.username.dirty) &&
+                  controls.username.invalid
+                  ) {
+                  <div class="text-danger mt-1">
+                    <!-- Required Error -->
+                    @if (controls.username.errors?.['required']) {
+                    <small>
+                      {{ userIdentifierPlaceholder }} is required.
+                    </small>
+                    }
+                    @if (
+                    controls.username.errors?.['strictEmail'] &&
+                    !controls.username.hasError('required')
+                    ) {
+                    <small>
+                      Please enter a valid email address.
+                    </small>
+                    }
                   </div>
-                  <div class="form-label-group">
-                    <div class="input-group mb-3">
-                      <input [type]="passwordVisible ? 'text' : 'password'" class="form-control" placeholder="Password"
-                        aria-label="Password" formControlName="password" required />
-                      <div class="input-group-append">
-                        <button class="btn btn-outline-secondary" type="button" (click)="togglePasswordVisibility()"
-                          aria-label="Toggle password visibility">
-                          <i class="fas" [ngClass]="{
+                  }
+                </div>
+                <div class="form-label-group">
+                  <div class="input-group mb-3">
+                    <input [type]="passwordVisible ? 'text' : 'password'" class="form-control" placeholder="Password"
+                      aria-label="Password" formControlName="password" required />
+                    <div class="input-group-append">
+                      <button class="btn btn-outline-secondary" type="button" (click)="togglePasswordVisibility()"
+                        aria-label="Toggle password visibility">
+                        <i class="fas" [ngClass]="{
                                                   'fa-eye': !passwordVisible,
                                                   'fa-eye-slash': passwordVisible
                                                 }"></i>
-                        </button>
-                      </div>
-                    </div>
-                    <div class="text-danger mt-1" *ngIf="
-                      (controls.password.touched || controls.password.dirty) &&
-                      controls.password.invalid
-                    ">
-                      <!-- Required Error -->
-                      <small *ngIf="controls.password.errors?.['required']">
-                       Password is required.
-                      </small>
+                      </button>
                     </div>
                   </div>
-                  <button type="button" id="login-button"
-                    class="btn btn-lg btn-primary text-white w-100 btn-login text-uppercase font-weight-bold mb-2"
-                    [disabled]="!loginForm.valid" (click)="onSubmit()">
-                    Login
-                  </button>
-                </ng-container>
+                  @if (
+                  (controls.password.touched || controls.password.dirty) &&
+                  controls.password.invalid
+                  ) {
+                  <div class="text-danger mt-1">
+                    <!-- Required Error -->
+                    @if (controls.password.errors?.['required']) {
+                    <small>
+                      Password is required.
+                    </small>
+                    }
+                  </div>
+                  }
+                </div>
+                <button type="button" id="login-button"
+                  class="btn btn-lg btn-primary text-white w-100 btn-login text-uppercase font-weight-bold mb-2"
+                  [disabled]="!loginForm.valid" (click)="onSubmit()">
+                  Login
+                </button>
+
+                }
 
                 <!-- Subscription Selection -->
-                <div *ngIf="!isLoading && showSubscriptions" class="mt-3">
+                @if (!isLoading && showSubscriptions) {
+                <div class="mt-3">
                   <button type="button" class="btn btn-link p-0 mb-3" (click)="goBack()" aria-label="Back">
                     <i class="fas fa-arrow-left fa-lg"></i>
                   </button>
@@ -95,30 +110,37 @@
                     Proceed
                   </button>
                 </div>
+                }
 
                 <!-- Forgot Password Link -->
-                <div class="text-center mt-3" *ngIf="!showSubscriptions && !isLoading && isCloudMode">
+                @if (!showSubscriptions && !isLoading && isCloudMode) {
+                <div class="text-center mt-3">
                   <a href="https://service.datagerry.com/forgot-password" target="_blank" rel="noopener noreferrer"
                     class="text-decoration-none">
                     Forgot Password?
                   </a>
                 </div>
+                }
               </form>
             </div> <!-- End Wrapper -->
           </div>
         </div>
       </div>
     </div>
-    <footer style="text-align: center !important; font-size: 0.8em !important; padding: 10px !important; color: gray !important; position: absolute !important;right: 57px !important;bottom: 0px;">
-      <p style="text-align: center !important; font-size: 0.9em !important; float: left !important; width: 290px !important;">
+    <footer
+      style="text-align: center !important; font-size: 0.8em !important; padding: 10px !important; color: gray !important; position: absolute !important;right: 57px !important;bottom: 0px;">
+      <p
+        style="text-align: center !important; font-size: 0.9em !important; float: left !important; width: 290px !important;">
         <a href="https://github.com/DATAGerry/DataGerry" target="_blank">
           <i class="fab fa-github"></i> Source Code auf GitHub
         </a>
       </p>
-      
-      <p style="text-align: center !important; font-size: 0.9em !important; color: gray !important; float: left !important; width: 290px !important;">
+
+      <p
+        style="text-align: center !important; font-size: 0.9em !important; color: gray !important; float: left !important; width: 290px !important;">
         Made with ❤️ by <a target="_blank" href="https://becon.de">becon GmbH</a>
-      </p></footer>
+      </p>
+    </footer>
   </div>
 </div>
 

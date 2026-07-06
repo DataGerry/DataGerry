@@ -32,7 +32,7 @@
                 </button>
             </div>
         </div>
-        <small class="form-text text-muted text-start">Use a unique field identifier</small>
+        <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
         <!-- <div class="clearfix"></div> -->
     </div>
     <div class="col-md-12 mb-3">
@@ -69,9 +69,11 @@
             [formControl]="form.get('ref_types')"
         ></ng-select>
         <small class="form-text text-muted">Multiple types possible</small>
-        <div *ngIf="form.get('ref_types').hasError('required')" class="invalid-feedback">
+        @if (form.get('ref_types').hasError('required')) {
+<div class="invalid-feedback">
             Reference type is required
         </div>
+}
     </div>
     <div class="col-md-12 mb-3">
         <label class="mb-1">Description:</label>
@@ -110,7 +112,8 @@
                 </tr>
             </thead>
             <tbody>
-                <tr *ngFor="let summary of summaries; let i = index">
+                @for (summary of summaries; track summary; let i = $index) {
+<tr>
                     <th scope="row">{{i + 1}}</th>
                     <td>
                         <ng-select
@@ -173,6 +176,7 @@
                         </button>
                     </td>
                 </tr>
+}
                 <tr>
                     <td colspan="6">
                         <button type="button" class="btn btn-outline-secondary" (click)="addSummary()">
@@ -192,12 +196,14 @@
             (ngModelChange)="onRefInputChange($event, 'value')"
         >
             <option></option>
-            <option
-                *ngFor="let obj of objectList; let i = index"
+            @for (obj of objectList; track obj; let i = $index) {
+<option
+               
                 [value]="changeDefault(obj.object_information.object_id)"
             >
                 ID: {{obj.object_information.object_id}} Summaries: {{obj.summary_line}}
             </option>
+}
         </select>
     </div>
 </div>

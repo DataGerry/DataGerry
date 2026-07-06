@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -28,7 +28,5 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 })
 export class DeleteEntryModalComponent {
 
-    constructor(public activeModal: NgbActiveModal) {
-
-    }
+    public readonly activeModal = inject(NgbActiveModal);
 }

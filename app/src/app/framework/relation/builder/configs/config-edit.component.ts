@@ -100,6 +100,7 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
         this.subscriber?.next();
         this.subscriber?.complete();
         this.fieldChangesSubscription?.unsubscribe();
+        this.componentRef?.destroy();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

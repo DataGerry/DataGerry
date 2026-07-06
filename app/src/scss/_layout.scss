@@ -19,6 +19,9 @@ html{
 
 #main {
   flex: 1;
+  // Allow the flex item to shrink below its content's intrinsic width so a wide
+  // table scrolls inside its own container instead of overflowing the whole page.
+  min-width: 0;
   margin-top: $navbar-height;
   font-size: $content-font-size;
   line-height: $content-line-height;

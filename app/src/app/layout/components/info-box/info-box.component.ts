@@ -28,7 +28,7 @@ export class InfoBoxComponent {
 
   @Input() message: string;
   @Input() icon: string = 'far fa-file';
-  @Input() doc: string = 'https://docs.datagerry.com';
+  @Input() doc: string = 'https://docs.datagerry.com/en/latest/usage/document_generator.html';
 
   public hideAlert(): void {
     $('#infobox').hide();

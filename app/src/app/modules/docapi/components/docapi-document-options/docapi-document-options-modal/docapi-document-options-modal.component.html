@@ -1,0 +1,79 @@
+<div class="modal-header">
+    <h4 class="modal-title">Document Options</h4>
+    <button type="button" class="btn-close btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
+</div>
+
+<div class="modal-body">
+    <ul class="nav nav-tabs options-tabs">
+        <li class="nav-item">
+            <button class="nav-link" type="button" [class.active]="activeTab === 'margins'"
+                (click)="selectTab('margins')">
+                General
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" type="button" [class.active]="activeTab === 'cover'" (click)="selectTab('cover')">
+                Cover Page
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" type="button" [class.active]="activeTab === 'toc'" (click)="selectTab('toc')">
+                Table of Contents
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" type="button" [class.active]="activeTab === 'header'"
+                (click)="selectTab('header')">
+                Header
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" type="button" [class.active]="activeTab === 'footer'"
+                (click)="selectTab('footer')">
+                Footer
+            </button>
+        </li>
+    </ul>
+
+    <div [formGroup]="form">
+        @if (activeTab === 'margins') {
+        <cmdb-docapi-page-margins-options [marginsForm]="form" />
+        }
+
+        @if (activeTab === 'cover') {
+        <cmdb-docapi-page-cover-options [coverForm]="form" [editorConfig]="coverEditorConfig" />
+        }
+
+        @if (activeTab === 'header') {
+        <cmdb-docapi-page-header-options [headerForm]="form" [editorConfig]="headerEditorConfig"
+            [activationToggleId]="'headerActivatedInput'" [contentHelpText]="pageSectionHeightConstraintHint" />
+        }
+
+        @if (activeTab === 'footer') {
+        <cmdb-docapi-page-header-options [headerForm]="form" [editorConfig]="footerEditorConfig"
+            [activatedControlName]="'footer_activated'" [activationToggleId]="'footerActivatedInput'"
+            [contentControlName]="'footer_content'" [activationLabel]="'Activate footer'"
+            [contentLabel]="'Footer Content'" [contentHelpText]="pageSectionHeightConstraintHint" />
+        }
+
+        @if (activeTab === 'toc') {
+        <cmdb-docapi-page-toc-options [tocForm]="form" />
+        }
+
+        @if (validationError) {
+        <div class="validation-error">
+            {{ validationError }}
+        </div>
+        }
+    </div>
+</div>
+
+<div class="modal-footer">
+
+    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
+    </app-button>
+
+    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled"
+        (clicked)="apply()">
+    </app-button>
+</div>

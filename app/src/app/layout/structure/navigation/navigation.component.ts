@@ -26,10 +26,13 @@ import { GroupService } from '../../../management/services/group.service';
 import { User } from '../../../management/models/user';
 import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { Subscription, switchMap } from 'rxjs';
+import { Observable, Subscription, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 
 import { Router } from '@angular/router';
+import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -53,8 +56,13 @@ export class NavigationComponent implements OnInit {
     public totalObjects: number = 0;
     public isCloudMode = environment.cloudMode;
     public featurePreviewMode = environment.featurePreviewMode;
+    public isNotificationDrawerOpen = false;
+    public readonly notificationCount$: Observable<number>;
+    public readonly LicenseFeature = LicenseFeature;
     configItemsLimit: number;
     private subscription: Subscription;
+    private premiumSubscription?: Subscription;
+    private lockedFeatures = new Set<LicenseFeature>();
 
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -65,8 +73,11 @@ export class NavigationComponent implements OnInit {
         private groupService: GroupService,
         private objectService: ObjectService,
         private router: Router,
+        private notificationQuery: NotificationQuery,
+        private premiumFeatureService: PremiumFeatureService
     ) {
         this.user = this.userService.getCurrentUser();
+        this.notificationCount$ = this.notificationQuery.selectCount();
     }
 
 
@@ -91,6 +102,7 @@ export class NavigationComponent implements OnInit {
 
         }
 
+        this.resolveLockedPremiumFeatures();
         this.dropdownSubmenu();
     }
 
@@ -99,6 +111,8 @@ export class NavigationComponent implements OnInit {
         if (this.subscription) {
             this.subscription.unsubscribe();
         }
+
+        this.premiumSubscription?.unsubscribe();
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -108,6 +122,33 @@ export class NavigationComponent implements OnInit {
      */
     public logout(): void {
         this.authService.logout();
+    }
+
+
+    /**
+     * Whether a premium toolbox feature is locked for the active edition. Drives the "Pro" badge;
+     * always false for Cloud and licensed Self-Hosted installs, so no badge is shown there.
+     */
+    public isLocked(feature: LicenseFeature): boolean {
+        return this.lockedFeatures.has(feature);
+    }
+
+
+    /**
+     * Tracks which premium toolbox features are locked for the active edition so the matching cards
+     * can surface a "Pro" badge. The watcher re-emits on license import/removal, keeping the badges
+     * in sync without a reload. Cloud installs short-circuit to "all unlocked" inside the service.
+     */
+    private resolveLockedPremiumFeatures(): void {
+        this.premiumSubscription = this.premiumFeatureService
+            .watchLockedFeatures([
+                LicenseFeature.DocumentGenerator,
+                LicenseFeature.Automations,
+                LicenseFeature.Isms
+            ])
+            .subscribe((locked) => {
+                this.lockedFeatures = locked;
+            });
     }
 
 
@@ -194,5 +235,24 @@ export class NavigationComponent implements OnInit {
 
     public goToAiPromptPage(): void {
         this.router.navigate(['/ai-assistant']);
-      }
+    }
+
+
+    public toggleNotificationDrawer(): void {
+        this.isNotificationDrawerOpen = !this.isNotificationDrawerOpen;
+    }
+
+    
+    public closeNotificationDrawer(): void {
+        this.isNotificationDrawerOpen = false;
+    }
+
+
+    public formatNotificationCount(count: number | null): string {
+        if (!count || count <= 0) {
+            return '';
+        }
+
+        return count > 9 ? '9+' : `${count}`;
+    }
 }

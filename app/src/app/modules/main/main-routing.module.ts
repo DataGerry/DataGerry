@@ -19,6 +19,9 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { AuthGuard } from '../auth/guards/auth.guard';
+import { PermissionGuard } from '../auth/guards/permission.guard';
+import { premiumFeatureGuard } from '../../settings/license-management/premium-feature/premium-feature.guard';
+import { LicenseFeature } from '../../settings/license-management/models/license.model';
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
 import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
@@ -82,9 +85,10 @@ const routes: Routes = [
     {
         path: 'isms',
         data: {
-            breadcrumb: 'ISMS'
+            breadcrumb: 'ISMS',
+            premiumFeature: LicenseFeature.Isms
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../../toolbox/isms/isms.module').then(m => m.ISMSModule)
     },
@@ -92,23 +96,28 @@ const routes: Routes = [
         path: 'automations',
         component: AutomationsWrapperComponent,
         data: {
-            breadcrumb: 'Automations'
+            breadcrumb: 'Automations',
+            premiumFeature: LicenseFeature.Automations
         },
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         children: [
             {
                 path: '',
+                data: {
+                    right: 'base.openCelium.connection.view'
+                },
                 loadChildren: () => import('../../toolbox/automations/automations.module').then(m => m.AutomationsModule)
             },
             {
                 path: 'connectors',
                 data: {
-                    breadcrumb: 'Connectors'
+                    breadcrumb: 'Connectors',
+                    right: 'base.openCelium.connector.view'
                 },
-                canActivate: [AuthGuard],
-                canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/connectors/connectors.module').then(m => m.ConnectorsModule)
+                canActivate: [AuthGuard, PermissionGuard],
+                canActivateChild: [AuthGuard, PermissionGuard],
+                loadChildren: () => import('../../toolbox/automations/connectors/connectors.module').then(m => m.ConnectorsModule)
             },
             {
                 path: 'licenses',
@@ -117,7 +126,7 @@ const routes: Routes = [
                 },
                 canActivate: [AuthGuard],
                 canActivateChild: [AuthGuard],
-                loadChildren: () => import('../../toolbox/licenses/licenses.module').then(m => m.LicensesModule)
+                loadChildren: () => import('../../toolbox/automations/licenses/licenses.module').then(m => m.LicensesModule)
             }
         ]
     },
@@ -143,9 +152,10 @@ const routes: Routes = [
     {
         path: 'docapi',
         data: {
-            breadcrumb: 'DocAPI'
+            breadcrumb: 'Document Generator',
+            premiumFeature: LicenseFeature.DocumentGenerator
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../docapi/docapi.module').then(m => m.DocapiModule)
     },
@@ -183,7 +193,7 @@ const routes: Routes = [
         },
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
-        loadChildren: () => import('../../reporting/reporting.module').then(m => m.ReportingModule)
+        loadChildren: () => import('../../toolbox/reporting/reporting.module').then(m => m.ReportingModule)
     },
     {
         path: 'webhooks',
@@ -193,7 +203,7 @@ const routes: Routes = [
             right: 'base.framework.webhook.view'
         },
         loadChildren: () =>
-            import('../../webhook/webhook.module').then((m) => m.WebhookModule)
+            import('../../toolbox/webhook/webhook.module').then((m) => m.WebhookModule)
     }
 ];
 

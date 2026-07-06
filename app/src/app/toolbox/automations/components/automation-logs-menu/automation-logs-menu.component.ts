@@ -1,4 +1,4 @@
-import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
+import { Component, inject, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { finalize } from 'rxjs';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
@@ -36,13 +36,11 @@ export class AutomationLogsMenuComponent {
   private modalRef?: NgbModalRef;
   private readonly menuId = `automation-logs-${Math.random().toString(36).slice(2)}`;
 
-  constructor(
-    private automationsService: AutomationsService,
-    private toast: ToastService,
-    private modalService: NgbModal,
-    private authService: AuthService,
-    private connectionService: ConnectionService
-  ) {}
+  private readonly automationsService = inject(AutomationsService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+  private readonly authService = inject(AuthService);
+  private readonly connectionService = inject(ConnectionService);
 
   @HostListener('document:click')
   onDocumentClick() {

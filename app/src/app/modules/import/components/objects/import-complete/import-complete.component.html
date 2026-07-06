@@ -1,4 +1,4 @@
-<hr/>
+<hr />
 <table class="table table-borderless">
     <tbody>
         <tr class="table-primary">
@@ -23,41 +23,52 @@
             <th scope="row">Staring at object</th>
             <td>{{importerConfig?.start_element}}</td>
         </tr>
-        <tr *ngIf="importerConfig?.max_elements > 0">
+        @if (importerConfig?.max_elements > 0) {
+        <tr>
             <th scope="row">Max number of object</th>
             <td>{{importerConfig?.max_elements}}</td>
         </tr>
+        }
     </tbody>
 </table>
 
-<div *ngIf="!importResponse">
-    <hr/>
+@if (!importResponse) {
+<div>
+    <hr />
     <button class="btn btn-success next" type="button" (click)="onStartImport()">
         Start import <i class="fas fa-save"></i>
     </button>
     <div class="clearfix"></div>
 </div>
+}
 
-<hr/>
+<hr />
 
-<div *ngIf="importResponse" id="import-response" class="row">
-    <div *ngIf="importResponse.success_imports.length > 0" class="col-md-12">
+@if (importResponse) {
+<div id="import-response" class="row">
+    @if (importResponse.success_imports.length > 0) {
+    <div class="col-md-12">
         <div class="alert alert-success" role="alert">
             <h4 class="alert-heading">Import success!</h4>
             <p>
-                Number of objects successfully imported: {{importResponse.success_imports.length}} from {{parsedData?.count}}
+                Number of objects successfully imported: {{importResponse.success_imports.length}} from
+                {{parsedData?.count}}
             </p>
-            <hr/>
+            <hr />
             <button class="btn btn-primary next" type="button" (click)="onListRedirect()">
                 View list
             </button>
             <div class="clearfix"></div>
         </div>
     </div>
-    <hr/>
-    <div *ngIf="importResponse.failed_imports.length > 0" class="col-md-12">
+    }
+    <hr />
+    @if (importResponse.failed_imports.length > 0) {
+    <div class="col-md-12">
         <h3>Failed Imports</h3>
-        <hr/>
-        <cmdb-failed-import-table [failedImports]="importResponse.failed_imports"/>
+        <hr />
+        <cmdb-failed-import-table [failedImports]="importResponse.failed_imports" />
     </div>
+    }
 </div>
+}

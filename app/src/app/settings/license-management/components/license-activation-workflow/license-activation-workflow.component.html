@@ -1,0 +1,218 @@
+<div class="card license-wizard mt-5">
+  <div class="card-header fw-semibold">
+    <i class="fas fa-key me-2" aria-hidden="true"></i>Activate Self-Hosted features
+  </div>
+
+  <div class="license-wizard__grid">
+    <aside class="license-wizard__aside">
+      <cmdb-license-wizard-stepper
+        [steps]="steps"
+        [current]="currentStep"
+        (stepSelected)="onStepSelected($event)">
+      </cmdb-license-wizard-stepper>
+    </aside>
+
+    <section class="license-wizard__content">
+      @switch (currentStep) {
+
+        <!-- Step 1: Generate activation request -->
+        @case (stepGenerate) {
+          <h3 class="license-wizard__title">Generate the activation request</h3>
+          <p class="text-muted">
+            DATAGerry builds a request bound to this machine. Copy the generated request or download
+            it as a file, then upload it to the service portal in the next step.
+          </p>
+
+          @if (generated && activationKey) {
+            <div class="alert alert-success d-flex align-items-center" role="status">
+              <i class="fas fa-circle-check me-2" aria-hidden="true"></i>
+              <span>Activation request generated. Copy or download it for the service portal.</span>
+            </div>
+
+            <div class="license-wizard__key">
+              <label class="license-wizard__key-label" for="activation-key">Activation request</label>
+              <textarea
+                id="activation-key"
+                class="form-control license-wizard__key-field"
+                rows="5"
+                readonly
+                spellcheck="false"
+                [value]="activationKey">
+              </textarea>
+              <p class="text-muted small mt-2 mb-0">
+                <i class="fas fa-clock me-1" aria-hidden="true"></i>
+                This activation request is valid for 60 minutes. Generate a new one if it expires.
+              </p>
+            </div>
+          }
+
+          <div class="license-wizard__actions">
+            <button type="button" class="btn btn-primary" (click)="onGenerate()">
+              <i class="fas fa-rotate me-1" aria-hidden="true"></i>
+              {{ generated ? 'Regenerate' : 'Generate activation request' }}
+            </button>
+
+            @if (generated && activationKey) {
+              <button type="button" class="btn btn-outline-primary" (click)="onCopyKey()">
+                <i class="fas fa-copy me-1" aria-hidden="true"></i>Copy
+              </button>
+              <button type="button" class="btn btn-outline-primary" (click)="onDownloadKey()">
+                <i class="fas fa-download me-1" aria-hidden="true"></i>Download
+              </button>
+            }
+
+            <button type="button" class="btn btn-outline-secondary" (click)="onNext()">
+              Continue<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
+            </button>
+          </div>
+        }
+
+        <!-- Step 2: Service portal -->
+        @case (stepPortal) {
+          <h3 class="license-wizard__title">Upload it to the service portal</h3>
+          <p class="text-muted portal-intro">
+            Follow these steps in the DATAGerry service portal to turn your activation request into a
+            license file.
+          </p>
+
+          <ol class="portal-steps">
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">1</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Open the service portal</span>
+                <span class="portal-steps__desc">
+                  Sign in to the DATAGerry service portal in a new browser tab.
+                </span>
+                <a
+                  class="portal-steps__link"
+                  [href]="portalUrl"
+                  target="_blank"
+                  rel="noopener noreferrer">
+                  Open service portal
+                  <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
+                </a>
+              </div>
+            </li>
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">2</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Go to license management</span>
+                <span class="portal-steps__desc">
+                  Open the license management page for your self-hosted licenses.
+                </span>
+                <a
+                  class="portal-steps__link"
+                  [href]="portalLicenseUrl"
+                  target="_blank"
+                  rel="noopener noreferrer">
+                  Open license management
+                  <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
+                </a>
+              </div>
+            </li>
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">3</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Upload your activation request</span>
+                <span class="portal-steps__desc">
+                  Upload the file you downloaded — or paste the request you copied — in the previous step.
+                </span>
+              </div>
+            </li>
+            <li class="portal-steps__item">
+              <span class="portal-steps__num">4</span>
+              <div class="portal-steps__body">
+                <span class="portal-steps__title">Download your license file</span>
+                <span class="portal-steps__desc">
+                  The portal verifies the request and generates your license file. Download it, then
+                  return here to import it.
+                </span>
+              </div>
+            </li>
+          </ol>
+
+          <p class="portal-note">
+            <i class="fas fa-circle-info me-2" aria-hidden="true"></i>
+            The generated license file is valid for 60 minutes, so keep this tab open and import it
+            right after downloading.
+          </p>
+
+          <div class="license-wizard__actions">
+            <button type="button" class="btn btn-outline-secondary" (click)="onBack()">
+              <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>Back
+            </button>
+            <button type="button" class="btn btn-primary" (click)="onNext()">
+              I have my license file<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
+            </button>
+          </div>
+        }
+
+        <!-- Step 3: Import license -->
+        @case (stepImport) {
+          <h3 class="license-wizard__title">Import the license file</h3>
+          <p class="text-muted">Import the license file you received from the service portal.</p>
+
+          <div class="alert alert-warning d-flex align-items-start">
+            <i class="fas fa-triangle-exclamation me-2 mt-1" aria-hidden="true"></i>
+            <span>
+              Import this file within <strong>60 minutes</strong> of downloading it from the service portal.
+              After that the license file expires and can no longer be imported — start again from step 1 to
+              generate a new activation request.
+            </span>
+          </div>
+
+          @if (selectedFile) {
+            <div class="license-wizard__file" role="status">
+              <i class="fas fa-file-lines license-wizard__file-icon" aria-hidden="true"></i>
+              <div class="license-wizard__file-meta">
+                <span class="fw-semibold text-truncate">{{ selectedFile.name }}</span>
+                <span class="text-muted small">{{ fileSize(selectedFile.size) }} · ready to activate</span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-sm btn-link text-secondary"
+                (click)="onClearFile()"
+                [disabled]="importing"
+                aria-label="Remove selected file">
+                <i class="fas fa-xmark" aria-hidden="true"></i>
+              </button>
+            </div>
+          } @else {
+            <cmdb-license-import (fileSelected)="onFileSelected($event)"></cmdb-license-import>
+          }
+
+          <div class="license-wizard__actions">
+            <button type="button" class="btn btn-outline-secondary" [disabled]="importing" (click)="onBack()">
+              <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>Back
+            </button>
+            <button type="button" class="btn btn-primary" [disabled]="!selectedFile || importing" (click)="onActivate()">
+              @if (importing) {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Activating…
+              } @else {
+                <i class="fas fa-bolt me-1" aria-hidden="true"></i>Activate license
+              }
+            </button>
+          </div>
+        }
+
+        <!-- Step 4: Activation complete -->
+        @case (stepComplete) {
+          @if (activatedEntitlement) {
+            <cmdb-license-overview-card
+              variant="complete"
+              [edition]="LicenseEdition.SelfHosted"
+              [entitlement]="activatedEntitlement"
+              [features]="features">
+            </cmdb-license-overview-card>
+          }
+
+          <div class="license-wizard__actions license-wizard__actions--end">
+            <button type="button" class="btn btn-success" (click)="onFinish()">
+              <i class="fas fa-check me-1" aria-hidden="true"></i>Finish
+            </button>
+          </div>
+        }
+      }
+    </section>
+  </div>
+</div>

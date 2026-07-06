@@ -2,37 +2,34 @@
     <div class="row">
         <div class="mb-3 col-md-12">
             <label class="form-label mb-3">Identifier<span class="text-danger">*</span>:</label>
-            <input
-                [formControl]="nameControl"
-                type="text"
-                class="form-control"
-                name-guideline
-                [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
-                 'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
-            >
+            <input [formControl]="nameControl" type="text" class="form-control" name-guideline [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
+                 'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}">
             <small class="form-text text-muted text-start">Use a unique identifier</small>
-            <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-                <div class="text-end" *ngIf="nameControl.errors?.required">
+            @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
+            <div class="invalid-feedback">
+                @if (nameControl.errors?.required) {
+                <div class="text-end">
                     Identifier is a required field
                 </div>
+                }
             </div>
+            }
             <!-- <div class="clearfix"></div> -->
         </div>
         <div class="mb-3 col-md-12">
             <label class="form-label">Label<span class="text-danger">*</span>:</label>
-            <input
-                [formControl]="labelControl"
-                type="text"
-                class="form-control"
-                [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
-                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-            >
+            <input [formControl]="labelControl" type="text" class="form-control" [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
+                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}">
             <small class="form-text text-muted text-start">Static display name</small>
-            <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-                <div class="text-end" *ngIf="labelControl.errors?.required">
+            @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
+            <div class="invalid-feedback">
+                @if (labelControl.errors?.required) {
+                <div class="text-end">
                     Label is a required field
                 </div>
+                }
             </div>
+            }
         </div>
     </div>
 </div>

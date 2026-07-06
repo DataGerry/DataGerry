@@ -1,52 +1,214 @@
-<div id="sidebar">
-  <nav class="sidebar-nav">
-    <ul class="nav">
-      <li class="nav-item" *ngIf="!isExpanded">
-        <a *permissionLink="['base.framework.object.add']"
-           class="nav-link" routerLink="/framework/object/add" routerLinkActive="active">
-          <fa-icon icon="plus"></fa-icon>
-          Add new Object</a>
+<div id="sidebar" [class.is-collapsed]="isSidebarCollapsed">
+
+  <button class="sb-toggle" [class.sb-toggle--hidden]="!!flyout" (click)="toggleSidebar()" type="button"
+    [attr.aria-label]="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+    <fa-icon [icon]="isSidebarCollapsed ? 'chevron-right' : 'chevron-left'"></fa-icon>
+  </button>
+
+  <div class="sb-body">
+    <ul class="sb-nav">
+
+      <li class="sb-nav-item" data-tip="Add Object">
+        <a *permissionLink="['base.framework.object.add']" class="sb-item sb-item--action"
+          routerLink="/framework/object/add" routerLinkActive="active">
+          <span class="sb-icon"><fa-icon icon="plus"></fa-icon></span>
+          <span class="sb-label">Add new Object</span>
+        </a>
       </li>
-      <li id="sidebar-categories" class="category-tree" *ngIf="categoryTree">
-        <div *ngIf="!isExpanded">
-            <label class="nav-title sidebar-menu-item"
-                  [class.selectedMenu]="this.selectedMenu == 'categories'"
-                  value="categories"
-                  (click)="onSidebarMenuClicked(selectedCategories)"
-                  #selectedCategories>Categories</label>
-            <label class="nav-title sidebar-menu-item"
-                    [class.selectedMenu]="this.selectedMenu == 'locations'"
-                    value="locations"
-                    (click)="onSidebarMenuClicked(selectedLocations)"
-                    #selectedLocations>Locations</label>
-        </div>
-        <div class="sidebar-menu-categories" *ngIf="this.selectedMenu == 'categories'">
-              <div class="input-wrapper-search mt-2">
-                <input id="category-filter" class="form-control form-control-sm" type="text" placeholder="Filter.." [formControl]="filterTerm">
-                <i class="fas fa-times input-icon-clear"  (click)="this.filterTerm.reset('')"></i>
-              </div>
-              <div class="list-group panel">
-                <label *ngIf="filterTerm.value" class="nav-title"><strong>Matched Categories</strong></label>
-                <cmdb-sidebar-category *ngFor="let categoryNode of categoryTree | categoryTreeFilter: filterTerm.value;"
-                                    [categoryNode]="categoryNode"></cmdb-sidebar-category>
-              </div>
-              <ng-container *ngIf="filterTerm.value">
-                  <label class="nav-title"><strong>Matched Types</strong></label>
-                  <ng-container *ngFor="let type of typeList | typeFilter: filterTerm.value;">
-                    <cmdb-sidebar-type *permissionLink="'base.framework.object.view'" [type]="type"></cmdb-sidebar-type>
-                  </ng-container>
-              </ng-container>
-              <ng-container *ngIf="!filterTerm.value && unCategorizedTypes && unCategorizedTypes.length > 0">
-                  <label class="nav-title"><strong>Uncategorized</strong></label>
-                  <ng-container *ngFor="let type of unCategorizedTypes">
-                    <cmdb-sidebar-type *permissionLink="'base.framework.object.view'" [type]="type"></cmdb-sidebar-type>
-                  </ng-container>
-              </ng-container>
-        </div>
-        <div class="sidebar-menu-categories" *ngIf="this.selectedMenu == 'locations'">
-          <location-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()"></location-tree>
+
+      <div class="sb-divider"></div>
+
+      @if (!isSidebarCollapsed) {
+      <li class="sb-nav-item sb-tabs">
+        <button class="sb-tab" [class.sb-tab--active]="selectedMenu === 'categories'"
+          (click)="selectTopTab('categories')" type="button">
+          <span>Categories</span>
+        </button>
+        <button class="sb-tab" [class.sb-tab--active]="isNavigationView" (click)="selectTopTab('navigation')"
+          type="button">
+          <span>Navigation</span>
+        </button>
+      </li>
+      }
+
+      @if (isNavigationView && !isSidebarCollapsed) {
+      <li class="sb-nav-item sb-subtabs">
+        <button class="sb-subtab" [class.sb-subtab--active]="selectedMenu === 'locations'"
+          (click)="selectNavTab('locations')" type="button">
+          <fa-icon icon="map-marker-alt"></fa-icon>
+          <span>Locations</span>
+        </button>
+        <button class="sb-subtab" [class.sb-subtab--active]="selectedMenu === 'ipam'" (click)="selectNavTab('ipam')"
+          type="button">
+          <fa-icon icon="network-wired"></fa-icon>
+          <span>Networks</span>
+        </button>
+      </li>
+      }
+
+      @if (isSidebarCollapsed) {
+
+      <li class="sb-nav-item" data-tip="Categories" (mouseenter)="onGroupMouseEnter('categories', $event)"
+        (mouseleave)="onGroupMouseLeave()">
+        <div class="sb-item" [class.is-active]="selectedMenu === 'categories'">
+          <span class="sb-icon"><fa-icon icon="th-large"></fa-icon></span>
         </div>
       </li>
+      <li class="sb-nav-item" data-tip="Locations" (mouseenter)="onGroupMouseEnter('locations', $event)"
+        (mouseleave)="onGroupMouseLeave()">
+        <div class="sb-item" [class.is-active]="selectedMenu === 'locations'">
+          <span class="sb-icon"><fa-icon icon="map-marker-alt"></fa-icon></span>
+        </div>
+      </li>
+      <li class="sb-nav-item" data-tip="IPAM" (mouseenter)="onGroupMouseEnter('ipam', $event)"
+        (mouseleave)="onGroupMouseLeave()">
+        <div class="sb-item" [class.is-active]="selectedMenu === 'ipam'">
+          <span class="sb-icon"><fa-icon icon="network-wired"></fa-icon></span>
+        </div>
+      </li>
+
+      }
+
+      @if (selectedMenu === 'categories' && !isSidebarCollapsed && categoryTree) {
+      <li class="sb-nav-item sb-content-panel">
+
+        <div class="sb-filter">
+          <input type="text" placeholder="Filter.." [formControl]="filterTerm" />
+          @if (filterTerm.value) {
+          <button class="sb-filter__clear" (click)="filterTerm.reset('')" type="button">
+            <fa-icon icon="times"></fa-icon>
+          </button>
+          }
+        </div>
+
+        @if (filterTerm.value) {
+
+        <p class="sb-section-label">Matched Categories</p>
+
+        }
+
+        <div class="sb-tree-container">
+          @for (node of categoryTree | categoryTreeFilter: filterTerm.value; track node) {
+          <cmdb-sidebar-category [categoryNode]="node">
+          </cmdb-sidebar-category>
+          }
+        </div>
+
+        @if (filterTerm.value) {
+
+        <ng-container *permissionLink="'base.framework.object.view'">
+          <p class="sb-section-label">Matched Types</p>
+          @for (type of typeList | typeFilter: filterTerm.value; track type) {
+          <cmdb-sidebar-type [type]="type">
+          </cmdb-sidebar-type>
+          }
+        </ng-container>
+
+        }
+
+        @if (!filterTerm.value && unCategorizedTypes?.length) {
+
+        <ng-container *permissionLink="'base.framework.object.view'">
+          <p class="sb-section-label mt-3">Uncategorized</p>
+          <div class="sb-uncategorized-container">
+            @for (type of unCategorizedTypes; track type) {
+            <cmdb-sidebar-type [type]="type">
+            </cmdb-sidebar-type>
+            }
+          </div>
+        </ng-container>
+
+        }
+      </li>
+      }
+
+      @if (selectedMenu === 'locations' && !isSidebarCollapsed) {
+      <li class="sb-nav-item sb-content-panel">
+        <location-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()">
+        </location-tree>
+      </li>
+      }
+
+      @if (selectedMenu === 'ipam' && !isSidebarCollapsed) {
+      <li class="sb-nav-item sb-content-panel">
+        @if (ipamAvailable) {
+        <ipam-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()">
+        </ipam-tree>
+        } @else {
+        <ng-container [ngTemplateOutlet]="ipamLocked"></ng-container>
+        }
+      </li>
+      }
+
     </ul>
-  </nav>
- </div>
+  </div>
+
+  @if (flyout) {
+
+  @if (flyout.group === 'categories') {
+  <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
+    (mouseleave)="onFlyoutMouseLeave()">
+    <div class="sb-flyout__head">Categories</div>
+    <div class="sb-flyout__body">
+      @for (node of categoryTree | categoryTreeFilter: ''; track node) {
+      <cmdb-sidebar-category [categoryNode]="node">
+      </cmdb-sidebar-category>
+      }
+      @if (unCategorizedTypes?.length) {
+
+      <p class="sb-flyout__section-label mt-2">Uncategorized</p>
+      @for (type of unCategorizedTypes; track type) {
+      <cmdb-sidebar-type [type]="type">
+      </cmdb-sidebar-type>
+      }
+
+      }
+    </div>
+  </div>
+  }
+
+  @if (flyout.group === 'locations') {
+  <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
+    (mouseleave)="onFlyoutMouseLeave()">
+    <div class="sb-flyout__head">Locations</div>
+    <div class="sb-flyout__body">
+      <location-tree [isExpanded]="false" [showSidebarExpandButton]="false"></location-tree>
+    </div>
+  </div>
+  }
+
+  @if (flyout.group === 'ipam') {
+  <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
+    (mouseleave)="onFlyoutMouseLeave()">
+    <div class="sb-flyout__head">Networks</div>
+    <div class="sb-flyout__body">
+      @if (ipamAvailable) {
+      <ipam-tree [isExpanded]="false" [showSidebarExpandButton]="false"></ipam-tree>
+      } @else {
+      <ng-container [ngTemplateOutlet]="ipamLocked"></ng-container>
+      }
+    </div>
+  </div>
+  }
+
+  }
+
+</div>
+
+<!-- Locked-state placeholder shown in the Networks area when IPAM is not part of the edition. -->
+<ng-template #ipamLocked>
+  <div class="sb-locked">
+    <div class="sb-locked__preview" aria-hidden="true">
+      <span class="sb-locked__line"></span>
+      <span class="sb-locked__line"></span>
+      <span class="sb-locked__line"></span>
+      <span class="sb-locked__line"></span>
+    </div>
+    <div class="sb-locked__overlay">
+      <fa-icon icon="lock" class="sb-locked__icon"></fa-icon>
+      <p class="sb-locked__title">Networks is a Pro feature</p>
+      <p class="sb-locked__text">Plan and track your IP space with IPAM in the Self-Hosted Edition.</p>
+      <button type="button" class="sb-locked__btn" (click)="promptIpamUpgrade()">Upgrade to unlock</button>
+    </div>
+  </div>
+</ng-template>

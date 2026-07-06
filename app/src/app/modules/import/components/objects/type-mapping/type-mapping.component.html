@@ -1,4 +1,4 @@
-<hr/>
+<hr />
 <form [formGroup]="configForm">
     <div class="mb-3 row">
         <label class="col-3 col-form-label">
@@ -6,13 +6,15 @@
         </label>
         <div class="col-9">
             <select class="form-select" formControlName="typeID">
-                <option *ngFor="let typeSelect of typeList" [value]="typeSelect.public_id">
+                @for (typeSelect of typeList; track typeSelect) {
+                <option [value]="typeSelect.public_id">
                     {{typeSelect.label}}
                 </option>
+                }
             </select>
         </div>
     </div>
-    <hr/>
+    <hr />
     <section [hidden]="!typeInstance || !manuallyMapping">
         <div class="row">
             <div class="col-md-3">
@@ -22,17 +24,15 @@
                     </div>
                     <div class="card-body">
                         <div class="list-group">
-                            <div
-                                *ngFor="let control of mappingControls | mappingControl: 'type':'property'"
-                                class="list-group-item list-group-item-action"
-                                [dndDraggable]="control"
+                            @for (control of mappingControls | mappingControl: 'type':'property'; track control) {
+                            <div class="list-group-item list-group-item-action" [dndDraggable]="control"
                                 [dndEffectAllowed]="allowedEffect"
-                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)"
-                            >
+                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
                                 <span>
                                     {{control.label}}
                                 </span>
                             </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -43,41 +43,39 @@
                     </div>
                     <div class="card-body">
                         <div class="list-group">
-                            <div
-                                *ngFor="let control of mappingControls | mappingControl: 'type':'field'"
-                                class="list-group-item list-group-item-action"
-                                [dndDraggable]="control"
+                            @for (control of mappingControls | mappingControl: 'type':'field'; track control) {
+                            <div class="list-group-item list-group-item-action" [dndDraggable]="control"
                                 [dndEffectAllowed]="allowedEffect"
-                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)"
-                            >
+                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
                                 <span>
                                     {{control.label}}
                                 </span>
                             </div>
+                            }
                         </div>
                     </div>
                 </div>
 
-                 <div class="card mt-3" *ngIf="hasReferences">
+                @if (hasReferences) {
+                <div class="card mt-3">
                     <div class="card-header">
                         Foreign Keys
                     </div>
                     <div class="card-body">
                         <div class="list-group">
-                            <div
-                                *ngFor="let control of mappingControls | mappingControl: 'type':'ref'"
-                                class="list-group-item list-group-item-action"
-                                [dndDraggable]="control"
+                            @for (control of mappingControls | mappingControl: 'type':'ref'; track control) {
+                            <div class="list-group-item list-group-item-action" [dndDraggable]="control"
                                 [dndEffectAllowed]="allowedEffect"
-                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)"
-                            >
+                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
                                 <span>
                                     <strong>{{control.type_name}}: </strong>{{control.label}}
                                 </span>
                             </div>
+                            }
                         </div>
                     </div>
                 </div>
+                }
             </div>
 
             <div class="col-md-9">
@@ -89,7 +87,7 @@
                 </div>
             </div>
         </div>
-        <hr/>
+        <hr />
     </section>
 </form>
 
@@ -101,7 +99,4 @@
 </button>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

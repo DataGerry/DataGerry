@@ -9,18 +9,22 @@
         Do you want to <b>delete</b> the section template <b>"{{sectionTemplate.label}}"</b>?
         <br>
         <br>
-        <ng-container *ngIf="sectionTemplate.is_global">
+        @if (sectionTemplate.is_global) {
+
             This action affects <b>{{templateCounts.types}} types</b> and <b>{{templateCounts.objects}} objects</b>!
-        </ng-container>
+        
+}
     </div>
-    <ng-container *ngIf="sectionTemplate.is_global">
+    @if (sectionTemplate.is_global) {
+
         <br>
         <div class="warning-text">
             This will delete this section and its fields from all types and corresponding objects.
             <br>
             This action can't be undone!
         </div>
-    </ng-container>
+    
+}
 </div>
 
 <div class="modal-footer">

@@ -1,0 +1,109 @@
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba($gray-200, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba($primary, 0.3);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: rgba($primary, 0.5);
+  }
+}
+
+// Graph viewport
+.graph-viewport {
+  background: #f0f2f5; /* Soft light blue-gray */
+
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: move !important;
+  background-image: 
+    radial-gradient(circle at 20% 80%, rgba($primary, 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba($info, 0.03) 0%, transparent 50%);
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &.panning {
+    cursor: grabbing;
+  }
+}
+
+.graph-canvas {
+  position: absolute;
+  transform-origin: 0 0;
+  transition: transform 0.1s linear;
+  width: 5000px;
+  height: 3000px;
+  
+  &.smooth-transition {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+// Performance hints
+.performance-hints {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  @include glass-effect;
+  border-radius: 12px;
+  padding: 12px 20px;
+  font-size: 12px;
+  color: $gray-600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideIn 0.3s ease;
+  pointer-events: none;
+
+  .material-icons {
+    font-size: 18px;
+    color: $warning;
+  }
+
+  &.hidden {
+    display: none;
+  }
+}
+
+// Focus mode overlay
+.focus-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at var(--focus-x, 50%) var(--focus-y, 50%),
+    transparent 0%,
+    transparent 30%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+
+  &.active {
+    opacity: 1;
+  }
+}
+
+// Utility classes
+.material-icons.tiny {
+  font-size: 14px;
+}
+
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+

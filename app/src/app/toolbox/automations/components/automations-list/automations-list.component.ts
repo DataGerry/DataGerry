@@ -15,19 +15,19 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { AutomationsService, OpenCeliumConfigStatus } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
-import { ConnectorsService } from 'src/app/toolbox/connectors/services/connectors.service';
 import { finalize } from 'rxjs';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CronExpressionModalComponent } from '../cron-expression-modal/cron-expression-modal.component';
 import { environment } from 'src/environments/environment';
 import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
+import { ConnectorsService } from '../../connectors/services/connectors.service';
 
 type RefreshOption = { label: string; value: number };
 
@@ -39,6 +39,14 @@ type RefreshOption = { label: string; value: number };
 })
 
 export class AutomationsListComponent implements OnInit, OnDestroy {
+  private readonly svc = inject(ConnectorsService);
+  private readonly automationsService = inject(AutomationsService);
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly deleteModalService = inject(DeleteModalService);
+  private readonly modalService = inject(NgbModal);
+
   private readonly autoRefreshStorageKey = 'automations.list.autoRefreshMs';
   private readonly internalConnectorTitle = 'DataGerryInternal';
   private readonly internalConnectorDisplay = 'Built-in DataGerry';
@@ -74,17 +82,6 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
   public runningSchedulerIds: number[] = [];
   public runningRefreshToken = 0;
   private refreshTimerId?: number;
-
-  constructor(
-    private svc: ConnectorsService,
-    private automationsService: AutomationsService,
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private deleteModalService: DeleteModalService,
-    private modalService: NgbModal
-  ) { }
-
 
   ngOnInit(): void {
     this.columns = [

@@ -57,6 +57,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
   public locationForObjectExists = new FormControl('', Validators.required);
   
   @ViewChild('locationSelect') locationSelect: NgSelectComponent;
+  public clearable = true;
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -71,9 +72,12 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             this.registerForEventChanges();
             this.setTreeName('');
             this.setLocationExists('false');
-            this.currentObjectID = this.route.snapshot.params.publicID;
+            // Only read the route publicID as object ID in view/edit flows.
+            if (this.mode === this.MODES.View || this.mode === this.MODES.Edit) {
+                this.currentObjectID = Number(this.route.snapshot.params.publicID);
+            }
 
-            if(!this.currentObjectID){
+            if (!this.currentObjectID) {
                 this.currentObjectID = this.objectID;
             }
 
@@ -122,7 +126,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
                 this.setValidLocations(ownChildren,locations);
 
                 if(this.mode == this.MODES.Edit && this.hasChildren){
-                    this.locationSelect.clearable = false;
+                    this.clearable = false;
                 }
         });
     }

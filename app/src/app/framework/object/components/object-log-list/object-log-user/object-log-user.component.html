@@ -1,8 +1,9 @@
-<div *ngIf="userExists; then display else deleted"></div>
-<ng-template #display>
-  <cmdb-user-display [user]="logUser"></cmdb-user-display>
-</ng-template>
-<ng-template #deleted>
-  <div *ngIf="userName; else elseBlock">{{userName}}</div>
-  <ng-template #elseBlock>Unknown</ng-template>
-</ng-template>
+@if (userExists) {
+<cmdb-user-display [user]="logUser"></cmdb-user-display>
+} @else {
+@if (userName) {
+<div>{{userName}}</div>
+} @else {
+Unknown
+}
+}

@@ -1,93 +1,131 @@
-<div *ngIf="mode != MODES.Bulk">
+@if (mode != MODES.Bulk) {
+<div>
     <div class="mb-3 row" [formGroup]="parentFormGroup">
         <label class="col-sm-3 col-form-label">
-            {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
+            {{data.label}}: @if (data?.required) {
+            <span class="required">*</span>
+            }
         </label>
         <div class="col-sm-9">
-            <ng-container [ngSwitch]="true">
-                <ng-container *ngSwitchCase="mode == MODES.View">
-                    <div class="input-group input-group-sm">
-                        <div class="form-control bg-light text-start overflow-auto" readonly>
-                            <ng-container *ngIf="objectLocation; else noRef;">
-                                <ng-container *ngIf="!protect">
-                                    <ng-container *ngIf="!data?.reference?.line; else refLine">
-                                        <i class="{{objectLocation?.type_icon}}"></i> {{objectLocation?.type_label}} #{{objectLocation?.object_id}} - {{objectLocation?.name}}
-                                    </ng-container>
-                                    <ng-template #refLine>
-                                        <ng-container *ngIf="objectLocation">
-                                            <i class="{{objectLocation?.type_icon}}"></i> {{objectLocation?.type_label}} #{{objectLocation?.object_id}} - {{objectLocation?.name}}
-                                        </ng-container>
-                                        <span>{{data?.reference?.line}}</span>
-                                    </ng-template>
-                                </ng-container>
-                                <ng-container *ngIf="protect">{{data?.reference}}</ng-container>
-                            </ng-container><!-- ende init view-->
-                            <ng-template #noRef> No location set</ng-template>
-                        </div>
-                            <span *ngIf="data?.reference && !protect" class="input-group-text"
-                                [class.ref-disabled]="!objectLocation?.object_id"
-                                (click)="showReferencePreview()">
-                                <fa-icon icon="file-powerpoint"></fa-icon>
-                            </span>
-                                <a *ngIf="data?.reference && !protect" class="input-group-text" [class.ref-disabled]="!objectLocation?.object_id"
-                                    [routerLink]="'/framework/object/view/'+ objectLocation?.object_id">
-                                    <fa-icon icon="arrow-right"></fa-icon>
-                                </a>
-                        </div>
-                </ng-container><!-- mode view-->
-                <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit">
-                    <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
-                                                    [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
-                    <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
-                        <ng-select #locationSelect
-                            [items]="locationsList"
-                            class="ng-select-valid form-select ref-simple-select"
-                            [groupBy]="groupByFn"
-                            [groupValue]="groupValueFn"
-                            (change)="locationChanged($event)"
-                            bindValue="public_id" 
-                            [searchFn]="searchRef"
-                            [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
-                            'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"
-                            [formControlName]="data.name">
-                            <ng-template ng-optgroup-tmp let-item="item">
-                                <span style="vertical-align: middle;">{{item.name}}</span>
-                            </ng-template>
-                            <ng-template ng-label-tmp let-item="item">
-                                <ng-container *ngIf="item.object_information == null">
-                                    <div *ngIf="item.type_icon">
-                                        <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
-                                        #{{item?.object_id}} - {{item?.name}}
-                                    </div>
-                                </ng-container>
-                            </ng-template>
-                            <ng-template ng-option-tmp let-item="item">
-                                <span [className]="controller.value === item?.object_id ? 'fw-bold' : ''">
-                                <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
-                                #{{item?.object_id}} - {{item?.name}}
-                                </span>
-                            </ng-template>
-                        </ng-select>
-                    </cmdb-input-appends>
-                    <small class="form-text text-muted text-start warning" [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
-                        <span class="warning">Only deletable if this object is not a parent of a location</span>
-                    </small>
-                </ng-container> <!-- edit, create, bulk - container -->
-                <div *ngSwitchDefault>
-                <cmdb-mode-error></cmdb-mode-error>
+
+            @switch (true) {
+            @case (mode == MODES.View) {
+
+            <div class="input-group input-group-sm">
+                <div class="form-control bg-light text-start overflow-auto" readonly>
+                    @if (objectLocation) {
+
+                    @if (!protect) {
+
+                    @if (!data?.reference?.line) {
+
+                    <i class="{{objectLocation?.type_icon}}"></i> {{objectLocation?.type_label}}
+                    #{{objectLocation?.object_id}} - {{objectLocation?.name}}
+
+                    } @else {
+
+                    @if (objectLocation) {
+
+                    <i class="{{objectLocation?.type_icon}}"></i> {{objectLocation?.type_label}}
+                    #{{objectLocation?.object_id}} - {{objectLocation?.name}}
+
+                    }
+                    <span>{{data?.reference?.line}}</span>
+
+                    }
+
+
+                    }
+                    @if (protect) {
+                    {{data?.reference}}
+                    }
+
+                    } @else {
+                    No location set
+                    }<!-- ende init view-->
+
                 </div>
-            </ng-container> <!-- switch=true - container -->
-            <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-                <div class="text-end" *ngIf="controller.errors.required">
+                @if (data?.reference && !protect) {
+                <span class="input-group-text" [class.ref-disabled]="!objectLocation?.object_id"
+                    (click)="showReferencePreview()">
+                    <fa-icon icon="file-powerpoint"></fa-icon>
+                </span>
+                }
+                @if (data?.reference && !protect) {
+                <a class="input-group-text" [class.ref-disabled]="!objectLocation?.object_id"
+                    [routerLink]="'/framework/object/view/'+ objectLocation?.object_id">
+                    <fa-icon icon="arrow-right"></fa-icon>
+                </a>
+                }
+            </div>
+
+            }<!-- mode view-->
+            @case (mode == MODES.Create || mode == MODES.Edit) {
+
+            @if (mode == MODES.Bulk) {
+            <cmdb-object-bulk-input-appends [data]="data" [controller]="controller"
+                [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
+            }
+            <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
+                <ng-select #locationSelect [clearable]="clearable" [items]="locationsList"
+                    class="ng-select-valid form-select ref-simple-select" [groupBy]="groupByFn"
+                    [groupValue]="groupValueFn" (change)="locationChanged($event)" bindValue="public_id"
+                    [searchFn]="searchRef" [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
+                            'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"
+                    [formControlName]="data.name">
+                    <ng-template ng-optgroup-tmp let-item="item">
+                        <span style="vertical-align: middle;">{{item.name}}</span>
+                    </ng-template>
+                    <ng-template ng-label-tmp let-item="item">
+                        @if (item.object_information == null) {
+
+                        @if (item.type_icon) {
+                        <div>
+                            <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
+                            #{{item?.object_id}} - {{item?.name}}
+                        </div>
+                        }
+
+                        }
+                    </ng-template>
+                    <ng-template ng-option-tmp let-item="item">
+                        <span [className]="controller.value === item?.object_id ? 'fw-bold' : ''">
+                            <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
+                            #{{item?.object_id}} - {{item?.name}}
+                        </span>
+                    </ng-template>
+                </ng-select>
+            </cmdb-input-appends>
+            <small class="form-text text-muted text-start warning"
+                [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
+                <span class="warning">Only deletable if this object is not a parent of a location</span>
+            </small>
+
+            } <!-- edit, create, bulk - container -->
+            @default {
+            <div>
+                <cmdb-mode-error></cmdb-mode-error>
+            </div>
+            }
+            }
+            <!-- switch=true - container -->
+            @if (controller.invalid && (controller.dirty || controller.touched)) {
+            <div class="invalid-feedback">
+                @if (controller.errors.required) {
+                <div class="text-end">
                     {{data.label}} is a required field.
                 </div>
+                }
             </div>
+            }
             <small class="description form-text text-muted">{{data?.description}}</small>
-        </div> 
+        </div>
         <!-- part 2-->
     </div> <!-- main div -->
 </div>
-<div *ngIf="mode != MODES.Bulk">
+}
+@if (mode != MODES.Bulk) {
+<div>
     <div class="mb-3 row">
         <label class="col-sm-3 col-form-label">
             <span> Label in location tree: </span>
@@ -95,20 +133,16 @@
         <div class="col-sm-9">
             <ng-container>
                 <div class="input-group input-group-sm" [class.ref-disabled]="mode == MODES.View">
-                    <input type="text" 
-                        name="treeName" 
-                        class="form-control"
-                        [class.viewMode]="mode == MODES.View"
-                        [formControl]="locationTree"
-                        id="location_tree_name"
-                        (input)="onTreeNameChanged($event.target.value)"
-                        />
+                    <input type="text" name="treeName" class="form-control" [class.viewMode]="mode == MODES.View"
+                        [formControl]="locationTree" id="location_tree_name"
+                        (input)="onTreeNameChanged($event.target.value)" />
                 </div>
-                <small class="form-text text-muted text-start" [style.visibility]="mode == MODES.View ? 'hidden' : 'visible'">
-                    <span >This is only saved if a parent location is selected in Field "{{data.label}}" above</span>
+                <small class="form-text text-muted text-start"
+                    [style.visibility]="mode == MODES.View ? 'hidden' : 'visible'">
+                    <span>This is only saved if a parent location is selected in Field "{{data.label}}" above</span>
                 </small>
             </ng-container>
         </div>
     </div>
 </div>
-  
+}

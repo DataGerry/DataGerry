@@ -16,13 +16,17 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import {
-    Component, ElementRef, OnInit, ViewChild
+    Component,
+    inject,
+    ElementRef,
+    OnInit,
+    ViewChild,
 } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -50,8 +54,15 @@ import { IsmsValidationService } from '../services/isms-validation.service';
     standalone: false
 })
 export class RiskMatrixReportComponent implements OnInit {
+    private readonly reportSrv = inject(RiskMatrixReportService);
+    private readonly impactSrv = inject(ImpactService);
+    private readonly lhSrv = inject(LikelihoodService);
+    private readonly rcSrv = inject(RiskClassService);
+    private readonly loader = inject(LoaderService);
+    private readonly toast = inject(ToastService);
+    private readonly modal = inject(NgbModal);
+    private readonly ismsValidationService = inject(IsmsValidationService);
 
-    /* DOM node that will be rendered to a canvas */
     @ViewChild('reportContent', { static: false })
     reportContent!: ElementRef<HTMLDivElement>;
 
@@ -67,18 +78,6 @@ export class RiskMatrixReportComponent implements OnInit {
 
     loading = false;
     public configurationIsValid: boolean = false; 
-
-    constructor(
-        private readonly reportSrv: RiskMatrixReportService,
-        private readonly impactSrv: ImpactService,
-        private readonly lhSrv: LikelihoodService,
-        private readonly rcSrv: RiskClassService,
-        private readonly loader: LoaderService,
-        private readonly toast: ToastService,
-        private readonly modal: NgbModal,
-        private readonly ismsValidationService: IsmsValidationService
-        
-    ) { }
 
     /* ─────────────────────────────── */
     ngOnInit(): void { 

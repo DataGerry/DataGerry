@@ -24,41 +24,47 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
 @Component({
     selector: 'cmdb-category-delete',
     template: `
-    <div class="modal-header">
-      <h4 class="modal-title" id="modal-title">Category deletion</h4>
-      <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss('')"></button>
+    <div class="modal-header bg-primary text-white">
+      <h4 class="modal-title" id="modal-title">Delete Category:</h4>
+      <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss('cancel')"></button>
     </div>
     <div class="modal-body">
-      <strong>Are you sure you want to delete <span class="text-primary">{{category.name}}</span> category?</strong>
+      <strong>Do you want to <b>delete</b> the Category <b>"{{ category.name }}"</b>?</strong>
       <p>
-        All types inside this category will be un assigned <span
-        class="text-danger">This operation can not be undone!</span>
+        All types inside this category will be unassigned.
+        <span class="text-danger">This operation cannot be undone!</span>
       </p>
       <form id="deleteCategoryModalForm" [formGroup]="deleteCategoryModalForm" class="needs-validation" novalidate
             autocomplete="off">
         <div class="form-group">
-          <label for="categoryNameInput">Type in the name: {{category.name}} <span class="required">*</span></label>
+          <label for="categoryNameInput">Type in the name: {{ category.name }} <span class="required">*</span></label>
           <input type="text" formControlName="name" class="form-control"
                  [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched)}"
                  id="categoryNameInput" required>
           <small id="categoryNameInputHelp" class="form-text text-muted">Type in the name of the category to confirm the
             deletion.</small>
-          <div *ngIf="name.invalid && (name.dirty || name.touched)"
+          @if (name.invalid && (name.dirty || name.touched)) {
+<div
                class="invalid-feedback">
-            <div class="text-end" *ngIf="name.errors.required">
+            @if (name.errors.required) {
+<div class="text-end">
               Name is required
             </div>
-            <div class="text-end" *ngIf="name.errors.notequal">
+}
+            @if (name.errors.notequal) {
+<div class="text-end">
               Your answer is not equal!
             </div>
+}
           </div>
+}
           <div class="clearfix"></div>
         </div>
       </form>
     </div>
     <div class="modal-footer">
-      <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss('cancel')">Cancel</button>
+      <button type="button" class="btn btn-outline-dark" (click)="modal.dismiss('cancel')">Close</button>
       <button type="button" class="btn btn-danger" [disabled]="deleteCategoryModalForm.invalid"
               (click)="modal.close('delete')">Delete
       </button>

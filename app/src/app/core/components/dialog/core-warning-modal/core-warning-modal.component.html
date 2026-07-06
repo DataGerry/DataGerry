@@ -12,7 +12,11 @@
   </div>
   
   <div class="modal-footer">
-    <button *ngIf="cancelLabel" type="button" class="btn btn-outline-dark" (click)="cancel()" >{{ cancelLabel }}</button>
-    <button *ngIf="confirmLabel" type="button" class="btn btn-danger" (click)="navigate()" >{{ confirmLabel }}</button>
+    @if (cancelLabel) {
+<button type="button" class="btn btn-outline-dark" (click)="cancel()" >{{ cancelLabel }}</button>
+}
+    @if (confirmLabel) {
+<button type="button" class="btn btn-danger" (click)="navigate()" >{{ confirmLabel }}</button>
+}
   </div>
   

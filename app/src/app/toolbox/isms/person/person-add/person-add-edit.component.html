@@ -5,98 +5,62 @@
 
   <form autocomplete="off" class="needs-validation" (ngSubmit)="onSave()" [formGroup]="personForm">
     <!-- First Name (required) -->
-    <app-form-input
-      formControlName="first_name"
-      label="First Name"
-      [required]="true"
-      [errorMessage]="
+    <app-form-input formControlName="first_name" label="First Name" [required]="true" [errorMessage]="
         hasError('first_name', 'required')
           ? 'First Name is required'
           : ''
-      "
-    >
+      ">
     </app-form-input>
 
     <!-- Last Name (required) -->
-    <app-form-input
-      formControlName="last_name"
-      label="Last Name"
-      [required]="true"
-      [errorMessage]="
+    <app-form-input formControlName="last_name" label="Last Name" [required]="true" [errorMessage]="
         hasError('last_name', 'required')
           ? 'Last Name is required'
           : ''
-      "
-    >
+      ">
     </app-form-input>
 
     <!-- Display Name (read-only) -->
-    <app-form-input
-      formControlName="display_name"
-      label="Display Name"
-      [required]="false"
-      [readonly]="true"
-    >
+    <app-form-input formControlName="display_name" label="Display Name" [required]="false" [readonly]="true">
     </app-form-input>
 
     <!-- Phone Number (optional) -->
-    <app-form-input
-      formControlName="phone_number"
-      label="Phone Number"
-      [required]="false"
-    >
+    <app-form-input formControlName="phone_number" label="Phone Number" [required]="false">
     </app-form-input>
 
     <!-- Email (required + pattern) -->
-    <app-form-input
-      formControlName="email"
-      label="Email"
-      [required]="false"
-      [errorMessage]="
+    <app-form-input formControlName="email" label="Email" [required]="false" [errorMessage]="
         hasError('email', 'required')
           ? 'Email is required'
           : hasError('email', 'pattern')
           ? 'Invalid email format'
           : ''
-      "
-    >
+      ">
     </app-form-input>
 
     <!-- Groups (multi-select) -->
     <label class="mt-3">Groups</label>
-    <app-form-select
-      formControlName="groups"
-      [items]="allGroups"
-      bindLabel="name"
-      bindValue="public_id"
-      [multiple]="true"
-      placeholder="Select Group(s)"
-    >
+    <app-form-select formControlName="groups" [items]="allGroups" bindLabel="name" bindValue="public_id"
+      [multiple]="true" placeholder="Select Group(s)">
     </app-form-select>
 
     <!-- Footer -->
-    <div class="mt-4 d-flex justify-content-between" >
+    <div class="mt-4 d-flex justify-content-between">
       <button class="btn btn-secondary" type="button" (click)="onCancel()">
         Cancel
       </button>
 
       <div *permissionLink="['base.user-management.person.add', 'base.user-management.person.edit']">
-        <button
-        *ngIf="!isViewMode"
-          class="btn btn-success"
-          type="submit"
-          [disabled]="personForm.invalid || isViewMode"
-        >
+        @if (!isViewMode) {
+        <button class="btn btn-success" type="submit" [disabled]="personForm.invalid || isViewMode">
           {{ isEditMode ? 'Save Changes' : 'Create Person' }}
         </button>
+        }
       </div>
     </div>
   </form>
 </div>
 
 <!-- Loading Popup -->
-<app-loading-popup
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
->
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
 </app-loading-popup>

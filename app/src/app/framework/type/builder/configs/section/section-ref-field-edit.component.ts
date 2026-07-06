@@ -26,6 +26,7 @@ import { APIGetMultiResponse } from '../../../../../services/models/api-response
 import { ReplaySubject, Subscription } from 'rxjs';
 import { CmdbMode } from '../../../../modes.enum';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 import { ToastService } from "../../../../../layout/toast/toast.service";
 import { ValidationService } from '../../../services/validation.service';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
@@ -47,7 +48,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     /**
      * Name form control.
      */
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
 
     /**
      * Label form control.
@@ -158,6 +159,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
         this.triggerAPICall();
 
         this.initialValue = this.nameControl.value;
+        this.identifierInitialValue = this.nameControl.value;
         this.previousNameControlValue = this.nameControl.value;
 
         this.currentValue = this.identifierInitialValue;
@@ -280,6 +282,15 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     * @param name The new name for the field.
     */
     public onNameChange(name: string) {
+        if (this.isDuplicateSectionIdentifier(name)) {
+            this.setDuplicateIdentifierState(true);
+            this.validationService.setSectionHighlightState(true);
+            this.fieldChanges$.next({ isDuplicate: true, elementType: 'ref-section' });
+            return;
+        }
+
+        this.setDuplicateIdentifierState(false);
+        this.fieldChanges$.next({ isDuplicate: false, elementType: 'ref-section' });
         let oldName = this.data.name;
 
         const latestField = this.fields.find(x => x.name.startsWith(oldName));
@@ -302,6 +313,29 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
         field.name = newFieldName;
 
         this.data.name = name;
+    }
+
+
+    private isDuplicateSectionIdentifier(newValue: string): boolean {
+        if (!newValue || newValue === this.currentValue) {
+            return false;
+        }
+
+        return (this.sections ?? []).some(section => section !== this.data && section?.name === newValue);
+    }
+
+
+    private setDuplicateIdentifierState(isDuplicate: boolean): void {
+        this.isIdentifierValid = !isDuplicate;
+        const errors = { ...(this.nameControl.errors ?? {}) };
+
+        if (isDuplicate) {
+            this.nameControl.setErrors({ ...errors, duplicateIdentifier: true });
+            return;
+        }
+
+        delete errors.duplicateIdentifier;
+        this.nameControl.setErrors(Object.keys(errors).length ? errors : null);
     }
 
 

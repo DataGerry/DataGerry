@@ -19,6 +19,10 @@ import { Component, Input } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { CmdbMode } from '../../../../framework/modes.enum';
+import {
+    DOCAPI_SUPPORTED_CSS_PROPERTIES,
+    DOCAPI_UNSUPPORTED_CSS_PROPERTIES
+} from '../../constants/docapi-css-support.constants';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -38,11 +42,18 @@ export class DocapiBuilderStyleStepComponent {
     @Input() public mode: CmdbMode;
     public modes = CmdbMode;
     public styleForm: UntypedFormGroup;
+    public showCssSupportDetails = false;
+    public readonly supportedCssProperties = DOCAPI_SUPPORTED_CSS_PROPERTIES;
+    public readonly unsupportedCssProperties = DOCAPI_UNSUPPORTED_CSS_PROPERTIES;
 
 
     constructor() {
         this.styleForm = new UntypedFormGroup({
             template_style: new UntypedFormControl('')
         });
+    }
+
+    public toggleCssSupportDetails(): void {
+        this.showCssSupportDetails = !this.showCssSupportDetails;
     }
 }

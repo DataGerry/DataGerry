@@ -1,44 +1,56 @@
-<!-- 
 <div class="dropdown">
-  <div class="dropdown-toggle total-title d-flex justify-object-view-items"
-       data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-    <div class="icon"><i class="fa fa-file-pdf"></i></div>
-    <div class="name"><strong class="text-uppercase">Documents</strong>
-      <span> Total {{docs?.length}}</span>
-    </div>
-  </div>
-  <ng-container *permissionLink="['base.docapi.template.view']">
-    <div *ngIf="docs?.length > 0" class="dropdown-menu dropdown-menu-lg-right w-auto">
-      <div class="overflow-auto" style="max-height:20vh">
-        <a *ngFor="let doc of docs" class="dropdown-item">
-          <span><i class="fas fa-file-alt me-1" aria-hidden="true"></i></span>
-          <span class="name">
-            <a class="card-link" [routerLink]=""
-               (click)="downloadDocument(doc.public_id, renderResult.object_information?.object_id, doc.name)">
-              {{doc.label}}
-            </a>
-          </span>
-        </a>
-      </div>
-    </div>
-  </ng-container>
-</div> -->
-<div class="dropdown">
-  <button mat-icon-button [matMenuTriggerFor]="menu" class="custom-button">
-    <div class="dropdown-toggle total-title d-flex justify-object-view-items" aria-haspopup="true" aria-expanded="false">
+  <button mat-icon-button [matMenuTriggerFor]="menu" #docsMenuTrigger="matMenuTrigger" class="custom-button">
+    <div class="dropdown-toggle total-title d-flex justify-object-view-items" aria-haspopup="true"
+      aria-expanded="false">
       <div class="icon"><i class="fa fa-file-pdf"></i></div>
-      <div class="name"><strong class="text-uppercase">Documents</strong> <span>Total {{docs?.length}}</span></div>
+      <div class="name"><strong class="text-uppercase">Documents</strong> <span>Total {{ docs?.length || 0 }}</span>
+      </div>
     </div>
   </button>
 </div>
-<mat-menu #menu="matMenu">
-  <ng-container *ngIf="docs?.length > 0; else noDocs">
-    <button mat-menu-item *ngFor="let doc of docs" (click)="downloadDocument(doc.public_id, renderResult.object_information?.object_id, doc.name)">
-      {{ doc.label }}
-    </button>
-  </ng-container>
-  <ng-template #noDocs>
-    <button mat-menu-item disabled>No documents available</button>
-  </ng-template>
-</mat-menu>
 
+<mat-menu #menu="matMenu" class="dg-docs-menu">
+  <div class="dg-docs-menu__header" aria-hidden="true">
+    <span class="dg-docs-menu__header-icon"><i class="fa fa-file-pdf"></i></span>
+    <span class="dg-docs-menu__header-title">Documents</span>
+    @if (documentGeneratorAvailable$ | async) {
+    <span class="dg-docs-menu__header-count">{{ docs?.length || 0 }}</span>
+    } @else {
+    <span class="dg-premium-badge dg-premium-badge--inline">Pro</span>
+    }
+  </div>
+
+  @if (documentGeneratorAvailable$ | async) {
+
+  @if (docs?.length > 0) {
+  <div class="dg-docs-menu__list">
+    @for (doc of docs; track doc.public_id) {
+    <button mat-menu-item type="button" class="dg-docs-menu__item" [title]="doc.label"
+      (click)="downloadDocument(doc.public_id, renderResult?.object_information?.object_id, doc.label)">
+      <span class="dg-docs-menu__item-icon"><i class="fa fa-file-pdf"></i></span>
+      <span class="dg-docs-menu__item-label">{{ doc.label }}</span>
+      <i class="fa fa-download dg-docs-menu__item-action" aria-hidden="true"></i>
+    </button>
+    }
+  </div>
+  } @else {
+  <button mat-menu-item type="button" disabled class="dg-docs-menu__empty">
+    <span class="dg-docs-menu__item-icon"><i class="fa fa-folder-open"></i></span>
+    <span class="dg-docs-menu__item-label">No documents available</span>
+  </button>
+  }
+
+  } @else {
+  <div class="dg-docs-menu__premium">
+    <span class="dg-docs-menu__premium-icon"><i class="fas fa-lock" aria-hidden="true"></i></span>
+    <p class="dg-docs-menu__premium-title">Documents is a Pro feature</p>
+    <p class="dg-docs-menu__premium-text">
+      Generate and download polished documents from your CMDB with the Document Generator in the Self-Hosted Edition.
+    </p>
+    <button type="button" class="dg-docs-menu__premium-cta"
+      (click)="docsMenuTrigger.closeMenu(); promptDocumentUpgrade()">
+      Upgrade to unlock
+    </button>
+  </div>
+  }
+</mat-menu>

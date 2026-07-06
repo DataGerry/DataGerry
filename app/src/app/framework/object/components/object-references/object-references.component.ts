@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, SimpleChanges } from '@angular/core';
 import { Location } from '@angular/common';
 
 import { Subject, Subscription } from 'rxjs';
@@ -60,9 +60,8 @@ export class ObjectReferencesComponent implements OnChanges {
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
-    constructor(public objectService: ObjectService, private location: Location) {
-
-    }
+    public readonly objectService = inject(ObjectService);
+    private readonly location = inject(Location);
 
 
     /**

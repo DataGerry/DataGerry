@@ -62,13 +62,15 @@
           class="flex-grow-1">
         </ng-select>
 
-        <button
+        @if (!isViewMode) {
+<button
           type="button"
           class="btn btn-outline-secondary btn-sm"
-          *ngIf="!isViewMode"
+         
           (click)="openCategoryManager()" >
           Manage Categories
         </button>
+}
       </div>
     </div>
 
@@ -80,8 +82,9 @@
   </label>
 
   <!-- Keep the object-selector in the DOM, only hide it if not STATIC. -->
-  <app-object-selector
-    *ngIf="typesLoaded"
+  @if (typesLoaded) {
+<app-object-selector
+   
     [typeIds]="allTypeIds"
     [multiple]="true"
     [selectedIds]="group.assigned_ids"
@@ -90,10 +93,12 @@
     [closeOnSelect]="true"
     [style.display]="group.group_type === 'STATIC' ? 'block' : 'none'">
   </app-object-selector>
+}
 
   <!-- Keep the dynamic <ng-select> in the DOM, only hide it if not DYNAMIC. -->
-  <ng-select
-    *ngIf="typesLoaded"
+  @if (typesLoaded) {
+<ng-select
+   
     [items]="typeOptions"
     bindLabel="label"
     bindValue="value"
@@ -104,27 +109,32 @@
     name="assignedIdsDynamic"
     [style.display]="group.group_type === 'DYNAMIC' ? 'block' : 'none'">
   </ng-select>
+}
 </div>
 
 
     <!-- Footer buttons -->
-    <div *ngIf="!isViewMode" class="mt-4 d-flex justify-content-between">
+    @if (!isViewMode) {
+<div class="mt-4 d-flex justify-content-between">
       <button class="btn btn-secondary me-2" type="button" (click)="onCancel()">Cancel</button>
       <button class="btn btn-success" type="button" (click)="onSave()" [disabled]="groupForm.invalid || isSaveDisabled()">
         {{ isEditMode ? 'Save Changes' : 'Add Group' }}
       </button>
     </div>
+}
     <hr>
 
-    <div id="object-view-footer" class="col-12" *ngIf="isViewMode">
+    @if (isViewMode) {
+<div id="object-view-footer" class="col-12">
       <cmdb-object-groups-footer [objectGroupName]="group.name" [groupId]="groupId"></cmdb-object-groups-footer>
     </div>
+}
   </form>
 </div>
 
 
+@if (showCategoryManager) {
 <app-extendable-option-manager
-*ngIf="showCategoryManager"
 [options]="categoryOptions"   
 [optionType]= "'OBJECT_GROUP'" 
 [modalTitle]="'Manage Categories'"
@@ -132,6 +142,7 @@
 [itemLabelPlural]="'Categories'"
 (close)="closeCategoryManager()">
 </app-extendable-option-manager>
+}
      
 
 <app-loading-popup

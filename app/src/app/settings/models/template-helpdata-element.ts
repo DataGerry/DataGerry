@@ -20,4 +20,6 @@ export class TemplateHelpdataElement {
   public label: string;
   public subdata: any;
   public templatedata: string;
+  public name?: string;
+  public type?: string;
 }

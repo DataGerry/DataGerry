@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 import { User } from '../../../models/user';
 import { UserService } from '../../../services/user.service';
 import { ReplaySubject } from 'rxjs';
@@ -28,26 +28,31 @@ import { takeUntil } from 'rxjs/operators';
     styleUrls: ['./user-compact.component.scss'],
     standalone: false
 })
-export class UserCompactComponent implements OnDestroy {
+export class UserCompactComponent implements OnChanges, OnDestroy {
 
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-  @Input() public user: User;
+  @Input() public user: Partial<User> | null = null;
+  @Input() public userID: number | null = null;
+  @Input() public prefetchedUser: Partial<User> | null = null;
 
-  public userID: number;
+  private readonly userService = inject(UserService);
 
-  @Input('userID')
-  public set UserID(id: number) {
-    this.userID = id;
-    if (this.userID) {
+  public ngOnChanges(changes: SimpleChanges): void {
+    if (changes.prefetchedUser && this.prefetchedUser) {
+      this.user = this.prefetchedUser;
+      return;
+    }
+
+    if (this.prefetchedUser) {
+      return;
+    }
+
+    if (changes.userID && this.userID) {
       this.userService.getUser(this.userID).pipe(takeUntil(this.subscriber)).subscribe((user: User) => {
         this.user = user;
       });
     }
-  }
-
-  public constructor(private userService: UserService) {
-
   }
 
   public ngOnDestroy(): void {

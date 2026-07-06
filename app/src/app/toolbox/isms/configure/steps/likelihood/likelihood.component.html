@@ -1,25 +1,27 @@
-<div *permissionLink="'base.isms.likelihood.view'"> 
+<div *permissionLink="'base.isms.likelihood.view'">
 
-<div class="d-flex justify-content-between align-items-center mb-2">
-    <h1>Likelihoods</h1>
-    <button type="button" class="btn btn-sm btn-success" (click)="addLikelihood()"
-        [disabled]="this.totalLikelihoods >= 10" *permissionLink="'base.isms.likelihood.add'">
-        <i class="fas fa-plus"></i> Add
-    </button>
-</div>
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h1>Likelihoods</h1>
+        <button type="button" class="btn btn-sm btn-success" (click)="addLikelihood()"
+            [disabled]="this.totalLikelihoods >= 10" *permissionLink="'base.isms.likelihood.add'">
+            <i class="fas fa-plus"></i> Add
+        </button>
+    </div>
 
-<hr />
+    <hr />
 
-  <!--  Warning Alert -->
-  <app-warning-alert *ngIf="this.likelihoods.length < 3" iconClass="fas fa-info-circle warning-icon"
-    title="Insufficient Likelihoods:" message="You need to define at least 3 Likelihoods to proceed.">
-  </app-warning-alert>
+    <!--  Warning Alert -->
+    @if (this.likelihoods.length < 3) { <app-warning-alert iconClass="fas fa-info-circle warning-icon"
+        title="Insufficient Likelihoods:" message="You need to define at least 3 Likelihoods to proceed.">
+        </app-warning-alert>
+        }
 
-<!-- Table (cmdb-table) -->
-<cmdb-table [items]="likelihoods" [columns]="columns" [totalItems]="totalLikelihoods" [pageSize]="limit" [page]="page"
-    [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false" [infoEnabled]="false"
-    (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)">
-</cmdb-table>
+        <!-- Table (cmdb-table) -->
+        <cmdb-table [items]="likelihoods" [columns]="columns" [totalItems]="totalLikelihoods" [pageSize]="limit"
+            [page]="page" [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false"
+            [searchEnabled]="false" [infoEnabled]="false" (pageChange)="onPageChange($event)"
+            (pageSizeChange)="onPageSizeChange($event)">
+        </cmdb-table>
 
 </div>
 

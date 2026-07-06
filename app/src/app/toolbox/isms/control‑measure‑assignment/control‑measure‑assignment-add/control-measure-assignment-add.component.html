@@ -1,4 +1,5 @@
-<div class="container" *ngIf="form">
+@if (form) {
+<div class="container">
 
   <!-- ────────────── HEADLINE ────────────── -->
   <h2>
@@ -12,40 +13,52 @@
     <div class="form-block">
       <label>
         Control
-        <span *ngIf="!isViewMode" class="required">*</span>
+        @if (!isViewMode) {
+        <span class="required">*</span>
+        }
       </label>
 
-      <ng-container *ngIf="form.get('control_measure_id')?.disabled; else cmSelect">
-        <div class="bg-light border rounded px-3 py-2">
-          {{ getCMTitle(form.getRawValue().control_measure_id) }}
-        </div>
-      </ng-container>
+      @if (form.get('control_measure_id')?.disabled) {
 
-      <ng-template #cmSelect>
-        <app-form-select class="w-100" [items]="cmOptions" bindLabel="title" bindValue="public_id"
-          [formControl]="form.get('control_measure_id')">
-        </app-form-select>
-      </ng-template>
+      <div class="bg-light border rounded px-3 py-2">
+        {{ getCMTitle(form.getRawValue().control_measure_id) }}
+      </div>
+
+      } @else {
+
+      <app-form-select class="w-100" [items]="cmOptions" bindLabel="title" bindValue="public_id"
+        [formControl]="form.get('control_measure_id')">
+      </app-form-select>
+
+      }
+
+
     </div>
 
     <!-- ────────────── RISK ASSESSMENT ────────────── -->
     <div class="form-block mt-2">
       <label>
         Risk&nbsp;Assessment
-        <span *ngIf="!isViewMode" class="required">*</span>
+        @if (!isViewMode) {
+        <span class="required">*</span>
+        }
       </label>
 
-      <ng-container *ngIf="form.get('risk_assessment_id')?.disabled; else raSelect">
-        <div class="bg-light border rounded px-3 py-2">
-          {{ getRALabel(form.getRawValue().risk_assessment_id) }}
-        </div>
-      </ng-container>
+      @if (form.get('risk_assessment_id')?.disabled) {
 
-      <ng-template #raSelect>
-        <app-form-select class="w-100" [items]="raOptions" bindLabel="label" bindValue="public_id"
-          [formControl]="form.get('risk_assessment_id')">
-        </app-form-select>
-      </ng-template>
+      <div class="bg-light border rounded px-3 py-2">
+        {{ getRALabel(form.getRawValue().risk_assessment_id) }}
+      </div>
+
+      } @else {
+
+      <app-form-select class="w-100" [items]="raOptions" bindLabel="label" bindValue="public_id"
+        [formControl]="form.get('risk_assessment_id')">
+      </app-form-select>
+
+      }
+
+
     </div>
 
     <!-- ────────────── DATES ────────────── -->
@@ -57,7 +70,9 @@
 
     <div class="form-block mt-2">
       <label>Implementation Status
-        <span *ngIf="!isViewMode" class="required">*</span>
+        @if (!isViewMode) {
+        <span class="required">*</span>
+        }
       </label>
       <app-form-select class="w-100" [items]="statusOptions" bindLabel="value" bindValue="public_id"
         [formControl]="form.get('implementation_status')">
@@ -81,7 +96,9 @@
     <!-- ────────────── RESPONSIBLE ────────────── -->
     <div class="form-block">
       <label>Responsible
-        <span *ngIf="!isViewMode" class="required">*</span>
+        @if (!isViewMode) {
+        <span class="required">*</span>
+        }
       </label>
       <app-form-select class="w-100" [items]="respOptions" bindLabel="display_name" bindValue="public_id"
         groupBy="group" [formControl]="form.get('responsible_for_implementation_id')" [dropdownDirection]="'top'"
@@ -92,19 +109,23 @@
     <!-- ────────────── ACTION BUTTONS ────────────── -->
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
-      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()"
-        *ngIf="!isViewMode">
+      @if (!isViewMode) {
+      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
       </app-button>
+      }
       <div *permissionLink="['base.isms.controlMeasureAssignment.edit, base.isms.controlMeasureAssignment.add']">
         <!-- Submit Button -->
-        <app-button [bootstrapClass]="'btn-success'" [disabled]="form.invalid" *ngIf="!isViewMode"
+        @if (!isViewMode) {
+        <app-button [bootstrapClass]="'btn-success'" [disabled]="form.invalid"
           [label]="isEditMode ? 'Save Changes' : 'Assign Control'" (clicked)="onSave()">
         </app-button>
+        }
       </div>
     </div>
 
   </form>
 </div>
+}
 
 <!--  loader popup -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">

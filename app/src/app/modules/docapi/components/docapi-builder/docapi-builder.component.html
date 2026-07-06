@@ -1,4 +1,4 @@
-<aw-wizard [navBarLayout]="'large-empty-symbols'">
+<aw-wizard #wizard [navBarLayout]="'large-empty-symbols'">
     <aw-wizard-step stepId="1" stepTitle="Template Settings">
         <ng-template awWizardStepSymbol>
             <i class="fas fa-cogs"></i>
@@ -7,15 +7,22 @@
             [preData]="docInstance"
             [mode]="mode"
         />
-        <button class="btn btn-primary prev" type="button" [routerLink]="['/docapi']">
-            Cancel
-        </button>
-        <button class="btn btn-primary next" type="button" awNextStep [disabled]="!settingsStep.settingsForm.valid">
-            Next
-        </button>
+        <app-button
+            label="Cancel"
+            [type]="'button'"
+            bootstrapClass="btn-secondary prev"
+            (clicked)="cancel()"
+        ></app-button>
+        <app-button
+            label="Next"
+            [type]="'button'"
+            bootstrapClass="btn-success next"
+            [disabled]="!settingsStep.settingsForm.valid"
+            (clicked)="nextStep()"
+        ></app-button>
     </aw-wizard-step>
 
-    <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = { templateType: typeStep.typeForm.get('template_type').value, parameters: typeStep.typeParamComponent?.typeParamForm?.value }">
+    <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = { templateType: typeStep.typeForm.get('template_type')?.value, parameters: typeStep.typeParamComponent?.typeParamForm?.value }">
         <ng-template awWizardStepSymbol>
             <i class="fas fa-cogs"></i>
         </ng-template>
@@ -23,13 +30,21 @@
             [preData]="docInstance"
             [mode]="mode"
             (formValidEmitter)="typeStepFormValid = $event"
+            (typeParamReady)="onTypeParamReady()"
         />
-        <button class="btn btn-primary prev" type="button" awPreviousStep>
-            Previous
-        </button>
-        <button class="btn btn-primary next" type="button" awNextStep [disabled]="!typeStep.typeValid || !typeStep.typeChildValid">
-            Next
-        </button>
+        <app-button
+            label="Previous"
+            [type]="'button'"
+            bootstrapClass="btn-primary prev"
+            (clicked)="previousStep()"
+        ></app-button>
+        <app-button
+            label="Next"
+            [type]="'button'"
+            bootstrapClass="btn-success next"
+            [disabled]="!typeStep.isStepValid"
+            (clicked)="nextStep()"
+        ></app-button>
     </aw-wizard-step>
 
     <aw-wizard-step stepId="3" stepTitle="Template Content">
@@ -40,13 +55,21 @@
             [preData]="docInstance"
             [typeParam]="typeParam"
             [mode]="mode"
+            (previewRequested)="openPreviewObjectModal()"
         />
-        <button class="btn btn-primary prev" type="button" awPreviousStep>
-            Previous
-        </button>
-        <button class="btn btn-success next" type="button" awNextStep [disabled]="!contentStep.contentForm.valid">
-            Next
-        </button>
+        <app-button
+            label="Previous"
+            [type]="'button'"
+            bootstrapClass="btn-primary prev"
+            (clicked)="previousStep()"
+        ></app-button>
+        <app-button
+            label="Next"
+            [type]="'button'"
+            bootstrapClass="btn-success next"
+            [disabled]="!contentStep.contentForm.valid"
+            (clicked)="nextStep()"
+        ></app-button>
     </aw-wizard-step>
 
     <aw-wizard-step stepId="4" stepTitle="Template Custom Style">
@@ -57,11 +80,23 @@
             [preData]="docInstance"
             [mode]="mode"
         />
-        <button class="btn btn-primary prev" type="button" awPreviousStep>
-            Previous
-        </button>
-        <button class="btn btn-success next" type="button" (click)="saveDoc()">
-            Save
-        </button>
+        <app-button
+            label="Previous"
+            [type]="'button'"
+            bootstrapClass="btn-primary prev"
+            (clicked)="previousStep()"
+        ></app-button>
+        <app-button
+            label="Save"
+            [type]="'button'"
+            bootstrapClass="btn-success next"
+            [disabled]="isSaving"
+            (clicked)="saveDoc()"
+        ></app-button>
     </aw-wizard-step>
 </aw-wizard>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
@@ -36,11 +36,9 @@ export class CoreWarningModalComponent {
   @Input() backOnClose: boolean = false;
   @Input() cancelRoute: string;
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private router: Router,
-    private location: Location
-  ) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly router = inject(Router);
+  private readonly location = inject(Location);
 
   navigate(): void {
     this.activeModal.close('confirmed');

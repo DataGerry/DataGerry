@@ -1,73 +1,83 @@
 <form [formGroup]="form" class="needs-validation" novalidate>
   <table class="table table-hover mb-0">
     <thead>
-    <tr class="d-flex">
-      <th scope="col" class="col-5">LDAP DN</th>
-      <th scope="col" class="col-6">Group</th>
-      <th scope="col" class="col-1 text-center">#</th>
-    </tr>
+      <tr class="d-flex">
+        <th scope="col" class="col-5">LDAP DN</th>
+        <th scope="col" class="col-6">Group</th>
+        <th scope="col" class="col-1 text-center">#</th>
+      </tr>
     </thead>
     <tbody>
-    <tr class="d-flex border-bottom">
-      <td class="col-5">
-        <div class="input-group">
-          <input class="form-control" type="text" formControlName="group_dn"
-                 [ngClass]="{ 'is-valid': groupDNControl.valid && (groupDNControl.dirty || groupDNControl.touched),
+      <tr class="d-flex border-bottom">
+        <td class="col-5">
+          <div class="input-group">
+            <input class="form-control" type="text" formControlName="group_dn" [ngClass]="{ 'is-valid': groupDNControl.valid && (groupDNControl.dirty || groupDNControl.touched),
                  'is-invalid': groupDNControl.invalid && (groupDNControl.dirty || groupDNControl.touched)}">
-          <div *ngIf="groupDNControl.invalid && (groupDNControl.dirty || groupDNControl.touched)"
-               class="invalid-feedback">
-            <span *ngIf="groupDNControl.errors?.required">
-              A <i>LDAP DN</i> group is required.
-            </span>
-            <span *ngIf="groupDNControl.errors?.dnAlreadyExists">
-              A <i>mapping</i> with this DN already exists in the list below.
-            </span>
+            @if (groupDNControl.invalid && (groupDNControl.dirty || groupDNControl.touched)) {
+            <div class="invalid-feedback">
+              @if (groupDNControl.errors?.required) {
+              <span>
+                A <i>LDAP DN</i> group is required.
+              </span>
+              }
+              @if (groupDNControl.errors?.dnAlreadyExists) {
+              <span>
+                A <i>mapping</i> with this DN already exists in the list below.
+              </span>
+              }
+            </div>
+            }
           </div>
-        </div>
-        <small *ngIf="groupDNControl.valid || (!groupDNControl.dirty && groupDNControl.untouched)"
-               class="description form-text text-muted">
-          Enter the distinguished name of the ldap group you want to match.
-        </small>
-      </td>
-      <td class="col-6">
-        <div class="input-group">
-          <select class="form-select" formControlName="group_id"
-                  [ngClass]="{ 'is-valid': groupIDControl.valid && (groupIDControl.dirty || groupIDControl.touched),
+          @if (groupDNControl.valid || (!groupDNControl.dirty && groupDNControl.untouched)) {
+          <small class="description form-text text-muted">
+            Enter the distinguished name of the ldap group you want to match.
+          </small>
+          }
+        </td>
+        <td class="col-6">
+          <div class="input-group">
+            <select class="form-select" formControlName="group_id" [ngClass]="{ 'is-valid': groupIDControl.valid && (groupIDControl.dirty || groupIDControl.touched),
                  'is-invalid': groupIDControl.invalid && (groupIDControl.dirty || groupIDControl.touched)}">
-            <option *ngFor="let group of groups"
-                    [value]="group.public_id">{{group.label ? group.label : group.name}}</option>
-          </select>
-          <div *ngIf="groupIDControl.invalid && (groupIDControl.dirty || groupIDControl.touched)"
-               class="invalid-feedback">
-            <span *ngIf="groupIDControl.errors?.required">
-              Selecting a group is required for mapping.
-            </span>
+              @for (group of groups; track group) {
+              <option [value]="group.public_id">{{group.label ? group.label : group.name}}</option>
+              }
+            </select>
+            @if (groupIDControl.invalid && (groupIDControl.dirty || groupIDControl.touched)) {
+            <div class="invalid-feedback">
+              @if (groupIDControl.errors?.required) {
+              <span>
+                Selecting a group is required for mapping.
+              </span>
+              }
+            </div>
+            }
           </div>
-        </div>
-        <small *ngIf="groupIDControl.valid || (!groupIDControl.dirty && groupIDControl.untouched)"
-               class="description form-text text-muted">
-          Map with the corresponding DATAGERRY group.
-        </small>
-      </td>
-      <td class="col-1 text-center">
-        <button type="button" class="btn btn-sm btn-success" (click)="addMapping()" [disabled]="form.invalid">
-          <i class="far fa-plus-square"></i>
-        </button>
-      </td>
-    </tr>
+          @if (groupIDControl.valid || (!groupIDControl.dirty && groupIDControl.untouched)) {
+          <small class="description form-text text-muted">
+            Map with the corresponding DATAGERRY group.
+          </small>
+          }
+        </td>
+        <td class="col-1 text-center">
+          <button type="button" class="btn btn-sm btn-success" (click)="addMapping()" [disabled]="form.invalid">
+            <i class="far fa-plus-square"></i>
+          </button>
+        </td>
+      </tr>
     </tbody>
   </table>
 </form>
 <ul class="list-group list-group-flush" dndDropzone dndEffectAllowed="move" (dndDrop)="onDrop($event)">
   <li class="list-group-item" dndPlaceholderRef></li>
-  <li class="list-group-item" *ngFor="let group of mappingForm.controls; let i = index" [dndDraggable]="i"
-      dndEffectAllowed="move">
+  @for (group of mappingForm.controls; track group; let i = $index) {
+  <li class="list-group-item" [dndDraggable]="i" dndEffectAllowed="move">
     <div class="row">
       <div class="col-5">
         {{group.get('group_dn').value}}
       </div>
       <div class="col-6">
-        {{getGroupFromID(group.get('group_id').value) ? getGroupFromID(group.get('group_id').value).label : 'Unknown Group'}}
+        {{getGroupFromID(group.get('group_id').value) ? getGroupFromID(group.get('group_id').value).label : 'Unknown
+        Group'}}
       </div>
       <div class="col-1 d-flex justify-content-center action-buttons">
         <i class="fas fa-arrows-alt-v move me-3"></i>
@@ -75,5 +85,5 @@
       </div>
     </div>
   </li>
+  }
 </ul>
-

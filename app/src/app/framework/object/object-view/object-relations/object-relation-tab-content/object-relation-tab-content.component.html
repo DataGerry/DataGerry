@@ -1,0 +1,76 @@
+<div class="d-flex justify-content-between align-items-center">
+  <h1>{{ tab().label }}</h1>
+  <div class="d-flex align-items-center gap-2">
+    <button
+      type="button"
+      class="btn btn-danger btn-sm me-1"
+      *permissionLink="'base.framework.objectRelation.delete'"
+      [ngbTooltip]="selectedIds().length ? null : 'No object relations selected for deletion'"
+      [disabled]="!selectedIds().length"
+      (click)="onDeleteSelected()">
+      <i class="far fa-trash-alt"></i> Delete Selected
+      <span class="badge bg-secondary bg-pill">{{ selectedIds().length }}</span>
+    </button>
+    <button type="button" class="btn btn-sm btn-success" (click)="add.emit()">
+      <i class="fas fa-plus"></i> Add {{ tab().label }}
+    </button>
+  </div>
+</div>
+<hr />
+
+<cmdb-table
+  [items]="rows()"
+  [columns]="columns"
+  [loading]="loading()"
+  [totalItems]="total()"
+  [pageSize]="pageSize()"
+  [page]="page()"
+  [selectEnabled]="true"
+  [searchEnabled]="false"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectionChange($event)">
+</cmdb-table>
+
+<!-- Type column: counterpart type label + icon -->
+<ng-template #typeTemplate let-item="item">
+  <ng-container *ngIf="item?.counterpart as counterpart">
+    <i [class]="counterpart.icon" class="me-1"></i>{{ counterpart.type_label }}
+  </ng-container>
+</ng-template>
+
+<!-- Relation object column: link to the resolved counterpart -->
+<ng-template #counterpartTemplate let-item="item">
+  <ng-container *ngIf="item?.counterpart as counterpart">
+    <i [class]="counterpart.icon" class="me-1"></i>
+    <a [routerLink]="['/framework/object/view/', counterpart.object_id]">
+      #{{ counterpart.object_id }} {{ counterpart.type_label }}
+    </a>
+    <span *ngIf="counterpart.summary_line"> - {{ counterpart.summary_line }}</span>
+  </ng-container>
+</ng-template>
+
+<!-- Row actions -->
+<ng-template #actionsTemplate let-item="item">
+  <span *permissionLink="['base.framework.objectRelations.view']">
+    <button type="button" class="relation-action" (click)="view.emit(item)"
+      aria-label="View relation" title="View Relation">
+      <i class="far fa-eye spacing-right icon-view"></i>
+    </button>
+  </span>
+  <span *permissionLink="['base.framework.objectRelations.edit']">
+    <button type="button" class="relation-action" (click)="edit.emit(item)"
+      aria-label="Edit relation" title="Edit Relation">
+      <i class="far fa-edit btn-edit spacing-right icon-edit"></i>
+    </button>
+  </span>
+  <button type="button" class="relation-action" (click)="copy.emit(item)"
+    aria-label="Copy relation" title="Copy Relation">
+    <i class="far fa-clone spacing-right icon-copy"></i>
+  </button>
+  <button type="button" class="relation-action" (click)="remove.emit(item)"
+    aria-label="Delete relation" title="Delete Relation">
+    <i class="far fa-trash-alt btn-delete icon-delete"></i>
+  </button>
+</ng-template>

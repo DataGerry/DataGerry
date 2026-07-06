@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -93,9 +93,8 @@ export class AclObjectsTableComponent implements OnInit, OnDestroy {
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(private typeService: TypeService, private permissionService: PermissionService) {
-
-    }
+    private readonly typeService = inject(TypeService);
+    private readonly permissionService = inject(PermissionService);
 
 
     public ngOnInit(): void {

@@ -1,5 +1,5 @@
 <div [attr.id]="id" #container class="dg-table table-container">
-    <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading>
+    <!-- <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading> -->
 
     <div class="table-header d-flex mb-3" *ngIf="pageSizeEnabled || stateEnabled || toggleable || searchEnabled">
         <div class="me-auto" *ngIf="pageSizeEnabled">
@@ -56,6 +56,7 @@
         </div>
     </div>
 
+    <div #scroll class="table-scroll">
     <table #table layout-table class="table">
         <!-- Main Header -->
         <thead table-head [sortable]="sortable">
@@ -79,7 +80,7 @@
                 
                 <!-- Existing Columns -->
                 <th
-                    table-column-head *ngFor="let column of columns"
+                    table-column-head *ngFor="let column of columns; trackBy: trackByName"
                     [column]="column"
                     [sortActivated]="column.name === sort.name"
                     [ngClass]="columnClasses"
@@ -109,7 +110,7 @@
                 <th *ngIf="selectEnabled" [ngStyle]="{'width': '2rem'}"></th>
                 
                 <!-- Search Inputs for Columns -->
-                <th *ngFor="let column of columns" [hidden]="column.hidden">
+                <th *ngFor="let column of columns; trackBy: trackByName" [hidden]="column.hidden">
                     <input type="text" class="form-control form-control-sm" [formControlName]="column.name"
                         placeholder="Search {{column.display}}" />
                 </th>
@@ -121,12 +122,12 @@
             [cdkDropListData]="items" [cdkDropListDisabled]="!isDraggable" (cdkDropListDropped)="onRowDrop($event)">
             <tr
                 table-row
-                *ngFor="let item of items; let rowIndex = index"
+                *ngFor="let item of items; let rowIndex = index; trackBy: trackById"
                 [item]="item"
                 [rowIndex]="rowIndex"
                 cdkDrag
                 [ngClass]="[
-                    (rowClasses && rowClasses.length ? rowClasses.join(' ') : ''),
+                    joinedRowClasses,
                     reportRowValidationClass ? reportRowValidationClass(item) : ''
                 ]"
             >
@@ -152,7 +153,7 @@
                 <!-- Data Columns -->
                 <td
                     table-cell
-                    *ngFor="let column of columns"
+                    *ngFor="let column of columns; trackBy: trackByName"
                     [column]="column"
                     [item]="item"
                     [hidden]="column.hidden"
@@ -189,6 +190,14 @@
         <tfoot table-foot>
         </tfoot>
     </table>
+    </div>
+
+    <!-- Custom horizontal scrollbar pinned to the bottom of the viewport. Always visible
+         while the table overflows (unlike the OS scrollbar), so users know to scroll to
+         reach the remaining columns. Track + thumb are driven by the component. -->
+    <div #stickyScrollbar class="table-sticky-scrollbar is-hidden">
+        <div #stickyThumb class="table-sticky-scrollbar__thumb"></div>
+    </div>
 
     <div class="table-footer d-flex">
         <div class="me-auto">

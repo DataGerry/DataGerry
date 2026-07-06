@@ -1,0 +1,122 @@
+<cmdb-table
+  class="ipam-ip-table"
+  [id]="'ipam-ip-table'"
+  [items]="items"
+  [columns]="columns"
+  [initialVisibleColumns]="initialVisibleColumns"
+  [totalItems]="totalItems"
+  [page]="page"
+  [pageSize]="pageSize"
+  [sort]="sort"
+  [loading]="loading"
+  [selectEnabled]="true"
+  [selectedItems]="selectedRows"
+  [customButtons]="bulkButtonTemplates"
+  [searchEnabled]="false"
+  [paginationEnabled]="true"
+  [pageSizeEnabled]="true"
+  [toggleable]="false"
+  [emptyMessage]="'No IP addresses to display.'"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectedChange($event)">
+</cmdb-table>
+
+<ng-template #bulkUnassignButton>
+  @if (selectedCount > 0) {
+    <button
+      type="button"
+      class="btn btn-danger btn-sm ipam-bulk-unassign"
+      (click)="onUnassignSelected()">
+      <i class="fa fa-unlink" aria-hidden="true"></i>
+      Unassign Selected
+      <span class="badge bg-secondary bg-pill">{{ selectedCount }}</span>
+    </button>
+  }
+</ng-template>
+
+<ng-template #typeTemplate let-item="item">
+  @if (item?.type_info?.label) {
+    <span class="ipam-badge ipam-badge--type">{{ item.type_info.label }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #statusTemplate let-item="item">
+  @if (item?.status === 'free') {
+    <span class="ipam-status ipam-status--free">
+      <span class="ipam-status__dot" aria-hidden="true"></span>
+      Free
+    </span>
+  } @else {
+    <span class="ipam-status ipam-status--used">
+      <span class="ipam-status__dot" aria-hidden="true"></span>
+      {{ statusLabel(item?.status) }}
+    </span>
+  }
+</ng-template>
+
+<ng-template #assignedToTemplate let-item="item">
+  @if (item?.assigned_to?.summary_line) {
+    @if (item.assigned_to.public_id != null) {
+      <a
+        class="ipam-assigned-link"
+        [routerLink]="['/', 'framework', 'object', 'view', item.assigned_to.public_id]"
+        [title]="'View ' + item.assigned_to.summary_line">
+        {{ item.assigned_to.summary_line }}
+      </a>
+    } @else {
+      <span>{{ item.assigned_to.summary_line }}</span>
+    }
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #valueTemplate let-data="data">
+  @if (data) {
+    <span>{{ data }}</span>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #actionsTemplate let-item="item">
+  @if (canUnassign(item) || canAssign(item)) {
+    <div class="ipam-row-actions" ngbDropdown [container]="isFullscreen ? null : 'body'" placement="bottom-end">
+      <button
+        type="button"
+        class="ipam-row-actions__trigger"
+        aria-label="Row actions"
+        ngbDropdownToggle>
+        <i class="fa fa-ellipsis-v" aria-hidden="true"></i>
+      </button>
+      <div ngbDropdownMenu class="ipam-row-actions__menu">
+        @if (canAssign(item)) {
+          <button
+            type="button"
+            ngbDropdownItem
+            class="ipam-row-actions__item"
+            (click)="onAssignRow(item)">
+            <i class="fa fa-link ipam-row-actions__item-icon" aria-hidden="true"></i>
+            <span>Assign</span>
+          </button>
+        }
+        @if (canUnassign(item)) {
+          <button
+            type="button"
+            ngbDropdownItem
+            class="ipam-row-actions__item ipam-row-actions__item--danger"
+            (click)="onUnassignRow(item)">
+            <i class="fa fa-unlink ipam-row-actions__item-icon" aria-hidden="true"></i>
+            <span>Unassign</span>
+          </button>
+        }
+      </div>
+    </div>
+  } @else {
+    <span class="ipam-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>

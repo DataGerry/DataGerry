@@ -2,20 +2,50 @@
     <div class="row">
         <div class="col">
             <form [formGroup]="styleForm" id="styleForm" class="needs-validation" novalidate autocomplete="off">
+                <div class="css-support mb-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" (click)="toggleCssSupportDetails()"
+                        [attr.aria-expanded]="showCssSupportDetails" aria-controls="docCustomCssSupportDetails">
+                        Show CSS compatibility details
+                    </button>
+
+                    @if (showCssSupportDetails) {
+                    <div class="alert alert-info mt-2 mb-0" id="docCustomCssSupportDetails" role="note"
+                        aria-label="CSS compatibility information">
+                        <h6 class="mb-2">CSS compatibility for PDF rendering</h6>
+                        <p class="mb-2">Only a limited CSS subset is supported.</p>
+
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-6">
+                                <p class="mb-1 fw-semibold">Supported properties</p>
+                                <ul class="mb-0 ps-3">
+                                    @for (property of supportedCssProperties; track property) {
+                                    <li>{{ property }}</li>
+                                    }
+                                </ul>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <p class="mb-1 fw-semibold">Not supported</p>
+                                <ul class="mb-0 ps-3">
+                                    @for (property of unsupportedCssProperties; track property) {
+                                    <li>{{ property }}</li>
+                                    }
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    }
+                </div>
+
                 <div class="mb-3">
                     <label class="mb-2" for="docCustomCssInput">(Optional) Custom CSS:</label>
-                    <textarea
-                        class="form-control"
-                        formControlName="template_style"
-                        id="docCustomCssInput"
-                        rows="20"
-                        aria-describedby="docCustomCssInputHelp"
-                    ></textarea>
+                    <textarea class="form-control" formControlName="template_style" id="docCustomCssInput" rows="20"
+                        aria-describedby="docCustomCssInputHelp"></textarea>
                     <small id="docCustomCssInputHelp" class="form-text text-muted">
                         Enter Custom CSS styling here
                     </small>
                     <div class="clearfix"></div>
                 </div>
+
             </form>
         </div>
     </div>

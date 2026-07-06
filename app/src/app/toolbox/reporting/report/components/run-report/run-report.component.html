@@ -1,0 +1,36 @@
+@if (showHeader) {
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Report Results</h1>
+</div>
+}
+@if (showHeader) {
+<hr />
+}
+@if (showActions) {
+<div class="d-flex justify-content-between align-items-center button-margin">
+  @if (showGoBack) {
+  <div class="btn-group text-start">
+    <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
+      <i class="fas fa-arrow-left icon-margin"></i> Go Back
+    </button>
+  </div>
+  }
+  @if (showExport) {
+  <div class="btn-group text-end">
+    <div>
+      <button class="btn btn-secondary" (click)="exportingFiles()" [disabled]="!disableExportButton()">
+        Export as CSV
+      </button>
+    </div>
+  </div>
+  }
+</div>
+}
+<cmdb-table [items]="displayedItems" [totalItems]="total" [columns]="columns" [sort]="sort" [loading]="loading"
+  [page]="page" [pageSize]="limit" [sortable]="enableSorting" [searchEnabled]="enableSearch"
+  [paginationEnabled]="enablePagination" [pageSizeEnabled]="enablePageSize" [infoEnabled]="enableInfo"
+  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
+  (searchChange)="onSearchChange($event)">
+</cmdb-table>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

@@ -1,10 +1,20 @@
-<li class="list-group panel" *ngIf="type">
+@if (type) {
+<li class="list-group panel">
   <a class="list-group-item d-flex justify-content-between align-items-center"
-     [routerLink]="['/framework/object/type/', type.public_id]" routerLinkActive="active">
-      <span class="shorten-long-text"
-            data-bs-toggle="tooltip" title="{{type.label}}">
-        <i class="{{type.render_meta['icon']}}" aria-hidden="true"></i> {{type.label}}
-      </span>
-    <span class="badge text-bg-primary rounded-pill ms-2" style="color: #FFFFFF !important;">{{objectCounter}}</span>
+    [routerLink]="['/framework/object/type/', type.public_id]" routerLinkActive="active">
+    <span class="shorten-long-text" data-bs-toggle="tooltip" title="{{type.label}}">
+      <i class="{{type.render_meta['icon']}}" aria-hidden="true"></i> {{type.label}}
+    </span>
+    <span class="badge text-bg-primary rounded-pill ms-2" style="color: #FFFFFF !important;" aria-live="polite"
+      aria-atomic="true"
+      [attr.aria-label]="objectCounter === null ? 'Loading object count' : objectCounter + ' objects'">
+      @if (objectCounter === null) {
+      <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+      }
+      @else {
+      {{ objectCounter }}
+      }
+    </span>
   </a>
 </li>
+}

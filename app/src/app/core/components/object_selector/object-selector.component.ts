@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnInit, Output, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnInit, Output, OnChanges, SimpleChanges } from '@angular/core';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -33,7 +33,14 @@ import { ObjectSearchFilterService } from 'src/app/core/services/object-search-f
     standalone: false
 })
 export class ObjectSelectorComponent implements OnInit, OnChanges {
+  private readonly objectService = inject(ObjectService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly infiniteScrollService = inject(InfiniteScrollService);
+  private readonly objectSearchFilterService = inject(ObjectSearchFilterService);
+
   @Input() typeIds: number[] = [];
+  @Input() allObjects = false;
   @Input() multiple = false;
   @Input() selectedIds: any[] = [];
   @Input() isViewMode = false;
@@ -56,19 +63,11 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
   private hasMoreData: boolean = true;
   private isSearching: boolean = false;
   private searchTerm: string = '';
-  private searchSubject = new Subject<string>();
+  public searchSubject = new Subject<string>();
   private isLoading: boolean = false;
 
   // Unique identifier for infinite scroll
   private readonly scrollUniqueId = 'object-selector-scroll';
-
-  constructor(
-    private objectService: ObjectService,
-    private loaderService: LoaderService,
-    private toast: ToastService,
-    private infiniteScrollService: InfiniteScrollService,
-    private objectSearchFilterService: ObjectSearchFilterService
-  ) {}
 
   ngOnInit(): void {
     this.isLoading$ = this.useInlineLoader ? this.inlineLoading$.asObservable()
@@ -86,14 +85,15 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    // If typeIds change (and it's not the first change), refetch objects
-    if (changes.typeIds && !changes.typeIds.firstChange) {
+    // Refetch when object scope changes.
+    if ((changes.typeIds && !changes.typeIds.firstChange) ||
+        (changes.allObjects && !changes.allObjects.firstChange)) {
       this.fetchObjects(true);
     }
   }
 
   private fetchObjects(resetPagination: boolean = true): void {
-    if (!this.typeIds || this.typeIds.length === 0) {
+    if (!this.allObjects && (!this.typeIds || this.typeIds.length === 0)) {
       this.initSelectedObjects();
       return;
     }
@@ -105,9 +105,10 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     }
 
     // Build filters based on mode
+    const effectiveTypeIds = this.allObjects ? undefined : this.typeIds;
     const filters = this.objectSearchFilterService.buildSearchPipeline(
       this.isSearching ? this.searchTerm : '',
-      this.typeIds
+      effectiveTypeIds
     );
 
     if (this.isViewMode && this.selectedIds?.length) {
@@ -124,13 +125,14 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     // Conditionally include fields if requested
     if (this.includeFields) {
       baseProjection['fields'] = 1;
+      baseProjection['sections'] = 1;
     }
 
     this.params = {
       filter: filters,
       projection: baseProjection,
       limit: this.isSearching ? 0 : this.pageSize, // In search mode, get all results
-      sort: 'public_id',
+      sort: 'type_id',
       order: 1,
       page: this.isSearching ? 1 : this.currentPage
     };
@@ -141,20 +143,21 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
       finalize(() => this.setLoading(false))
     ).subscribe({
       next: (response: APIGetMultiResponse<RenderResult>) => {
+        const incomingResults = this.getUniqueObjectsById(response.results || []);
 
         if (resetPagination) {
-          this.objectList = response.results || [];
+          this.objectList = incomingResults;
         } else {
-          this.objectList = [...this.objectList, ...(response.results || [])];
+          this.objectList = this.getUniqueObjectsById([...this.objectList, ...incomingResults]);
         }
         
         // Update hasMoreData for pagination mode
         if (!this.isSearching) {
-          this.hasMoreData = response.results?.length === this.pageSize;
-          // Only increment page if we're not resetting pagination
-          if (!resetPagination) {
-            this.currentPage++;
-          }
+          this.hasMoreData = incomingResults.length === this.pageSize;
+          // Advance page after each successful non-search fetch:
+          // reset fetch (page 1) -> next page becomes 2
+          // incremental fetch (page N) -> next page becomes N + 1
+          this.currentPage++;
         }
         
         this.initSelectedObjects();
@@ -176,6 +179,17 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
         this.initSelectedObjects();
       }
     });
+  }
+
+  private getUniqueObjectsById(objects: RenderResult[]): RenderResult[] {
+    const uniqueByObjectId = new Map<number, RenderResult>();
+    for (const obj of objects) {
+      const objectId = obj?.object_information?.object_id;
+      if (objectId !== undefined && objectId !== null && !uniqueByObjectId.has(objectId)) {
+        uniqueByObjectId.set(objectId, obj);
+      }
+    }
+    return Array.from(uniqueByObjectId.values());
   }
 
   private initSelectedObjects(): void {

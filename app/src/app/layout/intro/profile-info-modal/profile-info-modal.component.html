@@ -1,26 +1,28 @@
 <div class="modal-content">
     <div class="modal-body">
-        <img id="login-logo" 
-            src="/assets/img/datagerry_logo.svg" 
-            class="img-fluid mx-auto d-block w-50"
-            alt="DATAGERRY"/>
+        <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50"
+            alt="DATAGERRY" />
         <br>
-        Select the data categories for which you want to use DataGerry. Each of these categories has a set of configuration
+        Select the data categories for which you want to use DataGerry. Each of these categories has a set of
+        configuration
         item classes. The pre-selected categories are recommended by your previous industry selection.
         <br>
         <br>
         <form [formGroup]="profileForm">
             <div class="checkbox-section">
-                <div class="mb-3" *ngFor="let profileName of activeProfiles">
+                @for (profileName of activeProfiles; track profileName) {
+                <div class="mb-3">
                     <input formControlName="{{profileName}}" type="checkbox" id="{{profileName}}">
                     <label class="profile-label" for="{{profileName}}">{{branchProfileNames[profileName]}}</label>
                 </div>
+                }
             </div>
         </form>
     </div>
     <div class="modal-footer">
         <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
         <button type="button" class="btn btn-light " (click)="activeModal.close('back')">Back</button>
-        <button type="button" class="btn btn-primary p-2" [disabled]="!profileForm.valid" (click)="activeModal.close(profileForm.value)">Create</button>
+        <button type="button" class="btn btn-primary p-2" [disabled]="!profileForm.valid"
+            (click)="activeModal.close(profileForm.value)">Create</button>
     </div>
 </div>

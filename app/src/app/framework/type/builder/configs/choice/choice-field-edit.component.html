@@ -1,6 +1,7 @@
 <div [formGroup]="form" class="row">
 
-    <div *ngIf="this.fieldSectionType === 'multi-data-section'">
+    @if (this.fieldSectionType === 'multi-data-section') {
+<div>
         <div class="col-md-12">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
@@ -17,6 +18,7 @@
             </div>
         </div>
     </div>
+}
 
     <div class="col-md-12">
         <label class="mb-1">Required/Identifier<span class="required">*</span>:</label>
@@ -49,24 +51,29 @@
                     <fa-icon [icon]="['far', 'copy']"></fa-icon>
                 </button>
             </div>
-            <div *ngIf="isDuplicate$" class="invalid-feedback">
+            @if (isDuplicate$) {
+<div class="invalid-feedback">
                 <div class="text-end">
                     Field name must be unique
                 </div>
             </div>
+}
         </div>
-        <small class="form-text text-muted text-start">Use a unique field identifier</small>
-        <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="text-end" *ngIf="nameControl.errors?.required">
+        <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
+        @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
+<div class="invalid-feedback">
+            @if (nameControl.errors?.required) {
+<div class="text-end">
                 Identifier is a required field
             </div>
+}
         </div>
+}
         <div class="clearfix"></div>
     </div>
     <div class="col-md-12">
         <label class="mt-3 mb-1">Label<span class="required">*</span>:</label>
         <input
-            [(ngModel)]="data.label"
             [formControl]="labelControl"
             type="text" class="form-control"
             placeholder="Field label"
@@ -75,11 +82,15 @@
             (ngModelChange)="onInputChange($event, 'label')"
         />
         <small class="form-text text-muted text-start">A static display name</small>
-        <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="text-end" *ngIf="labelControl.errors?.required">
+        @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
+<div class="invalid-feedback">
+            @if (labelControl.errors?.required) {
+<div class="text-end">
                 Label is a required field
             </div>
+}
         </div>
+}
         <div class="clearfix"></div>
     </div>
     <div class="col-md-12">
@@ -118,7 +129,8 @@
                 </tr>
             </thead>
             <tbody>
-                <tr *ngFor="let option of options; let i = index">
+                @for (option of options; track option; let i = $index) {
+<tr>
                     <th scope="row">{{i + 1}}</th>
                     <td>
                         <input
@@ -152,6 +164,7 @@
                         </button>
                     </td>
                 </tr>
+}
                 <tr>
                     <td colspan="4">
                         <button type="button" class="btn btn-outline-secondary" (click)="addOption()"
@@ -172,9 +185,11 @@
             (ngModelChange)="onInputChange($event, 'value')"
             >
             <option></option>
-            <option *ngFor="let opt of options; let i = index" [value]="opt.name">
+            @for (opt of options; track opt; let i = $index) {
+<option [value]="opt.name">
                 Label: {{opt.label}} Name: {{opt.name}}
             </option>
+}
         </select>
     </div>
 </div>

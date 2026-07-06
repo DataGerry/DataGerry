@@ -26,6 +26,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { FilterProfile } from '../../interfaces/graph.interfaces';
 import { GraphProfileService } from '../../services/graph-profile.service';
 import { ProfileDeleteModalComponent } from '../profile-delete/profile-delete-modal.component';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 
 @Component({
     selector: 'app-profile-manager-modal',
@@ -50,7 +51,8 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
     private profileService: GraphProfileService,
     private loaderService: LoaderService,
     private toast: ToastService,
-    private modalService: NgbModal
+    private modalService: NgbModal,
+    private fullscreenModalService: FullscreenModalService
   ) {
     this.profileForm = this.fb.group({
       name: ['', [Validators.required]],
@@ -168,7 +170,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
    * @param profile 
    */
   deleteProfile(profile: FilterProfile): void {
-    const modalRef: NgbModalRef = this.modalService.open(ProfileDeleteModalComponent, {
+    const modalRef: NgbModalRef = this.fullscreenModalService.open(this.modalService, ProfileDeleteModalComponent, {
       size: 'md',
       centered: false,
     });

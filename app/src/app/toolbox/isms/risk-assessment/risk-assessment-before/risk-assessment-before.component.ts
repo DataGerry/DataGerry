@@ -17,6 +17,7 @@
 */
 import {
   Component,
+  inject,
   DestroyRef,
   Input,
   OnChanges,
@@ -45,6 +46,8 @@ const FALLBACK_GREY = '#f5f5f5';
     standalone: false
 })
 export class RiskAssessmentBeforeComponent implements OnInit, OnChanges {
+  private readonly destroyRef = inject(DestroyRef);
+
   @Input({ required: true }) parentForm!: FormGroup;
   @Input() isView = false;
 
@@ -67,13 +70,6 @@ export class RiskAssessmentBeforeComponent implements OnInit, OnChanges {
 
   private riskClassMap = new Map<number, RiskClass>();
   ownerOptions: any[] = [];
-
-
-  constructor(
-    private readonly destroyRef: DestroyRef
-  ) { }
-
-
 
   ngOnInit(): void {
     // Include "Not rated" in the labels

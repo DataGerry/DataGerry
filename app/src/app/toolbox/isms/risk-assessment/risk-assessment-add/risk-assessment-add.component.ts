@@ -20,7 +20,7 @@ import {
   inject,
   Input,
   OnInit,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -61,9 +61,7 @@ import { RiskAssessmentTreatmentComponent } from '../risk-assessment-treatment/r
 import { ControlMeasureAssignmentService } from '../../services/control‑measure‑assignment.service';
 import { IsmsValidationService } from '../../services/isms-validation.service';
 
-/* ------------------------------------------------------------------------------------ */
-/*  Small enum for string literals                                                      */
-/* ------------------------------------------------------------------------------------ */
+
 export enum IdRefType {
   OBJECT = 'OBJECT',
   OBJECT_GROUP = 'OBJECT_GROUP',
@@ -79,13 +77,14 @@ type Expanded = Record<'top' | 'before' | 'treatment' | 'after' | 'audit', boole
     standalone: false
 })
 export class RiskAssessmentAddComponent implements OnInit {
+  private readonly location = inject(Location);
 
   @ViewChild('treatmentBlock')
   private treatmentBlock!: RiskAssessmentTreatmentComponent;
 
 
   /* ──────────────────────────────────────────────────────────────────────────
-   *  Dependencies – initialise FIRST so later properties may read them
+   *  Dependencies
    * ────────────────────────────────────────────────────────────────────────── */
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -133,7 +132,7 @@ export class RiskAssessmentAddComponent implements OnInit {
   readonly form: FormGroup = this.buildForm(this.fb);
 
   /* ──────────────────────────────────────────────────────────────────────────
-   *  Collections (kept loosely typed until proper interfaces are exported)
+   *  Collections
    * ────────────────────────────────────────────────────────────────────────── */
   allRisks: any[] = [];
   allObjects: any[] = [];
@@ -164,8 +163,6 @@ export class RiskAssessmentAddComponent implements OnInit {
   /* ══════════════════════════════════════════════════════════════════════════
    *  Lifecycle
    * ═════════════════════════════════════════════════════════════════════════ */
-
-  constructor(private location: Location) { }
 
   ngOnInit(): void {
     if (this.initialized) return;
@@ -227,7 +224,7 @@ export class RiskAssessmentAddComponent implements OnInit {
         });
   
     } else {
-      // CREATE MODE → use raw form-array value (list of objects)
+      // CREATE MODE -> use raw form-array value (list of objects)
       payload.control_measure_assignments =
         this.form.get('control_measure_assignments')?.value ?? [];
   
@@ -369,7 +366,6 @@ export class RiskAssessmentAddComponent implements OnInit {
       .doWithLoader(
         forkJoin({
           risks: this.riskSrv.getRisks(baseParams),
-          // objects: shouldLoadObjects ? this.objectSrv.getObjects(baseParams) : of({ results: [] }),
           objectGroups: this.objectGroupSrv.getObjectGroups(baseParams),
           persons: this.personSrv.getPersons(baseParams),
           personGroups: this.personGroupSrv.getPersonGroups(baseParams),
@@ -386,7 +382,6 @@ export class RiskAssessmentAddComponent implements OnInit {
         next: (res: any) => {
           /* reference data */
           this.allRisks = res.risks.results;
-          // this.allObjects = res.objects.results;
           this.allObjectGroups = res.objectGroups.results;
           this.allPersons = res.persons.results;
           this.allPersonGroups = res.personGroups.results;

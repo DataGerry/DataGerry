@@ -1,9 +1,10 @@
 <div class="d-flex justify-content-between align-items-center">
   <h2>Automations</h2>
   <div>
-    <div class="btn-group ms-2" *ngIf="automations?.length">
-      <button type="button" id="autoRefreshButton" class="btn btn-sm btn-refresh dropdown-toggle text-white" data-bs-toggle="dropdown"
-        aria-haspopup="true" aria-expanded="false">
+    @if (automations?.length) {
+    <div class="btn-group ms-2">
+      <button type="button" id="autoRefreshButton" class="btn btn-sm btn-refresh dropdown-toggle text-white"
+        data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
         <i class="fas fa-sync-alt"></i> Auto Refresh: {{ getRefreshLabel() }}
       </button>
       <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="autoRefreshButton">
@@ -12,21 +13,30 @@
             <i class="fas fa-sync-alt me-1"></i> Refresh now
           </button>
         </li>
-        <li><hr class="dropdown-divider" /></li>
-        <li *ngFor="let option of refreshOptions">
+        <li>
+          <hr class="dropdown-divider" />
+        </li>
+        @for (option of refreshOptions; track option) {
+        <li>
           <button class="dropdown-item" type="button" (click)="setAutoRefresh(option.value)">
             <span [class.fw-bold]="option.value === selectedRefreshMs">{{ option.label }}</span>
           </button>
         </li>
+        }
       </ul>
     </div>
-    <button type="button" class="btn btn-sm btn-connectors ms-2 text-white" [routerLink]="['/automations/connectors']">
+    }
+    <button type="button" class="btn btn-sm btn-connectors ms-2 text-white" [routerLink]="['/automations/connectors']"
+      *permissionLink="'base.openCelium.connector.view'">
       <i class="fa-solid fa-plug"></i> Manage Connectors
     </button>
-    <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']" *ngIf="!isCloudMode">
+    @if (!isCloudMode) {
+    <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']">
       <i class="fa-solid fa-key"></i> View Licenses
     </button>
-    <button type="button" class="btn btn-sm btn-add ms-2 text-white" [routerLink]="['/automations/add']">
+    }
+    <button type="button" class="btn btn-sm btn-add ms-2 text-white" [routerLink]="['/automations/add']"
+      *permissionLink="'base.openCelium.connection.add'">
       <i class="fas fa-plus"></i> Add Automation
     </button>
   </div>
@@ -34,17 +44,17 @@
 <hr />
 
 <!-- CMDB Table -->
-<cmdb-table [items]="automations" [columns]="columns" [totalItems]="totalAutomations" [pageSize]="limit" [page]="page"
-  [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false" [infoEnabled]="false"
-  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)">
+<cmdb-table *permissionLink="'base.openCelium.connection.view'" [items]="automations" [columns]="columns"
+  [totalItems]="totalAutomations" [pageSize]="limit" [page]="page" [loading]="loading" [paginationEnabled]="false"
+  [pageSizeEnabled]="false" [searchEnabled]="false" [infoEnabled]="false" (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)">
 </cmdb-table>
 
-<app-automation-progress-list
-  *ngIf="openCeliumConfigOk"
-  [automations]="automations"
-  [refreshToken]="runningRefreshToken"
+@if (openCeliumConfigOk) {
+<app-automation-progress-list [automations]="automations" [refreshToken]="runningRefreshToken"
   (runningSchedulerIdsChange)="onRunningSchedulersChange($event)">
 </app-automation-progress-list>
+}
 
 <!-- Direction Template -->
 <ng-template #directionTemplate let-item="item">
@@ -74,12 +84,11 @@
       <div>{{ getLastSuccessDisplay(item).date }}</div>
       <div class="text-muted small">{{ getLastSuccessDisplay(item).taId }}</div>
     </div>
-    <app-automation-logs-menu
-      *ngIf="item.debugMode && hasLastSuccess(item)"
-      [schedulerId]="item.schedulerId"
-      status="s"
+    @if (item.debugMode && hasLastSuccess(item)) {
+    <app-automation-logs-menu [schedulerId]="item.schedulerId" status="s"
       (logsModalOpenChange)="onLogsModalOpenChange($event)">
     </app-automation-logs-menu>
+    }
   </div>
 </ng-template>
 
@@ -90,12 +99,11 @@
       <div>{{ getLastFailDisplay(item).date }}</div>
       <div class="text-muted small">{{ getLastFailDisplay(item).taId }}</div>
     </div>
-    <app-automation-logs-menu
-      *ngIf="item.debugMode && hasLastFail(item)"
-      [schedulerId]="item.schedulerId"
-      status="f"
+    @if (item.debugMode && hasLastFail(item)) {
+    <app-automation-logs-menu [schedulerId]="item.schedulerId" status="f"
       (logsModalOpenChange)="onLogsModalOpenChange($event)">
     </app-automation-logs-menu>
+    }
   </div>
 </ng-template>
 
@@ -108,12 +116,9 @@
 
 <!-- Logs Template -->
 <ng-template #logsTemplate let-item="item">
-  <div class="logs-toggle-cell">
+  <div class="logs-toggle-cell" *permissionLink="'base.openCelium.connection.edit'">
     <label class="logs-toggle" [class.is-loading]="logToggleLoading[item.schedulerId]">
-      <input
-        type="checkbox"
-        [checked]="item.debugMode"
-        [disabled]="logToggleLoading[item.schedulerId]"
+      <input type="checkbox" [checked]="item.debugMode" [disabled]="logToggleLoading[item.schedulerId]"
         (change)="toggleDebugMode(item, $event)" />
       <span class="slider"></span>
     </label>
@@ -123,19 +128,18 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <div class="action-buttons">
-    <i class="fas fa-play icon-margin btn-run" 
-    [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
-    [class.is-disabled]="isSchedulerRunning(item.schedulerId)"
-    (click)="executeScheduler(item.schedulerId)">
- </i>
-    <i class="fas fa-clock icon-margin btn-cron"  (click)="setCron(item)" title="Set Cron Job"></i>
-    <i class="far fa-edit icon-margin btn-edit" style="margin-left: 5px;" (click)="editAutomation(item)" title="Edit Automation"></i>
-    <i class="far fa-trash-alt btn-delete" style="margin-left: 5px;" (click)="delete(item)" title="Delete Automation"></i>
+    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-play icon-margin btn-run"
+      [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
+      [class.is-disabled]="isSchedulerRunning(item.schedulerId)" (click)="executeScheduler(item.schedulerId)">
+    </i>
+    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-clock icon-margin btn-cron"
+      (click)="setCron(item)" title="Set Cron Job"></i>
+    <i *permissionLink="'base.openCelium.connection.edit'" class="far fa-edit icon-margin btn-edit"
+      style="margin-left: 5px;" (click)="editAutomation(item)" title="Edit Automation"></i>
+    <i *permissionLink="'base.openCelium.connection.delete'" class="far fa-trash-alt btn-delete"
+      style="margin-left: 5px;" (click)="delete(item)" title="Delete Automation"></i>
   </div>
 </ng-template>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

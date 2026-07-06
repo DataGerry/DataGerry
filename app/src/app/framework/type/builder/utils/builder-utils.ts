@@ -74,7 +74,7 @@ export class BuilderUtils {
      * @returns True if the field is new, false otherwise.
      */
     static isNewField(field: any, newFields: Array<CmdbTypeSection>): boolean {
-        return newFields.indexOf(field) > -1;
+        return newFields.some(newField => newField === field || newField?.name === field?.name);
     }
 
     /**

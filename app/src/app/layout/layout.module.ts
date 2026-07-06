@@ -56,6 +56,7 @@ import { CategoryTreeFilterPipe } from './pipes/categoryTreeFilter.pipe';
 import { TypeFilterPipe } from './pipes/typeFilter.pipe';
 
 import { NavigationComponent } from './structure/navigation/navigation.component';
+import { NotificationDrawerComponent } from './structure/navigation/notification-drawer/notification-drawer.component';
 import { BreadcrumbComponent } from './structure/breadcrumb/breadcrumb.component';
 import { IconPickerComponent } from './helpers/icon-picker/icon-picker.component';
 import { ChartsComponent } from './components/charts/charts.component';
@@ -67,6 +68,7 @@ import { TypeLabelComponent } from './helpers/type-label/type-label.component';
 import { FooterComponent } from './structure/footer/footer.component';
 import { SidebarComponent } from './structure/sidebar/sidebar.component';
 import { LocationTreeComponent } from './structure/sidebar/location-tree/location-tree.component';
+import { IpamTreeComponent } from './structure/sidebar/ipam-tree/ipam-tree.component';
 import { SidebarCategoryComponent } from './structure/sidebar/sidebar-category.component';
 import { ContentHeaderComponent } from './components/content-header/content-header.component';
 import { ActiveBadgeComponent } from './helpers/active-badge/active-badge.component';
@@ -96,8 +98,10 @@ import { CoreModule } from '../core/core.module';
     declarations: [
         BreadcrumbComponent,
         NavigationComponent,
+        NotificationDrawerComponent,
         SidebarComponent,
         LocationTreeComponent,
+        IpamTreeComponent,
         SidebarCategoryComponent,
         ContentHeaderComponent,
         ActiveBadgeComponent,

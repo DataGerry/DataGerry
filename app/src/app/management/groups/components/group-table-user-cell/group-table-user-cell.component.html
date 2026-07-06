@@ -1,12 +1,16 @@
-<div *ngIf="numberOfUsers || numberOfUsers == 0; else loading" class="text-center">
-  <span (click)="openUserListModal(group)" class="text-primary pointer"
-        *ngIf="numberOfUsers > 0; else zero">{{numberOfUsers}}</span>
-  <ng-template #zero>{{numberOfUsers}}</ng-template>
+@if (numberOfUsers || numberOfUsers == 0) {
+<div class="text-center">
+  @if (numberOfUsers > 0) {
+  <span (click)="openUserListModal(group)" class="text-primary pointer">{{numberOfUsers}}</span>
+  } @else {
+  {{numberOfUsers}}
+  }
+
 </div>
-<ng-template #loading>
-  <div class="text-center">
-    <div class="spinner-border spinner-border-sm" role="status">
-      <span class="sr-only">Loading...</span>
-    </div>
+} @else {
+<div class="text-center">
+  <div class="spinner-border spinner-border-sm" role="status">
+    <span class="sr-only">Loading...</span>
   </div>
-</ng-template>
+</div>
+}

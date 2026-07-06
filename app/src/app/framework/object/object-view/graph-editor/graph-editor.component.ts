@@ -42,17 +42,20 @@ import { CiExplorerExportService } from './services/ci-explorer-export.service';
 import { GraphInteractionService } from './services/graph-interaction.service';
 import { GraphKeyboardService } from './services/graph-keyboard.service';
 import { GraphNavigationService } from './services/graph-navigation.service';
+import { GraphRootNodeService } from './services/graph-root-node.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.service';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 
 @Component({
   selector: 'app-graph-editor',
   templateUrl: './graph-editor.component.html',
   styleUrls: ['./graph-editor.component.scss'],
-  providers: [GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService],
+  providers: [GraphDataService, GraphLayoutService, GraphViewportService, GraphExpansionService, GraphFilterService, GraphPathService, GraphRootNodeService],
   standalone: false
 })
 export class GraphEditorComponent implements OnInit, OnDestroy {
+  @ViewChild('editorRoot') editorRoot!: ElementRef<HTMLElement>;
   @ViewChild('svgContainer') svgContainer!: ElementRef;
   @ViewChild('graphCanvas') graphCanvas!: ElementRef;
   @ViewChild('graphContainer') graphContainer!: ElementRef;
@@ -70,6 +73,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   filterMode: 'manual' | 'profile' = 'manual';
   profiles: FilterProfile[] = [];
   selectedProfileId: number | null = null;
+  withLocations: boolean = true;
+  withIpamRelations: boolean = true;
 
   // Filter options
   typeOptionList: { public_id: number; display_name: string }[] = [];
@@ -147,27 +152,16 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   showNodeDialog = false;
   selectedNodeForDialog: GraphNode | null = null;
+  isFullscreen = false;
 
   constructor(
-    private cdr: ChangeDetectorRef,
-    private typeService: TypeService,
-    private relationService: RelationService,
-    private fb: FormBuilder,
-    private graphData: GraphDataService,
-    private graphLayout: GraphLayoutService,
-    private graphViewport: GraphViewportService,
-    private graphExpansion: GraphExpansionService,
-    private graphFilter: GraphFilterService,
-    private graphPath: GraphPathService,
-    private loaderService: LoaderService,
-    private profileService: GraphProfileService,
-    private modalService: NgbModal,
-    private connectionTracker: ConnectionTrackerService,
-    private exportService: CiExplorerExportService,
-    private graphInteractionService: GraphInteractionService,
-    private graphKeyboardService: GraphKeyboardService,
-    private graphNavigationService: GraphNavigationService,
-    private toastService: ToastService
+    private cdr: ChangeDetectorRef, private typeService: TypeService, private relationService: RelationService,
+    private fb: FormBuilder, private graphData: GraphDataService, private graphLayout: GraphLayoutService,  private graphViewport: GraphViewportService,
+    private graphExpansion: GraphExpansionService, private graphFilter: GraphFilterService, private graphPath: GraphPathService,
+    private loaderService: LoaderService, private profileService: GraphProfileService, private modalService: NgbModal,
+    private connectionTracker: ConnectionTrackerService, private exportService: CiExplorerExportService, private graphInteractionService: GraphInteractionService,
+    private graphKeyboardService: GraphKeyboardService, private graphNavigationService: GraphNavigationService, private graphRootNodeService: GraphRootNodeService,
+    private toastService: ToastService, private fullscreenModalService: FullscreenModalService
   ) {
     this.filterForm = this.fb?.group({
       types: [[]],
@@ -185,7 +179,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['rootNodeId'] && !changes['rootNodeId'].firstChange) {
-      // Only reload the graph if the rootNodeId has changed and it's not the initial change
       this.loadInitialGraph(true);
     }
   }
@@ -204,23 +197,17 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * Sets up form subscriptions to update filter state when form values change.
     */
   private setupFormSubscriptions(): void {
-    this.filterForm?.get('types')!
-      ?.valueChanges?.subscribe(v => this.typesFilter = v || []);
-    this.filterForm?.get('relations')!
-      ?.valueChanges?.subscribe(v => this.relationsFilter = v || []);
+    this.filterForm?.get('types')!?.valueChanges?.subscribe(v => this.typesFilter = v || []);
+    this.filterForm?.get('relations')!?.valueChanges?.subscribe(v => this.relationsFilter = v || []);
   }
 
   /**
     * Sets up event listeners for keyboard shortcuts and window resize.
     */
   private setupEventListeners(): void {
-    fromEvent<KeyboardEvent>(document, 'keydown')
-      ?.pipe(takeUntil(this.destroy$))
-      ?.subscribe(event => this.handleKeyboard(event));
-
-    fromEvent(window, 'resize')
-      ?.pipe(debounceTime(300), takeUntil(this.destroy$))
-      ?.subscribe(() => this.handleResize());
+    fromEvent<KeyboardEvent>(document, 'keydown')?.pipe(takeUntil(this.destroy$))?.subscribe(event => this.handleKeyboard(event));
+    fromEvent(window, 'resize')?.pipe(debounceTime(300), takeUntil(this.destroy$))?.subscribe(() => this.handleResize());
+    fromEvent(document, 'fullscreenchange')?.pipe(takeUntil(this.destroy$))?.subscribe(() => this.onFullscreenChange());
   }
 
 
@@ -245,7 +232,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
   * Handles keyboard shortcuts for graph interactions.
-  * @param event The keyboard event to handle.
   */
   private handleKeyboard(event: KeyboardEvent): void {
     this.graphKeyboardService.handleKeyboard(
@@ -274,8 +260,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Generates a key combination string from the keyboard event.
-    * @param event The keyboard event to process.
-    * @returns A string representing the key combination (e.g., "Ctrl+Shift+A").
     */
   private getKeyCombo(event: KeyboardEvent): string {
     return this.graphKeyboardService.getKeyCombo(event);
@@ -284,7 +268,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * loads the initial graph data with the root node and applies filters.
-   * @param reset Whether to reset the graph data before loading.
    */
   private loadInitialGraph(reset = false): void {
     if (reset) {
@@ -300,7 +283,9 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.graphData.loadWithRoot(
       this.rootNodeId,
       this.typesFilter,
-      this.relationsFilter
+      this.relationsFilter,
+      this.withLocations,
+      this.withIpamRelations
     ).pipe(finalize(() => this.loaderService.hide())).subscribe({
       next: r => {
         this.paintInitial(r);
@@ -313,7 +298,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Paints the initial graph data based on the response from the server.
-    * @param r The graph response containing the root node and other data.
     */
   private paintInitial(r: GraphRespWithRoot): void {
     this.nodes = [];
@@ -476,27 +460,13 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.typesFilter = this.filterForm?.value?.types || [];
     this.relationsFilter = this.filterForm?.value?.relations || [];
     this.loadInitialGraph(true);
+    this.showFilterBar = false;
   }
 
   // Layout management
   private performHierarchicalLayout(): void {
     this.graphLayout?.updateAnchorCalculations(this.connections, this.graphData?.getNodeInstanceMap());
     this.graphLayout?.performHierarchicalLayout(this.nodes, this.nodeGroups);
-  }
-
-
-  /**
-   * animates the layout of the graph, including data flow animations if enabled.
-   */
-  private animateLayout(): void {
-    if (this.showDataFlow) {
-      this.animateDataFlow();
-    }
-  }
-
-
-  private animateDataFlow(): void {
-    // Implement particle animation along connections
   }
 
 
@@ -542,55 +512,75 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
           }
         }
       });
-
       node.connectionCount = {
         parents: parentConnections,
         children: childConnections,
       };
-
       node.hasParents = parentConnections > 0;
       node.hasChildren = childConnections > 0;
-
-      // Status simulation
-      if (Math.random() < 0.1) {
-        this.simulateNodeStatus(node);
-      }
     });
   }
 
-  private simulateNodeStatus(node: GraphNode): void {
-    //     // Simulate dynamic status updates
-    //     // const typeConfig = this.NODE_TYPES[node.type] || this.NODE_TYPES.default;
-    //     // node.status = node.status || typeConfig.defaultStatus;
-    //     // // Randomly update status for demo purposes
-    //     // if (Math.random() < 0.05) {
-    //     // const statuses: Array<'active' | 'inactive' | 'warning' | 'error'> =
-    //     // ['active', 'active', 'active', 'warning', 'error', 'inactive'];
-    //     // node.status = statuses[Math.floor(Math.random() * statuses.length)];
-    //     // }
-    //     // node.lastUpdated = new Date();
-  }
 
   /**
    * Toggles the expansion state of a node.
    * If the node is a root or currently loading, no action is taken.
    * Otherwise, it expands or collapses the node based on its current state.
-   * @param node The GraphNode to toggle.
-   * @param event Optional mouse event to prevent modal from opening.
    */
   toggleExpand(node: GraphNode, event?: MouseEvent): void {
-    if (event) {
+    if (event) { 
       event.stopPropagation(); // Prevent modal from opening
+      }
+
+    if (node.isLoading) return;
+
+    if (node.isRoot) {
+      this.toggleRootExpansion();
+      return;
     }
 
-    if (node.isRoot || node.isLoading) return;
     node.expanded ? this.collapseNodeInstance(node) : this.expandNodeInstance(node);
+  }
+
+  private toggleRootExpansion(): void {
+    const rootNode = this.graphRootNodeService.getRootNode(this.nodes);
+    if (!rootNode || rootNode.isLoading) {
+      return;
+    }
+
+    if (this.graphRootNodeService.hasVisibleNodesBeyondRoot(this.nodes)) {
+      const collapsed = this.graphRootNodeService.collapseRootNode(rootNode, this.nodes, this.connections);
+      if (collapsed) {
+        this.selectedConnection = null;
+        this.performHierarchicalLayout();
+        this.updateNodeStates();
+      }
+      return;
+    }
+
+    this.rootNodeId = rootNode.id;
+    this.loadInitialGraph(true);
+  }
+
+  public getContextExpandIcon(node: GraphNode | null): string {
+    return this.graphRootNodeService.getExpandIcon(node, this.nodes);
+  }
+
+  public getContextExpandLabel(node: GraphNode | null): string {
+    return this.graphRootNodeService.getExpandLabel(node, this.nodes);
+  }
+
+  public onContextToggleExpand(event: MouseEvent): void {
+    if (!this.selectedNode) {
+      return;
+    }
+    this.toggleExpand(this.selectedNode, event);
+    this.contextMenuVisible = false;
   }
 
 
   /**
    * Expands a node instance by fetching its children and updating the graph.
-   * @param ui The GraphNode UI element to expand.
    */
   private async expandNodeInstance(ui: GraphNode): Promise<void> {
     const cn = ui.ciNode!;
@@ -598,13 +588,13 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     try {
       await this.graphExpansion?.expandNodeInstance(
         ui, cn, this.nodes, this.connections,
-        this.typesFilter, this.relationsFilter, this.nodeTypeConfigs
+        this.typesFilter, this.relationsFilter, this.nodeTypeConfigs,
+        this.withLocations, this.withIpamRelations
       );
 
       this.connections = this.graphPath?.validateConnections(this.connections, this.graphData?.getNodeInstanceMap());
       this.performHierarchicalLayout();
       this.updateNodeStates();
-      this.animateLayout();
     } finally {
       this.loaderService.hide();
       this.cdr.detectChanges();
@@ -614,7 +604,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Collapses a node instance, removing its children and updating the graph.
-   * @param ui The GraphNode UI element to collapse.
    */
   private collapseNodeInstance(ui: GraphNode): void {
     this.graphExpansion?.collapseNodeInstance(ui, this.nodes, this.connections);
@@ -671,8 +660,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Determines if a node should be shown based on the current viewport and graph state.
-   * @param node The GraphNode to check visibility for.
-   * @returns True if the node should be shown, false otherwise.
    */
   shouldShowNode(node: GraphNode): boolean {
     return this.graphViewport?.shouldShowNode(node, this.nodes?.length, this.graphContainer);
@@ -681,8 +668,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Calculates the path for a connection based on the graph data.
-    * @param conn The Connection to calculate the path for.
-    * @returns The calculated path as a string.
     */
   calculatePath(conn: Connection): string {
     return this.graphPath?.calculatePath(conn, this.graphData.getNodeInstanceMap());
@@ -691,8 +676,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Calculates the label position for a connection based on the graph data.
-   * @param conn The Connection to calculate the label position for.
-   * @returns An object containing the x and y coordinates for the label position.
    */
   calculateLabelPosition(conn: Connection): { x: number; y: number } {
     return this.graphPath?.calculateLabelPosition(conn, this.nodes);
@@ -701,8 +684,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets the stroke width for a connection based on its properties.
-   * @param conn The Connection to get the stroke width for.
-   * @returns The stroke width as a number.
    */
   getConnectionStrokeWidth(conn: Connection): number {
     return this.graphPath?.getConnectionStrokeWidth(conn);
@@ -711,7 +692,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Filters the nodes based on the current graph filter settings.
-    * @returns An array of filtered GraphNode objects.
     */
   get filteredNodes(): GraphNode[] {
     return this.graphFilter?.getFilteredNodes(this.nodes, this.connections, this.selectedNode);
@@ -720,7 +700,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets the visible connections based on the current graph filter settings.
-   * @returns An array of Connection objects that are currently visible.
    */
   getVisibleConnections(): Connection[] {
     return this.graphFilter?.getVisibleConnections(this.filteredNodes, this.connections);
@@ -730,8 +709,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   /**
    * Selects a node and opens the details modal.
    * If the event is a right-click or comes from a button, it skips opening the modal.
-   * @param node The GraphNode to select.
-   * @param event Optional mouse event to check for right-click or button click.
    */
   selectNode(node: GraphNode, event?: MouseEvent): void {
 
@@ -753,7 +730,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Opens the node details modal with the selected node.
-   * @param node The GraphNode to display in the modal.
    */
   toggleNodeSelection(node: GraphNode): void {
     if (this.selectedNodes?.has(node?.id)) {
@@ -788,7 +764,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Selects a connection and clears any selected nodes.
-   * @param conn The Connection to select.
    */
   selectConnection(conn: Connection): void {
     this.selectedConnection = conn;
@@ -814,10 +789,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Finds the closest node in the specified direction from the given node.
-    * @param from The starting GraphNode to search from.
-    * @param dx The horizontal direction to search (-1 for left, 1 for right).
-    * @param dy The vertical direction to search (-1 for up, 1 for down).
-    * @returns The closest GraphNode in the specified direction, or undefined if no node is found.
     */
   private findNodeInDirection(from: GraphNode, dx: number, dy: number): GraphNode | undefined {
     const candidates = this.nodes?.filter(n => n?.id !== from?.id);
@@ -878,16 +849,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     */
   onNodeMouseDown(e: MouseEvent, node: GraphNode): void {
     const result = this.graphInteractionService.onNodeMouseDown(
-      e,
-      node,
-      this.isDragging,
-      this.isMultiSelecting,
-      this.selectedNodes,
-      this.dragOffsetX,
-      this.dragOffsetY,
-      (n: GraphNode) => this.toggleNodeSelection(n),
-      (n: GraphNode, ev?: MouseEvent) => this.selectNode(n, ev)
-    );
+      e, node, this.isDragging, this.isMultiSelecting, this.selectedNodes, this.dragOffsetX, this.dragOffsetY,
+      (n: GraphNode) => this.toggleNodeSelection(n), (n: GraphNode, ev?: MouseEvent) => this.selectNode(n, ev));
 
     this.isDragging = result.isDragging;
     this.isMultiSelecting = result.isMultiSelecting;
@@ -902,13 +865,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   */
   onCanvasMouseDown(e: MouseEvent): void {
     const result = this.graphInteractionService.onCanvasMouseDown(
-      e,
-      this.isPanning,
-      this.panStartX,
-      this.panStartY,
-      this.viewportX,
-      this.viewportY,
-      () => this.clearSelection()
+      e, this.isPanning, this.panStartX, this.panStartY, this.viewportX, this.viewportY, () => this.clearSelection()
     );
 
     this.isPanning = result.isPanning;
@@ -950,14 +907,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   */
   onRightClick(e: MouseEvent, node: GraphNode): void {
     const result = this.graphInteractionService.onRightClick(
-      e,
-      node,
-      this.selectedNode,
-      this.selectedNodes,
-      this.contextMenuX,
-      this.contextMenuY,
-      this.contextMenuVisible,
-      this.createMenuVisible
+      e, node, this.selectedNode, this.selectedNodes, this.contextMenuX, this.contextMenuY, this.contextMenuVisible, this.createMenuVisible
     );
 
     this.selectedNode = result.selectedNode;
@@ -987,13 +937,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   * This method sets the position of the create menu and makes it visible.
   */
   showCreateMenu(e: MouseEvent, node: GraphNode): void {
-    const result = this.graphInteractionService.showCreateMenu(
-      this.parentNodeForCreate,
-      this.createMenuX,
-      this.createMenuY,
-      this.createMenuVisible,
-      this.contextMenuVisible
-    );
+    const result = this.graphInteractionService.showCreateMenu(this.parentNodeForCreate, this.createMenuX, 
+      this.createMenuY, this.createMenuVisible,this.contextMenuVisible);
 
     this.parentNodeForCreate = result.parentNodeForCreate;
     this.createMenuX = e.clientX;
@@ -1058,20 +1003,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     }
   }
 
-  createNewObject(): void {
-    if (this.parentNodeForCreate) {
-      this.showNotification('Create feature coming soon!');
-    }
-    this.createMenuVisible = false;
-  }
-
-  connectTo(): void {
-    if (this.parentNodeForCreate) {
-      this.showNotification('Connection feature coming soon!');
-    }
-    this.createMenuVisible = false;
-  }
-
   private removeNodesAndConnections(toDelete: Set<number>): void {
     this.nodes = this.nodes?.filter(n => !toDelete?.has(n?.id));
     this.connections = this.connections?.filter(
@@ -1119,7 +1050,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets the configuration for a specific node type.
-   * @returns An object containing the icon and gradient for the node type.
    */
   getNodeTypeConfig(type: string): { icon: string; gradient: string } {
     return this.nodeTypeConfigs?.get(type);
@@ -1128,7 +1058,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets a node by its ID.
-   * @returns The GraphNode if found, otherwise undefined.
    */
   getNodeById(id: number): GraphNode | undefined {
     return this.nodes?.find(n => n?.id === id);
@@ -1137,10 +1066,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets a node by its ID and level.
-   * This is useful for hierarchical graphs where nodes can have the same ID but different levels.
-   * @param id The ID of the node to find.
-   * @param level The level of the node to find.
-   * @returns The GraphNode if found, otherwise undefined.
    */
   getNodeByIdAndLevel(id: number, level: number): GraphNode | undefined {
     return this.nodes?.find(n => n?.id === id && n?.level === level);
@@ -1149,7 +1074,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets the list of available node types from the node type configurations.
-   * @returns An array of strings representing the available node types.
    */
   get availableNodeTypes(): string[] {
     return Array.from(this.nodeTypeConfigs?.keys());
@@ -1182,9 +1106,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Gets the text color based on the background color of a node.
-    * This is used to ensure good contrast for readability.
-    * @param node The GraphNode to get the text color for.
-    * @returns A string representing the text color.
     */
   public getTextColor(node: GraphNode): string {
     return getTextColorBasedOnBackground(node?.color);
@@ -1193,8 +1114,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Gets the viewBox attribute for the minimap.
-    * This defines the area of the graph that is visible in the minimap.
-    * @returns A string representing the viewBox attribute for the minimap.
     */
   getMinimapViewBox(): string {
     return this.graphViewport?.getMinimapViewBox(this.nodes);
@@ -1203,8 +1122,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Gets the viewport rectangle for the minimap.
-    * This rectangle represents the visible area of the graph within the minimap.
-    * @returns An object containing the x, y, width, and height of the viewport rectangle.
     */
   getMinimapViewportRect(): any {
     return this.graphViewport?.getMinimapViewportRect(this.graphContainer);
@@ -1221,7 +1138,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Gets the count of nodes grouped by their type.
-    * @returns A Map where keys are node types and values are counts.
     */
   getNodeTypeCounts(): Map<string, number> {
     const counts = new Map<string, number>();
@@ -1244,7 +1160,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
     * Checks if a node type is currently filtered out.
-    * @returns True if the node type is filtered out, false otherwise.
     */
   isNodeTypeFiltered(type: string): boolean {
     return this.graphFilter?.isNodeTypeFiltered(type);
@@ -1253,7 +1168,6 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
 
   /**
    * Gets a performance hint based on the current performance metrics.
-   * @returns A string containing performance advice or an empty string if no issues are detected.
    */
   getPerformanceHint(): string {
     if (this.performanceMetrics?.fps < 30) {
@@ -1269,7 +1183,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     * Open the node details modal with the given node.
     */
   private openNodeDetailsModal(node: GraphNode): void {
-    const modalRef = this.modalService.open(NodeDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, NodeDetailsModalComponent, {
       size: 'xl',
       backdrop: 'static',
       scrollable: true,
@@ -1292,6 +1206,22 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       this.relationOptionList,
       () => this.loadProfiles()
     );
+  }
+
+
+  /**
+   * Updates the "include locations" preference used for graph API calls.
+   */
+  onWithLocationsChange(checked: boolean): void {
+    this.withLocations = checked;
+  }
+
+
+  /**
+   * Updates the "include IPAM relations" preference used for graph API calls.
+   */
+  onWithIpamRelationsChange(checked: boolean): void {
+    this.withIpamRelations = checked;
   }
 
 
@@ -1336,12 +1266,12 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     this.typesFilter = result.typesFilter;
     this.relationsFilter = result.relationsFilter;
     this.loadInitialGraph(true);
+    this.showFilterBar = false;
   }
 
 
   /**
    * Saves the current filters as a new profile.
-   * @returns True if there are no active filters, false otherwise.
    */
   saveCurrentFiltersAsProfile(): void {
     this.profileService.saveCurrentFiltersAsProfile(
@@ -1396,7 +1326,7 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     toNode: GraphNode,
     conn: Connection
   ): void {
-    const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
@@ -1455,7 +1385,7 @@ modalRef.componentInstance.connections = [{
     toNode: any,   // GraphNode from nodeInstanceMap (passed from UI)  
     trackedConnections: any[]
   ): void {
-    const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
@@ -1478,8 +1408,28 @@ modalRef.componentInstance.connections = [{
     };
 
     modalRef.componentInstance.connections = trackedConnections.map(conn => {
-      // Check if metadata exists
-      if (!conn.metadata || !conn.metadata.relation_id) {
+      const meta = conn.metadata;
+
+      if (meta?.source) {
+        return {
+          from: conn.fromNodeId,
+          to: conn.toNodeId,
+          fromLevel: fromNode.level,
+          toLevel: toNode.level,
+          fromUid: conn.fromUid,
+          toUid: conn.toUid,
+          metadata: {
+            relation_id: meta.relation_id,
+            relation_name: meta.relation_name,
+            relation_label: meta.relation_label,
+            relation_color: meta.relation_color,
+            relation_icon: this.normalizeRelationIcon(meta.relation_icon),
+            source: meta.source
+          }
+        };
+      }
+
+      if (!meta || !meta.relation_id) {
         return {
           from: conn.fromNodeId,
           to: conn.toNodeId,
@@ -1496,7 +1446,7 @@ modalRef.componentInstance.connections = [{
           }
         };
       }
-      
+
       return {
         from: conn.fromNodeId,
         to: conn.toNodeId,
@@ -1504,7 +1454,7 @@ modalRef.componentInstance.connections = [{
         toLevel: toNode.level,
         fromUid: conn.fromUid,
         toUid: conn.toUid,
-        metadata: conn.metadata
+        metadata: meta
       };
     });
 
@@ -1519,7 +1469,7 @@ modalRef.componentInstance.connections = [{
     toNode: GraphNode,
     indexedConnections: CIEdge[]
   ): void {
-    const modalRef = this.modalService.open(ConnectionDetailsModalComponent, {
+    const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
       scrollable: true
@@ -1544,10 +1494,27 @@ modalRef.componentInstance.connections = [{
     // Convert indexed connections to modal format
     modalRef.componentInstance.connections = indexedConnections.map(edge => {
       const meta = Array.isArray(edge.metadata) ? edge.metadata[0] : edge.metadata;
-      
-      // Check if metadata exists
+
+      if (meta?.source) {
+        return {
+          from: edge.from,
+          to: edge.to,
+          fromLevel: fromNode.level,
+          toLevel: toNode.level,
+          fromUid: '',
+          toUid: '',
+          metadata: {
+            relation_id: meta.relation_id,
+            relation_name: meta.relation_name,
+            relation_label: meta.relation_label,
+            relation_color: meta.relation_color,
+            relation_icon: this.normalizeRelationIcon(meta.relation_icon),
+            source: meta.source
+          }
+        };
+      }
+
       if (!meta || !meta.relation_id) {
-        // Location-based connection - use source node's title
         return {
           from: edge.from,
           to: edge.to,
@@ -1557,15 +1524,14 @@ modalRef.componentInstance.connections = [{
           toUid: '',
           metadata: {
             relation_id: 0,
-            relation_name: fromNode.label,  // Use source node title
+            relation_name: fromNode.label,
             relation_label: 'Location',
             relation_color: '#666',
             relation_icon: 'location_on'
           }
         };
       }
-      
-      // Normal connection with metadata
+
       return {
         from: edge.from,
         to: edge.to,
@@ -1588,7 +1554,6 @@ modalRef.componentInstance.connections = [{
 
   /**
    * Checks if there are any active filters applied to the graph.
-   * @returns True if there are active filters, false otherwise.
    */
   hasActiveFilters(): boolean {
     return this.profileService.hasActiveFilters(this.typesFilter, this.relationsFilter);
@@ -1600,6 +1565,21 @@ modalRef.componentInstance.connections = [{
    */
   private getNodeByUid(uid: string): GraphNode | undefined {
     return this.graphData.getNodeInstanceMap().get(uid);
+  }
+
+
+  /**
+   * Ensures a Font Awesome icon class has a family prefix (fas/far/fab).
+   * Backend may send bare `fa-name` strings (e.g. IPAM); ngClass needs the family token.
+   */
+  private normalizeRelationIcon(icon?: string): string | undefined {
+    if (!icon) {
+      return icon;
+    }
+    const tokens = icon.trim().split(/\s+/);
+    const hasFamily = tokens.some(t => t === 'fa' || t === 'fas' || t === 'far' || t === 'fab' || t === 'fal' || t === 'fad');
+    const hasFaName = tokens.some(t => t.startsWith('fa-'));
+    return hasFaName && !hasFamily ? `fas ${icon}` : icon;
   }
 
 
@@ -1685,6 +1665,7 @@ modalRef.componentInstance.connections = [{
     };
   }
 
+
   exportGraphAsImage(): void {
     this.exportService.exportGraphAsImage(
       this.graphCanvas?.nativeElement,
@@ -1692,5 +1673,23 @@ modalRef.componentInstance.connections = [{
       (message: string, type: 'info' | 'success' | 'error') => this.showNotification(message, type),
       (message: string) => this.showErrorNotification(message)
     );
+  }
+
+
+  async toggleFullscreen(): Promise<void> {
+    if (!document.fullscreenEnabled || !this.editorRoot?.nativeElement) {
+      this.showErrorNotification('Fullscreen is not available in this browser.');
+      return; }
+
+    try {
+      if (this.isFullscreen && document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else { await this.editorRoot.nativeElement.requestFullscreen();}
+    } catch { this.showErrorNotification('Unable to toggle fullscreen mode.'); } }
+
+  private onFullscreenChange(): void {
+    this.isFullscreen = document.fullscreenElement === this.editorRoot?.nativeElement;
+    this.handleResize();
+    this.cdr.markForCheck();
   }
 }

@@ -17,13 +17,50 @@
 */
 
 import {Injectable} from '@angular/core';
+import { NotificationType } from 'src/app/core/state/notification/notification.model';
+import { NotificationService } from 'src/app/core/state/notification/notification.service';
+
+interface ToastOptions {
+  headerName?: string;
+  icon?: string;
+  classname?: string;
+  iconClass?: string;
+  [key: string]: unknown;
+}
 
 @Injectable({
   providedIn: 'root'
 })
 
 export class ToastService {
+  private static readonly TYPE_CONFIG: Record<NotificationType, Required<Pick<ToastOptions, 'headerName' | 'icon' | 'iconClass'>> & { borderClass: string }> = {
+    error: {
+      headerName: 'An Error Occurred',
+      icon: 'fas fa-exclamation-circle',
+      iconClass: 'text-danger',
+      borderClass: 'border-danger'
+    },
+    warning: {
+      headerName: 'Warning',
+      icon: 'fas fa-exclamation-triangle',
+      iconClass: 'text-warning',
+      borderClass: 'border-warning'
+    },
+    success: {
+      headerName: 'Success',
+      icon: 'fas fa-check-circle',
+      iconClass: 'text-success',
+      borderClass: 'border-success'
+    },
+    info: {
+      headerName: 'Information',
+      icon: 'fas fa-info-circle',
+      iconClass: 'text-info',
+      borderClass: 'border-info'
+    }
+  };
 
+  constructor(private readonly notificationService: NotificationService) {}
   public toastsright: any[] = [];
   public toastsleft: any[] = [];
   public toastsdownleft: any[] = [];
@@ -39,33 +76,38 @@ export class ToastService {
    * @param options Contains the toast configurations
    * @param direction Determines where the toast will be positioned
    */
-  public showToast(text: string, options: any = {}, direction?: string) {
+  public showToast(text: string, options: ToastOptions = {}, direction?: string, type: NotificationType = 'info') {
+    this.notificationService.add(text, type);
+
     if (!options.icon) {
       options.icon = 'fas fa-info-circle';
     }
+
+    const toast = { text, ...options };
+
     switch (direction) {
       case 'right': {
-        this.toastsright.push({text, ...options});
+        this.toastsright.push(toast);
         break;
       }
       case 'left': {
-        this.toastsleft.push({text, ...options});
+        this.toastsleft.push(toast);
         break;
       }
       case 'downleft': {
-        this.toastsdownleft.push({text, ...options});
+        this.toastsdownleft.push(toast);
         break;
       }
       case 'downright': {
-        this.toastsdownright.push({text, ...options});
+        this.toastsdownright.push(toast);
         break;
       }
       case 'center': {
-        this.toastscenter.push({text, ...options});
+        this.toastscenter.push(toast);
         break;
       }
       default: {
-        this.toastsright.push({text, ...options});
+        this.toastsright.push(toast);
         break;
       }
     }
@@ -78,10 +120,8 @@ export class ToastService {
    * @param options get following parameters {headerName: 'your header name', icon : 'fas fa-cube', classname: class for the toast }
    * @param direction position of your toast
    */
-  public error(text: string, options: any = {headerName: 'An Error Occurred', icon: 'fas fa-exclamation-circle'}, direction?: string) {
-    options.classname += ' border-danger';
-    options.iconClass = 'text-danger';
-    this.showToast(text, options, direction);
+  public error(text: string, options: ToastOptions = {}, direction?: string) {
+    this.showTypedToast('error', text, options, direction);
   }
 
 
@@ -92,10 +132,8 @@ export class ToastService {
    * @param options get following parameters {headerName: 'your header name', icon : 'fas fa-cube', classname: class for the toast }
    * @param direction position of your toast
    */
-  public warning(text: string, options: any = {headerName: 'Warning', icon: 'fas fa-exclamation-triangle'}, direction?: string) {
-    options.classname += ' border-warning';
-    options.iconClass = 'text-warning';
-    this.showToast(text, options, direction);
+  public warning(text: string, options: ToastOptions = {}, direction?: string) {
+    this.showTypedToast('warning', text, options, direction);
   }
 
 
@@ -106,10 +144,8 @@ export class ToastService {
    * @param options get following parameters {headerName: 'your header name', icon : 'fas fa-cube', classname: class for the toast }
    * @param direction position of your toast
    */
-  public success(text: string, options: any = {headerName: 'Success', icon: 'fas fa-check-circle'}, direction?: string) {
-    options.classname += ' border-success';
-    options.iconClass = 'text-success';
-    this.showToast(text, options, direction);
+  public success(text: string, options: ToastOptions = {}, direction?: string) {
+    this.showTypedToast('success', text, options, direction);
   }
 
   /**
@@ -119,10 +155,8 @@ export class ToastService {
    * @param options get following parameters {headerName: 'your header name', icon : 'fas fa-cube', classname: class for the toast }
    * @param direction position of your toast
    */
-  public info(text: string, options: any = {headerName: 'Information', icon: 'fas fa-info-circle'}, direction?: string) {
-    options.classname += ' border-info';
-    options.iconClass = 'text-info';
-    this.showToast(text, options, direction);
+  public info(text: string, options: ToastOptions = {}, direction?: string) {
+    this.showTypedToast('info', text, options, direction);
   }
 
 
@@ -137,6 +171,20 @@ export class ToastService {
     this.toastsdownleft =  this.toastsdownleft.filter(t => t !== toast);
     this.toastsleft =  this.toastsleft.filter(t => t !== toast);
     this.toastsright =  this.toastsright.filter(t => t !== toast);
+  }
+
+  private showTypedToast(type: NotificationType, text: string, options: ToastOptions, direction?: string): void {
+    const config = ToastService.TYPE_CONFIG[type];
+    const normalizedOptions: ToastOptions = {
+      headerName: config.headerName,
+      icon: config.icon,
+      ...options
+    };
+
+    normalizedOptions.classname = `${normalizedOptions.classname ?? ''} ${config.borderClass}`.trim();
+    normalizedOptions.iconClass = config.iconClass;
+
+    this.showToast(text, normalizedOptions, direction, type);
   }
 
 }

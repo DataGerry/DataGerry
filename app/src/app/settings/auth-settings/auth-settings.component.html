@@ -1,5 +1,5 @@
 <h1>Authentication Config</h1>
-<hr/>
+<hr />
 
 <div class="row">
     <div class="col-md-9">
@@ -10,12 +10,8 @@
                 </div>
                 <div class="col-sm-9">
                     <div class="form-check">
-                        <input
-                            class="custom-control-input"
-                            type="checkbox"
-                            id="enable-external-input"
-                            formControlName="enable_external"
-                        >
+                        <input class="custom-control-input" type="checkbox" id="enable-external-input"
+                            formControlName="enable_external">
                         <label class="custom-control-label" for="enable-external-input"></label>
                     </div>
                 </div>
@@ -26,39 +22,35 @@
                 </label>
                 <div class="col-sm-9">
                     <div class="input-group">
-                        <input
-                            class="form-control"
-                            type="number"
-                            id="token-lifetime-input"
-                            formControlName="token_lifetime"
-                        >
+                        <input class="form-control" type="number" id="token-lifetime-input"
+                            formControlName="token_lifetime">
                     </div>
                     <small class="description form-text text-muted">
                         How long should the token be valid?
                     </small>
                 </div>
             </div>
-            <div *ngIf="authSettings" id="providerSettings">
-                <ng-container
-                    formArrayName="providers"
-                    *ngFor="let providerSettings of authSettings.providers; index as i"
-                >
-                    <div class="card mb-3" [ngSwitch]="providerSettings.class_name">
-                        <cmdb-local-authentication-provider-form
-                            [provider]="providerSettings"
-                            [parent]="providersArray"
-                            *ngSwitchCase="'LocalAuthenticationProvider'"
-                        />
-                        <cmdb-ldap-authentication-provider-form
-                            [provider]="providerSettings"
-                            [parent]="providersArray"
-                            [groups]="groups"
-                            *ngSwitchCase="'LdapAuthenticationProvider'"
-                        />
+            @if (authSettings) {
+            <div id="providerSettings">
+                @for (providerSettings of authSettings.providers; track providerSettings; let i = $index) {
+                <ng-container formArrayName="providers">
+                    <div class="card mb-3">
+                        @switch (providerSettings.class_name) {
+                        @case ('LocalAuthenticationProvider') {
+                        <cmdb-local-authentication-provider-form [provider]="providerSettings"
+                            [parent]="providersArray" />
+                        }
+                        @case ('LdapAuthenticationProvider') {
+                        <cmdb-ldap-authentication-provider-form [provider]="providerSettings" [parent]="providersArray"
+                            [groups]="groups" />
+                        }
+                        }
                     </div>
                 </ng-container>
+                }
             </div>
-            <hr/>
+            }
+            <hr />
             <button type="submit" class="btn btn-success text-end" [disabled]="!authConfigForm.valid">
                 <i class="far fa-save"></i> Save
             </button>
@@ -66,19 +58,23 @@
         </form>
     </div>
     <div id="installed-providers" class="col-md-3">
-        <div *ngIf="installedProviderList && authSettings" class="card">
+        @if (installedProviderList && authSettings) {
+        <div class="card">
             <div class="card-header">
                 Installed Providers
             </div>
             <ul class="list-group list-group-flush">
-                <li *ngFor="let installedProvider of installedProviderList" class="list-group-item">
+                @for (installedProvider of installedProviderList; track installedProvider) {
+                <li class="list-group-item">
                     {{installedProvider?.class_name}}
                 </li>
+                }
             </ul>
             <div class="card-footer text-center text-muted">
                 {{(providersArray| activeProviders).length}}/{{installedProviderList.length}}
                 activated
             </div>
         </div>
+        }
     </div>
 </div>
