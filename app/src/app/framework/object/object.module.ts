@@ -79,6 +79,9 @@ import { ObjectBulkChangeFailedComponent } from './object-bulk-change/object-bul
 import { ObjectBulkChangeCompleteComponent } from './object-bulk-change/object-bulk-change-complete/object-bulk-change-complete.component';
 import { CoreModule } from 'src/app/core/core.module';
 import { RelationRoleDialogComponent } from './object-view/relation-role-dialog/relation-role-dialog.component';
+import { ObjectRelationsComponent } from './object-view/object-relations/object-relations.component';
+import { ObjectRelationTabContentComponent } from './object-view/object-relations/object-relation-tab-content/object-relation-tab-content.component';
+import { ObjectRelationSelectModalComponent } from './object-view/object-relations/object-relation-select-modal/object-relation-select-modal.component';
 import { RelationLogListComponent } from './components/object-relation-log-list/relation-log-list.component';
 import { ChangesModalComponent } from './modals/object-relation-changes-modal/changes-modal.component';
 import { RiskAssessmentModule } from 'src/app/toolbox/isms/risk-assessment/risk-assesment.module';
@@ -135,6 +138,9 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectBulkChangeFailedComponent,
         ObjectBulkChangeCompleteComponent,
         RelationRoleDialogComponent,
+        ObjectRelationsComponent,
+        ObjectRelationTabContentComponent,
+        ObjectRelationSelectModalComponent,
         RelationLogListComponent,
         ChangesModalComponent,
         GraphEditorComponent,
