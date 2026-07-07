@@ -150,13 +150,17 @@
                 "test": {
                     "builder": "@angular/build:karma",
                     "options": {
-                        "main": "src/test.ts",
-                        "polyfills": "src/polyfills.ts",
+                        "polyfills": ["src/polyfills.ts", "zone.js/testing"],
                         "tsConfig": "src/tsconfig.spec.json",
                         "karmaConfig": "src/karma.conf.js",
                         "styles": ["src/styles.scss"],
                         "scripts": [],
-                        "assets": ["src/favicon.ico", "src/assets"]
+                        "assets": ["src/favicon.ico", "src/assets"],
+                        "stylePreprocessorOptions": {
+                          "includePaths": [
+                            "."
+                          ]
+                        }
                     }
                 }
             }
@@ -187,5 +191,8 @@
       "@schematics/angular:resolver": {
         "typeSeparator": "."
       }
+    },
+    "cli": {
+      "analytics": false
     }
 }
