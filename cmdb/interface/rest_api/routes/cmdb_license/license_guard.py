@@ -36,6 +36,7 @@ from cmdb.manager.license_manager.license_service import LicenseService
 
 from cmdb.models.user_model import CmdbUser
 
+from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -43,6 +44,9 @@ LOGGER: Logger = getLogger(__name__)
 
 # `flask.g` attribute under which the per-request {LicenseFeature: bool} lookup cache is stored
 LICENSE_FEATURE_CACHE_ATTR: str = 'license_feature_cache'
+
+# Prefix of an `Authorization` header carrying HTTP Basic credentials (e.g. "Basic dXNlcjpwYXNz")
+BASIC_AUTH_HEADER_PREFIX: str = f'{AuthMethod.BASIC.value} '
 
 # 403 body when a feature is not unlocked; `{feature}` is filled with a human-readable feature label
 FEATURE_NOT_LICENSED_MESSAGE: str = "The {feature} feature requires a valid license!"
@@ -191,3 +195,32 @@ def gate_blueprint(blueprint: Blueprint, feature: LicenseFeature) -> None:
         abort_if_feature_locked(feature)
 
     blueprint.before_request(enforce_feature)
+
+
+def enforce_rest_api_license() -> None:
+    """
+    Blocks HTTP Basic-auth REST calls when the REST_API feature is not licensed (on-premise only)
+
+    Registered as an app-level `before_request` on the REST API. On-premise the two auth channels are
+    distinguishable: external automation authenticates per request with `Authorization: Basic
+    <user:pass>` (`parse_authorization_header` mints a token from those credentials on every call),
+    whereas the Angular UI logs in once via `POST /auth/login` (a JSON body, no `Authorization`
+    header) and then sends `Authorization: Bearer <jwt>`. Refusing Basic-auth requests therefore
+    locks the external REST API while leaving the UI - login and every Bearer call - fully
+    functional. The determined caller can still script the login+Bearer flow; this is a deliberate,
+    accepted gap (the mint route stays open so users can always log in).
+
+    CORS preflight `OPTIONS` is never gated. In cloud or local mode the check is a no-op
+    (`abort_if_feature_locked` returns without effect there), leaving the cloud `x-api-key` +
+    api-level gating untouched.
+    """
+    # Never gate the CORS preflight (see gate_blueprint for the rationale)
+    if request.method == 'OPTIONS':
+        return
+
+    auth_header: str | None = request.headers.get('Authorization')
+
+    # Case-insensitive match: parse_authorization_header lowercases the scheme before accepting it,
+    # so a lowercase "basic " header still authenticates and must be gated the same way
+    if auth_header and auth_header.lower().startswith(BASIC_AUTH_HEADER_PREFIX.lower()):
+        abort_if_feature_locked(LicenseFeature.REST_API)
