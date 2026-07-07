@@ -17,17 +17,14 @@
 Implementation of all API routes for CmdbObjects
 """
 import json
-import copy
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
-from bson import json_util
 from pymongo import UpdateOne
 from flask import abort, current_app, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_utils import default, object_hook
+from cmdb.database.database_utils import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
@@ -67,10 +64,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     handle_delete_from_object_groups,
     handle_delete_object_location,
     handle_delete_location_and_child_locations,
-    validate_and_fill_object_fields,
     sync_select_field_options,
-    is_special_type_changed,
     render_or_native,
+    build_new_object_data,
+    apply_object_update,
     guard_object_write_license,
     guard_object_delete_license,
 )
@@ -98,6 +95,7 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerInsertError,
     ObjectsManagerIterationError,
 )
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -110,7 +108,6 @@ MAX_DASHBOARD_GROUPS: int = 5
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-#TODO: REFACTOR-FIX (reduce complexity)
 @objects_blueprint.route('/', methods=['POST'])
 @handle_db_errors
 @insert_request_user
@@ -131,42 +128,18 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         DefaultResponse: The public_id of the newly inserted CmdbObject
     """
     try:
-        #TODO: REFACTOR-FIX (pass the data same way as on other routes and add schema validation)
-        new_object_json = json.dumps(request.json)
-
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         objects_count: int = 0
 
         if current_app.cloud_mode:
-            objects_count: int = objects_manager.count_documents()
+            objects_count = objects_manager.count_documents()
             if request_user.is_config_item_limit_reached(objects_count):
                 abort(400, "The maximum amout of ConfigItems is reached!")
 
-        new_object_data = json.loads(new_object_json, object_hook=json_util.object_hook)
-
-        if "public_id" not in new_object_data:
-            new_object_data['public_id'] = objects_manager.get_new_object_public_id()
-        else:
-            existing_object: dict[str, Any] | None = objects_manager.get_object(new_object_data['public_id'])
-
-            if existing_object:
-                abort(400, f'Object with ID: {new_object_data["public_id"]} already exists!')
-
-        object_type: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
-
-        if not object_type:
-            abort(404, f"Type with ID:{new_object_data['type_id']} of new Object not found!")
-
-        if 'active' not in new_object_data:
-            new_object_data['active'] = True
-
-        new_object_data['creation_time'] = datetime.now(timezone.utc)
-        new_object_data['version'] = '1.0.0'
-
-        # Validate fields have type property
-        validate_and_fill_object_fields(objects_manager, new_object_data)
+        # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
+        new_object_data, object_type = build_new_object_data(objects_manager, request.json)
 
         # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
         guard_object_write_license(types_manager, request_user, new_object_data)
@@ -456,17 +429,25 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         filter_state = {'active': {'$eq': True}} if fetch_only_active_objects() else None
 
         result = []
-        cursor = objects_manager.group_objects_by_value(value,
-                                                        filter_state,
-                                                        request_user,
-                                                        AccessControlPermission.READ)
+        grouped_documents: list[dict[str, Any]] = list(objects_manager.group_objects_by_value(
+            value,
+            filter_state,
+            request_user,
+            AccessControlPermission.READ,
+        ))
 
-        for document in cursor:
-            cur_type = objects_manager.get_object_type(document['_id'])
+        # Resolve every group's Type in a single lookup instead of one query per group (N+1)
+        type_map: dict[int, CmdbType] = types_manager.get_types_lookup(
+            [document['_id'] for document in grouped_documents]
+        )
+
+        for document in grouped_documents:
+            cur_type: CmdbType | None = type_map.get(document['_id'])
 
             # Skip groups whose Type no longer exists (e.g. orphaned objects of a deleted Type)
             if not cur_type:
@@ -480,6 +461,9 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
                 break
 
         return DefaultResponse(result).make_response()
+    except TypesManagerGetError as err:
+        LOGGER.error("[group_cmdb_objects_by_type_id] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the Type of an Object from the database!")
     except ObjectsManagerGetError as err:
         LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Type of an Object from the database!")
@@ -576,14 +560,14 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
                                                             AccessControlPermission.READ)
 
             if not referenced_object:
-                abort(404, f"The Object with ID:{public_id} was not found!")
+                abort(404, f"The Object with ID:{object_id} was not found!")
 
             referenced_object = CmdbObject.from_data(referenced_object)
 
             referenced_type = objects_manager.get_object_type(referenced_object.get_type_id())
 
             if not referenced_type:
-                abort(404, f"The Type of the Object with ID:{public_id} was not found in the database!")
+                abort(404, f"The Type of the Object with ID:{object_id} was not found in the database!")
 
             mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(object_id)
 
@@ -740,14 +724,20 @@ def get_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Res
         if not object_type:
             abort(404, f"Type with ID: {public_id} not found!")
 
-        all_type_objects: list[CmdbObject] = objects_manager.find_objects(criteria={'type_id': public_id})
+        # Only the field names are needed to detect structural drift, so project them server-side
+        # instead of loading every full object document
+        all_type_objects: list[dict[str, Any]] = objects_manager.find_objects(
+            criteria={'type_id': public_id},
+            as_dict=True,
+            projection={'public_id': 1, 'fields.name': 1},
+        )
 
         type_fields = {field.get('name') for field in object_type.fields}
 
         unstructured: list[int] = [
-            obj.get_public_id()
+            obj['public_id']
             for obj in all_type_objects
-            if {f["name"] for f in obj.fields} != type_fields
+            if {f.get('name') for f in obj.get('fields', [])} != type_fields
         ]
 
         return GetListResponse(unstructured, body=request.method == 'HEAD').make_response()
@@ -765,13 +755,12 @@ def get_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Res
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-#TODO: REFACTOR-FIX (reduce complexity)
 @objects_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.edit')
 @objects_blueprint.validate(CmdbObject.SCHEMA)
-def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update one or more CmdbObjects with the same payload
 
@@ -795,142 +784,28 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser):
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        object_ids = request.args.getlist('objectIDs')
-
+        object_ids: list[int] = request.args.getlist('objectIDs')
         object_ids = list(map(int, object_ids)) if object_ids else [public_id]
 
-        # The active flag comes from the shared request body and applies to every target object
-        active_state = request.get_json().get('active', None)
+        # The active flag comes from the shared (validated) payload and applies to every target
+        active_state = data.get('active', None)
 
-        results: list[dict] = []
-
-        for obj_id in object_ids:
-            new_data = copy.deepcopy(data)
-
-            current_object_instance: CmdbObject | None = objects_manager.get_object(
+        # DataGerry sends the complete object on every update (no PATCH/subset semantics), so the
+        # same payload is applied to each target; apply_object_update runs the per-object side effects
+        results: list[dict[str, Any]] = [
+            apply_object_update(
                 obj_id,
+                data,
+                active_state,
                 request_user,
-                AccessControlPermission.READ,
-                as_dict=False
-            )
-
-            if not current_object_instance:
-                abort(404, f"Object with ID:{obj_id} not found!")
-
-            if is_special_type_changed(current_object_instance.special_type, new_data.get('special_type')):
-                abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
-
-            current_type_instance = objects_manager.get_object_type(current_object_instance.get_type_id())
-
-            if not current_type_instance:
-                abort(500, "Type of Object not found in database!")
-
-            current_object_render_result = CmdbMultiRender(
-                [current_object_instance],
-                request_user
-            ).result(single_object=True)
-
-            new_data.update({
-                'public_id': obj_id,
-                'creation_time': current_object_instance.creation_time,
-                'author_id': current_object_instance.author_id,
-                'active': active_state if active_state in [True, False] else current_object_instance.active,
-                'version': data.get('version', current_object_instance.version),
-                'last_edit_time': datetime.now(timezone.utc),
-                'editor_id': request_user.public_id,
-            })
-
-            old_fields = list(map(lambda x: {k: v for k, v in x.items() if k in ['name', 'value']},
-                                current_object_render_result.fields))
-
-            new_fields = data['fields']
-            for item in new_fields:
-                for old in old_fields:
-                    if item['name'] == old['name']:
-                        old['value'] = item['value']
-            new_data['fields'] = old_fields
-
-            update_comment = new_data.pop('comment', "")
-
-            # Validate fields have type
-            validate_and_fill_object_fields(objects_manager, new_data)
-
-            types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-            previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
-
-            # Editing an IPAM special-type object (or adding/changing an interface subnet) needs an IPAM license
-            guard_object_write_license(types_manager, request_user, new_data, previous_object)
-
-            ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
                 objects_manager,
                 types_manager,
-                new_data,
-                previous_object=previous_object,
+                logs_manager,
             )
-
-            if ipam_errors:
-                abort(400, format_errors_for_abort(ipam_errors))
-
-            update_object_instance = CmdbObject(**json.loads(json.dumps(new_data, default=default),
-                                                            object_hook=object_hook))
-
-            # calc version
-            changes = current_object_instance / update_object_instance
-
-            if len(changes['new']) == 1:
-                version_type = update_object_instance.VERSIONING_PATCH
-            elif len(changes['new']) == len(update_object_instance.fields):
-                version_type = update_object_instance.VERSIONING_MAJOR
-            elif len(changes['new']) > (len(update_object_instance.fields) / 2):
-                version_type = update_object_instance.VERSIONING_MINOR
-            else:
-                version_type = update_object_instance.VERSIONING_PATCH
-            new_data['version'] = update_object_instance.update_version(version_type)
-
-            objects_manager.update_object(obj_id, new_data, request_user, AccessControlPermission.UPDATE)
-
-            results.append(new_data)
-
-            object_after = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
-
-            if not object_after:
-                abort(404, f"Updated Object with ID:{obj_id} not found in database!")
-
-            object_after: CmdbObject = CmdbObject.from_data(object_after)
-
-            # sync select fields
-            if object_after.has_fields_of_type(FieldType.SELECT):
-                sync_select_field_options(request_user, object_after, current_type_instance)
-
-            #EVENT: UPDATE-EVENT
-            try:
-                send_webhook_event(request_user,
-                                   WebhookEventType.UPDATE,
-                                   CmdbObject.to_json(current_object_instance),
-                                   CmdbObject.to_json(object_after),
-                                   changes)
-            except Exception as error:
-                LOGGER.error(
-                    "[update_cmdb_object] Send Webhook Event Exception: %s, Type:%s", error, type(error)
-                )
-
-            # Generate log entry
-            try:
-                log_data = {
-                    'object_id': obj_id,
-                    'version': update_object_instance.get_version(),
-                    'user_id': request_user.get_public_id(),
-                    'user_name': request_user.get_display_name(),
-                    'comment': update_comment,
-                    'changes': changes,
-                    'render_state': json.dumps(update_object_instance, default=default).encode('UTF-8')
-                }
-                logs_manager.insert_log(action=LogAction.EDIT, log_type=CmdbObjectLog.__name__, **log_data)
-            except Exception as error:
-                #TODO: ERROR-FIX
-                LOGGER.error("[update_cmdb_object] Failed to create Log. Error: %s", error)
+            for obj_id in object_ids
+        ]
 
         return UpdateMultiResponse(results=results).make_response()
     except HTTPException as http_err:
@@ -1047,7 +922,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         except Exception as error:
             LOGGER.error("[update_cmdb_object_state] Failed to create Log. Error: %s", error)
 
-        return UpdateSingleResponse(result=found_object.__dict__).make_response()
+        return UpdateSingleResponse(result=CmdbObject.to_json(found_object)).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectsManagerGetError as err:
@@ -1257,7 +1132,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         abort(500, "Failed to delete Object references from the database!")
     except ObjectsManagerGetError as err:
         LOGGER.error("[delete_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(500, "Failed to retrieve the requested Object from the database!")
+        abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_object] ObjectsManagerDeleteError: %s", err, exc_info=True)
         abort(500, "Failed to delete the Object in the database!")

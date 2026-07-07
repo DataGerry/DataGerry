@@ -16,14 +16,17 @@
 """
 Helper methods for CmdbObject routes
 """
+import copy
 import json
+from datetime import datetime, timezone
 from logging import Logger, getLogger
 from typing import Any
 
+from bson import json_util
 from flask import abort, current_app
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_utils import default
+from cmdb.database.database_utils import default, object_hook
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -53,7 +56,10 @@ from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.ipam.enforcement import (
     object_write_requires_ipam_license,
     object_delete_requires_ipam_license,
+    enforce_object_invariants,
+    format_errors_for_abort,
 )
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.security.license.license_constants import LicenseFeature
@@ -258,18 +264,23 @@ def sync_select_field_options(
         types_manager.update_type(object_type.public_id, object_type)
 
 
-def is_special_type_changed(st_old: str, st_new: str) -> bool:
+def is_special_type_changed(st_old: str | None, st_new: str | None) -> bool:
     """
-    Reports whether an object's special_type would change between two values
+    Reports whether an object's special_type would actually change between two values
+
+    A real special_type is a non-empty string (SUPERNET / SUBNET / VLAN); every falsy value -
+    ``""``, ``None`` or an omitted key - means "no special type". Those are normalised to ``None``
+    before comparing, so a caller that omits ``special_type`` (``None``) is not falsely reported as
+    changing a stored empty-string ``special_type`` (the update was otherwise rejected with a 400)
 
     Args:
-        st_old (str): The object's current special_type
-        st_new (str): The special_type supplied in the update payload
+        st_old (str | None): The object's current special_type
+        st_new (str | None): The special_type supplied in the update payload
 
     Returns:
-        bool: True when the two special_type values differ
+        bool: True only when the two values differ once falsy values are treated as equivalent
     """
-    return st_old != st_new
+    return (st_old or None) != (st_new or None)
 
 
 def handle_notify_webhooks(
@@ -353,7 +364,7 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
         public_id (int): public_id of the CmdbObject whose location should be removed
 
     Raises:
-        HTTPException: 405 when the object's location is a parent of other locations, or 500 on an
+        HTTPException: 400 when the object's location is a parent of other locations, or 500 on an
             unexpected error
     """
     try:
@@ -365,7 +376,7 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
             child_location = locations_manager.get_one_by({'parent': object_location['public_id']})
 
             if child_location and len(child_location) > 0:
-                abort(405, "The Location of this Object has child Locations and is therefore not deletable!")
+                abort(400, "The Location of this Object has child Locations and is therefore not deletable!")
 
             # Delete the location because it is not a parent to another location
             locations_manager.delete_location(object_location['public_id'])
@@ -542,3 +553,265 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
     for section in object_data.get("multi_data_sections", []):
         for value in section.get("values", []):
             validate_field_list(value.get("data", []))
+
+
+def to_normalized_cmdb_object(object_data: dict[str, Any]) -> CmdbObject:
+    """
+    Builds a CmdbObject from a payload dict, normalizing BSON types via a JSON round-trip
+
+    The round-trip (``json.dumps(..., default=default)`` then ``json.loads(..., object_hook)``)
+    coerces Python/BSON values (e.g. datetimes) into the canonical shape the model expects,
+    matching how the object is stored and compared
+
+    Args:
+        object_data (dict[str, Any]): The object payload to convert
+
+    Returns:
+        CmdbObject: The constructed CmdbObject instance
+    """
+    return CmdbObject(**json.loads(json.dumps(object_data, default=default), object_hook=object_hook))
+
+
+def build_new_object_data(
+        objects_manager: ObjectsManager,
+        request_data: dict[str, Any],
+    ) -> tuple[dict[str, Any], CmdbType]:
+    """
+    Normalises a raw insert payload into a ready-to-store CmdbObject document
+
+    Applies the BSON object_hook, assigns a fresh public_id (or verifies a supplied one is unused),
+    resolves and returns the target CmdbType, defaults the active flag, stamps creation_time and the
+    initial version, and validates/backfills the field types
+
+    Args:
+        objects_manager (ObjectsManager): Manager used to resolve ids/types and check existence
+        request_data (dict[str, Any]): The raw request body of the new CmdbObject
+
+    Returns:
+        tuple[dict[str, Any], CmdbType]: The prepared object document and its resolved CmdbType
+
+    Raises:
+        HTTPException: 400 when the supplied public_id already exists, 404 when the type is unknown,
+            or the 400s raised by validate_and_fill_object_fields
+    """
+    new_object_data: dict[str, Any] = json.loads(json.dumps(request_data), object_hook=json_util.object_hook)
+
+    if "public_id" not in new_object_data:
+        new_object_data['public_id'] = objects_manager.get_new_object_public_id()
+    else:
+        existing_object: dict[str, Any] | None = objects_manager.get_object(new_object_data['public_id'])
+
+        if existing_object:
+            abort(400, f'Object with ID: {new_object_data["public_id"]} already exists!')
+
+    object_type: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
+
+    if not object_type:
+        abort(404, f"Type with ID:{new_object_data['type_id']} of new Object not found!")
+
+    if 'active' not in new_object_data:
+        new_object_data['active'] = True
+
+    new_object_data['creation_time'] = datetime.now(timezone.utc)
+    new_object_data['version'] = '1.0.0'
+
+    # Validate fields have a type property (and backfill it from the type schema when omitted)
+    validate_and_fill_object_fields(objects_manager, new_object_data)
+
+    return new_object_data, object_type
+
+
+def compute_object_version(current_object: CmdbObject, updated_object: CmdbObject) -> tuple[str, dict[str, Any]]:
+    """
+    Derives the field-level diff and applies the resulting semantic version bump
+
+    The bump is chosen from how many fields changed relative to the total field count: a single
+    changed field is a PATCH, all fields a MAJOR, more than half a MINOR, and anything else a PATCH.
+    ``updated_object`` is mutated in place with the new version
+
+    Args:
+        current_object (CmdbObject): The stored object before the update
+        updated_object (CmdbObject): The candidate object after the update
+
+    Returns:
+        tuple[str, dict[str, Any]]: The new version string and the diff (as returned by ``/``)
+    """
+    changes: dict[str, Any] = current_object / updated_object
+
+    changed_count: int = len(changes['new'])
+    field_count: int = len(updated_object.fields)
+
+    if changed_count == 1:
+        version_type = updated_object.VERSIONING_PATCH
+    elif changed_count == field_count:
+        version_type = updated_object.VERSIONING_MAJOR
+    elif changed_count > (field_count / 2):
+        version_type = updated_object.VERSIONING_MINOR
+    else:
+        version_type = updated_object.VERSIONING_PATCH
+
+    return updated_object.update_version(version_type), changes
+
+
+def emit_object_update_events(
+        request_user: CmdbUser,
+        logs_manager: LogsManager,
+        before_object: CmdbObject,
+        after_object: CmdbObject,
+        updated_object: CmdbObject,
+        changes: dict[str, Any],
+        update_comment: str,
+    ) -> None:
+    """
+    Emits the UPDATE webhook and writes the edit log for an updated CmdbObject
+
+    Both steps are best-effort and isolated: a webhook or logging failure is caught and logged so it
+    never blocks the object update
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        logs_manager (LogsManager): Manager used to persist the edit log
+        before_object (CmdbObject): The object state before the update (webhook payload)
+        after_object (CmdbObject): The re-read object state after the update (webhook payload)
+        updated_object (CmdbObject): The candidate object carrying the bumped version / render_state
+        changes (dict[str, Any]): The field-level diff recorded on the webhook and log
+        update_comment (str): The user-supplied comment stored on the edit log
+    """
+    try:
+        send_webhook_event(request_user,
+                           WebhookEventType.UPDATE,
+                           CmdbObject.to_json(before_object),
+                           CmdbObject.to_json(after_object),
+                           changes)
+    except Exception as error:
+        LOGGER.error("[emit_object_update_events] Send Webhook Event Exception: %s, Type:%s", error, type(error))
+
+    try:
+        log_data: dict[str, Any] = {
+            'object_id': after_object.get_public_id(),
+            'version': updated_object.get_version(),
+            'user_id': request_user.get_public_id(),
+            'user_name': request_user.get_display_name(),
+            'comment': update_comment,
+            'changes': changes,
+            'render_state': json.dumps(updated_object, default=default).encode('UTF-8'),
+        }
+        logs_manager.insert_log(action=LogAction.EDIT, log_type=CmdbObjectLog.__name__, **log_data)
+    except Exception as error:
+        LOGGER.error("[emit_object_update_events] Failed to create Log. Error: %s", error)
+
+
+# Cohesive single-object update orchestration (fetch -> guard -> validate -> persist -> side effects);
+# the local count is inherent to the sequence, so the too-many-locals check is scoped off here
+def apply_object_update(  # pylint: disable=too-many-locals
+        obj_id: int,
+        payload: dict[str, Any],
+        active_state: bool | None,
+        request_user: CmdbUser,
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager,
+        logs_manager: LogsManager,
+    ) -> dict[str, Any]:
+    """
+    Applies a full-object update to a single CmdbObject and runs its side effects
+
+    DataGerry has no partial-update semantics: the complete object is always sent, so the payload
+    fields are authoritative. Refuses a special_type change, enforces the IPAM license + invariants,
+    computes the version bump, persists the object, syncs new select options and emits the update
+    webhook + edit log
+
+    Args:
+        obj_id (int): public_id of the CmdbObject to update
+        payload (dict[str, Any]): The validated full-object payload (shared across bulk targets)
+        active_state (bool | None): The active flag to apply, or None to keep the object's current
+        request_user (CmdbUser): The CmdbUser making the request
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes (IPAM license/invariant checks)
+        logs_manager (LogsManager): Manager used to persist the edit log
+
+    Returns:
+        dict[str, Any]: The persisted object document (one entry of the update response)
+
+    Raises:
+        HTTPException: 404 when the object is missing before/after the write, 400 on a special_type
+            change or an IPAM invariant violation, 500 when the object's type cannot be resolved
+    """
+    new_data: dict[str, Any] = copy.deepcopy(payload)
+
+    current_object_instance: CmdbObject | None = objects_manager.get_object(
+        obj_id,
+        request_user,
+        AccessControlPermission.READ,
+        as_dict=False,
+    )
+
+    if not current_object_instance:
+        abort(404, f"Object with ID:{obj_id} not found!")
+
+    if is_special_type_changed(current_object_instance.special_type, new_data.get('special_type')):
+        abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
+
+    current_type_instance: CmdbType | None = objects_manager.get_object_type(current_object_instance.get_type_id())
+
+    if not current_type_instance:
+        abort(500, "Type of Object not found in database!")
+
+    new_data.update({
+        'public_id': obj_id,
+        'creation_time': current_object_instance.creation_time,
+        'author_id': current_object_instance.author_id,
+        'active': active_state if active_state in [True, False] else current_object_instance.active,
+        'version': payload.get('version', current_object_instance.version),
+        'last_edit_time': datetime.now(timezone.utc),
+        'editor_id': request_user.public_id,
+    })
+
+    update_comment: str = new_data.pop('comment', "")
+
+    # Validate fields have a type (and backfill it) - the full payload is the source of truth
+    validate_and_fill_object_fields(objects_manager, new_data)
+
+    previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
+
+    # Editing an IPAM special-type object (or adding/changing an interface subnet) needs an IPAM license
+    guard_object_write_license(types_manager, request_user, new_data, previous_object)
+
+    ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
+        objects_manager,
+        types_manager,
+        new_data,
+        previous_object=previous_object,
+    )
+
+    if ipam_errors:
+        abort(400, format_errors_for_abort(ipam_errors))
+
+    update_object_instance: CmdbObject = to_normalized_cmdb_object(new_data)
+
+    new_version, changes = compute_object_version(current_object_instance, update_object_instance)
+    new_data['version'] = new_version
+
+    objects_manager.update_object(obj_id, new_data, request_user, AccessControlPermission.UPDATE)
+
+    object_after: dict[str, Any] | None = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
+
+    if not object_after:
+        abort(404, f"Updated Object with ID:{obj_id} not found in database!")
+
+    object_after: CmdbObject = CmdbObject.from_data(object_after)
+
+    # sync select fields
+    if object_after.has_fields_of_type(FieldType.SELECT):
+        sync_select_field_options(request_user, object_after, current_type_instance)
+
+    emit_object_update_events(
+        request_user,
+        logs_manager,
+        current_object_instance,
+        object_after,
+        update_object_instance,
+        changes,
+        update_comment,
+    )
+
+    return new_data
