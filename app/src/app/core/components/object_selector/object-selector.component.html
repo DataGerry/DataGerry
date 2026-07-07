@@ -9,7 +9,8 @@
   <ng-container>
     <ng-select [style.display]="(useInlineLoader && (isLoading$ | async)) ? 'none' : 'block'" [items]="objectList"
       [(ngModel)]="selectedObjects" (ngModelChange)="onSelectionChange($event)" (scrollToEnd)="onScrollToEnd()"
-      (search)="onSearch($event.term)" [multiple]="multiple" [groupBy]="groupByFn" [groupValue]="groupValueFn"
+      (search)="onSearch($event.term)" [multiple]="multiple" [compareWith]="compareObjects" [groupBy]="groupByFn"
+      [groupValue]="groupValueFn"
       placeholder="Select objects..." [closeOnSelect]="closeOnSelect" [searchable]="true" [clearable]="true"
       [disabled]="isViewMode" [loading]="isLoading$ | async" [typeahead]="searchSubject" class="w-100">
       <ng-template ng-optgroup-tmp let-item="item">

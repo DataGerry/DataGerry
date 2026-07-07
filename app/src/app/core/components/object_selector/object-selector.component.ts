@@ -65,6 +65,11 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
   private searchTerm: string = '';
   public searchSubject = new Subject<string>();
   private isLoading: boolean = false;
+  private loadingRequests: number = 0;
+
+  // Objects that are pre-selected (edit/view mode). Fetched by id so they render
+  // as selected regardless of which pagination page they naturally belong to.
+  private preselectedObjects: RenderResult[] = [];
 
   // Unique identifier for infinite scroll
   private readonly scrollUniqueId = 'object-selector-scroll';
@@ -82,6 +87,7 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     });
 
     this.fetchObjects();
+    this.fetchSelectedObjects();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -89,6 +95,13 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     if ((changes.typeIds && !changes.typeIds.firstChange) ||
         (changes.allObjects && !changes.allObjects.firstChange)) {
       this.fetchObjects(true);
+    }
+
+    // Selected ids usually arrive asynchronously in edit mode. Reload the
+    // selected objects by id so they display even when they belong to a page
+    // that has not been paginated into the list yet.
+    if (changes.selectedIds && !changes.selectedIds.firstChange) {
+      this.fetchSelectedObjects();
     }
   }
 
@@ -115,22 +128,9 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
       filters.push({ $match: { public_id: { $in: this.selectedIds } } });
     }
 
-    const baseProjection: any = {
-      'object_information.object_id': 1,
-      'object_information.public_id': 1,
-      'summary_line': 1,
-      'type_information': 1
-    };
-
-    // Conditionally include fields if requested
-    if (this.includeFields) {
-      baseProjection['fields'] = 1;
-      baseProjection['sections'] = 1;
-    }
-
     this.params = {
       filter: filters,
-      projection: baseProjection,
+      projection: this.buildProjection(),
       limit: this.isSearching ? 0 : this.pageSize, // In search mode, get all results
       sort: 'type_id',
       order: 1,
@@ -146,7 +146,11 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
         const incomingResults = this.getUniqueObjectsById(response.results || []);
 
         if (resetPagination) {
-          this.objectList = incomingResults;
+          // Keep the pre-selected objects available as options so they stay
+          // visible after a reset (search mode shows only matching results).
+          this.objectList = this.isSearching
+            ? incomingResults
+            : this.getUniqueObjectsById([...this.preselectedObjects, ...incomingResults]);
         } else {
           this.objectList = this.getUniqueObjectsById([...this.objectList, ...incomingResults]);
         }
@@ -181,6 +185,71 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     });
   }
 
+  /**
+   * Load the currently selected objects directly by their ids.
+   *
+   * Pagination only holds the pages the user has scrolled through, so a
+   * pre-selected object that lives on a later page would never resolve to a
+   * full object and therefore never render as selected in edit/view mode.
+   * Fetching the ids explicitly guarantees their data is available for the
+   * ng-select value regardless of the current page.
+   */
+  private fetchSelectedObjects(): void {
+    const numericIds = this.getNumericSelectedIds();
+
+    if (numericIds.length === 0) {
+      this.preselectedObjects = [];
+      this.initSelectedObjects();
+      return;
+    }
+
+    const params: CollectionParameters = {
+      filter: [{ $match: { public_id: { $in: numericIds } } }],
+      projection: this.buildProjection(),
+      limit: 0,
+      sort: 'public_id',
+      order: 1,
+      page: 1
+    };
+
+    this.setLoading(true);
+    this.objectService.getObjects(params).pipe(
+      finalize(() => this.setLoading(false))
+    ).subscribe({
+      next: (response: APIGetMultiResponse<RenderResult>) => {
+        this.preselectedObjects = this.getUniqueObjectsById(response.results || []);
+
+        // Surface the selected objects as options too (outside of search mode)
+        // so the dropdown reflects them as already selected.
+        if (!this.isSearching) {
+          this.objectList = this.getUniqueObjectsById([...this.preselectedObjects, ...this.objectList]);
+        }
+
+        this.initSelectedObjects();
+      },
+      error: (err) => {
+        this.toast.error(err?.error?.message);
+        this.initSelectedObjects();
+      }
+    });
+  }
+
+  private buildProjection(): Record<string, number> {
+    const projection: Record<string, number> = {
+      'object_information.object_id': 1,
+      'object_information.public_id': 1,
+      'summary_line': 1,
+      'type_information': 1
+    };
+
+    if (this.includeFields) {
+      projection['fields'] = 1;
+      projection['sections'] = 1;
+    }
+
+    return projection;
+  }
+
   private getUniqueObjectsById(objects: RenderResult[]): RenderResult[] {
     const uniqueByObjectId = new Map<number, RenderResult>();
     for (const obj of objects) {
@@ -192,23 +261,33 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
     return Array.from(uniqueByObjectId.values());
   }
 
-  private initSelectedObjects(): void {
-    const numericIds: number[] = (this.selectedIds || []).map(item => {
+  private getNumericSelectedIds(): number[] {
+    return (this.selectedIds || []).map(item => {
       if (typeof item === 'number') {
         return item;
-      } else if (item && item.object_information?.object_id) {
+      }
+      if (item && item.object_information?.object_id != null) {
         return item.object_information.object_id;
       }
       return null;
-    }).filter(x => x !== null) as number[];
+    }).filter((id): id is number => id !== null);
+  }
+
+  private initSelectedObjects(): void {
+    const numericIds = this.getNumericSelectedIds();
+    // Resolve the value from both the pre-selected objects and the paginated
+    // list, so the selection survives regardless of which page is loaded.
+    const pool = this.getUniqueObjectsById([...this.preselectedObjects, ...this.objectList]);
 
     if (this.multiple) {
-      this.selectedObjects = this.objectList.filter(obj =>
+      this.selectedObjects = pool.filter(obj =>
         numericIds.includes(obj.object_information.object_id)
       );
     } else {
       const id = numericIds[0]; // Take the first ID for single selection
-      this.selectedObjects = id ? this.objectList.find(obj => obj.object_information.object_id === id) || null : null;
+      this.selectedObjects = id != null
+        ? pool.find(obj => obj.object_information.object_id === id) || null
+        : null;
     }
   }
 
@@ -286,14 +365,22 @@ export class ObjectSelectorComponent implements OnInit, OnChanges {
   }
 
   private setLoading(isLoading: boolean): void {
-    this.isLoading = isLoading;
+    // Ref-count in-flight requests so the concurrent page and by-id fetches do
+    // not toggle the loader off while the other is still running.
+    this.loadingRequests = Math.max(0, this.loadingRequests + (isLoading ? 1 : -1));
+    const active = this.loadingRequests > 0;
+    this.isLoading = active;
+
     if (this.useInlineLoader) {
-      this.inlineLoading$.next(isLoading);
-      this.loadingChange.emit(isLoading);
+      this.inlineLoading$.next(active);
+      this.loadingChange.emit(active);
     } else {
       isLoading ? this.loaderService.show() : this.loaderService.hide();
     }
   }
+
+  public compareObjects = (a: RenderResult, b: RenderResult): boolean =>
+    a?.object_information?.object_id === b?.object_information?.object_id;
 
   public groupByFn = (item: RenderResult) => item.type_information.type_label;
   public groupValueFn = (_: string, children: RenderResult[]) => ({
