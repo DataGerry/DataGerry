@@ -21,7 +21,7 @@ import { ActivatedRoute, Data, Router } from '@angular/router';
 import { BehaviorSubject, ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
 
-import { LogService } from '../../../../framework/services/log.service';
+import { APILogsWithUsersResponse, LogService, LogUserMap } from '../../../../framework/services/log.service';
 import {
     convertResourceURL,
     UserSettingsService
@@ -31,7 +31,6 @@ import { UserSettingsDBService } from '../../../../management/user-settings/serv
 import { CmdbLog } from '../../../../framework/models/cmdb-log';
 import { Column, Sort, SortDirection, TableState, TableStatePayload } from '../../../../layout/table/table.types';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
-import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { TableComponent } from '../../../../layout/table/table.component';
 import { UserSetting } from '../../../../management/user-settings/models/user-setting';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -66,6 +65,7 @@ export class DeleteTabComponent implements OnInit, OnDestroy {
     public selectedLogIDs: Array<number> = [];
     public filter: string;
     public deleteLogList: CmdbLog[] = [];
+    public logUsers: LogUserMap = {};
     public columns: Array<Column>;
     public sort: Sort = { name: 'public_id', order: SortDirection.ASCENDING } as Sort;
 
@@ -93,14 +93,14 @@ export class DeleteTabComponent implements OnInit, OnDestroy {
     public isLoading$ = this.loaderService.isLoading$;
 
 
-/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     constructor(private logService: LogService,
-                private route: ActivatedRoute,
-                private router: Router,
-                private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
-                private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
-                private loaderService: LoaderService) {
+        private route: ActivatedRoute,
+        private router: Router,
+        private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
+        private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
+        private loaderService: LoaderService) {
 
         this.route.data.pipe(takeUntil(this.subscriber)).subscribe((data: Data) => {
             if (data.userSetting) {
@@ -137,7 +137,7 @@ export class DeleteTabComponent implements OnInit, OnDestroy {
         this.subscriber?.complete();
     }
 
-/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     private loadDeleted() {
         this.loaderService.show();
@@ -151,8 +151,9 @@ export class DeleteTabComponent implements OnInit, OnDestroy {
         };
 
         this.logService.getDeleteLogs(this.apiParameters).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
-            .subscribe((apiResponse: APIGetMultiResponse<CmdbLog>) => {
-                this.deleteLogList = apiResponse.results;
+            .subscribe((apiResponse: APILogsWithUsersResponse<CmdbLog>) => {
+                this.deleteLogList = apiResponse.results?.logs ?? [];
+                this.logUsers = apiResponse.results?.users ?? {};
                 this.total = apiResponse.total;
             });
     }
@@ -257,14 +258,14 @@ export class DeleteTabComponent implements OnInit, OnDestroy {
         } as unknown as Column);
 
         columns.push({
-                display: 'Log Time',
-                name: 'log_time',
-                data: 'log_time',
-                sortable: true,
-                cssClasses: ['text-center'],
-                style: { 'white-space': 'nowrap' },
-                template: this.dateTemplate,
-                searchable: false,
+            display: 'Log Time',
+            name: 'log_time',
+            data: 'log_time',
+            sortable: true,
+            cssClasses: ['text-center'],
+            style: { 'white-space': 'nowrap' },
+            template: this.dateTemplate,
+            searchable: false,
         } as Column);
 
         this.columns = columns;
