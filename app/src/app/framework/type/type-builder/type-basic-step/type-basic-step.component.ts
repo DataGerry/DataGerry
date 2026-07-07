@@ -120,6 +120,11 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
       this.validateChange.emit(this.form.valid);
       this.valid = this.form.valid;
     });
+
+    // New type should start with a distinct random color
+    if (this.mode === CmdbMode.Create && !this.typeInstance?.ci_explorer_color) {
+      this.setRandomColor();
+    }
   }
 
 
@@ -170,7 +175,9 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
    * Sets a random color for the type's CI Explorer color field.
    */
   public setRandomColor(): void {
-    const randomColor = '#' + Math.floor(Math.random() * 16777215).toString(16);
+    // Pad to a full 6-digit hex so the value is always a valid <input type="color"> color,
+    // even when the generated number is small (e.g. avoids "#64" being rendered as black).
+    const randomColor = '#' + Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, '0');
     this.form.get('ci_explorer_color').setValue(randomColor);
   }
 
