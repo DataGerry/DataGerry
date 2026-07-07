@@ -84,8 +84,7 @@
   <!-- Keep the object-selector in the DOM, only hide it if not STATIC. -->
   @if (typesLoaded) {
 <app-object-selector
-   
-    [typeIds]="allTypeIds"
+    [allObjects]="true"
     [multiple]="true"
     [selectedIds]="group.assigned_ids"
     (selectionChange)="onObjectsSelected($event)"
