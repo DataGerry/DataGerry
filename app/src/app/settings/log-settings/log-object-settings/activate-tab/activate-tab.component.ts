@@ -19,9 +19,10 @@ import { Component, EventEmitter, Input, OnDestroy, OnInit, Output, TemplateRef,
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
 import { BehaviorSubject, ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { finalize, takeUntil } from 'rxjs/operators';
 
-import { LogService } from '../../../../framework/services/log.service';
+import { APILogsWithUsersResponse, LogService, LogUserMap } from '../../../../framework/services/log.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 import {
   convertResourceURL,
   UserSettingsService
@@ -31,7 +32,6 @@ import { UserSettingsDBService } from '../../../../management/user-settings/serv
 import { CmdbLog } from '../../../../framework/models/cmdb-log';
 import { Column, Sort, SortDirection, TableState, TableStatePayload } from '../../../../layout/table/table.types';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
-import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { TableComponent } from '../../../../layout/table/table.component';
 import { UserSetting } from '../../../../management/user-settings/models/user-setting';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -67,6 +67,7 @@ export class ActivateTabComponent implements OnInit, OnDestroy {
   public selectedLogIDs: Array<number> = [];
   public filter: string;
   public activeLogs: CmdbLog[] = [];
+  public logUsers: LogUserMap = {};
   public columns: Array<Column>;
   public sort: Sort = { name: 'public_id', order: SortDirection.ASCENDING } as Sort;
 
@@ -91,6 +92,8 @@ export class ActivateTabComponent implements OnInit, OnDestroy {
     return this.tableStateSubject.getValue() as TableState;
   }
 
+  public isLoading$ = this.loaderService.isLoading$;
+
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -98,7 +101,8 @@ export class ActivateTabComponent implements OnInit, OnDestroy {
               private route: ActivatedRoute,
               private router: Router,
               private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
-              private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>) {
+              private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
+              private loaderService: LoaderService) {
 
         this.route.data.pipe(takeUntil(this.subscriber)).subscribe((data: Data) => {
             if (data.userSetting) {
@@ -137,12 +141,15 @@ export class ActivateTabComponent implements OnInit, OnDestroy {
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     private loadExists() {
+        this.loaderService.show();
         const filter = JSON.stringify(this.filterBuilder());
         this.apiParameters = { filter, limit: this.limit, sort: this.sort.name, order: this.sort.order, page: this.page };
 
-        this.logService.getLogsWithExistingObject(this.apiParameters).pipe(takeUntil(this.subscriber))
-            .subscribe((apiResponse: APIGetMultiResponse<CmdbLog>) => {
-                this.activeLogs = apiResponse.results;
+        this.logService.getLogsWithExistingObject(this.apiParameters)
+            .pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+            .subscribe((apiResponse: APILogsWithUsersResponse<CmdbLog>) => {
+                this.activeLogs = apiResponse.results?.logs ?? [];
+                this.logUsers = apiResponse.results?.users ?? {};
                 this.total = apiResponse.total;
             });
     }
