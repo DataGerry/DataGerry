@@ -21,23 +21,29 @@ import { User } from '../../../../../management/models/user';
 import { UserService } from '../../../../../management/services/user.service';
 
 @Component({
-    selector: 'cmdb-object-log-user',
-    templateUrl: './object-log-user.component.html',
-    styleUrls: ['./object-log-user.component.scss'],
-    standalone: false
+  selector: 'cmdb-object-log-user',
+  templateUrl: './object-log-user.component.html',
+  styleUrls: ['./object-log-user.component.scss'],
+  standalone: false
 })
 export class ObjectLogUserComponent implements OnChanges {
 
   @Input() userID: number = 0;
   @Input() userName: string = '';
+  @Input() user?: Partial<User> | null;
 
-  public logUser: User;
+  public logUser: Partial<User>;
   public userExists: boolean = false;
 
   private readonly userService = inject(UserService);
 
   public ngOnChanges(changes: SimpleChanges): void {
-    if (changes.userID !== undefined && changes.userID.isFirstChange()) {
+    if (changes.user) {
+      this.applyResolvedUser();
+      return;
+    }
+
+    if (changes.userID !== undefined && changes.userID.isFirstChange() && this.userID) {
       this.userService.getUser(this.userID)
         .subscribe({
           next: (possibleUser: User) => {
@@ -49,6 +55,15 @@ export class ObjectLogUserComponent implements OnChanges {
           }
         }
         );
+    }
+  }
+
+  private applyResolvedUser(): void {
+    if (this.user) {
+      this.logUser = this.user;
+      this.userExists = true;
+    } else {
+      this.userExists = false;
     }
   }
 
