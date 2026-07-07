@@ -264,18 +264,23 @@ def sync_select_field_options(
         types_manager.update_type(object_type.public_id, object_type)
 
 
-def is_special_type_changed(st_old: str, st_new: str) -> bool:
+def is_special_type_changed(st_old: str | None, st_new: str | None) -> bool:
     """
-    Reports whether an object's special_type would change between two values
+    Reports whether an object's special_type would actually change between two values
+
+    A real special_type is a non-empty string (SUPERNET / SUBNET / VLAN); every falsy value -
+    ``""``, ``None`` or an omitted key - means "no special type". Those are normalised to ``None``
+    before comparing, so a caller that omits ``special_type`` (``None``) is not falsely reported as
+    changing a stored empty-string ``special_type`` (the update was otherwise rejected with a 400)
 
     Args:
-        st_old (str): The object's current special_type
-        st_new (str): The special_type supplied in the update payload
+        st_old (str | None): The object's current special_type
+        st_new (str | None): The special_type supplied in the update payload
 
     Returns:
-        bool: True when the two special_type values differ
+        bool: True only when the two values differ once falsy values are treated as equivalent
     """
-    return st_old != st_new
+    return (st_old or None) != (st_new or None)
 
 
 def handle_notify_webhooks(

@@ -111,9 +111,15 @@ class TestIsSpecialTypeChanged:
         (None, 'SUBNET', True),
         ('SUBNET', None, True),
         ('SUBNET', 'VLAN', True),
+        # Falsy values all mean "no special type" and must be treated as equivalent
+        ('', None, False),   # stored empty-string vs omitted payload key (the Update-Error report)
+        (None, '', False),
+        ('', '', False),
+        ('', 'SUBNET', True),
+        ('SUBNET', '', True),
     ])
     def test_difference_detection(self, old: Any, new: Any, expected: bool) -> None:
-        """Returns True only when the two values differ."""
+        """Returns True only when the two values differ (falsy values normalised to 'no special type')."""
         assert is_special_type_changed(old, new) is expected
 
 
