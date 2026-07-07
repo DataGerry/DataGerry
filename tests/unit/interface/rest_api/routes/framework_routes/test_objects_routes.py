@@ -32,9 +32,12 @@ from werkzeug.exceptions import HTTPException
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import (
     get_cmdb_object_state,
     get_cmdb_object_references,
+    get_cmdb_object_mds_references,
     group_cmdb_objects_by_type_id,
     update_cmdb_object,
+    delete_cmdb_object,
 )
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes'
@@ -129,8 +132,8 @@ class TestGroupObjectsByTypeId:
         """A group whose type resolves to None is omitted; a valid group is enriched and returned."""
         del patched_manager_provider
         mgr.group_objects_by_value.return_value = [{'_id': 1, 'count': 3}, {'_id': 2, 'count': 1}]
-        # type_id 1 is orphaned (None), type_id 2 resolves to a real type
-        mgr.get_object_type.side_effect = [None, SimpleNamespace(label='Server', ci_explorer_color='#fff')]
+        # type_id 1 is orphaned (absent from the lookup), type_id 2 resolves to a real type
+        mgr.get_types_lookup.return_value = {2: SimpleNamespace(label='Server', ci_explorer_color='#fff')}
 
         with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=False), \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
@@ -167,3 +170,47 @@ class TestUpdateCmdbObjectNotFoundMessage:
 
         assert exc_info.value.code == 404
         assert str(target_id) in exc_info.value.description
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   get_cmdb_object_mds_references message (B3)                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMdsReferencesMissingIdMessage:
+    """A missing id in the objectIDs list yields a 404 naming that id, not the path public_id."""
+
+    def test_missing_id_message_uses_object_id(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """When a requested objectID is missing, the 404 message references that id."""
+        del patched_manager_provider
+        mgr.get_object.return_value = None
+        path_id, target_id = 5, 4242
+
+        with flask_app.test_request_context(
+            f'/{path_id}/mds_references', query_string={'objectIDs': str(target_id)},
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_cmdb_object_mds_references)(public_id=path_id, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 404
+        assert str(target_id) in exc_info.value.description
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     delete_cmdb_object get-error mapping (B5)                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestDeleteCmdbObjectGetErrorMapping:
+    """A get failure resolving the delete target maps to 400, aligned with the sibling delete routes."""
+
+    def test_get_error_returns_400(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """ObjectsManagerGetError while fetching the target aborts 400 (previously 500)."""
+        del patched_manager_provider
+        mgr.get_object.side_effect = ObjectsManagerGetError("boom")
+
+        with flask_app.test_request_context(f'/{MISSING_ID}', method='DELETE'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_cmdb_object)(public_id=MISSING_ID, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 400

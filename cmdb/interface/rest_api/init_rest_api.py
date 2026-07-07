@@ -90,6 +90,11 @@ def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
     # Import App Extensions
     CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count'])
 
+    # Lock the external REST API (HTTP Basic auth) behind the REST_API license feature. On-premise
+    # only; a no-op in cloud/local mode. The UI (login + Bearer JWT) is unaffected.
+    from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_rest_api_license
+    app.before_request(enforce_rest_api_license)
+
     if cmdb.__MODE__ == 'DEBUG':
         config = app_config['development']
         app.config.from_object(config)

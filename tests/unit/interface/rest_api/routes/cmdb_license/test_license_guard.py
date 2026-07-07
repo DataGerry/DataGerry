@@ -23,6 +23,7 @@ exercised in isolation: cloud/local pass-through, feature present/absent, the mi
 guard, the 403 message, and the per-request lookup cache (including that it does not leak across
 requests)
 """
+import base64
 from http import HTTPStatus
 from typing import Any, Callable
 
@@ -32,7 +33,9 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.cmdb_license import license_guard
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
+    BASIC_AUTH_HEADER_PREFIX,
     abort_if_feature_locked,
+    enforce_rest_api_license,
     feature_locked,
     gate_blueprint,
     request_has_feature,
@@ -46,6 +49,12 @@ HANDLER_RESULT: str = 'handler-ran'
 REQUEST_USER_SENTINEL: object = object()
 GATED_ROUTE: str = '/gated'
 VIEW_RESULT: str = 'view-ran'
+
+# Fixtures for the REST-API (Basic-auth) lock tests
+AUTHORIZATION_HEADER: str = 'Authorization'
+BASIC_AUTH_HEADER: str = BASIC_AUTH_HEADER_PREFIX + base64.b64encode(b'user:pass').decode('utf-8')
+BEARER_AUTH_HEADER: str = 'Bearer some.jwt.token'
+OPTIONS_METHOD: str = 'OPTIONS'
 
 
 class _StubLicenseService:
@@ -399,3 +408,117 @@ def test_abort_if_feature_locked_is_noop_when_licensed(
 
     with app.test_request_context():
         abort_if_feature_locked(GATED_FEATURE, REQUEST_USER_SENTINEL)  # must not raise
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          enforce_rest_api_license (Basic-auth lock)                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_rest_lock_blocks_basic_auth_when_unlicensed(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """On-premise, a Basic-auth request is blocked with 403 when REST_API is not licensed"""
+    install_service(set())
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
+        with pytest.raises(HTTPException) as exc_info:
+            enforce_rest_api_license()
+
+    assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+
+def test_rest_lock_allows_basic_auth_when_licensed(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """On-premise, a Basic-auth request passes when REST_API is licensed"""
+    install_service({LicenseFeature.REST_API.value})
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
+        enforce_rest_api_license()  # must not raise
+
+
+def test_rest_lock_blocks_lowercase_basic_scheme_when_unlicensed(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """A lowercase 'basic ' scheme still authenticates upstream, so it must be gated too"""
+    install_service(set())
+    lowercase_basic_header: str = BASIC_AUTH_HEADER.lower()
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: lowercase_basic_header}):
+        with pytest.raises(HTTPException) as exc_info:
+            enforce_rest_api_license()
+
+    assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+
+def test_rest_lock_allows_bearer_even_when_unlicensed(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """A Bearer (JWT) request is never gated - the UI keeps working when REST_API is unlicensed"""
+    stub = install_service(set())
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BEARER_AUTH_HEADER}):
+        enforce_rest_api_license()  # must not raise
+
+    # The license is never consulted for a non-Basic request
+    assert stub.call_count == 0
+
+
+def test_rest_lock_allows_request_without_authorization_header(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """A request without an Authorization header (e.g. POST /auth/login) is never gated"""
+    stub = install_service(set())
+
+    with app.test_request_context():
+        enforce_rest_api_license()  # must not raise
+
+    assert stub.call_count == 0
+
+
+def test_rest_lock_does_not_block_options_preflight(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """An OPTIONS preflight carrying a Basic header is never gated and never consults the license"""
+    stub = install_service(set())
+
+    with app.test_request_context(
+        method=OPTIONS_METHOD,
+        headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER},
+    ):
+        enforce_rest_api_license()  # must not raise
+
+    assert stub.call_count == 0
+
+
+def test_rest_lock_passes_through_in_cloud_mode(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """In cloud mode a Basic-auth request is never gated and the license is never consulted"""
+    app.cloud_mode = True
+    stub = install_service(set())
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
+        enforce_rest_api_license()  # must not raise
+
+    assert stub.call_count == 0
+
+
+def test_rest_lock_passes_through_in_local_mode(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """In local mode a Basic-auth request is never gated and the license is never consulted"""
+    app.local_mode = True
+    stub = install_service(set())
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
+        enforce_rest_api_license()  # must not raise
+
+    assert stub.call_count == 0
