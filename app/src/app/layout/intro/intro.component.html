@@ -48,29 +48,25 @@
   </div>
 </div>
 } @else {
-<div class="assistant assistant--intro">
-  <div class="assistant__header">
-    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.close(false)">
-      <i class="fas fa-times" aria-hidden="true"></i>
-    </button>
+<div class="assistant assistant--status">
+  <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.close(false)">
+    <i class="fas fa-times" aria-hidden="true"></i>
+  </button>
 
-    <img class="assistant__logo" src="/assets/img/datagerry_logo.svg" alt="DATAGERRY" />
+  <div class="assistant__status">
+    <span class="assistant__status-icon" aria-hidden="true">
+      <i class="fas fa-check"></i>
+    </span>
     <span class="assistant__eyebrow assistant__eyebrow--muted">Setup Assistant</span>
-    <h2 class="assistant__title">Assistant unavailable</h2>
+    <h2 class="assistant__title">You're already set up</h2>
+    <p class="assistant__status-text">
+      The Setup Assistant helps you build your starter data model, so it's only available on a
+      brand-new workspace during first-time setup.
+    </p>
   </div>
 
-  <div class="assistant__body">
-    <div class="assistant__note assistant__note--warning">
-      <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
-      <span>
-        The assistant is only available while your database is still empty — no categories,
-        types, or objects can exist yet.
-      </span>
-    </div>
-  </div>
-
-  <div class="assistant__footer">
-    <button type="button" class="btn btn-light" (click)="activeModal.close(false)">Close</button>
+  <div class="assistant__footer assistant__footer--center">
+    <button type="button" class="btn btn-primary" (click)="activeModal.close(false)">Got it</button>
   </div>
 </div>
 }
