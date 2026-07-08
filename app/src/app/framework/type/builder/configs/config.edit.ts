@@ -30,7 +30,8 @@ import { nameConvention } from '../../../../layout/directives/name.directive';
 
 @Component({
     template: ``,
-    standalone: false
+    standalone: false,
+    host: { 'data-config-edit-base': 'type' }
 })
 export abstract class ConfigEditBaseComponent {
 
