@@ -35,8 +35,13 @@
 @if (!importResponse) {
 <div>
     <hr />
-    <button class="btn btn-success next" type="button" (click)="onStartImport()">
-        Start import <i class="fas fa-save"></i>
+    <button class="btn btn-success next" type="button" [disabled]="isImporting"
+        [attr.aria-busy]="isImporting" (click)="onStartImport()">
+        @if (isImporting) {
+            Import running <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+        } @else {
+            Start import <i class="fas fa-save" aria-hidden="true"></i>
+        }
     </button>
     <div class="clearfix"></div>
 </div>

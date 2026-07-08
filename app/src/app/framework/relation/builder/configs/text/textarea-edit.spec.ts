@@ -17,6 +17,7 @@
 */
 
 import { ComponentFixture, TestBed } from "@angular/core/testing";
+import { NO_ERRORS_SCHEMA } from "@angular/core";
 import { TextareaEditComponent } from "./textarea-edit.component"
 import { ReactiveFormsModule } from "@angular/forms";
 import { FieldIdentifierValidationService } from "src/app/framework/type/services/field-identifier-validation.service";
@@ -42,7 +43,8 @@ describe('TextareaEditComponent', () => {
             providers: [{
                 provide: FieldIdentifierValidationService,
                 useClass: MockFieldIdentifierValidationService
-            }]
+            }],
+            schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();
     });
 

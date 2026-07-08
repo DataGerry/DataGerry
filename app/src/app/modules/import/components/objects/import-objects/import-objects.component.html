@@ -38,7 +38,7 @@
                 </ng-template>
                 <cmdb-import-complete (startImportEmitter)="startImport()" [importResponse]="importResponse"
                     [importFile]="importerFile" [importerConfig]="importerConfig" [parserConfig]="parserConfig"
-                    [parsedData]="parsedData" />
+                    [parsedData]="parsedData" [isImporting]="isImporting" />
             </aw-wizard-completion-step>
         </aw-wizard>
     </div>
@@ -99,3 +99,8 @@
         }
     </div>
 </div>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>

@@ -18,7 +18,7 @@ describe('DashboardComponent', () => {
     let sidebarServiceMock: any;
 
     beforeEach(async () => {
-        objectServiceMock = jasmine.createSpyObj('ObjectService', ['getObjects', 'getNewestObjects', 'getLatestObjects', 'deleteObject', 'deleteObjectWithLocations', 'deleteObjectWithChildren', 'groupObjectsByType']);
+        objectServiceMock = jasmine.createSpyObj('ObjectService', ['countObjects', 'getLastObjectCount', 'getNewestObjects', 'getLatestObjects', 'deleteObject', 'deleteObjectWithLocations', 'deleteObjectWithChildren', 'groupObjectsByType']);
         toastServiceMock = jasmine.createSpyObj('ToastService', ['error', 'success']);
         sidebarServiceMock = jasmine.createSpyObj('SidebarService', ['updateTypeCounter']);
 
@@ -37,7 +37,8 @@ describe('DashboardComponent', () => {
         fixture = TestBed.createComponent(DashboardComponent);
         component = fixture.componentInstance;
         // Ensuring that each call to service methods returns an observable
-        objectServiceMock.getObjects.and.returnValue(of({ total: 10 } as APIGetMultiResponse<RenderResult>));
+        objectServiceMock.countObjects.and.returnValue(of(null));
+        objectServiceMock.getLastObjectCount.and.returnValue(of(10));
         objectServiceMock.getNewestObjects.and.returnValue(of({ results: [], total: 10 } as APIGetMultiResponse<RenderResult>));
         objectServiceMock.getLatestObjects.and.returnValue(of({ results: [], total: 10 } as APIGetMultiResponse<RenderResult>));
         objectServiceMock.groupObjectsByType.and.returnValue(of([]));
@@ -60,7 +61,7 @@ describe('DashboardComponent', () => {
         });
 
         it('should call countObjects', () => {
-            expect(objectServiceMock.getObjects).toHaveBeenCalled();
+            expect(objectServiceMock.countObjects).toHaveBeenCalled();
             expect(component.objectCount).toBe(10);
         });
 
@@ -81,11 +82,11 @@ describe('DashboardComponent', () => {
 
 
     it('should handle error when deleting object', () => {
-        const errorMessage = 'Error while deleting object';
-        objectServiceMock.deleteObject.and.returnValue(throwError(errorMessage));
+        const backendMessage = 'Error while deleting object';
+        objectServiceMock.deleteObject.and.returnValue(throwError(() => ({ error: { message: backendMessage } })));
         const mockObject: RenderResult = { object_information: { object_id: 1 }, type_information: { type_id: 1 } } as RenderResult;
         component.onObjectDelete(mockObject);
-        expect(toastServiceMock.error).toHaveBeenCalledWith(`Error while deleting object 1: ${errorMessage}`);
+        expect(toastServiceMock.error).toHaveBeenCalledWith(backendMessage);
     });
 
     describe('onLatestPageChange', () => {

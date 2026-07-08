@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
+import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { ReactiveFormsModule, UntypedFormControl, Validators } from '@angular/forms';
 import { SectionFieldEditComponent } from './section-field-edit.component';
 
@@ -29,7 +30,8 @@ describe('SectionFieldEditComponent', () => {
             providers: [
                 { provide: ValidationService, useValue: validationServiceSpy },
                 { provide: SectionIdentifierService, useValue: sectionIdentifierSpy }
-            ]
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();
 
         fixture = TestBed.createComponent(SectionFieldEditComponent);
