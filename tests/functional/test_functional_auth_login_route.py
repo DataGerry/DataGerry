@@ -170,7 +170,7 @@ class TestCloudLogin:
         """Several subscriptions and none selected returns the list of options (no token)."""
         _enable_cloud(rest_api, monkeypatch)
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', lambda _u, _p: {'subscriptions': [
-            {'id': 's1', 'name': 'Sub 1', 'database': 'db1'},
+            {'id': 's1', 'name': 'Sub 1', 'short_id': 'SID-1', 'database': 'db1'},
             {'id': 's2', 'name': 'Sub 2', 'database': 'db2'},
         ]})
 
@@ -178,7 +178,11 @@ class TestCloudLogin:
 
         assert response.status_code == HTTPStatus.OK
         body = response.get_json()
-        assert body == [{'id': 's1', 'name': 'Sub 1'}, {'id': 's2', 'name': 'Sub 2'}]
+        # short_id is carried through (None when the subscription omits it)
+        assert body == [
+            {'id': 's1', 'name': 'Sub 1', 'short_id': 'SID-1'},
+            {'id': 's2', 'name': 'Sub 2', 'short_id': None},
+        ]
 
     def test_selected_subscription_logs_in(self, rest_api, monkeypatch) -> None:
         """A selected subscription (from several) logs the user into that database."""

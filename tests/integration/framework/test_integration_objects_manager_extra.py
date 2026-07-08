@@ -50,12 +50,28 @@ MDS_OBJECT_IDS: list[int] = [9751, 9752]
 LOOKUP_OBJECT_IDS: list[int] = [9761, 9762]
 LOOKUP_MISSING_ID: int = 9769
 
+# clear_location_field_for_objects ids
+LOC_CLEAR_WITH_LOCATION_IDS: list[int] = [9771, 9772]
+LOC_CLEAR_NO_LOCATION_ID: int = 9773
+LOCATION_FIELD_NAME: str = 'dg_location'
 
-def _object_doc(public_id: int, value: str = 'x', mds: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+# count_objects_grouped_by_type ids
+GROUP_TYPE_ID_A: int = 9781
+GROUP_TYPE_ID_B: int = 9782
+GROUP_A_OBJECT_IDS: list[int] = [9791, 9792, 9793]
+GROUP_B_OBJECT_IDS: list[int] = [9794]
+
+
+def _object_doc(
+    public_id: int,
+    value: str = 'x',
+    mds: list[dict[str, Any]] | None = None,
+    type_id: int = TYPE_ID,
+) -> dict[str, Any]:
     """Builds a complete CmdbObject doc (deserialisable via CmdbObject.from_data)."""
     return {
         'public_id': public_id,
-        'type_id': TYPE_ID,
+        'type_id': type_id,
         'active': True,
         'author_id': 1,
         'creation_time': datetime.now(timezone.utc),
@@ -171,3 +187,72 @@ class TestGetObjectsLookup:
         assert set(result) == set(LOOKUP_OBJECT_IDS)
         assert all(isinstance(obj, CmdbObject) for obj in result.values())
         assert result[LOOKUP_OBJECT_IDS[0]].public_id == LOOKUP_OBJECT_IDS[0]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       clear_location_field_for_objects                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestClearLocationFieldForObjects:
+    """Resets the location-type field value to None for the given objects, leaving others untouched."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds two objects carrying a populated location field + one without any location field."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        for public_id in LOC_CLEAR_WITH_LOCATION_IDS:
+            doc = _object_doc(public_id)
+            doc['fields'].append({'name': LOCATION_FIELD_NAME, 'type': 'location', 'value': 42})
+            objects.insert_one(doc)
+
+        objects.insert_one(_object_doc(LOC_CLEAR_NO_LOCATION_ID))
+        yield
+        objects.delete_many(
+            {'public_id': {'$in': LOC_CLEAR_WITH_LOCATION_IDS + [LOC_CLEAR_NO_LOCATION_ID]}}
+        )
+
+    def test_clears_location_value_only_on_targets(
+        self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The location field value becomes None on each target; a text-only object is unaffected."""
+        objects_manager.clear_location_field_for_objects(LOC_CLEAR_WITH_LOCATION_IDS)
+
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        for public_id in LOC_CLEAR_WITH_LOCATION_IDS:
+            doc = objects.find_one({'public_id': public_id})
+            location_field = next(field for field in doc['fields'] if field['name'] == LOCATION_FIELD_NAME)
+            assert location_field['value'] is None
+
+        # An object without a location field is untouched (still just its text field)
+        untouched = objects.find_one({'public_id': LOC_CLEAR_NO_LOCATION_ID})
+        assert all(field['name'] != LOCATION_FIELD_NAME for field in untouched['fields'])
+
+    def test_empty_list_is_noop(self, objects_manager: ObjectsManager) -> None:
+        """An empty id list performs no update and does not raise."""
+        objects_manager.clear_location_field_for_objects([])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          count_objects_grouped_by_type                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCountObjectsGroupedByType:
+    """Counts every CmdbObject grouped by its type_id in a single aggregation."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds three objects of one type and one object of another, removed after the test."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        objects.insert_many(
+            [_object_doc(public_id, type_id=GROUP_TYPE_ID_A) for public_id in GROUP_A_OBJECT_IDS]
+            + [_object_doc(public_id, type_id=GROUP_TYPE_ID_B) for public_id in GROUP_B_OBJECT_IDS]
+        )
+        yield
+        objects.delete_many({'public_id': {'$in': GROUP_A_OBJECT_IDS + GROUP_B_OBJECT_IDS}})
+
+    def test_groups_counts_by_type_id(self, objects_manager: ObjectsManager) -> None:
+        """The seeded type_ids report the exact number of objects inserted for each."""
+        counts = objects_manager.count_objects_grouped_by_type()
+
+        assert counts.get(GROUP_TYPE_ID_A) == len(GROUP_A_OBJECT_IDS)
+        assert counts.get(GROUP_TYPE_ID_B) == len(GROUP_B_OBJECT_IDS)

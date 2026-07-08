@@ -76,6 +76,12 @@ def get_cmdb_cached_user_schema() -> dict[str, Any]:
                         'empty': False,
                         'required': True,
                     },
+                    'short_id': {  # Short human-readable subscription identifier
+                        'type': 'string',
+                        'nullable': True,
+                        'empty': True,
+                        'required': False,
+                    },
                     'api_key': {  # API key scoped to this subscription
                         'type': 'string',
                         'default': None,

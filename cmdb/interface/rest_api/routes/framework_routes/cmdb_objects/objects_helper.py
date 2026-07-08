@@ -389,16 +389,21 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
         abort(500, "An internal server error occured while handling Locations of this Object!")
 
 
-def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id: int) -> None:
+def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id: int) -> list[int]:
     """
     Deletes the CmdbLocation of an object together with every location beneath it
 
     A no-op when the object has no location. Child locations are resolved from the full location
-    tree and removed before the object's own location
+    tree and removed before the object's own location. Returns the object_ids of the removed
+    descendant locations - the child objects that SURVIVE this deletion - so the caller can clear
+    their now-dangling location reference
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         public_id (int): public_id of the CmdbObject whose location subtree should be removed
+
+    Returns:
+        list[int]: public_ids of the child CmdbObjects whose location node was deleted
     """
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
@@ -406,12 +411,17 @@ def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id
     object_location: dict[str, Any] | None = locations_manager.get_location_for_object(public_id)
 
     if not object_location:
-        return
+        return []
 
     # get all child locations for this location (resolved server-side via $graphLookup)
     all_child_locations: list[dict[str, Any]] = locations_manager.get_all_descendant_locations(
         object_location['public_id']
     )
+
+    # object_ids of the descendant location nodes = the child objects that survive this delete
+    child_object_ids: list[int] = [
+        location['object_id'] for location in all_child_locations if 'object_id' in location
+    ]
 
     # delete all child locations
     if all_child_locations:
@@ -419,6 +429,8 @@ def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id
 
     # delete Location of current Object
     locations_manager.delete_location(object_location['public_id'])
+
+    return child_object_ids
 
 
 def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | list[int]) -> None:
@@ -434,15 +446,58 @@ def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | l
     object_groups_manager.remove_ids_from_groups(public_ids, ObjectGroupMode.STATIC)
 
 
+def build_type_object_counts(request_user: CmdbUser) -> list[dict[str, Any]]:
+    """
+    Builds the per-type object-count list for the Service Portal sync payload
+
+    Counts every CmdbObject grouped by its type_id in a single aggregation, then resolves each
+    type_id to its CmdbType label via one bulk lookup. CmdbTypes with no objects are omitted, and
+    a counted type_id whose CmdbType no longer exists is skipped. The counts include all objects
+    (no active filter), so their sum matches the reported config_item_count
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+
+    Returns:
+        list[dict[str, Any]]: Entries shaped ``{"name": <type label>, "count": <int>}``
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+    counts_by_type: dict[int, int] = objects_manager.count_objects_grouped_by_type()
+
+    if not counts_by_type:
+        return []
+
+    types_lookup: dict[int, CmdbType] = types_manager.get_types_lookup(list(counts_by_type.keys()))
+
+    type_counts: list[dict[str, Any]] = []
+
+    for type_id, count in counts_by_type.items():
+        object_type: CmdbType | None = types_lookup.get(type_id)
+
+        if object_type is None:
+            continue
+
+        type_counts.append({"name": object_type.label, "count": count})
+
+    return type_counts
+
+
 def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int) -> None:
     """
     Syncs the current ConfigItem count to the DataGerry service portal (cloud mode)
+
+    Also reports the current per-type object counts (type label + count) alongside the total, so
+    the portal receives a breakdown of the subscription's config items
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         config_item_count (int): The current number of CmdbObjects to report
     """
-    DgServicePortalManager().sync_config_items(request_user, config_item_count)
+    type_counts: list[dict[str, Any]] = build_type_object_counts(request_user)
+
+    DgServicePortalManager().sync_config_items(request_user, config_item_count, type_counts)
 
 
 def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: int) -> None:

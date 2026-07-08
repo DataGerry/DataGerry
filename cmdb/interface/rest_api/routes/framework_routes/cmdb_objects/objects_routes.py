@@ -1194,8 +1194,10 @@ def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUs
         # Delete the object
         objects_manager.delete_with_follow_up(public_id, request_user, permission=AccessControlPermission.DELETE)
 
-        # Remove all child locations
-        handle_delete_location_and_child_locations(request_user, public_id)
+        # Remove the object's location subtree. The child objects are KEPT, so clear the now-dangling
+        # location reference on each of them (the object_ids of the deleted descendant location nodes)
+        orphaned_child_object_ids: list[int] = handle_delete_location_and_child_locations(request_user, public_id)
+        objects_manager.clear_location_field_for_objects(orphaned_child_object_ids)
 
         # Remove all references to this object from other CmdbObjects
         objects_manager.delete_all_object_references(public_id)

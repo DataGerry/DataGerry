@@ -582,6 +582,46 @@ def test_delete_object_returns_false_for_missing_object() -> None:
     mock_self.get_object_type.assert_not_called()
 
 
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          count_objects_grouped_by_type                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_count_objects_grouped_by_type_maps_type_id_to_count() -> None:
+    """Each aggregation bucket becomes a type_id -> count entry in the returned dict"""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.return_value = [
+        {'_id': OWNER_TYPE_ID, 'count': 30},
+        {'_id': OTHER_OWNER_TYPE_ID, 'count': 12},
+    ]
+
+    result = ObjectsManager.count_objects_grouped_by_type(mock_self)
+
+    assert result == {OWNER_TYPE_ID: 30, OTHER_OWNER_TYPE_ID: 12}
+
+
+def test_count_objects_grouped_by_type_skips_non_int_id() -> None:
+    """A bucket whose _id is not an int (e.g. a null type_id) is left out of the result"""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.return_value = [
+        {'_id': OWNER_TYPE_ID, 'count': 5},
+        {'_id': None, 'count': 3},
+    ]
+
+    result = ObjectsManager.count_objects_grouped_by_type(mock_self)
+
+    assert result == {OWNER_TYPE_ID: 5}
+
+
+def test_count_objects_grouped_by_type_uses_single_group_aggregation() -> None:
+    """The count runs one $group stage (not one count per type)"""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.return_value = []
+
+    ObjectsManager.count_objects_grouped_by_type(mock_self)
+
+    pipeline = mock_self.aggregate_objects.call_args.args[0]
+    assert pipeline == [{'$group': {'_id': '$type_id', 'count': {'$sum': 1}}}]
+
+
 def test_delete_object_raises_when_type_missing() -> None:
     """A present object whose type is gone surfaces as ObjectsManagerDeleteError, not AttributeError"""
     mock_self = MagicMock()

@@ -165,7 +165,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         # User have multiple subscriptions, send them to frontend to select
         elif len(user_data['subscriptions']) > 1:
             filtered_subs: list[dict[str, Any]] = [
-                {"id": sub["id"], "name": sub["name"]}
+                {"id": sub["id"], "name": sub["name"], "short_id": sub.get("short_id")}
                 for sub in user_data.get("subscriptions", [])
             ]
 
