@@ -3,7 +3,7 @@
     <li class="breadcrumb-item">
       <a routerLink="">Dashboard</a>
     </li>
-    @for (breadcrumb of breadcrumbService.get() | async; track breadcrumb; let last = $last) {
+    @for (breadcrumb of breadcrumbService.get() | async; track $index; let last = $last) {
 
     @if (breadcrumb.label !== 'Dashboard') {
     <li [ngClass]="{ 'breadcrumb-item': allowBootstrap, 'list': true, 'active': last }">
