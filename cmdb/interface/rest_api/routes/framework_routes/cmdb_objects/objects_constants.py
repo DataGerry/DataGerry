@@ -32,3 +32,20 @@ class ObjectViewMode(BaseStrEnum):
     """
     NATIVE = 'native'
     RENDER = 'render'
+
+
+class ObjectPatchKey(BaseStrEnum):
+    """
+    The only keys accepted in a partial-update (PATCH) object payload
+
+    A PATCH body may carry a subset of regular ``FIELDS`` plus three symmetric MDS-row lists:
+    ``CREATED_MDS_ROWS`` (the backend assigns each new row's multi_data_id and bumps the section
+    counter), ``EDITED_MDS_ROWS`` and ``DELETED_MDS_ROWS``, and an optional ``COMMENT`` for the
+    edit log. Any other key (an immutable identifier or a server-managed field) is rejected so
+    clients cannot silently attempt to change it
+    """
+    FIELDS = 'fields'
+    CREATED_MDS_ROWS = 'created_mds_rows'
+    EDITED_MDS_ROWS = 'edited_mds_rows'
+    DELETED_MDS_ROWS = 'deleted_mds_rows'
+    COMMENT = 'comment'

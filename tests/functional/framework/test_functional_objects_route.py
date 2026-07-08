@@ -45,6 +45,7 @@ OBJECT_ID_FOR_CREATE: int = 9411
 OBJECT_ID_FOR_GET: int = 9412
 OBJECT_ID_FOR_UPDATE: int = 9413
 OBJECT_ID_FOR_DELETE: int = 9414
+OBJECT_ID_FOR_PATCH: int = 9415
 BULK_OBJECT_IDS: list[int] = [9421, 9422, 9423]
 MISSING_OBJECT_ID: int = 9499
 
@@ -53,6 +54,7 @@ ALL_OBJECT_IDS: list[int] = [
     OBJECT_ID_FOR_GET,
     OBJECT_ID_FOR_UPDATE,
     OBJECT_ID_FOR_DELETE,
+    OBJECT_ID_FOR_PATCH,
 ] + BULK_OBJECT_IDS
 
 ORIGINAL_VALUE: str = 'original'
@@ -234,6 +236,67 @@ class TestPutObject:
             assert stored_value == UPDATED_VALUE
         finally:
             _drop_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  PARTIAL UPDATE                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPatchObject:
+    """PATCH /objects/<id> partially updates a single object and rejects disallowed keys."""
+
+    def test_patch_updates_listed_field(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A PATCH with a fields subset changes that value and stamps last_edit_time."""
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_PATCH, ORIGINAL_VALUE)
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}',
+                json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+            )
+            assert response.status_code == HTTPStatus.ACCEPTED
+
+            follow_up = rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_PATCH}')
+            stored = CmdbObject.from_data(follow_up.get_json())
+            assert stored.last_edit_time is not None
+            stored_value = next(field['value'] for field in stored.fields if field['name'] == NAME_FIELD)
+            assert stored_value == UPDATED_VALUE
+        finally:
+            _drop_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+    def test_patch_rejects_immutable_key_and_leaves_object_unchanged(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A PATCH carrying an immutable key (type_id) is rejected 400 and nothing is written."""
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_PATCH, ORIGINAL_VALUE)
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}',
+                json={'type_id': 9999, 'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+            )
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+
+            follow_up = rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_PATCH}')
+            stored = CmdbObject.from_data(follow_up.get_json())
+            stored_value = next(field['value'] for field in stored.fields if field['name'] == NAME_FIELD)
+            assert stored_value == ORIGINAL_VALUE
+        finally:
+            _drop_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+    def test_patch_missing_object_returns_404(self, rest_api) -> None:
+        """A PATCH for an unknown object id returns 404 after the payload validates."""
+        response = rest_api.patch(
+            f'{ROUTE_URL}/{MISSING_OBJECT_ID}',
+            json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+        )
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -874,3 +937,111 @@ class TestDeleteManyObjects:
             database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
                 {'public_id': DELETE_MANY_LOCATION_ID}
             )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     PATCH MDS ROWS (create / edit / delete)                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+MDS_ROWS_SOURCE_ID: int = 9466
+MDS_ROWS_TARGET_ID: int = 9467
+MDS_ROWS_TARGET_ID_2: int = 9468
+MDS_EMPTY_SOURCE_ID: int = 9469
+MDS_SECTION_ID: str = 'mds-section'
+
+
+def _mds_object_two_rows(public_id: int, target_id: int) -> dict[str, Any]:
+    """An MDS-ref object carrying two rows (multi_data_id 1 and 2), highest_id 2."""
+    doc = _mds_referencing_object_doc(public_id, target_id)
+    doc['multi_data_sections'][0]['highest_id'] = 2
+    doc['multi_data_sections'][0]['values'].append({
+        'multi_data_id': 2,
+        'data': [{'type': 'ref', 'name': MDS_REF_FIELD, 'value': target_id}],
+    })
+    return doc
+
+
+def _mds_object_no_rows(public_id: int) -> dict[str, Any]:
+    """An object of the MDS-ref type that has no multi_data_sections container yet."""
+    return {
+        'public_id': public_id,
+        'type_id': MDS_REF_TYPE_ID,
+        'active': True,
+        'author_id': SEED_AUTHOR_ID,
+        'version': SEED_VERSION,
+        'fields': [],
+        'multi_data_sections': [],
+        'creation_time': datetime.now(timezone.utc),
+    }
+
+
+class TestPatchMdsRows:
+    """PATCH applies created/edited/deleted MDS rows in one call, with backend-assigned ids."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds the MDS-ref type, two ref targets, a source with two rows and one with no rows."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        types.insert_one(_mds_ref_type_doc())
+        objects.insert_one(_object_doc(MDS_ROWS_TARGET_ID, ORIGINAL_VALUE))
+        objects.insert_one(_object_doc(MDS_ROWS_TARGET_ID_2, ORIGINAL_VALUE))
+        objects.insert_one(_mds_object_two_rows(MDS_ROWS_SOURCE_ID, MDS_ROWS_TARGET_ID))
+        objects.insert_one(_mds_object_no_rows(MDS_EMPTY_SOURCE_ID))
+        yield
+        objects.delete_many(
+            {'public_id': {'$in': [
+                MDS_ROWS_SOURCE_ID, MDS_ROWS_TARGET_ID, MDS_ROWS_TARGET_ID_2, MDS_EMPTY_SOURCE_ID,
+            ]}}
+        )
+        types.delete_one({'public_id': MDS_REF_TYPE_ID})
+
+    def test_patch_creates_edits_and_deletes_rows_in_one_call(self, rest_api) -> None:
+        """Create appends a backend-numbered row (highest_id -> 3), edit updates row 1, delete drops row 2."""
+        response = rest_api.patch(
+            f'{ROUTE_URL}/{MDS_ROWS_SOURCE_ID}',
+            json={
+                'created_mds_rows': [
+                    {'section_id': MDS_SECTION_ID, 'data': [{'name': MDS_REF_FIELD, 'value': MDS_ROWS_TARGET_ID}]},
+                ],
+                'edited_mds_rows': [
+                    {'section_id': MDS_SECTION_ID, 'multi_data_id': 1,
+                     'data': [{'name': MDS_REF_FIELD, 'value': MDS_ROWS_TARGET_ID_2}]},
+                ],
+                'deleted_mds_rows': [
+                    {'section_id': MDS_SECTION_ID, 'multi_data_id': 2},
+                ],
+            },
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+
+        follow_up = rest_api.get(f'{ROUTE_URL}/native/{MDS_ROWS_SOURCE_ID}')
+        stored = CmdbObject.from_data(follow_up.get_json())
+        section = stored.multi_data_sections[0]
+
+        # row 2 deleted, row 1 kept, a new row 3 created (highest_id was 2 -> assigned 3)
+        assert {row['multi_data_id'] for row in section['values']} == {1, 3}
+        assert section['highest_id'] == 3
+
+        rows_by_id = {row['multi_data_id']: row for row in section['values']}
+        edited_value = next(f['value'] for f in rows_by_id[1]['data'] if f['name'] == MDS_REF_FIELD)
+        created_value = next(f['value'] for f in rows_by_id[3]['data'] if f['name'] == MDS_REF_FIELD)
+        assert edited_value == MDS_ROWS_TARGET_ID_2
+        assert created_value == MDS_ROWS_TARGET_ID
+
+    def test_patch_first_row_add_seeds_section_container(self, rest_api) -> None:
+        """Creating a row in a declared section the object lacks seeds the container with row 1."""
+        response = rest_api.patch(
+            f'{ROUTE_URL}/{MDS_EMPTY_SOURCE_ID}',
+            json={'created_mds_rows': [
+                {'section_id': MDS_SECTION_ID, 'data': [{'name': MDS_REF_FIELD, 'value': MDS_ROWS_TARGET_ID}]},
+            ]},
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+
+        follow_up = rest_api.get(f'{ROUTE_URL}/native/{MDS_EMPTY_SOURCE_ID}')
+        stored = CmdbObject.from_data(follow_up.get_json())
+        section = next(s for s in stored.multi_data_sections if s['section_id'] == MDS_SECTION_ID)
+        assert section['highest_id'] == 1
+        assert section['values'][0]['multi_data_id'] == 1

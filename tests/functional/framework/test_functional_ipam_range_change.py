@@ -21,8 +21,8 @@ pushes existing child rows (child subnets / interface IPs) outside it. The orpha
 children stay on disk untouched - the FE surfaces them as is_valid=False in the respective
 overview routes; orphaning is never a save-side blocker.
 
-Exercised via PATCH /rest/objects/<id> against a real Flask + Mongo stack so the full
-enforcement pipeline (enforce_object_invariants → format_errors_for_abort → 400) is
+Exercised via PUT /rest/objects/<id> (full-replace save) against a real Flask + Mongo stack so
+the full enforcement pipeline (enforce_object_invariants → format_errors_for_abort → 400) is
 covered end-to-end
 """
 from datetime import datetime, timezone
@@ -79,9 +79,9 @@ def _type_doc(
 ) -> dict[str, Any]:
     """
     Builds a CmdbType doc; ``extra_field_names`` lets the SUPERNET/SUBNET types declare their
-    CIDR field. A 'main' section listing every declared field is added so the PUT/PATCH route's
+    CIDR field. A 'main' section listing every declared field is added so the PUT route's
     field-merge step (which only honors fields referenced by render_meta.sections) keeps the
-    PATCHed values intact
+    written values intact
     """
     all_field_names: list[str] = ['dg-name']
     fields: list[dict[str, Any]] = [{'type': 'text', 'name': 'dg-name', 'label': 'Name'}]
@@ -153,12 +153,12 @@ def _object_doc(
     return doc
 
 
-def _patch_payload_with_new_range(
+def _full_payload_with_new_range(
     current_doc: dict[str, Any],
     new_range: str,
     range_field_name: str,
 ) -> dict[str, Any]:
-    """Builds a PATCH payload from the current document with the network-range field overwritten."""
+    """Builds a full-replace payload from the current document with the network-range field overwritten."""
     new_fields: list[dict[str, Any]] = []
 
     for entry in current_doc['fields']:
@@ -282,25 +282,25 @@ def _field_value(doc: dict[str, Any], field_name: str) -> Any:
 #                                  Scenario A: SUPERNET CIDR change orphans child SUBNET                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestSupernetCidrChangeAllowedWhenChildSubnetsOrphan:
-    """PATCH to a disjoint supernet CIDR is accepted; the now-orphaned child subnet survives."""
+    """A full-replace save to a disjoint supernet CIDR is accepted; the orphaned child subnet survives."""
 
     def test_supernet_range_change_is_accepted_despite_orphaning_children(
         self, rest_api, connector: MongoConnector, database_name: str,
     ):
         """A disjoint supernet CIDR passes the save pipeline - orphaning children never blocks the save"""
         current = _read_object(connector, database_name, OBJ_SUPERNET_A)
-        payload = _patch_payload_with_new_range(current, SUPERNET_A_NEW_CIDR, 'dg-network-range')
+        payload = _full_payload_with_new_range(current, SUPERNET_A_NEW_CIDR, 'dg-network-range')
 
-        response = rest_api.patch(f'{OBJECTS_ROUTE}/{OBJ_SUPERNET_A}', json=payload)
+        response = rest_api.put(f'{OBJECTS_ROUTE}/{OBJ_SUPERNET_A}', json=payload)
 
         assert response.status_code == HTTPStatus.ACCEPTED, (
-            f"PATCH returned {response.status_code}; body: {response.data!r}"
+            f"PUT returned {response.status_code}; body: {response.data!r}"
         )
 
     def test_supernet_range_was_actually_persisted(
         self, connector: MongoConnector, database_name: str,
     ):
-        """The new CIDR is the value stored on the SUPERNET after the PATCH"""
+        """The new CIDR is the value stored on the SUPERNET after the save"""
         stored = _read_object(connector, database_name, OBJ_SUPERNET_A)
 
         assert _field_value(stored, 'dg-network-range') == SUPERNET_A_NEW_CIDR
@@ -308,7 +308,7 @@ class TestSupernetCidrChangeAllowedWhenChildSubnetsOrphan:
     def test_child_subnet_remains_untouched(
         self, connector: MongoConnector, database_name: str,
     ):
-        """The orphaned child subnet's range and supernet-ref are not modified by the supernet PATCH"""
+        """The orphaned child subnet's range and supernet-ref are not modified by the supernet save"""
         stored = _read_object(connector, database_name, OBJ_CHILD_SUBNET_A)
 
         assert _field_value(stored, 'dg-network-range') == CHILD_SUBNET_A_CIDR
@@ -319,25 +319,25 @@ class TestSupernetCidrChangeAllowedWhenChildSubnetsOrphan:
 #                                Scenario B: SUBNET CIDR change orphans interface IP                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestSubnetCidrChangeAllowedWhenInterfaceIpsOrphan:
-    """PATCH to a disjoint subnet CIDR is accepted; the now-orphaned interface IP row survives."""
+    """A full-replace save to a disjoint subnet CIDR is accepted; the orphaned interface IP row survives."""
 
     def test_subnet_range_change_is_accepted_despite_orphaning_interface_ips(
         self, rest_api, connector: MongoConnector, database_name: str,
     ):
         """A disjoint subnet CIDR passes the save pipeline - orphaning interface IPs never blocks the save"""
         current = _read_object(connector, database_name, OBJ_ORPHAN_SUBNET_B)
-        payload = _patch_payload_with_new_range(current, SUBNET_B_NEW_CIDR, 'dg-network-range')
+        payload = _full_payload_with_new_range(current, SUBNET_B_NEW_CIDR, 'dg-network-range')
 
-        response = rest_api.patch(f'{OBJECTS_ROUTE}/{OBJ_ORPHAN_SUBNET_B}', json=payload)
+        response = rest_api.put(f'{OBJECTS_ROUTE}/{OBJ_ORPHAN_SUBNET_B}', json=payload)
 
         assert response.status_code == HTTPStatus.ACCEPTED, (
-            f"PATCH returned {response.status_code}; body: {response.data!r}"
+            f"PUT returned {response.status_code}; body: {response.data!r}"
         )
 
     def test_subnet_range_was_actually_persisted(
         self, connector: MongoConnector, database_name: str,
     ):
-        """The new CIDR is the value stored on the SUBNET after the PATCH"""
+        """The new CIDR is the value stored on the SUBNET after the save"""
         stored = _read_object(connector, database_name, OBJ_ORPHAN_SUBNET_B)
 
         assert _field_value(stored, 'dg-network-range') == SUBNET_B_NEW_CIDR
@@ -345,7 +345,7 @@ class TestSubnetCidrChangeAllowedWhenInterfaceIpsOrphan:
     def test_server_interface_row_remains_untouched(
         self, connector: MongoConnector, database_name: str,
     ):
-        """The orphaned interface row keeps its IP and subnet reference after the subnet PATCH"""
+        """The orphaned interface row keeps its IP and subnet reference after the subnet save"""
         stored = _read_object(connector, database_name, OBJ_SERVER_WITH_IP_B)
         section = next(
             s for s in stored.get('multi_data_sections', [])
