@@ -62,9 +62,11 @@ class CmdbObjectMdsKey(BaseStrEnum):
     Dict keys of one entry inside a CmdbObject 'multi_data_sections' list
 
     Each entry represents one MDS section instance on the object: SECTION_ID identifies the
-    section template and VALUES is the list of rows captured for that section
+    section template, HIGHEST_ID is the largest row id handed out so far (the row-id counter)
+    and VALUES is the list of rows captured for that section
     """
     SECTION_ID = 'section_id'
+    HIGHEST_ID = 'highest_id'
     VALUES = 'values'
 
 
@@ -73,6 +75,8 @@ class CmdbObjectMdsRowKey(BaseStrEnum):
     Dict keys of one row inside a CmdbObject MDS section's 'values' list
 
     Each row stores its captured field entries under 'data' as a list of
-    {name, value, type}-shaped dicts (see CmdbObjectFieldKey for that inner shape)
+    {name, value, type}-shaped dicts (see CmdbObjectFieldKey for that inner shape) and is
+    identified within its section by MULTI_DATA_ID
     """
+    MULTI_DATA_ID = 'multi_data_id'
     DATA = 'data'

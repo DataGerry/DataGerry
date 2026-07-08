@@ -68,6 +68,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     render_or_native,
     build_new_object_data,
     apply_object_update,
+    validate_object_patch_payload,
+    build_patched_object_data,
     guard_object_write_license,
     guard_object_delete_license,
 )
@@ -755,14 +757,14 @@ def get_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Res
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-@objects_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
+@objects_blueprint.route('/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.edit')
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT`/`PATCH` route to update one or more CmdbObjects with the same payload
+    HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
 
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
     same payload; otherwise only the path-supplied 'public_id' is updated. Refuses any change
@@ -821,6 +823,85 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
     except Exception as err:
         LOGGER.error("[update_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating Object with ID:{public_id}!")
+
+
+@objects_blueprint.route('/<int:public_id>', methods=['PATCH'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `PATCH` route to partially update a single CmdbObject
+
+    Unlike the full-replace `PUT`, the body carries only a SUBSET of the object's data: a list of
+    regular `fields` ({name, value}) plus three MDS row lists - `created_mds_rows` ({section_id,
+    data}; the backend assigns the new multi_data_id and bumps the section counter, seeding the
+    section container on first-row-add when the type declares that section), `edited_mds_rows`
+    ({section_id, multi_data_id, data}) and `deleted_mds_rows` ({section_id, multi_data_id}).
+    Listed values are merged onto the stored object; everything not mentioned is
+    left untouched. Immutable identifiers and server-managed fields (public_id, type_id,
+    creation_time, author_id, special_type, version, last_edit_time, editor_id) are rejected with
+    400. The merged object then runs the same pipeline as PUT (field validation, IPAM license +
+    invariants, version bump from the real diff, UPDATE webhook and edit log)
+
+    Args:
+        public_id (int): public_id of the CmdbObject to patch
+        request_user (CmdbUser): The CmdbUser making the request
+
+    Returns:
+        UpdateSingleResponse: The patched CmdbObject payload
+    """
+    try:
+        logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        patch_data: dict[str, Any] = validate_object_patch_payload(request.get_json(silent=True))
+
+        current_object: CmdbObject | None = objects_manager.get_object(
+            public_id,
+            request_user,
+            AccessControlPermission.READ,
+            as_dict=False,
+        )
+
+        if not current_object:
+            abort(404, f"Object with ID:{public_id} not found!")
+
+        current_type: CmdbType | None = objects_manager.get_object_type(current_object.get_type_id())
+
+        if not current_type:
+            abort(500, "Type of Object not found in database!")
+
+        merged_data: dict[str, Any] = build_patched_object_data(
+            current_object, patch_data, current_type.get_mds_section_ids()
+        )
+
+        # The merged payload is a complete object, so it runs the shared full-update pipeline
+        result: dict[str, Any] = apply_object_update(
+            public_id,
+            merged_data,
+            None,
+            request_user,
+            objects_manager,
+            types_manager,
+            logs_manager,
+        )
+
+        return UpdateSingleResponse(result).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[patch_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the requested Object from the database!")
+    except ObjectsManagerUpdateError as err:
+        LOGGER.error("[patch_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
+        abort(400, "Failed to update the requested Object in the database!")
+    except AccessDeniedError:
+        abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
+    except Exception as err:
+        LOGGER.error("[patch_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while patching Object with ID:{public_id}!")
 
 
 @objects_blueprint.route('/state/<int:public_id>', methods=['PUT'])
