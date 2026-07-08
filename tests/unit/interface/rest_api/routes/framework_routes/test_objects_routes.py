@@ -34,6 +34,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
     get_cmdb_object_references,
     get_cmdb_object_mds_references,
     group_cmdb_objects_by_type_id,
+    insert_cmdb_object,
     update_cmdb_object,
     delete_cmdb_object,
 )
@@ -214,3 +215,43 @@ class TestDeleteCmdbObjectGetErrorMapping:
                 _unwrap(delete_cmdb_object)(public_id=MISSING_ID, request_user=SimpleNamespace(public_id=1))
 
         assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                              insert_cmdb_object config-item sync (off-by-one regression)                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestInsertCmdbObjectSyncsPostInsertCount:
+    """In cloud mode the synced config-item count includes the just-created object (no off-by-one)."""
+
+    def test_synced_count_is_recomputed_after_the_insert(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The count sent to the portal is the POST-insert total, not the pre-insert limit-check count."""
+        del patched_manager_provider
+        flask_app.cloud_mode = True
+
+        # First call = pre-insert limit check (5); second call = post-insert recount (6, the correct total)
+        mgr.count_documents.side_effect = [5, 6]
+        mgr.insert_object.return_value = 111
+        mgr.get_object.return_value = {'public_id': 111, 'type_id': 1, 'fields': []}
+
+        request_user = SimpleNamespace(public_id=1, is_config_item_limit_reached=lambda count: False)
+
+        built_object = ({'type_id': 1, 'fields': []}, MagicMock())
+
+        with flask_app.test_request_context('/', method='POST', json={'type_id': 1, 'fields': []}):
+            with patch(f'{ROUTE_PATH}.build_new_object_data', return_value=built_object), \
+                 patch(f'{ROUTE_PATH}.guard_object_write_license'), \
+                 patch(f'{ROUTE_PATH}.enforce_object_invariants', return_value=[]), \
+                 patch(f'{ROUTE_PATH}.sync_select_field_options'), \
+                 patch(f'{ROUTE_PATH}.handle_notify_webhooks'), \
+                 patch(f'{ROUTE_PATH}.handle_create_object_log'), \
+                 patch(f'{ROUTE_PATH}.CmdbObject') as cmdb_object, \
+                 patch(f'{ROUTE_PATH}.handle_sync_config_item_count') as sync:
+                cmdb_object.from_data.return_value = SimpleNamespace(has_fields_of_type=lambda field_type: False)
+
+                _unwrap(insert_cmdb_object)(request_user=request_user)
+
+        # Off-by-one guard: the buggy version forwarded the pre-insert 5; the fix forwards the post-insert 6
+        sync.assert_called_once_with(request_user, 6)
+        assert mgr.count_documents.call_count == 2

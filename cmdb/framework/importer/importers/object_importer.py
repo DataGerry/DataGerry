@@ -100,6 +100,9 @@ class ObjectImporter(BaseImporter):
 
         success_imports: list[ImportSuccessMessage] = []
         failed_imports: list[ImportFailedMessage] = []
+        # Whether any object was inserted or deleted, so the ConfigItem count is synced once at the
+        # end (cloud mode) only when the batch actually changed the total
+        did_write: bool = False
 
         current_import_index = run_config.start_element
         importer_counter = 0
@@ -139,14 +142,7 @@ class ObjectImporter(BaseImporter):
                             raise ObjectsManagerInsertError("Config item limit reached!") from err
 
                     self.objects_manager.insert_object(current_import_object)
-
-                    try:
-                        if current_app.cloud_mode:
-                            objects_count = self.objects_manager.count_documents()
-
-                            handle_sync_config_item_count(self.request_user, objects_count)
-                    except Exception as error:
-                        LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
+                    did_write = True
                 except ObjectsManagerInsertError as error:
                     failed_imports.append(ImportFailedMessage(error_message=error, obj=current_import_object))
                     current_import_index += 1
@@ -163,20 +159,13 @@ class ObjectImporter(BaseImporter):
                     current_import_index += 1
                     continue
                 else:
+                    did_write = True
                     try:
                         if current_app.cloud_mode:
                             if self.check_config_item_limit_reached(self.request_user):
                                 raise ObjectsManagerInsertError("Config item limit reached")
 
                         self.objects_manager.insert_object(current_import_object)
-
-                        try:
-                            if current_app.cloud_mode:
-                                objects_count = self.objects_manager.count_documents()
-
-                                handle_sync_config_item_count(self.request_user, objects_count)
-                        except Exception as error:
-                            LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
                     except ObjectsManagerInsertError as err:
                         LOGGER.error("[_import] ObjectsManagerInsertError: %s", err, exc_info=True)
                         failed_imports.append(ImportFailedMessage(error_message=err, obj=current_import_object))
@@ -191,6 +180,11 @@ class ObjectImporter(BaseImporter):
             if run_config.max_elements > 0 and (current_import_index >= run_config.max_elements):
                 break
 
+        # Sync the ConfigItem count to the Service Portal ONCE after the whole batch (cloud mode),
+        # not per object - the count is a full recount so a single report reflects every change
+        if current_app.cloud_mode and did_write:
+            self._sync_config_item_count()
+
         return ImporterObjectResponse(
             message=f'Import of {importer_counter} objects',
             success_imports=success_imports,
@@ -202,6 +196,20 @@ class ObjectImporter(BaseImporter):
         """Starting the import process.
         Should call the _import method"""
         raise NotImplementedError
+
+
+    def _sync_config_item_count(self) -> None:
+        """
+        Reports the current CmdbObject count to the DataGerry Service Portal once (cloud mode)
+
+        Called a single time after the whole import batch (not per object): the reported count is a
+        full recount, so one report reflects every insert/delete in the run. Best-effort - a portal
+        or transport failure is logged and swallowed so it never fails the import
+        """
+        try:
+            handle_sync_config_item_count(self.request_user, self.objects_manager.count_documents())
+        except Exception as error:
+            LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
 
 
     def check_config_item_limit_reached(self, request_user: CmdbUser) -> bool:
