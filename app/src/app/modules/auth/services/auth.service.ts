@@ -317,6 +317,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
             backdrop: 'static',
             keyboard: true,
             windowClass: 'intro-tour',
+            backdropClass: 'intro-tour-backdrop',
             size: 'lg'
         };
     }
