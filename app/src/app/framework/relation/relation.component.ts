@@ -100,7 +100,7 @@ export class RelationComponent implements OnInit, OnDestroy {
                 data: 'public_id',
                 searchable: true,
                 sortable: true,
-                style: { width: '100px', 'text-align': 'center' }
+                style: { width: '130px', 'text-align': 'center' }
             },
             {
                 display: 'Relation',
@@ -108,7 +108,7 @@ export class RelationComponent implements OnInit, OnDestroy {
                 data: 'relation_name',
                 searchable: true,
                 sortable: true,
-                style: { width: '45%', 'text-align': 'center' } 
+                style: { width: '40%', 'text-align': 'center' } 
             },
             {
                 display: 'Description',
@@ -117,7 +117,7 @@ export class RelationComponent implements OnInit, OnDestroy {
                 sortable: true,
                 searchable: false,
                 template: this.descriptionTemplate,
-                style: { width: '45%', 'text-align': 'center' } 
+                style: { width: '40%', 'text-align': 'center' } 
             },
             {
                 display: 'Actions',

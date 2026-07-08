@@ -1,36 +1,79 @@
-<div class="modal-content">
-    <div class="modal-body">
-        <img id="login-logo" 
-            src="/assets/img/datagerry_logo.svg" 
-            class="img-fluid mx-auto d-block w-50"
-            alt="DATAGERRY"/>
-        <br>
-        Welcome to the initial setup of DataGerry. Please choose you industry to see the data categories recommended for you.
-        If nothing applies, you can simply click next.<br>
-        <br>
-        <form [formGroup]="branchForm">
-            <div class="checkbox-section">
-                <div class="form-group">
-                    <input formControlName="telecommunications-branch" type="checkbox" id="telecommunications-branch">
-                    <label class="branch-label" for="telecommunications-branch">Telecommunications</label>
-                </div>
-                <div class="form-group">
-                    <input formControlName="helpdesk-branch" type="checkbox" id="helpdesk-branch">
-                    <label class="branch-label" for="helpdesk-branch">Helpdesk</label>
-                </div>
-                <div class="form-group">
-                    <input formControlName="service-provider-branch" type="checkbox" id="service-provider-branch">
-                    <label class="branch-label" for="service-provider-branch">Service provider</label>
-                </div>
-                <div class="form-group">
-                    <input formControlName="healthcare-branch" type="checkbox" id="healthcare-branch">
-                    <label class="branch-label" for="healthcare-branch">Healthcare</label>
-                </div>
-            </div>
-        </form>
+<div class="assistant">
+  <div class="assistant__header">
+    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.dismiss(false)">
+      <i class="fas fa-times" aria-hidden="true"></i>
+    </button>
+
+    <span class="assistant__icon"><i class="fas fa-briefcase" aria-hidden="true"></i></span>
+    <div class="assistant__heading">
+      <span class="assistant__eyebrow">Setup Assistant</span>
+      <h2 class="assistant__title">Choose your industry</h2>
+      <p class="assistant__subtitle">
+        Pick the areas that match your organisation to see the data categories we recommend for you.
+      </p>
+
+      <div class="assistant__steps" role="group" aria-label="Setup progress">
+        <span class="assistant__step assistant__step--active" aria-current="step">
+          <span class="assistant__step-dot">1</span> Industry
+        </span>
+        <span class="assistant__step-line"></span>
+        <span class="assistant__step">
+          <span class="assistant__step-dot">2</span> Categories
+        </span>
+      </div>
     </div>
-    <div class="modal-footer">
-        <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-        <button type="button" class="btn btn-primary p-2" [disabled]="!branchForm.valid" (click)="activeModal.close(branchForm.value)">Continue</button>
-    </div>
+  </div>
+
+  <div class="assistant__body">
+    <form [formGroup]="branchForm">
+      <div class="assistant__grid">
+        <label class="assistant-option">
+          <input class="assistant-option__input" formControlName="telecommunications-branch" type="checkbox"
+            id="telecommunications-branch">
+          <span class="assistant-option__box">
+            <span class="assistant-option__icon"><i class="fas fa-signal" aria-hidden="true"></i></span>
+            <span class="assistant-option__label">Telecommunications</span>
+            <span class="assistant-option__check" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </span>
+        </label>
+
+        <label class="assistant-option">
+          <input class="assistant-option__input" formControlName="helpdesk-branch" type="checkbox" id="helpdesk-branch">
+          <span class="assistant-option__box">
+            <span class="assistant-option__icon"><i class="fas fa-headset" aria-hidden="true"></i></span>
+            <span class="assistant-option__label">Helpdesk</span>
+            <span class="assistant-option__check" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </span>
+        </label>
+
+        <label class="assistant-option">
+          <input class="assistant-option__input" formControlName="service-provider-branch" type="checkbox"
+            id="service-provider-branch">
+          <span class="assistant-option__box">
+            <span class="assistant-option__icon"><i class="fas fa-handshake" aria-hidden="true"></i></span>
+            <span class="assistant-option__label">Service provider</span>
+            <span class="assistant-option__check" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </span>
+        </label>
+
+        <label class="assistant-option">
+          <input class="assistant-option__input" formControlName="healthcare-branch" type="checkbox"
+            id="healthcare-branch">
+          <span class="assistant-option__box">
+            <span class="assistant-option__icon"><i class="fas fa-hospital" aria-hidden="true"></i></span>
+            <span class="assistant-option__label">Healthcare</span>
+            <span class="assistant-option__check" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </span>
+        </label>
+      </div>
+    </form>
+  </div>
+
+  <div class="assistant__footer">
+    <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
+    <button type="button" class="btn btn-primary" [disabled]="!branchForm.valid"
+      (click)="activeModal.close(branchForm.value)">
+      Continue <i class="fas fa-arrow-right" aria-hidden="true"></i>
+    </button>
+  </div>
 </div>
