@@ -481,6 +481,21 @@ class CmdbType(CmdbDAO):
         return mds_fields
 
 
+    def get_mds_section_ids(self) -> set[str]:
+        """
+        Retrieves the ids of all multi-data sections declared by the CmdbType
+
+        A section's name is what a CmdbObject stores as the ``section_id`` of its multi_data_sections
+        entries, so this is the set of MDS section_ids the type permits
+
+        Returns:
+            set[str]: The section_ids (names) of every SectionType.MDS_SECTION section
+        """
+        return {
+            section.name for section in self.render_meta.sections if section.type == SectionType.MDS_SECTION
+        }
+
+
     def get_all_fields_of_type(self, field_type: str) -> list[str]:
         """
         Retrieves all field names of the specified type
