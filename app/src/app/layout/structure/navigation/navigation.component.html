@@ -9,9 +9,19 @@
     </ul>
 
     <div class="navbar-header">
-      <a class="navbar-brand" routerLink="/" style="padding-left: 1.5rem">
-        <img src="/assets/img/datagerry_logo.svg" class="brand-logo" alt="DATAGERRY" />
-      </a>
+      <div class="brand-lockup">
+        <a class="navbar-brand" routerLink="/">
+          <img src="/assets/img/datagerry_logo.svg" class="brand-logo" alt="DATAGERRY" />
+        </a>
+        @if (!isCloudMode) {
+        @if (edition$ | async; as edition) {
+        <span class="brand-edition">
+          <span [class]="edition.cssClass"
+            [attr.aria-label]="'Current edition: ' + edition.label">{{ edition.label }} Edition</span>
+        </span>
+        }
+        }
+      </div>
     </div>
 
     <ul class="nav navbar-nav flex-row">

@@ -11,14 +11,14 @@
 <ul class="collapse collapse-element" id="{{categoryNode.category.name}}">
   @if (categoryNode.children) {
 
-  @for (categoryChild of categoryNode.children; track categoryChild) {
+  @for (categoryChild of categoryNode.children; track categoryChild.category.public_id) {
   <cmdb-sidebar-category [categoryNode]="categoryChild"></cmdb-sidebar-category>
   }
 
   }
   @if (isCollapsed) {
 
-  @for (type of categoryNode.types; track type) {
+  @for (type of categoryNode.types; track type.public_id) {
 
   <cmdb-sidebar-type *permissionLink="'base.framework.object.view'; acl:type.acl;requirements:'READ'"
     [type]="type"></cmdb-sidebar-type>

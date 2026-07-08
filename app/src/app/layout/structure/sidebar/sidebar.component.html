@@ -88,7 +88,7 @@
         }
 
         <div class="sb-tree-container">
-          @for (node of categoryTree | categoryTreeFilter: filterTerm.value; track node) {
+          @for (node of categoryTree | categoryTreeFilter: filterTerm.value; track node.category.public_id) {
           <cmdb-sidebar-category [categoryNode]="node">
           </cmdb-sidebar-category>
           }
@@ -98,7 +98,7 @@
 
         <ng-container *permissionLink="'base.framework.object.view'">
           <p class="sb-section-label">Matched Types</p>
-          @for (type of typeList | typeFilter: filterTerm.value; track type) {
+          @for (type of typeList | typeFilter: filterTerm.value; track type.public_id) {
           <cmdb-sidebar-type [type]="type">
           </cmdb-sidebar-type>
           }
@@ -111,7 +111,7 @@
         <ng-container *permissionLink="'base.framework.object.view'">
           <p class="sb-section-label mt-3">Uncategorized</p>
           <div class="sb-uncategorized-container">
-            @for (type of unCategorizedTypes; track type) {
+            @for (type of unCategorizedTypes; track type.public_id) {
             <cmdb-sidebar-type [type]="type">
             </cmdb-sidebar-type>
             }
@@ -150,14 +150,14 @@
     (mouseleave)="onFlyoutMouseLeave()">
     <div class="sb-flyout__head">Categories</div>
     <div class="sb-flyout__body">
-      @for (node of categoryTree | categoryTreeFilter: ''; track node) {
+      @for (node of categoryTree | categoryTreeFilter: ''; track node.category.public_id) {
       <cmdb-sidebar-category [categoryNode]="node">
       </cmdb-sidebar-category>
       }
       @if (unCategorizedTypes?.length) {
 
       <p class="sb-flyout__section-label mt-2">Uncategorized</p>
-      @for (type of unCategorizedTypes; track type) {
+      @for (type of unCategorizedTypes; track type.public_id) {
       <cmdb-sidebar-type [type]="type">
       </cmdb-sidebar-type>
       }
