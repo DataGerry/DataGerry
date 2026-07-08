@@ -26,12 +26,12 @@ import { GroupService } from '../../../management/services/group.service';
 import { User } from '../../../management/models/user';
 import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { Observable, Subscription, switchMap } from 'rxjs';
+import { map, Observable, of, Subscription, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 
 import { Router } from '@angular/router';
 import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
-import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { LICENSE_TIER_LABELS, LicenseFeature, LicenseTier } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -58,6 +58,7 @@ export class NavigationComponent implements OnInit {
     public featurePreviewMode = environment.featurePreviewMode;
     public isNotificationDrawerOpen = false;
     public readonly notificationCount$: Observable<number>;
+    public readonly edition$: Observable<{ label: string; cssClass: string } | null>;
     public readonly LicenseFeature = LicenseFeature;
     configItemsLimit: number;
     private subscription: Subscription;
@@ -78,6 +79,11 @@ export class NavigationComponent implements OnInit {
     ) {
         this.user = this.userService.getCurrentUser();
         this.notificationCount$ = this.notificationQuery.selectCount();
+        this.edition$ = this.isCloudMode
+            ? of(null)
+            : this.premiumFeatureService.currentEdition$().pipe(
+                map((tier) => this.toEditionBadge(tier))
+            );
     }
 
 
@@ -149,6 +155,19 @@ export class NavigationComponent implements OnInit {
             .subscribe((locked) => {
                 this.lockedFeatures = locked;
             });
+    }
+
+
+    /**
+     * Maps the effective license tier to the navbar edition pill: a human-readable label plus a
+     * tier-scoped style class. An unknown but licensed tier falls back to a neutral "Licensed" badge.
+     */
+    private toEditionBadge(tier: string): { label: string; cssClass: string } {
+        const isKnown = (Object.values(LicenseTier) as string[]).includes(tier);
+        const label = LICENSE_TIER_LABELS[tier as LicenseTier] ?? 'Licensed';
+        const key = isKnown ? tier : 'default';
+
+        return { label, cssClass: `edition-badge edition-badge--${key}` };
     }
 
 
