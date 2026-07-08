@@ -177,7 +177,9 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         handle_notify_webhooks(request_user, current_object, WebhookEventType.CREATE)
 
         if current_app.cloud_mode:
-            handle_sync_config_item_count(request_user, objects_count)
+            # Recount AFTER the insert so the synced total includes the just-created object
+            # (the pre-insert objects_count above is only for the config-item limit check)
+            handle_sync_config_item_count(request_user, objects_manager.count_documents())
 
         # Generate new insert log
         handle_create_object_log(request_user, current_object, LogAction.CREATE)
