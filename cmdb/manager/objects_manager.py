@@ -486,6 +486,29 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
 
+    def count_objects_grouped_by_type(self) -> dict[int, int]:
+        """
+        Counts all CmdbObjects grouped by their type_id
+
+        Uses a single ``$group`` aggregation (one round-trip) instead of one count per type, so it
+        scales independently of the number of CmdbTypes. Types that currently have no objects are
+        absent from the result
+
+        Raises:
+            ObjectsManagerIterationError: If the aggregation fails
+
+        Returns:
+            dict[int, int]: Mapping of type_id to the number of CmdbObjects of that type
+        """
+        pipeline: list[dict[str, Any]] = [
+            {"$group": {"_id": f"${CmdbObjectKey.TYPE_ID.value}", "count": {"$sum": 1}}}
+        ]
+
+        cursor: CommandCursor = self.aggregate_objects(pipeline)
+
+        return {doc["_id"]: doc["count"] for doc in cursor if isinstance(doc.get("_id"), int)}
+
+
     def get_mds_references_for_object(self,
                                       referenced_object: CmdbObject,
                                       query_filter: dict | list) -> list[dict]:
@@ -1011,6 +1034,35 @@ class ObjectsManager(BaseManager):
             )
         except Exception as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
+            raise ObjectsManagerUpdateError(str(err)) from err
+
+
+    def clear_location_field_for_objects(self, object_ids: list[int]) -> None:
+        """
+        Clears the location-type field value on the given CmdbObjects
+
+        Used when the CmdbLocation nodes of surviving objects are deleted (e.g. deleting an object
+        but keeping its child objects): the child objects would otherwise keep a `dg_location` field
+        value pointing at a now-deleted location node. The location field is identified by its type
+        (a CmdbType has at most one location field), so its value is reset to None in place
+
+        Args:
+            object_ids (list[int]): public_ids of the CmdbObjects whose location field should be cleared
+        """
+        if not object_ids:
+            return
+
+        try:
+            self.update_many_raw(
+                filter_query={
+                    "public_id": {"$in": object_ids},
+                    "fields": {"$elemMatch": {"type": FieldType.LOCATION.value}},
+                },
+                update={"$set": {"fields.$[f].value": None}},
+                array_filters=[{"f.type": FieldType.LOCATION.value}],
+            )
+        except Exception as err:
+            LOGGER.error("[clear_location_field_for_objects] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(str(err)) from err
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #

@@ -41,6 +41,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     apply_object_update,
     sync_select_field_options,
     handle_delete_object_location,
+    handle_delete_location_and_child_locations,
+    build_type_object_counts,
+    handle_sync_config_item_count,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.models.object_model import CmdbObject
@@ -492,6 +495,41 @@ class TestHandleDeleteObjectLocation:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                     handle_delete_location_and_child_locations                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestHandleDeleteLocationAndChildLocations:
+    """The helper deletes the location subtree and returns the surviving child objects' ids."""
+
+    def test_returns_descendant_object_ids_and_deletes_subtree(self) -> None:
+        """Descendant location object_ids are returned; child locations and own location are deleted."""
+        locations_manager = MagicMock()
+        locations_manager.get_location_for_object.return_value = {'public_id': 50, 'object_id': 5}
+        descendants = [
+            {'public_id': 51, 'object_id': 6},
+            {'public_id': 52, 'object_id': 7},
+        ]
+        locations_manager.get_all_descendant_locations.return_value = descendants
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+            result = handle_delete_location_and_child_locations(MagicMock(), 5)
+
+        assert result == [6, 7]
+        locations_manager.delete_locations.assert_called_once_with(descendants)
+        locations_manager.delete_location.assert_called_once_with(50)
+
+    def test_no_location_returns_empty_list(self) -> None:
+        """When the object has no location the helper returns [] and deletes nothing."""
+        locations_manager = MagicMock()
+        locations_manager.get_location_for_object.return_value = None
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+            result = handle_delete_location_and_child_locations(MagicMock(), 5)
+
+        assert result == []
+        locations_manager.delete_location.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                apply_object_update                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestApplyObjectUpdate:
@@ -533,3 +571,68 @@ class TestApplyObjectUpdate:
 
         assert exc_info.value.code == 500
         objects_manager.update_object.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             build_type_object_counts                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBuildTypeObjectCounts:
+    """build_type_object_counts joins the per-type object counts with each CmdbType's label."""
+
+    def test_maps_counts_to_type_labels(self) -> None:
+        """Each counted type_id is resolved to its label and paired with the object count."""
+        objects_manager = MagicMock()
+        objects_manager.count_objects_grouped_by_type.return_value = {1: 30, 2: 12}
+        types_manager = MagicMock()
+        types_manager.get_types_lookup.return_value = {
+            1: SimpleNamespace(label='Server'),
+            2: SimpleNamespace(label='Client'),
+        }
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
+            result = build_type_object_counts(MagicMock())
+
+        assert result == [{'name': 'Server', 'count': 30}, {'name': 'Client', 'count': 12}]
+
+    def test_no_objects_returns_empty_without_type_lookup(self) -> None:
+        """With no objects the helper returns [] and never queries the type lookup."""
+        objects_manager = MagicMock()
+        objects_manager.count_objects_grouped_by_type.return_value = {}
+        types_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
+            result = build_type_object_counts(MagicMock())
+
+        assert result == []
+        types_manager.get_types_lookup.assert_not_called()
+
+    def test_skips_type_missing_from_lookup(self) -> None:
+        """A counted type_id whose CmdbType no longer exists is skipped, not emitted with no label."""
+        objects_manager = MagicMock()
+        objects_manager.count_objects_grouped_by_type.return_value = {1: 30, 99: 5}
+        types_manager = MagicMock()
+        types_manager.get_types_lookup.return_value = {1: SimpleNamespace(label='Server')}
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
+            result = build_type_object_counts(MagicMock())
+
+        assert result == [{'name': 'Server', 'count': 30}]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          handle_sync_config_item_count                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestHandleSyncConfigItemCount:
+    """handle_sync_config_item_count forwards the count plus the per-type breakdown to the portal."""
+
+    def test_passes_count_and_type_breakdown_to_manager(self) -> None:
+        """The built type-count list is passed straight into DgServicePortalManager.sync_config_items."""
+        request_user = MagicMock()
+        manager_instance = MagicMock()
+        type_counts = [{'name': 'Server', 'count': 30}]
+
+        with patch(f'{HELPER_PATH}.build_type_object_counts', return_value=type_counts), \
+             patch(f'{HELPER_PATH}.DgServicePortalManager', return_value=manager_instance):
+            handle_sync_config_item_count(request_user, 42)
+
+        manager_instance.sync_config_items.assert_called_once_with(request_user, 42, type_counts)

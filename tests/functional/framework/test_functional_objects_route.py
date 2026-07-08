@@ -399,6 +399,13 @@ DELETE_MANY_LOCATED_ID: int = 9457
 
 LOCATIONS_KEEP_PARENT_LOC: int = 9481
 LOCATIONS_KEEP_CHILD_LOC: int = 9482
+
+# Dedicated ids for the "child object keeps but its dg_location reference is cleared" case
+LOC_CLEAR_PARENT_OBJECT_ID: int = 9461
+LOC_CLEAR_CHILD_OBJECT_ID: int = 9462
+LOC_CLEAR_PARENT_LOC: int = 9483
+LOC_CLEAR_CHILD_LOC: int = 9484
+LOCATION_FIELD_NAME: str = 'dg_location'
 DELETE_MANY_LOCATION_ID: int = 9483
 
 # A second type carrying a ref field that points at TYPE_ID, used to exercise the references route
@@ -790,6 +797,42 @@ class TestDeleteObjectWithChildLocations:
             )
             database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
                 {'public_id': {'$in': [LOCATIONS_KEEP_PARENT_LOC, LOCATIONS_KEEP_CHILD_LOC]}}
+            )
+
+    def test_kept_child_objects_have_location_reference_cleared(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A surviving child object gets its dg_location field cleared (no dangling location ref)."""
+        _insert_object_doc(database_manager, database_name, LOC_CLEAR_PARENT_OBJECT_ID, 'parent')
+        # Seed the child object WITH a location field pointing at the (to-be-deleted) parent location
+        child_doc = _object_doc(LOC_CLEAR_CHILD_OBJECT_ID, 'child')
+        child_doc['fields'].append(
+            {'name': LOCATION_FIELD_NAME, 'type': 'location', 'value': LOC_CLEAR_PARENT_LOC}
+        )
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(child_doc)
+        _insert_location(database_manager, database_name, LOC_CLEAR_PARENT_LOC, LOC_CLEAR_PARENT_OBJECT_ID, 1)
+        _insert_location(
+            database_manager, database_name, LOC_CLEAR_CHILD_LOC, LOC_CLEAR_CHILD_OBJECT_ID, LOC_CLEAR_PARENT_LOC,
+        )
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/{LOC_CLEAR_PARENT_OBJECT_ID}/locations')
+
+            assert response.status_code == HTTPStatus.OK
+            # Child object survives, its location node is gone
+            follow_up = rest_api.get(f'{ROUTE_URL}/native/{LOC_CLEAR_CHILD_OBJECT_ID}')
+            assert follow_up.status_code == HTTPStatus.OK
+            assert _location_exists(database_manager, database_name, LOC_CLEAR_CHILD_LOC) is False
+            # And its dg_location reference has been cleared (no longer points at the deleted node)
+            location_field = next(
+                field for field in follow_up.get_json()['fields'] if field['name'] == LOCATION_FIELD_NAME
+            )
+            assert location_field['value'] is None
+        finally:
+            database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(
+                {'public_id': {'$in': [LOC_CLEAR_PARENT_OBJECT_ID, LOC_CLEAR_CHILD_OBJECT_ID]}}
+            )
+            database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
+                {'public_id': {'$in': [LOC_CLEAR_PARENT_LOC, LOC_CLEAR_CHILD_LOC]}}
             )
 
 

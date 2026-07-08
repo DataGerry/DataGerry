@@ -889,62 +889,6 @@ def validate_subscrption_user(
     except requests.exceptions.RequestException as err:
         raise RequestError(str(err)) from err
 
-
-#TODO: Move this method to DataGerry ServicePortal Manager
-def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
-    """
-    Synchronize configuration items with the service portal
-
-    This function sends a request to the service portal to sync configuration items for a specific 
-    user and database. It is only executed in cloud mode. If the mode is local, the function simply 
-    returns `True`
-
-    Args:
-        email (str): The email of the user
-        database (str): The name of the database
-        config_item_count (int): The number of configuration items to sync
-
-    Returns:
-        bool: 
-            - `True` if the synchronization was successful
-            - `False` if the request failed or an error occurred
-
-    Raises:
-        NoAccessTokenError: If the `X-ACCESS-TOKEN` environment variable is not set
-    """
-    # Just do this in cloud mode
-    if current_app.local_mode:
-        return True
-
-    x_access_token = os.getenv("X-ACCESS-TOKEN")
-
-    if not x_access_token:
-        raise NoAccessTokenError("No x-access-token provided!")
-
-    headers: dict[str, str] = {
-        "x-access-token": x_access_token
-    }
-
-    payload: dict[str, Any] = {
-        "email": email,
-        "database_name": database,
-        "config_item_count": config_item_count
-    }
-
-    base_url: str | None = os.getenv("DG_SP_BASE_URL")
-    target: str = f"{base_url}/datagerry/config-item/update"
-
-    try:
-        response = requests.post(target, headers=headers, json=payload, timeout=3)
-
-        if response.status_code == 200:
-            return True
-
-        return False
-    except (requests.exceptions.Timeout, requests.exceptions.RequestException) as err:
-        LOGGER.error("[sync_config_items] Request Error: %s. Type: %s", err, type(err))
-        return False
-
 # --------------------------------------------------- USER CACHING --------------------------------------------------- #
 
 # Cache: { cache_key: {"data": dict, "timestamp": float } }

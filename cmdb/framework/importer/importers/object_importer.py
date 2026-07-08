@@ -31,7 +31,9 @@ from cmdb.framework.importer.messages.import_failed_message import ImportFailedM
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
-from cmdb.interface.route_utils import sync_config_items
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    handle_sync_config_item_count,
+)
 
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerDeleteError,
@@ -142,12 +144,7 @@ class ObjectImporter(BaseImporter):
                         if current_app.cloud_mode:
                             objects_count = self.objects_manager.count_documents()
 
-                            success = sync_config_items(self.request_user.email,
-                                                        self.request_user.database,
-                                                        objects_count)
-
-                            if not success:
-                                raise Exception("Status code was not 200!") from err
+                            handle_sync_config_item_count(self.request_user, objects_count)
                     except Exception as error:
                         LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
                 except ObjectsManagerInsertError as error:
@@ -177,12 +174,7 @@ class ObjectImporter(BaseImporter):
                             if current_app.cloud_mode:
                                 objects_count = self.objects_manager.count_documents()
 
-                                success = sync_config_items(self.request_user.email,
-                                                            self.request_user.database,
-                                                            objects_count)
-
-                                if not success:
-                                    raise Exception("Status code was not 200!")
+                                handle_sync_config_item_count(self.request_user, objects_count)
                         except Exception as error:
                             LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
                     except ObjectsManagerInsertError as err:
