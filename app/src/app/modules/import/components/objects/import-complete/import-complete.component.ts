@@ -35,6 +35,7 @@ export class ImportCompleteComponent implements OnInit {
     @Input() public parsedData: any = undefined;
 
     @Input() public importResponse: ImportResponse;
+    @Input() public isImporting = false;
 
     @Output() startImportEmitter: EventEmitter<any>;
 

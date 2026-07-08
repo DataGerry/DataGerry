@@ -76,7 +76,7 @@ describe('SidebarCategoryComponent', () => {
         expect(anchorElement.attributes['aria-expanded']).toBe('false');
     });
 
-    it('should render the correct href attribute in the anchor element', () => {
+    it('should target the correct collapse element in the anchor element', () => {
         component.categoryNode = {
             category: {
                 name: 'category1',
@@ -92,7 +92,7 @@ describe('SidebarCategoryComponent', () => {
         fixture.detectChanges();
 
         const anchorElement = fixture.debugElement.query(By.css('a'));
-        expect(anchorElement.nativeElement.getAttribute('href')).toBe('#category1');
+        expect(anchorElement.nativeElement.getAttribute('data-bs-target')).toBe('#category1');
     });
 
     it('should render the ul element with the correct id', () => {
