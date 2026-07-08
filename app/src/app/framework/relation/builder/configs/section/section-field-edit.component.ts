@@ -29,6 +29,7 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 
 @Component({
     selector: 'cmdb-section-field-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './section-field-edit.component.html',
     standalone: false
 })

@@ -27,6 +27,7 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-check-field-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './check-field-edit.component.html',
     styleUrls: ['./check-field-edit.component.scss'],
     standalone: false
