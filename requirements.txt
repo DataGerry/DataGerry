@@ -51,7 +51,7 @@ pytest-cov==7.0.0
 pytest-html==4.2.0
 pytest-metadata==3.1.1
 python-dateutil==2.9.0.post0
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 reportlab==4.4.10
 requests==2.32.5
 six==1.17.0
