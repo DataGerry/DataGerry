@@ -23,7 +23,6 @@
                 placeholder="Field name"
                 [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                     'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
-                (ngModelChange)="onNameChange($event)"
             />
             <div class="input-group-append">
                 <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
@@ -44,8 +43,6 @@
             placeholder="Field label"
             [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-            (ngModelChange)="onInputChange()"
-            (ngModelChange)="onRefInputChange($event, 'label')"
         />
         <small class="form-text text-muted">a static display name</small>
     </div>

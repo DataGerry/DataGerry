@@ -20,15 +20,15 @@ import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
-import { TextareaEditComponent } from './textarea-edit.component';
+import { CheckFieldEditComponent } from './check-field-edit.component';
 import { ConfigEditBaseComponent } from '../config.edit';
 import { CmdbMode } from '../../../../modes.enum';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
 import { ValidationService } from '../../../services/validation.service';
 
 /**
- * Verifies the ngModelChange -> valueChanges migration for the textarea field builder,
- * including the extra "rows" range control and the emitEvent:false guard.
+ * Verifies the ngModelChange -> valueChanges migration for the checkbox field builder.
+ * Here the "value" control is itself a boolean default-value checkbox.
  */
 
 class MockFieldIdentifierValidationService {
@@ -50,15 +50,15 @@ function captureFieldChanges(component: ConfigEditBaseComponent, action: () => v
     return events;
 }
 
-describe('TextareaEditComponent', () => {
-    let component: TextareaEditComponent;
-    let fixture: ComponentFixture<TextareaEditComponent>;
+describe('CheckFieldEditComponent', () => {
+    let component: CheckFieldEditComponent;
+    let fixture: ComponentFixture<CheckFieldEditComponent>;
     let fieldIdentifierValidationService: MockFieldIdentifierValidationService;
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
             imports: [ReactiveFormsModule, FormsModule],
-            declarations: [TextareaEditComponent],
+            declarations: [CheckFieldEditComponent],
             providers: [
                 { provide: FieldIdentifierValidationService, useClass: MockFieldIdentifierValidationService },
                 { provide: ValidationService, useClass: MockValidationService }
@@ -68,7 +68,7 @@ describe('TextareaEditComponent', () => {
     });
 
     beforeEach(() => {
-        fixture = TestBed.createComponent(TextareaEditComponent);
+        fixture = TestBed.createComponent(CheckFieldEditComponent);
         component = fixture.componentInstance;
         component.data = { label: 'label' };
         fieldIdentifierValidationService = TestBed.inject(FieldIdentifierValidationService);
@@ -80,16 +80,14 @@ describe('TextareaEditComponent', () => {
     });
 
     it('should register every form control on ngOnInit', () => {
-        ['required', 'name', 'label', 'description', 'rows', 'placeholder', 'value', 'helperText', 'hideField']
+        ['name', 'label', 'description', 'value', 'helperText', 'hideField']
             .forEach(controlName => expect(component.form.contains(controlName)).toBeTrue());
     });
 
-    it('should propagate text control edits through valueChanges', fakeAsync(() => {
-        const cases: Array<{ control: keyof TextareaEditComponent; type: string; value: string }> = [
-            { control: 'labelControl', type: 'label', value: 'Notes' },
-            { control: 'descriptionControl', type: 'description', value: 'A textarea' },
-            { control: 'placeholderControl', type: 'placeholder', value: 'Type here' },
-            { control: 'valueControl', type: 'value', value: 'default' },
+    it('should propagate the text control edits through valueChanges', fakeAsync(() => {
+        const cases: Array<{ control: keyof CheckFieldEditComponent; type: string; value: string }> = [
+            { control: 'labelControl', type: 'label', value: 'Enabled?' },
+            { control: 'descriptionControl', type: 'description', value: 'A checkbox' },
             { control: 'helperTextControl', type: 'helperText', value: 'helper' }
         ];
 
@@ -100,28 +98,19 @@ describe('TextareaEditComponent', () => {
             const relevant = events.filter(e => e.inputName === type);
             expect(relevant.length).withContext(type).toBe(1);
             expect(relevant[0].newValue).toBe(value);
-            expect(relevant[0].elementType).toBe('textarea');
+            expect(relevant[0].elementType).toBe('checkbox');
         });
 
         flush();
     }));
 
-    it('should propagate the rows range control edit', fakeAsync(() => {
-        const events = captureFieldChanges(component, () => component.rowsControl.setValue(12));
-
-        const rowsEvent = events.find(e => e.inputName === 'rows');
-        expect(rowsEvent).toBeDefined();
-        expect(rowsEvent.newValue).toBe(12);
-        flush();
-    }));
-
-    it('should propagate boolean checkbox edits through the boolean branch', fakeAsync(() => {
+    it('should propagate the default-value checkbox through the boolean branch', fakeAsync(() => {
         const handleFieldChangeSpy = spyOn<any>(component, 'handleFieldChange').and.callThrough();
 
-        component.requiredControl.setValue(true);
+        component.valueControl.setValue(true);
         component.hideFieldControl.setValue(true);
 
-        expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'required');
+        expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'value');
         expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'hideField');
         flush();
     }));
@@ -142,23 +131,23 @@ describe('TextareaEditComponent', () => {
         expect(component.isDuplicate$).toBeTrue();
         expect(events).toContain(jasmine.objectContaining({ isDuplicate: true }));
         expect(events.some(e => e.inputName === 'name')).toBeFalse();
-        expect(component.rowsControl.disabled).toBeTrue();
+        expect(component.labelControl.disabled).toBeTrue();
         flush();
     }));
 
     it('should accept a unique name and re-enable siblings', fakeAsync(() => {
-        component.rowsControl.disable({ emitEvent: false });
+        component.labelControl.disable({ emitEvent: false });
 
         const events = captureFieldChanges(component, () => component.nameControl.setValue('unique_name'));
 
         expect(component.isDuplicate$).toBeFalse();
         expect(events).toContain(jasmine.objectContaining({ inputName: 'name', newValue: 'unique_name' }));
-        expect(component.rowsControl.enabled).toBeTrue();
+        expect(component.labelControl.enabled).toBeTrue();
         flush();
     }));
 
     it('should not emit field changes during initialization', () => {
-        const fresh = TestBed.createComponent(TextareaEditComponent).componentInstance;
+        const fresh = TestBed.createComponent(CheckFieldEditComponent).componentInstance;
         fresh.data = { label: 'Init', name: 'init_name' };
         fresh.hiddenStatus = true;
 
@@ -178,7 +167,7 @@ describe('TextareaEditComponent', () => {
     }));
 
     it('should disable the name control in edit mode', () => {
-        const editComponent = TestBed.createComponent(TextareaEditComponent).componentInstance;
+        const editComponent = TestBed.createComponent(CheckFieldEditComponent).componentInstance;
         editComponent.data = { label: 'label', name: 'existing' };
         editComponent.mode = CmdbMode.Edit;
         editComponent.ngOnInit();
@@ -237,7 +226,7 @@ describe('TextareaEditComponent', () => {
             inputName: 'label',
             fieldName: 'host',
             previousName: component['initialValue'],
-            elementType: 'textarea'
+            elementType: 'checkbox'
         }));
         flush();
     }));
@@ -262,11 +251,8 @@ describe('TextareaEditComponent', () => {
         const events = captureFieldChanges(component, () => {
             component.labelControl.setValue('a');
             component.descriptionControl.setValue('b');
-            component.placeholderControl.setValue('d');
-            component.valueControl.setValue('e');
-            component.helperTextControl.setValue('f');
-            component.rowsControl.setValue(9);
-            component.requiredControl.setValue(true);
+            component.helperTextControl.setValue('c');
+            component.valueControl.setValue(true);
             component.hideFieldControl.setValue(true);
         });
 

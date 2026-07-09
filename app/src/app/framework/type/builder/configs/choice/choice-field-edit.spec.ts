@@ -20,15 +20,16 @@ import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
-import { TextareaEditComponent } from './textarea-edit.component';
+import { ChoiceFieldEditComponent } from './choice-field-edit.component';
 import { ConfigEditBaseComponent } from '../config.edit';
 import { CmdbMode } from '../../../../modes.enum';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
 import { ValidationService } from '../../../services/validation.service';
 
 /**
- * Verifies the ngModelChange -> valueChanges migration for the textarea field builder,
- * including the extra "rows" range control and the emitEvent:false guard.
+ * Verifies the ngModelChange -> valueChanges migration for the choice field builder.
+ * The "required" checkbox intentionally had no (ngModelChange) binding, so it must
+ * stay unsubscribed after the migration.
  */
 
 class MockFieldIdentifierValidationService {
@@ -50,15 +51,15 @@ function captureFieldChanges(component: ConfigEditBaseComponent, action: () => v
     return events;
 }
 
-describe('TextareaEditComponent', () => {
-    let component: TextareaEditComponent;
-    let fixture: ComponentFixture<TextareaEditComponent>;
+describe('ChoiceFieldEditComponent', () => {
+    let component: ChoiceFieldEditComponent;
+    let fixture: ComponentFixture<ChoiceFieldEditComponent>;
     let fieldIdentifierValidationService: MockFieldIdentifierValidationService;
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
             imports: [ReactiveFormsModule, FormsModule],
-            declarations: [TextareaEditComponent],
+            declarations: [ChoiceFieldEditComponent],
             providers: [
                 { provide: FieldIdentifierValidationService, useClass: MockFieldIdentifierValidationService },
                 { provide: ValidationService, useClass: MockValidationService }
@@ -68,7 +69,7 @@ describe('TextareaEditComponent', () => {
     });
 
     beforeEach(() => {
-        fixture = TestBed.createComponent(TextareaEditComponent);
+        fixture = TestBed.createComponent(ChoiceFieldEditComponent);
         component = fixture.componentInstance;
         component.data = { label: 'label' };
         fieldIdentifierValidationService = TestBed.inject(FieldIdentifierValidationService);
@@ -80,17 +81,21 @@ describe('TextareaEditComponent', () => {
     });
 
     it('should register every form control on ngOnInit', () => {
-        ['required', 'name', 'label', 'description', 'rows', 'placeholder', 'value', 'helperText', 'hideField']
+        ['required', 'name', 'label', 'description', 'helperText', 'value', 'options', 'hideField']
             .forEach(controlName => expect(component.form.contains(controlName)).toBeTrue());
     });
 
-    it('should propagate text control edits through valueChanges', fakeAsync(() => {
-        const cases: Array<{ control: keyof TextareaEditComponent; type: string; value: string }> = [
-            { control: 'labelControl', type: 'label', value: 'Notes' },
-            { control: 'descriptionControl', type: 'description', value: 'A textarea' },
-            { control: 'placeholderControl', type: 'placeholder', value: 'Type here' },
-            { control: 'valueControl', type: 'value', value: 'default' },
-            { control: 'helperTextControl', type: 'helperText', value: 'helper' }
+    it('should seed a default option when none are provided', () => {
+        expect(component.options.length).toBeGreaterThan(0);
+        expect(component.data.options.length).toBeGreaterThan(0);
+    });
+
+    it('should propagate the bound control edits through valueChanges', fakeAsync(() => {
+        const cases: Array<{ control: keyof ChoiceFieldEditComponent; type: string; value: string }> = [
+            { control: 'labelControl', type: 'label', value: 'Choice' },
+            { control: 'descriptionControl', type: 'description', value: 'Pick one' },
+            { control: 'helperTextControl', type: 'helperText', value: 'helper' },
+            { control: 'valueControl', type: 'value', value: 'option-1' }
         ];
 
         cases.forEach(({ control, type, value }) => {
@@ -100,29 +105,25 @@ describe('TextareaEditComponent', () => {
             const relevant = events.filter(e => e.inputName === type);
             expect(relevant.length).withContext(type).toBe(1);
             expect(relevant[0].newValue).toBe(value);
-            expect(relevant[0].elementType).toBe('textarea');
+            expect(relevant[0].elementType).toBe('choise');
         });
 
         flush();
     }));
 
-    it('should propagate the rows range control edit', fakeAsync(() => {
-        const events = captureFieldChanges(component, () => component.rowsControl.setValue(12));
+    it('should propagate the hideField checkbox through the boolean branch', fakeAsync(() => {
+        const handleFieldChangeSpy = spyOn<any>(component, 'handleFieldChange').and.callThrough();
 
-        const rowsEvent = events.find(e => e.inputName === 'rows');
-        expect(rowsEvent).toBeDefined();
-        expect(rowsEvent.newValue).toBe(12);
+        component.hideFieldControl.setValue(true);
+
+        expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'hideField');
         flush();
     }));
 
-    it('should propagate boolean checkbox edits through the boolean branch', fakeAsync(() => {
-        const handleFieldChangeSpy = spyOn<any>(component, 'handleFieldChange').and.callThrough();
+    it('should NOT propagate the required checkbox (it had no ngModelChange binding)', fakeAsync(() => {
+        const events = captureFieldChanges(component, () => component.requiredControl.setValue(true));
 
-        component.requiredControl.setValue(true);
-        component.hideFieldControl.setValue(true);
-
-        expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'required');
-        expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'hideField');
+        expect(events.length).toBe(0);
         flush();
     }));
 
@@ -142,23 +143,24 @@ describe('TextareaEditComponent', () => {
         expect(component.isDuplicate$).toBeTrue();
         expect(events).toContain(jasmine.objectContaining({ isDuplicate: true }));
         expect(events.some(e => e.inputName === 'name')).toBeFalse();
-        expect(component.rowsControl.disabled).toBeTrue();
+        expect(component.labelControl.disabled).toBeTrue();
+        expect(component.optionsControl.disabled).toBeTrue();
         flush();
     }));
 
     it('should accept a unique name and re-enable siblings', fakeAsync(() => {
-        component.rowsControl.disable({ emitEvent: false });
+        component.labelControl.disable({ emitEvent: false });
 
         const events = captureFieldChanges(component, () => component.nameControl.setValue('unique_name'));
 
         expect(component.isDuplicate$).toBeFalse();
         expect(events).toContain(jasmine.objectContaining({ inputName: 'name', newValue: 'unique_name' }));
-        expect(component.rowsControl.enabled).toBeTrue();
+        expect(component.labelControl.enabled).toBeTrue();
         flush();
     }));
 
     it('should not emit field changes during initialization', () => {
-        const fresh = TestBed.createComponent(TextareaEditComponent).componentInstance;
+        const fresh = TestBed.createComponent(ChoiceFieldEditComponent).componentInstance;
         fresh.data = { label: 'Init', name: 'init_name' };
         fresh.hiddenStatus = true;
 
@@ -178,7 +180,7 @@ describe('TextareaEditComponent', () => {
     }));
 
     it('should disable the name control in edit mode', () => {
-        const editComponent = TestBed.createComponent(TextareaEditComponent).componentInstance;
+        const editComponent = TestBed.createComponent(ChoiceFieldEditComponent).componentInstance;
         editComponent.data = { label: 'label', name: 'existing' };
         editComponent.mode = CmdbMode.Edit;
         editComponent.ngOnInit();
@@ -198,13 +200,13 @@ describe('TextareaEditComponent', () => {
         flush();
     }));
 
+    /* ------------------------------------ additional migration coverage ------------------------------------ */
+
     it('should update initialValue when handleFieldChange is called with a new name', () => {
         component['handleFieldChange']('newName', 'name');
 
         expect(component['initialValue']).toBe(component.nameControl.value);
     });
-
-    /* ------------------------------------ additional migration coverage ------------------------------------ */
 
     it('should accept re-entering the previous value while flagged duplicate', fakeAsync(() => {
         spyOn(fieldIdentifierValidationService, 'isDuplicate').and.returnValue(true);
@@ -237,7 +239,7 @@ describe('TextareaEditComponent', () => {
             inputName: 'label',
             fieldName: 'host',
             previousName: component['initialValue'],
-            elementType: 'textarea'
+            elementType: 'choise'
         }));
         flush();
     }));
@@ -262,11 +264,8 @@ describe('TextareaEditComponent', () => {
         const events = captureFieldChanges(component, () => {
             component.labelControl.setValue('a');
             component.descriptionControl.setValue('b');
-            component.placeholderControl.setValue('d');
-            component.valueControl.setValue('e');
-            component.helperTextControl.setValue('f');
-            component.rowsControl.setValue(9);
-            component.requiredControl.setValue(true);
+            component.helperTextControl.setValue('c');
+            component.valueControl.setValue('d');
             component.hideFieldControl.setValue(true);
         });
 

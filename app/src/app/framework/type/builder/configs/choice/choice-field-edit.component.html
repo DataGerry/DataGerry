@@ -9,7 +9,6 @@
                         type="checkbox"
                         [formControl]="hideFieldControl"
                         name="hideFieldControl-choice"
-                        (ngModelChange)="onInputChange($event, 'hideField')"
                     />
                     <label class="hide-info mb-1 mt-3">
                         Hide this field as column in object view/edit mode
@@ -43,7 +42,6 @@
                 name-guideline placeholder="Field name"
                 [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                  'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
-                (ngModelChange)="onInputChange($event, 'name')"
             />
             <div class="input-group-append">
                 <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
@@ -79,7 +77,6 @@
             placeholder="Field label"
             [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                  'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'label')"
         />
         <small class="form-text text-muted text-start">A static display name</small>
         @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
@@ -101,7 +98,6 @@
             placeholder="This field contains..."
             [ngClass]="{ 'is-valid': descriptionControl.valid && (descriptionControl.dirty || descriptionControl.touched),
                  'is-invalid': descriptionControl.invalid && (descriptionControl.dirty || descriptionControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'description')"
         ></textarea>
         <small class="form-text text-muted">Short field description or helper text</small>
     </div>
@@ -114,7 +110,6 @@
             placeholder="If you don't know what to enter..."
             [ngClass]="{ 'is-valid': helperTextControl.valid && (helperTextControl.dirty || helperTextControl.touched),
                  'is-invalid': helperTextControl.invalid && (helperTextControl.dirty || helperTextControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'helperText')"
         />
         <small class="form-text text-muted">Small helper popup.</small>
     </div>
@@ -182,7 +177,6 @@
         <select 
             [formControl]="valueControl"
             class="form-select"
-            (ngModelChange)="onInputChange($event, 'value')"
             >
             <option></option>
             @for (opt of options; track opt; let i = $index) {
