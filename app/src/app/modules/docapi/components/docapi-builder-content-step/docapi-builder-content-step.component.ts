@@ -49,7 +49,6 @@ import {
 } from '../docapi-document-options/docapi-document-options-modal/docapi-document-options-modal.component';
 import { DocapiAiAssistantModalComponent } from '../docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 import { DocapiEditorConfigService } from '../../services/docapi-editor-config.service';
-import { environment } from '../../../../../environments/environment';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
 import { DEFAULT_FOOTER, DEFAULT_HEADER, normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { DEFAULT_TABLE_OF_CONTENTS, normalizeTableOfContents } from '../../utils/table-of-contents.util';
@@ -359,7 +358,6 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     private initEditorConfig(): void {
         this.editorConfig = this.editorConfigService.createConfig({
-            isCloudMode: environment.cloudMode,
             getTemplateType: () => this.templateType,
             getTemplateHelperData: () => this.templateHelperData,
             onPreviewRequested: () => this.previewRequested.emit(),

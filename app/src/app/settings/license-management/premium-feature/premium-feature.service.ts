@@ -28,7 +28,7 @@ import {
   PremiumFeatureModalComponent
 } from 'src/app/core/components/dialog/premium-feature-modal/premium-feature-modal.component';
 
-import { CurrentLicense, LicenseFeature } from '../models/license.model';
+import { COMMUNITY_TIER, CurrentLicense, LicenseFeature } from '../models/license.model';
 import { remainingDays } from '../utils/license.util';
 import { LicenseService } from '../services/license.service';
 import { PREMIUM_FEATURE_CONTENT } from './premium-feature.config';
@@ -137,6 +137,24 @@ export class PremiumFeatureService {
   }
 
   /**
+   * Effective edition/tier currently in force, for passive UI such as the navbar edition badge.
+   * Mirrors {@link isAvailable}'s liveness rules, so an unlicensed, inactive or lapsed install
+   * reports Community and the badge never overstates the entitlement. Re-emits on license
+   * import/removal. Cloud has no on-premise edition and reports Community (never shown there).
+   */
+  currentEdition$(): Observable<string> {
+    if (environment.cloudMode) {
+      return of(COMMUNITY_TIER);
+    }
+
+    return this.ensureHydrated().pipe(
+      switchMap(() => this.license$),
+      map(() => this.effectiveTier()),
+      distinctUntilChanged()
+    );
+  }
+
+  /**
    * Forces a fresh license lookup and reseeds the cache. Called on login so the whole app starts
    * with an up-to-date entitlement instead of waiting for the first gated access to hydrate it.
    */
@@ -171,6 +189,21 @@ export class PremiumFeatureService {
   }
 
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+  /** Tier discriminator in force now, or Community when unlicensed, inactive or lapsed. */
+  private effectiveTier(): string {
+    const license = this.license();
+    if (!license || !license.is_active) {
+      return COMMUNITY_TIER;
+    }
+
+    const days = remainingDays(license.entitlement.endDate, Date.now());
+    if (days !== null && days < 0) {
+      return COMMUNITY_TIER;
+    }
+
+    return license.entitlement.type || COMMUNITY_TIER;
+  }
 
   /**
    * Resolves once the license is known, performing a single shared fetch the first time it is needed.
