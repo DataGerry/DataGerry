@@ -6,7 +6,7 @@
                 <div class="input-group-prepend">
                     <span class="input-group-text pe-2">
                         <input type="checkbox" [formControl]="hideFieldControl" name="hideFieldControl-textarea"
-                            class="form-check-input" (ngModelChange)="onInputChange($event, 'hideField')" />
+                            class="form-check-input" />
                         <label class="hide-info mb-1">
                             Hide this field as column in object view/edit mode
                         </label>
@@ -23,8 +23,7 @@
                     <span class="input-group-text pe-2">
                         <div class="form-check">
                             <input type="checkbox" [formControl]="requiredControl" class="form-check-input"
-                                [id]="nameControl.value+'-required'"
-                                (ngModelChange)="onInputChange($event, 'required')" />
+                                [id]="nameControl.value+'-required'" />
                             <label class="form-check-label mb-1" [for]="nameControl.value+'-required'"></label>
                         </div>
                     </span>
@@ -32,8 +31,7 @@
                 <input [formControl]="nameControl" type="text" class="form-control" name-guideline
                     placeholder="Field name"
                     [ngClass]="{'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
-                                'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
-                    (ngModelChange)="onInputChange($event, 'name')" />
+                                'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}" />
                 <div class="input-group-append">
                     <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()"
                         [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
@@ -65,8 +63,7 @@
             <label class="mb-1">Label<span class="text-danger">*</span>:</label>
             <input [formControl]="labelControl" type="text" class="form-control"
                 placeholder="Field label" [ngClass]="{'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
-                                'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-                (ngModelChange)="onInputChange($event, 'label')" />
+                                'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}" />
             <small class="form-text text-muted text-start">A static display name</small>
             @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
             <div class="invalid-feedback">
@@ -83,14 +80,13 @@
             <label>Description:</label>
             <textarea [formControl]="descriptionControl" class="form-control" placeholder="This field contains..."
                 [ngClass]="{'is-valid': descriptionControl.valid && (descriptionControl.dirty || descriptionControl.touched),
-                            'is-invalid': descriptionControl.invalid && (descriptionControl.dirty || descriptionControl.touched)}"
-                (ngModelChange)="onInputChange($event, 'description')"></textarea>
+                            'is-invalid': descriptionControl.invalid && (descriptionControl.dirty || descriptionControl.touched)}"></textarea>
             <small class="form-text text-muted">short field description or helper text</small>
         </div>
         <div class="mb-3 col-md-12">
             <label class="mb-1">Placeholder:</label>
             <input [formControl]="placeholderControl" type="text" class="form-control"
-                placeholder="What if nothing is entered..." (ngModelChange)="onInputChange($event, 'placeholder')"
+                placeholder="What if nothing is entered..."
                 [ngClass]="{'is-valid': placeholderControl.valid && (placeholderControl.dirty || placeholderControl.touched),
                             'is-invalid': placeholderControl.invalid && (placeholderControl.dirty || placeholderControl.touched)}" />
             <small class="form-text text-muted">The placeholder will only be displayed if the field is complete
@@ -99,8 +95,7 @@
         <div class="mb-3 col-md-12">
             <label>Default value:</label>
             <input [formControl]="valueControl" type="text" class="form-control" placeholder="Always be..." [ngClass]="{ 'is-valid': valueControl.valid && (valueControl.dirty || valueControl.touched),
-                 'is-invalid': valueControl.invalid && (valueControl.dirty || valueControl.touched)}"
-                (ngModelChange)="onInputChange($event, 'value')" />
+                 'is-invalid': valueControl.invalid && (valueControl.dirty || valueControl.touched)}" />
             <small class="form-text text-muted">Default value of this field</small>
         </div>
         <div class="mb-3 col-md-12">
@@ -108,15 +103,13 @@
             <input [formControl]="helperTextControl" type="text" class="form-control"
                 placeholder="If you don't know what to enter..."
                 [ngClass]="{'is-valid': helperTextControl.valid && (helperTextControl.dirty || helperTextControl.touched),
-                            'is-invalid': helperTextControl.invalid && (helperTextControl.dirty || helperTextControl.touched)}"
-                (ngModelChange)="onInputChange($event, 'helperText')" />
+                            'is-invalid': helperTextControl.invalid && (helperTextControl.dirty || helperTextControl.touched)}" />
             <small class="form-text text-muted">Small helper popup.</small>
         </div>
         <div class="mb-3 col-md-12">
             <label class="mb-1">Rows: {{rowsControl.value}}</label>
             <input [formControl]="rowsControl" min="1" max="30" type="range" class="form-range" [ngClass]="{'is-valid': rowsControl.valid && (rowsControl.dirty || rowsControl.touched),
-                            'is-invalid': rowsControl.invalid && (rowsControl.dirty || rowsControl.touched)}"
-                (ngModelChange)="onInputChange($event, 'rows')" />
+                            'is-invalid': rowsControl.invalid && (rowsControl.dirty || rowsControl.touched)}" />
             <small class="form-text text-muted">Display size of the area</small>
         </div>
     </div>
