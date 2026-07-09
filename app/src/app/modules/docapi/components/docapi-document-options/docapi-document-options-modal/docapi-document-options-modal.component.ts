@@ -28,7 +28,6 @@ import {
     DocTemplateTocBaseStyle
 } from '../../../models/cmdb-doctemplate';
 import { DocapiEditorConfigService } from '../../../services/docapi-editor-config.service';
-import { environment } from '../../../../../../environments/environment';
 import { ExternalObjectSelectorModalComponent } from '../../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../../relation-template-selector-modal/relation-template-selector-modal.component';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-page.util';
@@ -228,7 +227,6 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
     private initializeEditorConfig(): void {
         const baseConfig = this.editorConfigService.createConfig({
-            isCloudMode: environment.cloudMode,
             getTemplateType: () => this.templateType,
             getTemplateHelperData: () => this.templateHelperData,
             onPreviewRequested: () => undefined,
