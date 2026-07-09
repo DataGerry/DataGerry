@@ -6,7 +6,7 @@
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
                     <input type="checkbox" [formControl]="hideFieldControl" name="hideFieldControl-text"
-                        class="form-check-input" (ngModelChange)="onInputChange($event, 'hideField')" />
+                        class="form-check-input" />
                     <label class="hide-info">
                         Hide this field as column in object view/edit mode
                     </label>
@@ -23,15 +23,14 @@
                 <span class="input-group-text pe-1">
                     <div class="custom-control custom-checkbox">
                         <input type="checkbox" [formControl]="requiredControl" class="custom-control-input"
-                            [id]="nameControl.value+'-required'" (ngModelChange)="onInputChange($event, 'required')" />
+                            [id]="nameControl.value+'-required'" />
                         <label class="custom-control-label mt-3 mb-1" [for]="nameControl.value+'-required'"></label>
                     </div>
                 </span>
             </div>
             <input [formControl]="nameControl" type="text" class="form-control" name-guideline placeholder="Field name"
                 [ngClass]="{'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched ),
-                            'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
-                (ngModelChange)="onInputChange($event, 'name')" />
+                            'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}" />
             <div class="input-group-append">
                 <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()"
                     [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
@@ -64,8 +63,7 @@
         <label class="mt-3 mb-1">Label<span class="required">*</span>:</label>
         <input [formControl]="labelControl" type="text" class="form-control" placeholder="Field label"
             [ngClass]="{'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
-                        'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'label')" />
+                        'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}" />
         <small class="form-text text-muted text-start">a static display name</small>
         @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
         <div class="invalid-feedback">
@@ -82,15 +80,13 @@
         <label class="mt-3 mb-1">Description:</label>
         <textarea [formControl]="descriptionControl" class="form-control" placeholder="This field contains..."
             [ngClass]="{'is-valid': descriptionControl.valid && (descriptionControl.dirty || descriptionControl.touched),
-                        'is-invalid': descriptionControl.invalid && (descriptionControl.dirty || descriptionControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'description')"></textarea>
+                        'is-invalid': descriptionControl.invalid && (descriptionControl.dirty || descriptionControl.touched)}"></textarea>
         <small class="form-text text-muted">short field description or helper text</small>
     </div>
     <div class="form-group col-md-12">
         <label class="mt-3 mb-1">Regex:</label>
         <input [formControl]="regexControl" type="text" class="form-control" placeholder="data[^gerry*]" [ngClass]="{'is-valid': regexControl.valid && (regexControl.dirty || regexControl.touched),
-                        'is-invalid': regexControl.invalid && (regexControl.dirty || regexControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'regex')" />
+                        'is-invalid': regexControl.invalid && (regexControl.dirty || regexControl.touched)}" />
         <small class="form-text text-muted text-start">Regex validation</small>
         @if (regexControl.invalid && (regexControl.dirty || regexControl.touched)) {
         <div class="invalid-feedback">
@@ -106,7 +102,7 @@
     <div class="form-group col-md-12">
         <label class="mt-3 mb-1">Placeholder:</label>
         <input [formControl]="placeholderControl" type="text" class="form-control"
-            placeholder="What if nothing is entered..." (ngModelChange)="onInputChange($event, 'placeholder')"
+            placeholder="What if nothing is entered..."
             [ngClass]="{'is-valid': placeholderControl.valid && (placeholderControl.dirty || placeholderControl.touched),
                         'is-invalid': placeholderControl.invalid && (placeholderControl.dirty || placeholderControl.touched)}" />
         <small class="form-text text-muted">The placeholder will only be displayed if the field is complete
@@ -114,8 +110,7 @@
     </div>
     <div class="form-group col-md-12">
         <label class="mt-3 mb-1">Default value:</label>
-        <input [formControl]="valueControl" type="number" class="form-control" placeholder="Always be..."
-            (ngModelChange)="onInputChange($event, 'value')" [ngClass]="{'is-valid': valueControl.valid && (valueControl.dirty || valueControl.touched),
+        <input [formControl]="valueControl" type="number" class="form-control" placeholder="Always be..." [ngClass]="{'is-valid': valueControl.valid && (valueControl.dirty || valueControl.touched),
                         'is-invalid': valueControl.invalid && (valueControl.dirty || valueControl.touched)}" />
         <small class="form-text text-muted">Default value of this field</small>
     </div>
@@ -124,8 +119,7 @@
         <input [formControl]="helperTextControl" type="text" class="form-control"
             placeholder="If you don't know what to enter..."
             [ngClass]="{'is-valid': helperTextControl.valid && (helperTextControl.dirty || helperTextControl.touched),
-                        'is-invalid': helperTextControl.invalid && (helperTextControl.dirty || helperTextControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'helperText')" />
+                        'is-invalid': helperTextControl.invalid && (helperTextControl.dirty || helperTextControl.touched)}" />
         <small class="form-text text-muted">Small helper popup</small>
     </div>
 </div>

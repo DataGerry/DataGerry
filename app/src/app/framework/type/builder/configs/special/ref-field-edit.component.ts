@@ -119,6 +119,17 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
         this.initialValue = this.nameControl.value;
         this.identifierInitialValue = this.nameControl.value
 
+        // Reactive replacement for the removed (ngModelChange) bindings on the name and label inputs
+        this.nameControl.valueChanges
+            .pipe(takeUntil(this.subscriber))
+            .subscribe(value => this.onNameChange(value));
+        this.labelControl.valueChanges
+            .pipe(takeUntil(this.subscriber))
+            .subscribe(value => {
+                this.onInputChange();
+                this.onRefInputChange(value, 'label');
+            });
+
         if (this.form.get('ref_types').invalid) {
             this.isValid$ = false
         }
