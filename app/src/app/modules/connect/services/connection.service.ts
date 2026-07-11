@@ -20,11 +20,16 @@ import { HttpBackend, HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable, lastValueFrom } from 'rxjs';
 import { map, distinctUntilChanged } from 'rxjs/operators';
 import { environment } from 'src/environments/environment';
+import { RuntimeConfigService } from './runtime-config.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConnectionService {
   private connection$ = new BehaviorSubject<string>('');
   private connectionStatus = false;
+  // True when the connection is authoritative (cloud env, or a complete app-config.json). Such a
+  // connection is the operator's explicit choice and must never be cleared or replaced on a failed
+  // reachability check, nor fall back to localStorage/environment.
+  private connectionLocked = false;
   private http: HttpClient;
   private readonly LOCAL_DEFAULT_PORT = 4000;
 
@@ -35,11 +40,48 @@ export class ConnectionService {
   get currentConnection(): string { return this.connection$.value; }
   get status(): boolean { return this.connectionStatus; }
 
-  constructor(backend: HttpBackend) {
+  constructor(backend: HttpBackend, private runtimeConfig: RuntimeConfigService) {
     this.http = new HttpClient(backend);
 
     if (environment.cloudMode) {
-      // ─── CLOUD MODE: from env file──────────────────
+      // ─── CLOUD MODE: connection comes straight from environment.cloud.ts ──────────────────
+      const url = this.buildUrl(
+        environment.protocol,
+        environment.apiUrl,
+        environment.apiPort
+      );
+      this.connectionLocked = true;
+      this.connection$.next(url);
+      this.validateAsync();
+      return;
+    }
+
+    // ─── NON-CLOUD MODE ──────────────────────────────────────────────
+    // Precedence: runtime app-config.json → stored/manual connection → environment → local default.
+
+    if (this.runtimeConfig.hasConnectionOverride) {
+      // A complete app-config.json is the operator's explicit, final choice: use it verbatim, never
+      // fall back to localStorage/environment, and keep it even if it is unreachable. Not persisted.
+      const url = this.buildUrl(
+        this.runtimeConfig.protocol,
+        this.runtimeConfig.apiUrl,
+        this.runtimeConfig.apiPort
+      );
+      this.connectionLocked = true;
+      this.connection$.next(url);
+      this.validateAsync();
+      return;
+    }
+
+    const stored = this.readStoredConnection();
+
+    if (stored) {
+      this.connection$.next(stored);
+      this.validateAsync();
+      return;
+    }
+
+    if (environment.apiUrl) {
       const url = this.buildUrl(
         environment.protocol,
         environment.apiUrl,
@@ -50,18 +92,7 @@ export class ConnectionService {
       return;
     }
 
-    const raw = localStorage.getItem('connection');
-    const stored =
-      raw && raw !== '"null"'
-        ? (JSON.parse(raw) as string)
-        : '';
-
-    if (stored) {
-      this.connection$.next(stored);
-      this.validateAsync();
-    } else {
-      this.injectLocalDefault();
-    }
+    this.injectLocalDefault();
   }
 
 
@@ -80,7 +111,7 @@ export class ConnectionService {
   ): void {
     const url = this.buildUrl(protocol, host, port);
 
-    localStorage.setItem('connection', JSON.stringify(url));
+    this.persistConnection(url);
 
     this.connection$.next(url);
 
@@ -120,7 +151,7 @@ export class ConnectionService {
    * Clears the current connection URL from local storage
    */
   public clearConnection(): void {
-    localStorage.removeItem('connection');
+    this.removeStoredConnection();
     this.connection$.next('');
     this.connectionStatus = false;
   }
@@ -134,6 +165,46 @@ export class ConnectionService {
   }
 
   // ─── PRIVATE ─────────────────────────────────────────────────────
+
+  /**
+   * Reads the persisted connection, tolerating a disabled/blocked localStorage or a corrupt
+   * stored value so a bad entry can never crash startup.
+   */
+  private readStoredConnection(): string {
+    try {
+      const raw = localStorage.getItem('connection');
+
+      if (!raw || raw === '"null"') {
+        return '';
+      }
+
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'string' ? parsed : '';
+    } catch {
+      return '';
+    }
+  }
+
+
+  /** Persists the connection, swallowing errors from a disabled or full localStorage. */
+  private persistConnection(url: string): void {
+    try {
+      localStorage.setItem('connection', JSON.stringify(url));
+    } catch {
+      // Storage unavailable (private mode / quota); the connection still works this session.
+    }
+  }
+
+
+  /** Removes the persisted connection, tolerating a disabled localStorage. */
+  private removeStoredConnection(): void {
+    try {
+      localStorage.removeItem('connection');
+    } catch {
+      // Nothing to do when storage is unavailable.
+    }
+  }
+
 
   /**
    * Builds a URL from the given protocol, host, and port.
@@ -160,7 +231,7 @@ export class ConnectionService {
 
     const url = this.buildUrl(protocol, hostname, port);
 
-    localStorage.setItem('connection', JSON.stringify(url));
+    this.persistConnection(url);
     this.connection$.next(url);
 
     this.validateAsync();
@@ -184,7 +255,9 @@ export class ConnectionService {
       this.connectionStatus = true;
     } catch (err) {
       this.connectionStatus = false;
-      if (!environment.cloudMode) {
+      // Locked connections (cloud env / complete app-config.json) are the operator's explicit
+      // choice — keep them even when unreachable. Only auto-derived connections are cleared.
+      if (!this.connectionLocked) {
         this.clearConnection();
       }
     }
