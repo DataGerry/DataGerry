@@ -80,7 +80,15 @@ class ObjectsManager(BaseManager):
     """
     The ObjectsManager manages the interaction between CmdbObjects and the database
 
-    Extends: BaseMaanger
+    Owns the CmdbObject CRUD surface (create / read / update / delete) plus the higher-level
+    read helpers built on top of it: reference resolution (field- and MDS-based) via ``references``,
+    per-type grouping and counting, batched type/object lookups used to avoid N+1 access checks,
+    summary-line composition, and the delete-time cascades that scrub object references and remove
+    dependent ISMS RiskAssessments / ControlMeasureAssignments. Access control is enforced through
+    ``verify_access`` against each object's CmdbType, and every failure is surfaced as a typed
+    ``ObjectsManager*Error``
+
+    Extends: BaseManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
@@ -301,7 +309,7 @@ class ObjectsManager(BaseManager):
             raise err
         except Exception as err:
             LOGGER.error("[get_objects_by] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerGetError(err) from err
+            raise ObjectsManagerGetError(str(err)) from err
 
 
     def group_objects_by_value(
@@ -483,7 +491,7 @@ class ObjectsManager(BaseManager):
         try:
             return self.aggregate(pipeline=pipeline, **kwargs)
         except BaseManagerIterationError as err:
-            raise ObjectsManagerIterationError(err) from err
+            raise ObjectsManagerIterationError(str(err)) from err
 
 
     def count_objects_grouped_by_type(self) -> dict[int, int]:
@@ -589,7 +597,7 @@ class ObjectsManager(BaseManager):
             return self._filter_mds_results_referencing(results, referenced_object.public_id)
         except Exception as err:
             LOGGER.error("[get_mds_references_for_object] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerIterationError(err) from err
+            raise ObjectsManagerIterationError(str(err)) from err
 
 
     def _ref_field_names_by_type(self, type_ids: list[int]) -> dict[int, set[str]]:
@@ -672,6 +680,9 @@ class ObjectsManager(BaseManager):
         return False
 
 
+    # The reference query exposes the full pagination/sort surface (limit/skip/sort/order) plus the
+    # target object and the ACL user/permission, so the argument count is inherent to the contract
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def references(
         self,
         object_: CmdbObject,
@@ -680,8 +691,8 @@ class ObjectsManager(BaseManager):
         skip: int,
         sort: str,
         order: int,
-        user: CmdbUser = None,
-        permission: AccessControlPermission = None
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
     ) -> IterationResult[CmdbObject]:
         """
         Retrieves all CmdbObjects that reference the given CmdbObject
@@ -735,12 +746,12 @@ class ObjectsManager(BaseManager):
 
             return merge_result
         except ObjectsManagerMdsReferencesError as err:
-            raise ObjectsManagerIterationError(err) from err
+            raise ObjectsManagerIterationError(str(err)) from err
         except ObjectsManagerIterationError as err:
             raise err
         except Exception as err:
             LOGGER.error("[references] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerIterationError(err) from err
+            raise ObjectsManagerIterationError(str(err)) from err
 
 
     @staticmethod
@@ -836,8 +847,8 @@ class ObjectsManager(BaseManager):
     def update_object(self,
                       public_id: int,
                       data: CmdbObject | dict,
-                      user: CmdbUser = None,
-                      permission: AccessControlPermission = None) -> None:
+                      user: CmdbUser | None = None,
+                      permission: AccessControlPermission | None = None) -> None:
         """
         Updates a CmdbObject in the database
 
@@ -873,14 +884,15 @@ class ObjectsManager(BaseManager):
             raise err
         except Exception as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerUpdateError(err) from err
+            raise ObjectsManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     def delete_object(self,
                       public_id: int,
-                      user: CmdbUser = None,
-                      permission: AccessControlPermission = None) -> bool:
+                      user: CmdbUser | None = None,
+                      permission: AccessControlPermission | None = None,
+                      object_type: CmdbType | None = None) -> bool:
         """
         Deletes a CmdbObject by its public_id after verifying access and type status
 
@@ -888,6 +900,10 @@ class ObjectsManager(BaseManager):
             public_id (int): public_id of the CmdbObject which should be deleted
             user (CmdbUser | None): The CmdbUser requesting deletion
             permission (AccessControlPermission | None): The required permission for deletion
+            object_type (CmdbType | None): The object's already-resolved CmdbType. When given, the
+                internal type lookup is skipped - lets bulk callers that already hold a type map
+                avoid one ``get_object_type`` query per object (no functional change: the same
+                type is used for the deactivated-check and the ACL verification)
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -906,7 +922,9 @@ class ObjectsManager(BaseManager):
 
             type_id = CmdbObject.from_data(to_delete_object).type_id
 
-            object_type = self.get_object_type(type_id)
+            # Reuse a caller-supplied type when present (bulk-delete N+1 avoidance), else resolve it
+            if object_type is None:
+                object_type = self.get_object_type(type_id)
 
             if not object_type:
                 raise ObjectsManagerDeleteError("CmdbType of CmdbObject not found in database!")
@@ -922,16 +940,17 @@ class ObjectsManager(BaseManager):
         except AccessDeniedError as err:
             raise err
         except (ObjectsManagerGetError, BaseManagerDeleteError, CmdbObjectInitFromDataError) as err:
-            raise ObjectsManagerDeleteError(err) from err
+            raise ObjectsManagerDeleteError(str(err)) from err
         except Exception as err:
             LOGGER.error("[delete_object] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerDeleteError(err) from err
+            raise ObjectsManagerDeleteError(str(err)) from err
 
 
     def delete_with_follow_up(
             self, public_id: int,
-            user: CmdbUser = None,
-            permission: AccessControlPermission = None
+            user: CmdbUser | None = None,
+            permission: AccessControlPermission | None = None,
+            object_type: CmdbType | None = None
         ) -> bool:
         """
         Deletes a CmdbObject by its public_id after verifying access and type status and also deletes
@@ -941,6 +960,8 @@ class ObjectsManager(BaseManager):
             public_id (int): public_id of the CmdbObject which should be deleted
             user (CmdbUser | None): The CmdbUser requesting deletion
             permission (AccessControlPermission | None): The required permission for deletion
+            object_type (CmdbType | None): The object's already-resolved CmdbType, forwarded to
+                ``delete_object`` to skip its internal type lookup (see ``delete_object``)
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -951,14 +972,25 @@ class ObjectsManager(BaseManager):
         """
         self.delete_object_from_risk_assessment_cascade(public_id)
 
-        return self.delete_object(public_id, user, permission)
+        return self.delete_object(public_id, user, permission, object_type)
 
 
     def delete_all_object_references(self, public_ids: int | list[int]) -> None:
         """
-        Remove one or multiple public_id references from all objects.
-        Only fields with type 'ref' or 'ref-section-field' are affected.
-        Also removes references inside multi_data_sections.
+        Scrubs references to one or more deleted CmdbObjects from every other CmdbObject
+
+        Clears the value of any 'ref' or 'ref-section-field' field that points at one of the given
+        public_ids, in both the regular ``fields`` and the ``multi_data_sections`` rows, using two
+        bulk ``update_many_raw`` writes (regular fields, then MDS rows). A cleared reference becomes
+        an empty string. An empty list is a no-op
+
+        Args:
+            public_ids (int | list[int]): A single object public_id or a list of them whose
+                references should be removed from all other objects
+
+        Raises:
+            ObjectsManagerUpdateError: If no public_ids are provided (falsy scalar), or when either
+                bulk write fails
         """
         try:
             if isinstance(public_ids, list):
@@ -1113,6 +1145,52 @@ class ObjectsManager(BaseManager):
             )
 
 
+    def delete_objects_from_risk_assessment_cascade(self, deleted_object_ids: list[int]) -> None:
+        """
+        Batched variant of ``delete_object_from_risk_assessment_cascade`` for a list of objects
+
+        Deletes every RiskAssessment referencing ANY of the given objects, plus all their
+        ControlMeasureAssignments, using a single ``$in`` query per collection instead of the
+        per-object round-trips that calling the single-object cascade in a loop would issue.
+        The net effect is identical to invoking the single-object cascade for each id
+
+        Args:
+            deleted_object_ids (list[int]): public_ids of the deleted CmdbObjects
+        """
+        if not deleted_object_ids:
+            return
+
+        # Find all RiskAssessments referencing any of these Objects in one query
+        risk_assessment_query: dict[str, Any] = {
+            'object_id_ref_type': ObjectReferenceType.OBJECT,
+            'object_id': {'$in': deleted_object_ids},
+        }
+
+        matching_risk_assessments: list[dict[str, Any]] = list(self.dbm.find(
+            IsmsRiskAssessment.COLLECTION,
+            self.db_name,
+            risk_assessment_query,
+            projection={'public_id': 1},
+        ))
+
+        if not matching_risk_assessments:
+            return
+
+        risk_assessment_ids: list[int] = [ra['public_id'] for ra in matching_risk_assessments]
+
+        # Delete the RiskAssessments
+        self.delete_many_from_other_collection(
+            IsmsRiskAssessment.COLLECTION,
+            {'public_id': {'$in': risk_assessment_ids}},
+        )
+
+        # Delete all ControlMeasureAssignments referencing those RiskAssessments
+        self.delete_many_from_other_collection(
+            IsmsControlMeasureAssignment.COLLECTION,
+            {'risk_assessment_id': {'$in': risk_assessment_ids}},
+        )
+
+
     #pylint: disable=R0917
     def __merge_mds_references(self,
                                 mds_result: list,
@@ -1152,10 +1230,17 @@ class ObjectsManager(BaseManager):
 
             obj_result.total = len(obj_result.results)
 
-            # sort all findings according to sort and order
+            # sort all findings according to sort and order. The key wraps the value in a
+            # (is-None, value) tuple so objects whose sort attribute is missing/None sort
+            # consistently to one end instead of raising a TypeError on a None-vs-value
+            # comparison (Python 3); objects that DO carry the attribute keep their natural order
             descending_order = order == -1
 
-            obj_result.results.sort(key=lambda obj: getattr(obj, sort, None), reverse=descending_order)
+            def _sort_key(obj: CmdbObject) -> tuple[bool, Any]:
+                value: Any = getattr(obj, sort, None)
+                return (value is None, value)
+
+            obj_result.results.sort(key=_sort_key, reverse=descending_order)
 
             # just keep the given limit of objects if limit > 0
             if limit > 0:
@@ -1169,7 +1254,7 @@ class ObjectsManager(BaseManager):
             return obj_result
         except Exception as err:
             LOGGER.error("[__merge_mds_references] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerMdsReferencesError(err) from err
+            raise ObjectsManagerMdsReferencesError(str(err)) from err
 
 
     def _compose_summary_line(

@@ -24,6 +24,7 @@ from typing import Any
 
 from bson import json_util
 from cerberus import Validator  # type: ignore
+from pymongo import UpdateOne
 from flask import abort, current_app
 from werkzeug.exceptions import HTTPException
 
@@ -39,6 +40,7 @@ from cmdb.manager import (
     ObjectGroupsManager,
     LocationsManager,
     ObjectsManager,
+    ReportsManager,
     TypesManager,
 )
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
@@ -59,15 +61,18 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.ipam.enforcement import (
     object_write_requires_ipam_license,
     object_delete_requires_ipam_license,
     enforce_object_invariants,
+    enforce_delete_guards,
     format_errors_for_abort,
 )
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.report_routes.report_helper import build_report_query
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     ObjectViewMode,
     ObjectPatchKey,
@@ -367,7 +372,7 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
     Deletes the CmdbLocation of an object, refusing when that location has children
 
     Looks up the object's location; if it exists and is not the parent of other locations it is
-    deleted, otherwise the request aborts with 405
+    deleted, otherwise the request aborts with 400
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -1250,3 +1255,218 @@ def build_patched_object_data(
         merged_data[ObjectPatchKey.COMMENT.value] = patch_data[ObjectPatchKey.COMMENT.value]
 
     return merged_data
+
+
+# --------------------------------------------------- DELETE GUARD --------------------------------------------------- #
+
+def guard_object_delete(
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager,
+        request_user: CmdbUser,
+        target_object: dict[str, Any],
+    ) -> None:
+    """
+    Runs the full pre-delete guard for a single CmdbObject: IPAM license + IPAM invariants
+
+    Combines the two checks every object-delete route performs up front: the IPAM license guard
+    (blocks deleting an IPAM special-type object when IPAM is unlicensed) and the IPAM delete
+    invariants (e.g. a SUPERNET / SUBNET still referenced by other IPAM objects). Aborts on the
+    first violation; a no-op for a non-IPAM object with no dangling references
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        request_user (CmdbUser): The CmdbUser performing the deletion
+        target_object (dict[str, Any]): The CmdbObject document being deleted
+
+    Raises:
+        HTTPException: 403 when a gated delete is unlicensed, 400 on an IPAM invariant violation
+    """
+    guard_object_delete_license(types_manager, request_user, target_object)
+
+    ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
+        objects_manager,
+        types_manager,
+        target_object,
+    )
+
+    if ipam_delete_errors:
+        abort(400, format_errors_for_abort(ipam_delete_errors))
+
+
+# ------------------------------------------------ OBJECT STATE CHANGE ----------------------------------------------- #
+
+def emit_object_state_change_events(
+        request_user: CmdbUser,
+        logs_manager: LogsManager,
+        before_object: CmdbObject,
+        after_object: CmdbObject,
+        render_result: RenderResult,
+        state: bool,
+    ) -> None:
+    """
+    Emits the UPDATE webhook and writes the ACTIVE_CHANGE log for an object activation toggle
+
+    Both steps are best-effort and isolated: a webhook or logging failure is caught and logged so it
+    never blocks the state change itself
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        logs_manager (LogsManager): Manager used to persist the state-change log
+        before_object (CmdbObject): The object carrying the pre-read version used on webhook + log
+        after_object (CmdbObject): The re-read object state after the toggle (webhook 'after' payload)
+        render_result (RenderResult): The rendered object captured for the log's render_state
+        state (bool): The new active state
+    """
+    try:
+        send_webhook_event(request_user,
+                           WebhookEventType.UPDATE,
+                           CmdbObject.to_json(before_object),
+                           CmdbObject.to_json(after_object),
+                           {'state': state})
+    except Exception as error:
+        LOGGER.error(
+            "[emit_object_state_change_events] Send Webhook Event Exception: %s, Type:%s", error, type(error)
+        )
+
+    try:
+        change: dict[str, bool] = {'old': not state, 'new': state}
+        log_data: dict[str, Any] = {
+            'object_id': before_object.get_public_id(),
+            'version': before_object.version,
+            'user_id': request_user.get_public_id(),
+            'user_name': request_user.get_display_name(),
+            'render_state': json.dumps(render_result, default=default).encode('UTF-8'),
+            'comment': 'Active status has changed',
+            'changes': change,
+        }
+        logs_manager.insert_log(action=LogAction.ACTIVE_CHANGE, log_type=CmdbObjectLog.__name__, **log_data)
+    except Exception as error:
+        LOGGER.error("[emit_object_state_change_events] Failed to create Log. Error: %s", error)
+
+
+# ------------------------------------------------- OBJECT RE-ALIGNMENT ---------------------------------------------- #
+
+def realign_objects_to_type(
+        objects_manager: ObjectsManager,
+        type_instance: CmdbType,
+    ) -> set[str]:
+    """
+    Re-aligns every CmdbObject of a CmdbType with that type's current field definition
+
+    Drops fields the object carries but the type no longer declares, and adds fields the type now
+    declares but the object is missing (seeded with the type's default value under ``value`` or
+    None). At most one ``$pull`` and one ``$addToSet`` per affected object are applied in a single
+    bulk write. Returns the field names removed from at least one object so the caller can clean
+    the type's reports once afterwards
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        type_instance (CmdbType): The CmdbType whose objects should be re-aligned
+
+    Raises:
+        HTTPException: 500 when the bulk write of the re-aligned objects fails
+
+    Returns:
+        set[str]: The field names dropped from at least one object of the type
+    """
+    type_fields: list[dict[str, Any]] = type_instance.fields
+    type_fields_by_name: dict[str, dict[str, Any]] = {t_field["name"]: t_field for t_field in type_fields}
+    type_field_names: set[str] = set(type_fields_by_name)
+
+    objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=type_instance.public_id)
+
+    # One $pull (stale fields) and one $addToSet (missing fields) per affected object, applied in a
+    # single bulk write instead of a write per object/field. Removed names accumulate for the caller
+    object_ops: list[UpdateOne] = []
+    removed_field_names: set[str] = set()
+
+    for obj in objects_by_type:
+        obj_field_names: set[str] = {field["name"] for field in obj.get_all_fields()}
+
+        # Fields the object carries but the type no longer declares
+        stale_field_names: set[str] = obj_field_names - type_field_names
+        # Fields the type now declares but the object is missing
+        missing_field_names: set[str] = type_field_names - obj_field_names
+
+        if stale_field_names:
+            object_ops.append(UpdateOne(
+                {'public_id': obj.public_id},
+                {'$pull': {'fields': {'name': {'$in': list(stale_field_names)}}}}
+            ))
+            removed_field_names |= stale_field_names
+
+        if missing_field_names:
+            # A field entry is a name+type+value triple; new fields start from the type's default
+            # value (stored under 'value' on the field definition) or None
+            new_field_entries: list[dict[str, Any]] = [
+                {
+                    "name": name,
+                    "type": type_fields_by_name[name]["type"],
+                    "value": type_fields_by_name[name].get("value"),
+                }
+                for name in missing_field_names
+            ]
+            object_ops.append(UpdateOne(
+                {'public_id': obj.public_id},
+                {'$addToSet': {'fields': {'$each': new_field_entries}}}
+            ))
+
+    if object_ops:
+        try:
+            objects_manager.bulk_write(object_ops)
+        except Exception as error:
+            LOGGER.error(
+                "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
+            )
+            abort(500, "An internal server error occured while cleaning objects!")
+
+    return removed_field_names
+
+
+def clean_type_reports(
+        reports_manager: ReportsManager,
+        reports_for_type: list[dict[str, Any]],
+        removed_field_names: set[str],
+        type_instance: CmdbType,
+    ) -> None:
+    """
+    Strips removed field occurrences from a CmdbType's reports and rebuilds their queries
+
+    For every report of the type, removes each dropped field name, rebuilds ``report_query`` from
+    the remaining conditions and persists all reports in a single bulk write. A no-op when no field
+    names were removed
+
+    Args:
+        reports_manager (ReportsManager): db interface for CmdbReports
+        reports_for_type (list[dict[str, Any]]): The stored reports belonging to the type
+        removed_field_names (set[str]): Field names that were dropped from the objects
+        type_instance (CmdbType): The CmdbType the reports belong to (for the query rebuild)
+
+    Raises:
+        HTTPException: 500 when the bulk write of the cleaned reports fails
+    """
+    if not removed_field_names:
+        return
+
+    try:
+        report_ops: list[UpdateOne] = []
+
+        for a_report in reports_for_type:
+            tmp_report: CmdbReport = CmdbReport.from_data(a_report)
+
+            for field in removed_field_names:
+                tmp_report.remove_field_occurences(field)
+
+            tmp_report.report_query = build_report_query(tmp_report.conditions, type_instance)
+            report_ops.append(
+                UpdateOne({'public_id': tmp_report.public_id}, {'$set': tmp_report.__dict__})
+            )
+
+        if report_ops:
+            reports_manager.bulk_write(report_ops)
+    except Exception as error:
+        LOGGER.error(
+            "[clean_type_reports] Clean Reports Exception: %s, Type: %s", error, type(error)
+        )
+        abort(500, "An internal server error occured while cleaning reports!")

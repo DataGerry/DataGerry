@@ -37,7 +37,13 @@ from cmdb.models.type_model import (
     TypeSchemaKey,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.object_model import CmdbObject, CmdbObjectMdsKey, CmdbObjectMdsRowKey, CmdbObjectFieldKey
+from cmdb.models.object_model import (
+    CmdbObject,
+    CmdbObjectKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+    CmdbObjectFieldKey,
+)
 
 from cmdb.framework.results import IterationResult
 
@@ -102,15 +108,32 @@ class TypesManager(BaseManager):
             int: The public_id of the created CmdbType
         """
         try:
-            if isinstance(new_type, CmdbType):
-                type_to_add: dict[str, Any] = CmdbType.to_json(new_type)
-            else:
-                type_to_add = json.loads(json.dumps(new_type, default=json_util.default), object_hook=object_hook)
-
-            return self.insert(type_to_add)
+            return self.insert(self._as_stored_type_dict(new_type))
         except Exception as err:
             LOGGER.error("[insert_type] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerInsertError(str(err)) from err
+
+
+    @staticmethod
+    def _as_stored_type_dict(type_or_dict: CmdbType | dict[str, Any]) -> dict[str, Any]:
+        """
+        Normalises a CmdbType or raw dict into the stored-document form for insert/update
+
+        A CmdbType is serialised via ``to_json``; a raw dict is passed through a BSON-aware JSON
+        round-trip (``json_util.default`` -> ``object_hook``) so any BSON/datetime values are coerced
+        into the shape the collection expects. Shared by ``insert_type`` and ``update_type`` so the
+        two never drift apart
+
+        Args:
+            type_or_dict (CmdbType | dict[str, Any]): The type to normalise
+
+        Returns:
+            dict[str, Any]: The type as a stored-document dict
+        """
+        if isinstance(type_or_dict, CmdbType):
+            return CmdbType.to_json(type_or_dict)
+
+        return json.loads(json.dumps(type_or_dict, default=json_util.default), object_hook=object_hook)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -272,12 +295,20 @@ class TypesManager(BaseManager):
             raise TypesManagerGetError(str(err)) from err
 
 
-    def get_objects_for_type(self, target_type_id: int) -> list[CmdbObject]:
+    def get_objects_for_type(
+        self,
+        target_type_id: int,
+        section_ids: list[str] | None = None,
+    ) -> list[CmdbObject]:
         """
-        Retrieves all CmdbObjects associated with a specific CmdbType public_id
+        Retrieves the CmdbObjects associated with a specific CmdbType public_id
 
         Args:
             target_type_id (int): The public_id of the CmdbType
+            section_ids (list[str] | None): When given, only objects that carry at least one
+                multi_data_section with a matching ``section_id`` are loaded. Lets MDS-propagation
+                callers skip every object that has none of the affected sections (which can never
+                change) instead of materialising every object of the type
 
         Raises:
             TypesManagerGetError: If an error occurs during the fetching or processing of the data
@@ -286,12 +317,22 @@ class TypesManager(BaseManager):
             list[CmdbObject]: A list of CmdbObjects that belong to the specified CmdbType
         """
         try:
-            all_type_objects: list[dict[str, Any]] = self.get_many_from_other_collection(
-                CmdbObject.COLLECTION,
-                type_id=target_type_id
-            )
+            if section_ids is None:
+                all_type_objects: list[dict[str, Any]] = self.get_many_from_other_collection(
+                    CmdbObject.COLLECTION,
+                    type_id=target_type_id,
+                )
+            else:
+                mds_section_id_path: str = (
+                    f'{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}'
+                )
+                criteria: dict[str, Any] = {
+                    CmdbObjectKey.TYPE_ID.value: target_type_id,
+                    mds_section_id_path: {'$in': section_ids},
+                }
+                all_type_objects = list(self.dbm.find(CmdbObject.COLLECTION, self.db_name, criteria))
 
-            return [CmdbObject(**obj) for obj in all_type_objects]
+            return [CmdbObject.from_data(obj) for obj in all_type_objects]
         except BaseManagerGetError as err:
             raise TypesManagerGetError(str(err)) from err
         except Exception as err:
@@ -300,27 +341,19 @@ class TypesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_type(self, public_id: int, update_type: CmdbType | dict) -> None:
+    def update_type(self, public_id: int, update_type: CmdbType | dict[str, Any]) -> None:
         """
         Update an existing CmdbType in the database
 
-
         Args:
             public_id (int): The public_id of the CmdbType which should be updated
-            update_type (CmdbType | dict): The new type data
+            update_type (CmdbType | dict[str, Any]): The new type data
 
         Raises:
             TypesManagerUpdateError: If there is an error during the update process
         """
         try:
-            if isinstance(update_type, CmdbType):
-                new_version_type = CmdbType.to_json(update_type)
-            else:
-                new_version_type = json.loads(json.dumps(update_type,
-                                                         default=json_util.default),
-                                                         object_hook=object_hook)
-
-            self.update(criteria={'public_id': public_id}, data=new_version_type)
+            self.update(criteria={'public_id': public_id}, data=self._as_stored_type_dict(update_type))
         except Exception as err:
             LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerUpdateError(str(err)) from err
@@ -329,15 +362,18 @@ class TypesManager(BaseManager):
 
     def delete_type(self, public_id: int) -> None:
         """
-        Delete a existing CmdbType by its public_id
+        Delete an existing CmdbType by its public_id
 
         Args:
             public_id (int): public_id of the CmdbType which should be deleted
+
+        Raises:
+            TypesManagerDeleteError: If the CmdbType could not be deleted
         """
         try:
             self.delete({'public_id': public_id})
         except BaseManagerDeleteError as err:
-            raise TypesManagerDeleteError(err) from err
+            raise TypesManagerDeleteError(str(err)) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -363,21 +399,29 @@ class TypesManager(BaseManager):
         deleted_fields: dict
     ) -> list[CmdbObject]:
         """
-        Updates multi-data fields for CmdbObjects of a given type.
-        Only returns objects that actually have changes.
-        
-        Each new field includes 'name', 'value', and 'type'
+        Updates multi-data fields for CmdbObjects of a given type, returning only changed objects
+
+        Each new field entry is a ``{name, value, type}`` triple. The ``added_fields`` /
+        ``deleted_fields`` dicts are keyed by the MDS ``section_id``, which by contract equals the
+        matching type section's ``name`` (that is how ``handle_multi_data_sections`` builds them).
+        Only objects that carry at least one of the affected sections are loaded - an object with
+        none of them can never change - so the fetch scales with the affected objects, not the whole
+        type
 
         Args:
-            target_type (CmdbType): The type whose objects are being updated.
-            added_fields (dict): Section IDs mapped to list of fields to add.
-            deleted_fields (dict): Section IDs mapped to list of fields to delete.
+            target_type (CmdbType): The type whose objects are being updated
+            added_fields (dict): Section IDs mapped to the list of field names to add
+            deleted_fields (dict): Section IDs mapped to the list of field names to delete
 
         Returns:
-            list[CmdbObject]: List of objects that were actually modified.
+            list[CmdbObject]: List of objects that were actually modified
         """
         try:
-            all_type_objects: list[CmdbObject] = self.get_objects_for_type(target_type.public_id)
+            # Objects lacking every affected section are guaranteed no-ops, so never load them
+            affected_section_ids: list[str] = list(set(added_fields) | set(deleted_fields))
+            all_type_objects: list[CmdbObject] = self.get_objects_for_type(
+                target_type.public_id, section_ids=affected_section_ids,
+            )
             updated_objects: list[CmdbObject] = []
 
             # Precompute mapping from field name to type for fast lookup
@@ -555,6 +599,8 @@ class TypesManager(BaseManager):
                     a_section.fields, updated_section[SectionKey.FIELDS], check_added=False
                 )
 
+                # Keyed by the type section's name, which by contract equals the objects' MDS
+                # section_id - update_multi_data_fields looks these up by section_id
                 if added:
                     added_fields[a_section.name] = added
                 if deleted:

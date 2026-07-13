@@ -31,13 +31,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.models.type_model import FieldKey, FieldType, SectionType, SectionKey, TypeSchemaKey
+from cmdb.models.type_model import CmdbType, FieldKey, FieldType, SectionType, SectionKey, TypeSchemaKey
 from cmdb.models.object_model import CmdbObjectMdsKey, CmdbObjectFieldKey, CmdbObjectMdsRowKey
 from cmdb.manager.types_manager import TypesManager
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 from cmdb.errors.manager.types_manager import (
     TypesManagerInsertError,
     TypesManagerUpdateError,
     TypesManagerGetError,
+    TypesManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=protected-access
@@ -325,3 +327,70 @@ def test_get_types_by_wraps_unexpected_error() -> None:
 
     with pytest.raises(TypesManagerGetError):
         TypesManager.get_types_by(mgr)
+
+
+# -------------------------------------------------- _as_stored_type_dict -------------------------------------------- #
+
+def _minimal_type_doc(public_id: int = 1) -> dict[str, Any]:
+    """Builds a minimal CmdbType-shaped doc that CmdbType.from_data accepts."""
+    return {
+        TypeSchemaKey.PUBLIC_ID.value: public_id,
+        TypeSchemaKey.NAME.value: f'type-{public_id}',
+        'label': f'Type {public_id}',
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.ACTIVE.value: True,
+        TypeSchemaKey.FIELDS.value: [{FieldKey.TYPE.value: FieldType.TEXT.value, FieldKey.NAME.value: 'a'}],
+        'render_meta': {'icon': '', 'sections': [], 'summary': {'fields': []}},
+        'version': '1.0.0',
+    }
+
+
+def test_as_stored_type_dict_passes_through_plain_dict() -> None:
+    """A raw dict is returned as an equal dict after the BSON-aware JSON round-trip."""
+    raw = {TypeSchemaKey.PUBLIC_ID.value: 5, TypeSchemaKey.NAME.value: 'x'}
+
+    result = TypesManager._as_stored_type_dict(raw)
+
+    assert result == raw
+
+
+def test_as_stored_type_dict_serialises_cmdb_type_instance() -> None:
+    """A CmdbType instance is serialised to its to_json dict form."""
+    cmdb_type = CmdbType.from_data(_minimal_type_doc(public_id=7))
+
+    result = TypesManager._as_stored_type_dict(cmdb_type)
+
+    assert isinstance(result, dict)
+    assert result[TypeSchemaKey.PUBLIC_ID.value] == 7
+
+
+def test_update_multi_data_fields_narrows_fetch_to_affected_sections() -> None:
+    """The object fetch is narrowed to exactly the section_ids touched by the add/delete maps."""
+    target_type = SimpleNamespace(
+        public_id=42, fields=[{FieldKey.NAME.value: 'a', FieldKey.TYPE.value: FieldType.TEXT.value}],
+    )
+    manager = _manager_with_real_entry_methods([])
+
+    TypesManager.update_multi_data_fields(manager, target_type, {SECTION_ID: ['b']}, {OTHER_SECTION_ID: ['c']})
+
+    call = manager.get_objects_for_type.call_args
+    assert call.args[0] == 42
+    assert set(call.kwargs['section_ids']) == {SECTION_ID, OTHER_SECTION_ID}
+
+
+def test_get_type_wraps_get_error() -> None:
+    """A BaseManagerGetError from get_one surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type(mgr, 1)
+
+
+def test_delete_type_wraps_delete_error() -> None:
+    """A BaseManagerDeleteError from delete surfaces as TypesManagerDeleteError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.delete.side_effect = BaseManagerDeleteError('boom')
+
+    with pytest.raises(TypesManagerDeleteError):
+        TypesManager.delete_type(mgr, 5)

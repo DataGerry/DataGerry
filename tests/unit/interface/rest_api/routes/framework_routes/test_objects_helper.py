@@ -50,6 +50,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     edit_patch_multi_data_rows,
     delete_patch_multi_data_rows,
     build_patched_object_data,
+    guard_object_delete,
+    emit_object_state_change_events,
+    realign_objects_to_type,
+    clean_type_reports,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.models.object_model import CmdbObject
@@ -609,7 +613,7 @@ class TestBuildTypeObjectCounts:
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
             result = build_type_object_counts(MagicMock())
 
-        assert result == []
+        assert not result
         types_manager.get_types_lookup.assert_not_called()
 
     def test_skips_type_missing_from_lookup(self) -> None:
@@ -927,3 +931,148 @@ class TestBuildPatchedObjectData:
 
         section = result['multi_data_sections'][0]
         assert {row['multi_data_id'] for row in section['values']} == {1}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              guard_object_delete                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGuardObjectDelete:
+    """guard_object_delete combines the IPAM license guard and the IPAM delete invariants."""
+
+    def test_passes_when_no_license_gate_and_no_invariant_errors(self) -> None:
+        """A non-gated object with no dangling references is a no-op (no abort)."""
+        with patch(f'{HELPER_PATH}.guard_object_delete_license') as license_guard, \
+             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[]) as delete_guards:
+            guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
+
+        license_guard.assert_called_once()
+        delete_guards.assert_called_once()
+
+    def test_aborts_400_on_invariant_violation(self) -> None:
+        """A non-empty delete-guard error list aborts with 400."""
+        with patch(f'{HELPER_PATH}.guard_object_delete_license'), \
+             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[{'error': 'still referenced'}]), \
+             patch(f'{HELPER_PATH}.format_errors_for_abort', return_value='still referenced'):
+            with pytest.raises(HTTPException) as exc_info:
+                guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
+
+        assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        emit_object_state_change_events                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestEmitObjectStateChangeEvents:
+    """emit_object_state_change_events emits the UPDATE webhook and writes the ACTIVE_CHANGE log."""
+
+    def _objects(self) -> tuple[CmdbObject, CmdbObject]:
+        """Builds a before/after CmdbObject pair for the state-change events."""
+        before = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=5)
+        after = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=5)
+        return before, after
+
+    def test_emits_webhook_and_writes_log(self) -> None:
+        """The webhook fires and an ACTIVE_CHANGE log is inserted with the old/new change dict."""
+        before, after = self._objects()
+        logs_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, True)
+
+        webhook.assert_called_once()
+        logs_manager.insert_log.assert_called_once()
+        assert logs_manager.insert_log.call_args.kwargs['changes'] == {'old': False, 'new': True}
+
+    def test_webhook_failure_does_not_block_log(self) -> None:
+        """A webhook exception is swallowed; the log is still written."""
+        before, after = self._objects()
+        logs_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, False)
+
+        logs_manager.insert_log.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            realign_objects_to_type                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestRealignObjectsToType:
+    """realign_objects_to_type drops stale fields, adds missing ones, returns removed names."""
+
+    @staticmethod
+    def _type(fields: list[dict[str, Any]], public_id: int = 1) -> SimpleNamespace:
+        """A CmdbType stand-in exposing only .fields and .public_id."""
+        return SimpleNamespace(fields=fields, public_id=public_id)
+
+    @staticmethod
+    def _object(field_names: list[str], public_id: int) -> MagicMock:
+        """A CmdbObject stand-in whose get_all_fields returns name-only field dicts."""
+        obj = MagicMock()
+        obj.public_id = public_id
+        obj.get_all_fields.return_value = [{'name': name} for name in field_names]
+        return obj
+
+    def test_removes_stale_and_adds_missing(self) -> None:
+        """An object with a stale field and a missing field yields one bulk write + the removed name."""
+        objects_manager = MagicMock()
+        objects_manager.get_objects_by.return_value = [self._object(['keep', 'stale'], public_id=11)]
+
+        type_instance = self._type([
+            {'name': 'keep', 'type': 'text'},
+            {'name': 'added', 'type': 'text', 'value': 'def'},
+        ])
+
+        removed = realign_objects_to_type(objects_manager, type_instance)
+
+        assert removed == {'stale'}
+        objects_manager.bulk_write.assert_called_once()
+
+    def test_no_drift_writes_nothing(self) -> None:
+        """An object already matching the type produces no bulk write and an empty removed set."""
+        objects_manager = MagicMock()
+        objects_manager.get_objects_by.return_value = [self._object(['keep'], public_id=12)]
+
+        removed = realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
+
+        assert removed == set()
+        objects_manager.bulk_write.assert_not_called()
+
+    def test_bulk_write_failure_aborts_500(self) -> None:
+        """A bulk-write failure surfaces as a 500."""
+        objects_manager = MagicMock()
+        objects_manager.get_objects_by.return_value = [self._object(['stale'], public_id=13)]
+        objects_manager.bulk_write.side_effect = RuntimeError('boom')
+
+        with pytest.raises(HTTPException) as exc_info:
+            realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
+
+        assert exc_info.value.code == 500
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               clean_type_reports                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCleanTypeReports:
+    """clean_type_reports strips removed fields from a type's reports and bulk-writes them."""
+
+    def test_noop_when_nothing_removed(self) -> None:
+        """No removed field names means no report write."""
+        reports_manager = MagicMock()
+
+        clean_type_reports(reports_manager, [{'public_id': 1}], set(), MagicMock())
+
+        reports_manager.bulk_write.assert_not_called()
+
+    def test_cleans_and_writes_reports(self) -> None:
+        """Each report has the removed field stripped, its query rebuilt, and is bulk-written."""
+        reports_manager = MagicMock()
+        report = MagicMock()
+
+        with patch(f'{HELPER_PATH}.CmdbReport') as report_cls, \
+             patch(f'{HELPER_PATH}.build_report_query', return_value={}):
+            report_cls.from_data.return_value = report
+            clean_type_reports(reports_manager, [{'public_id': 1}], {'gone'}, MagicMock())
+
+        report.remove_field_occurences.assert_called_once_with('gone')
+        reports_manager.bulk_write.assert_called_once()

@@ -11,13 +11,11 @@ cffi==2.0.0
 click==8.3.1
 coverage==7.13.4
 cryptography==46.0.5
-deepdiff==8.6.1
 docutils==0.22.4
 et-xmlfile==2.0.0
 flake8==7.3.0
 Flask==3.1.2
 Flask-Cors==6.0.2
-google-generativeai==0.8.6
 gunicorn==25.1.0
 html5lib==1.1
 idna==3.11
@@ -45,13 +43,11 @@ pyinstaller==6.19.0
 pyinstaller-hooks-contrib==2026.0
 pylint==4.0.4
 pymongo==4.16.0
-pyOpenSSL==25.3.0
 pytest==9.0.2
 pytest-cov==7.0.0
 pytest-html==4.2.0
 pytest-metadata==3.1.1
 python-dateutil==2.9.0.post0
-python-dotenv==1.2.1
 reportlab==4.4.10
 requests==2.32.5
 six==1.17.0
