@@ -70,6 +70,9 @@ have two options:
 .. figure:: img/ipam/ipam_setup_special_type.png
     :width: 600
 
+.. figure:: img/ipam/ipam_setup_special_type_2.png
+    :width: 600
+
     Picture: Marking a type as an IPAM special type in the Type Builder
 
 |
@@ -93,7 +96,7 @@ standard object view, below the object's attributes:
 - Opening a **Subnet** object shows the **IP Address Overview**.
 
 .. figure:: img/ipam/ipam_networks_tree.png
-    :width: 300
+    :width: 600
 
     Picture: The Networks tree in the sidebar
 
@@ -136,7 +139,7 @@ The Supernet Overview summarizes the utilization of the whole block and lists it
   (it is not deleted).
 
 .. figure:: img/ipam/ipam_supernet_overview.png
-    :width: 600
+    :width: 800
 
     Picture: Supernet Overview
 
@@ -165,7 +168,7 @@ supernet and must not overlap any sibling subnet under the same supernet. The sa
 is saved.
 
 .. figure:: img/ipam/ipam_subnet_create.png
-    :width: 600
+    :width: 800
 
     Picture: Creating a subnet with live network-range validation
 
@@ -194,7 +197,7 @@ You can narrow down the table in several ways:
 An **Export** button provides the IP list as CSV.
 
 .. figure:: img/ipam/ipam_ip_overview.png
-    :width: 600
+    :width: 800
 
     Picture: IP Address Overview
 
@@ -219,7 +222,13 @@ You can assign a **free** address from the IP table to an existing object:
    untouched.
 
 .. figure:: img/ipam/ipam_assign_ip.png
-    :width: 600
+    :width: 800
+
+.. figure:: img/ipam/ipam_assign_ip_2.png
+    :width: 800
+
+.. figure:: img/ipam/ipam_assign_ip_3.png
+    :width: 800
 
     Picture: Assigning a free IP address to an object
 
@@ -236,7 +245,7 @@ dialog offers two modes:
 - **Interface entry** – Removes the whole interface entry from the object.
 
 .. figure:: img/ipam/ipam_unassign_ip.png
-    :width: 600
+    :width: 800
 
     Picture: Unassigning an IP address
 
