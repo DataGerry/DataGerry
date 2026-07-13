@@ -30,7 +30,19 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import TypesManager, ObjectsManager
 from cmdb.models.type_model import CmdbType
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_routes
+from cmdb.errors.manager.types_manager import (
+    TypesManagerGetError,
+    TypesManagerInsertError,
+    TypesManagerIterationError,
+    TypesManagerUpdateError,
+    TypesManagerUpdateMDSError,
+    TypesManagerDeleteError,
+)
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.errors.manager.locations_manager import LocationsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/types'
@@ -231,3 +243,226 @@ class TestDeleteType:
             assert follow_up.status_code == HTTPStatus.NOT_FOUND
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_DELETE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            READ EXTRAS (happy paths)                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTypeReadExtras:
+    """The clean-status listing, location-field usage and object-count read routes."""
+
+    def test_with_clean_status_returns_items(self, rest_api, database_manager, database_name) -> None:
+        """GET /with_clean_status returns 200 with a list of clean-status items."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_GET, ORIGINAL_LABEL)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/with_clean_status')
+
+            assert response.status_code == HTTPStatus.OK
+            assert isinstance(response.get_json()['results'], list)
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
+
+    def test_location_field_usage_not_in_use(self, rest_api, database_manager, database_name) -> None:
+        """A type with no location field reports in_use False and count 0."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_GET, ORIGINAL_LABEL)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/location_field_usage/{TYPE_ID_FOR_GET}')
+
+            assert response.status_code == HTTPStatus.OK
+            body = response.get_json()
+            assert body['in_use'] is False
+            assert body['count'] == 0
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
+
+    def test_count_objects_zero_for_fresh_type(self, rest_api, database_manager, database_name) -> None:
+        """A type with no objects reports a count of 0."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_GET, ORIGINAL_LABEL)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/count_objects/{TYPE_ID_FOR_GET}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json() == 0
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              ERROR MAPPING MATRIX                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _raiser(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+    return _fail
+
+
+class TestTypeErrorMapping:
+    """Each route maps its manager exceptions to the documented HTTP status codes."""
+
+    # ---- CREATE ---- #
+    def test_insert_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerInsertError from insert_type maps POST to 400."""
+        monkeypatch.setattr(TypesManager, 'insert_type', _raiser(TypesManagerInsertError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerGetError raised during the uniqueness check maps POST to 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error from insert_type maps POST to 500."""
+        monkeypatch.setattr(TypesManager, 'insert_type', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- READ ---- #
+    def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerIterationError from iterate maps the list route to 400."""
+        monkeypatch.setattr(TypesManager, 'iterate', _raiser(TypesManagerIterationError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_with_clean_status_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerIterationError maps the clean-status route to 400."""
+        monkeypatch.setattr(TypesManager, 'iterate', _raiser(TypesManagerIterationError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/with_clean_status').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_with_clean_status_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the clean-status route to 500."""
+        monkeypatch.setattr(TypesManager, 'iterate', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/with_clean_status').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerGetError from get_type maps the single-get route to 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_TYPE_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error from get_type maps the single-get route to 500."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_TYPE_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_count_objects_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError from count_documents maps the count route to 400."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/count_objects/{MISSING_TYPE_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_count_objects_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error from count_documents maps the count route to 500."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/count_objects/{MISSING_TYPE_ID}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_location_field_usage_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerGetError while resolving the type maps the usage route to 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/location_field_usage/{MISSING_TYPE_ID}').status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    # ---- UPDATE ---- #
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerGetError from the update lookup maps PUT to 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+
+        response = rest_api.put(f'{ROUTE_URL}/{MISSING_TYPE_ID}', json=_type_payload(MISSING_TYPE_ID, UPDATED_LABEL))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_update_error_returns_400(self, rest_api, monkeypatch, database_manager, database_name) -> None:
+        """A TypesManagerUpdateError while persisting maps PUT to 400."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
+        monkeypatch.setattr(TypesManager, 'update_type', _raiser(TypesManagerUpdateError('boom')))
+
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
+            )
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch, database_manager, database_name) -> None:
+        """An unexpected error while persisting maps PUT to 500."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
+        monkeypatch.setattr(TypesManager, 'update_type', _raiser(RuntimeError('boom')))
+
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
+            )
+            assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+
+    @pytest.mark.parametrize('exc', [
+        LocationsManagerUpdateError('boom'),
+        ObjectsManagerUpdateError('boom'),
+        ObjectsManagerGetError('boom'),
+        TypesManagerUpdateMDSError('boom'),
+    ])
+    def test_update_side_effect_errors_return_400(
+        self, rest_api, monkeypatch, database_manager, database_name, exc,
+    ) -> None:
+        """Each post-update side-effect error family maps PUT to 400 (the Type itself was updated)."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
+        monkeypatch.setattr(types_routes, 'apply_type_update_side_effects', _raiser(exc))
+
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
+            )
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+
+    # ---- DELETE ---- #
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerGetError from the delete lookup maps DELETE to 400."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_TYPE_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_delete_error_returns_400(self, rest_api, monkeypatch, database_manager, database_name) -> None:
+        """A TypesManagerDeleteError maps DELETE to 400."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_DELETE, ORIGINAL_LABEL)
+        monkeypatch.setattr(TypesManager, 'delete_type', _raiser(TypesManagerDeleteError('boom')))
+
+        try:
+            assert rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_DELETE)
+
+    def test_delete_object_count_error_returns_400(
+        self, rest_api, monkeypatch, database_manager, database_name,
+    ) -> None:
+        """An ObjectsManagerGetError while checking deletability maps DELETE to 400."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_DELETE, ORIGINAL_LABEL)
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _raiser(ObjectsManagerGetError('boom')))
+
+        try:
+            assert rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_DELETE)
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error from the delete lookup maps DELETE to 500."""
+        monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_TYPE_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

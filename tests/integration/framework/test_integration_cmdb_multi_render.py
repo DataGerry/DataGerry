@@ -21,6 +21,7 @@ pinning the render output that the whole application depends on: object/type inf
 values, date coercion, the expanded reference (object_id + referenced type), the summary line, and the
 get_mds_reference / get_user_name helpers (incl. the fix that get_mds_reference always returns a dict).
 """
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -197,6 +198,26 @@ class TestRenderResult:
         reference = _field(result.fields, REF_FIELD)['reference']
         assert reference['object_id'] == REF_OBJ_ID
         assert reference['type_id'] == REF_TYPE_ID
+
+    def test_mds_reference_without_nested_line_renders_cleanly(self, full_access_user,
+                                                              database_manager, database_name, caplog) -> None:
+        """get_mds_reference for a ref with no nested summary line resolves with line=None, no log.
+
+        Regression for the DEBUG-log spam: line_requires_fields' regex raised on a None line, which
+        was caught and logged ("Could not fill summary line") for every such reference. Option A: no
+        crash, no log, line stays None, and the reference still resolves (summaries clearing is the
+        deferred Option B, so summaries stay a list here).
+        """
+        render = _render_main(full_access_user, database_manager, database_name)
+
+        with caplog.at_level(logging.DEBUG, logger='cmdb.framework.rendering.cmdb_multi_render'):
+            reference = render.get_mds_reference(REF_OBJ_ID)
+
+        assert reference['object_id'] == REF_OBJ_ID
+        assert reference['line'] is None
+        assert isinstance(reference['summaries'], list)
+        # The None-line no longer trips line_requires_fields' regex, so nothing is logged
+        assert 'Could not fill summary line' not in caplog.text
 
     def test_render_without_ref_render_does_not_crash(self, full_access_user,
                                                       database_manager, database_name) -> None:

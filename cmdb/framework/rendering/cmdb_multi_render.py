@@ -628,10 +628,14 @@ class CmdbMultiRender:
                     # fill the summary line with summaries value data
                     reference.line = _nested_summary_line
 
-                    if not reference.line_requires_fields():
-                        reference.summaries = []
-
+                    # Only evaluate the line when one is configured. A None nested summary line
+                    # (the default when the ref field has no custom line) has no placeholders to
+                    # check or fill, so skip it - line_requires_fields' regex would otherwise raise
+                    # on a None line (caught, but it spammed DEBUG logs on every such reference)
                     if _nested_summary_line:
+                        if not reference.line_requires_fields():
+                            reference.summaries = []
+
                         reference.fill_line(summary_values)
                 except Exception as err:
                     LOGGER.debug("[__merge_references] Could not fill summary line: %s", err)
