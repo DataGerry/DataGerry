@@ -2,6 +2,8 @@
 Document generator
 ******************
 
+.. _document-generator-anchor:
+
 The document generator is an interface for generating PDF documents out of CMDB data. A user can design a Document
 Template in the frontend. Each Document Template consists of the following elements:
 
