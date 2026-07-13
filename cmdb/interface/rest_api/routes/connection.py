@@ -27,6 +27,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb import __title__, __version__
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.blueprints import RootBlueprint
+from cmdb.interface.rest_api.routes.connection_helper import load_frontend_config
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -57,3 +58,22 @@ def connection_test_frontend() -> Response:
     except Exception as err:
         LOGGER.debug("[connection_test_frontend] Exception: %s", err)
         abort(500, "Could not connect to REST API!")
+
+
+@connection_routes.route('/frontend_init', methods=['GET', 'HEAD'])
+def frontend_init() -> Response:
+    """
+    Provides the frontend runtime config ({{url}}/rest/frontend_init)
+
+    Returns the raw key-value pairs of the frontend config. Any error results in an empty dict.
+
+    Returns:
+        DefaultResponse: The frontend config as a flat dict (empty on any failure)
+    """
+    try:
+        config: dict[str, Any] = load_frontend_config()
+    except Exception as err:
+        LOGGER.debug("[frontend_init] Exception: %s", err)
+        config = {}
+
+    return DefaultResponse(config).make_response()
