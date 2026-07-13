@@ -1,5 +1,5 @@
 {
   "protocol": "http",
-  "apiUrl": "192.168.64.2",
-  "apiPort": "2120"
+  "apiUrl": "localhost",
+  "apiPort": "4000"
 }

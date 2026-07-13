@@ -63,10 +63,10 @@ describe('RuntimeConfigService', () => {
     environment.apiPort = ORIGINAL_ENV.apiPort;
   });
 
-  /** Runs load() against a mocked app-config.json response and waits for it to settle. */
+  /** Runs load() against a mocked /rest/frontend_init response and waits for it to settle. */
   async function loadWith(body: unknown): Promise<void> {
     const pending = service.load();
-    const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+    const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
     req.flush(body);
     await pending;
   }
@@ -74,12 +74,12 @@ describe('RuntimeConfigService', () => {
   /* ------------------------------------------------------ CLOUD MODE ------------------------------------------------ */
 
   describe('cloud mode', () => {
-    it('never fetches app-config.json and reports no override', async () => {
+    it('never fetches the runtime config and reports no override', async () => {
       environment.cloudMode = true;
 
       await service.load();
 
-      httpMock.expectNone(r => r.url.startsWith('app-config.json'));
+      httpMock.expectNone(r => r.url.startsWith('rest/frontend_init'));
       expect(service.hasConnectionOverride).toBeFalse();
     });
 
@@ -100,7 +100,7 @@ describe('RuntimeConfigService', () => {
   /* ------------------------------------------- NON-CLOUD: SUCCESSFUL LOADS ----------------------------------------- */
 
   describe('non-cloud – valid files', () => {
-    it('uses every field from a complete app-config.json', async () => {
+    it('uses every field from a complete runtime config', async () => {
       await loadWith({ protocol: 'https', apiUrl: 'cmdb.example.com', apiPort: 4000 });
 
       expect(service.hasConnectionOverride).toBeTrue();
@@ -226,7 +226,7 @@ describe('RuntimeConfigService', () => {
   describe('non-cloud – missing or malformed files', () => {
     it('falls back to environment on HTTP 404', async () => {
       const pending = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
       req.flush('Not Found', { status: 404, statusText: 'Not Found' });
       await pending;
 
@@ -238,7 +238,7 @@ describe('RuntimeConfigService', () => {
 
     it('falls back to environment on a network error', async () => {
       const pending = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
       req.error(new ProgressEvent('error'));
       await pending;
 
@@ -265,9 +265,9 @@ describe('RuntimeConfigService', () => {
   /* --------------------------------------------------- REQUEST SHAPE ----------------------------------------------- */
 
   describe('request behaviour', () => {
-    it('requests app-config.json with a cache-busting query parameter', async () => {
+    it('requests the runtime config with a cache-busting query parameter', async () => {
       const pending = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
 
       expect(req.request.method).toBe('GET');
       expect(req.request.urlWithParams).toContain('v=');
@@ -281,7 +281,7 @@ describe('RuntimeConfigService', () => {
 
       await service.load();
 
-      httpMock.expectNone(r => r.url.startsWith('app-config.json'));
+      httpMock.expectNone(r => r.url.startsWith('rest/frontend_init'));
       expect(service.apiUrl).toBe('host');
     });
   });
@@ -374,7 +374,7 @@ describe('RuntimeConfigService', () => {
 
     it('falls back to environment on HTTP 500', async () => {
       const pending = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
       req.flush('Server Error', { status: 500, statusText: 'Server Error' });
       await pending;
 
@@ -384,7 +384,7 @@ describe('RuntimeConfigService', () => {
 
     it('falls back to environment on HTTP 403', async () => {
       const pending = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
       req.flush('Forbidden', { status: 403, statusText: 'Forbidden' });
       await pending;
 
@@ -402,7 +402,7 @@ describe('RuntimeConfigService', () => {
       await service.load();
       await service.load();
 
-      httpMock.expectNone(r => r.url.startsWith('app-config.json'));
+      httpMock.expectNone(r => r.url.startsWith('rest/frontend_init'));
     });
 
     it('is NOT an override when some fields are invalid and get dropped', async () => {
@@ -581,7 +581,7 @@ describe('RuntimeConfigService', () => {
     it('collapses concurrent load() calls into a single request', async () => {
       const p1 = service.load();
       const p2 = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
       req.flush({ apiUrl: 'host' });
       await Promise.all([p1, p2]);
       expect(service.apiUrl).toBe('host');
@@ -589,7 +589,7 @@ describe('RuntimeConfigService', () => {
 
     it('falls back to environment on HTTP 401', async () => {
       const pending = service.load();
-      const req = httpMock.expectOne(r => r.url.startsWith('app-config.json'));
+      const req = httpMock.expectOne(r => r.url.startsWith('rest/frontend_init'));
       req.flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
       await pending;
       expect(service.hasConnectionOverride).toBeFalse();

@@ -22,7 +22,7 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from 'src/environments/environment';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Shape of the optional runtime connection file served at /app-config.json. */
+/** Flat shape of the optional runtime connection payload served at /rest/frontend_init. */
 export interface RuntimeConnectionConfig {
   protocol?: string;
   apiUrl?: string;
@@ -30,11 +30,14 @@ export interface RuntimeConnectionConfig {
 }
 
 /**
- * Loads optional runtime connection settings from `app-config.json` (served at the web root).
+ * Loads optional runtime connection settings from the backend `/rest/frontend_init` endpoint,
+ * which returns a flat JSON object (an empty object when nothing is configured or on any error).
  */
 @Injectable({ providedIn: 'root' })
 export class RuntimeConfigService {
-  private static readonly CONFIG_PATH = 'app-config.json';
+  // Relative, same-origin path (resolved against <base href="/">) so the connection config can be
+  // fetched before any connection is known — no bootstrap paradox. The endpoint always answers 200.
+  private static readonly CONFIG_PATH = 'rest/frontend_init';
   private static readonly ALLOWED_PROTOCOLS = ['http', 'https'];
 
   // Dedicated client on the raw backend so the config load never triggers auth/error interceptors.
@@ -74,7 +77,7 @@ export class RuntimeConfigService {
   /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
   /**
-   * Fetches and validates the runtime config file. Invoked once from an APP_INITIALIZER so the
+   * Fetches and validates the runtime config endpoint. Invoked once from an APP_INITIALIZER so the
    * connection settings are ready before any service reads them. Cloud mode short-circuits because
    * its connection is baked in through `environment.cloud.ts`.
    */
@@ -94,7 +97,7 @@ export class RuntimeConfigService {
       );
       this.overrides = this.sanitize(raw);
     } catch {
-      // Missing or unreadable file is expected; fall back to environment defaults.
+      // An unreachable endpoint or non-JSON response is tolerated; fall back to environment defaults.
       this.overrides = {};
     }
   }
