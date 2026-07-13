@@ -2,6 +2,8 @@
 DataGerry Assistant
 *******************
 
+.. _datagerry-assistant-anchor:
+
 The **DataGerry Assistant** provides an intuitive and guided setup to help you get started quickly. It launches
 automatically the first time you open DataGerry, but you can also start it manually at any time via
 **Toolbox ⇒ Assistant** in the top-right menu.
