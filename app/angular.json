@@ -130,7 +130,8 @@
                 "serve": {
                     "builder": "@angular/build:dev-server",
                     "options": {
-                      "buildTarget": "datagerry-app:build"
+                      "buildTarget": "datagerry-app:build",
+                      "proxyConfig": "proxy.conf.json"
                     },
                     "configurations": {
                         "production": {
