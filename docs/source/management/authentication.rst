@@ -53,6 +53,8 @@ Available providers are:
 the stored SHA256 HMAC.
 2. **LdapAuthenticationProvider** - Using the user name, tries to find a user in the directory service and authenticate
 with the password.
+3. **OpenIDConnectAuthenticationProvider** - Delegates authentication to an external OpenID Connect Identity Provider
+(Keycloak, Entra ID, Okta, ...) using the standard Authorization Code Flow.
 
 .. note::
     The order in which the providers are queried is determined by the installation order of the
@@ -84,3 +86,76 @@ the same DataGerry group.
 The order of the mappings is important. If a LDAP user appears in several mappings,
 the first successful mapping is taken. If the user cannot be found in any mapping, he will be moved to the
 default group.
+
+|
+
+=======================================================================================================================
+
+|
+
+OpenID Connect (OIDC)
+=====================
+
+The OpenID Connect provider lets users sign in through an external Identity Provider (IdP). DataGerry acts as a
+**confidential client** and performs the Authorization Code exchange on the backend, so the ``client_secret`` never
+reaches the browser. The provider is only available for **on-premise (local)** installations; the cloud version uses
+the Service Portal SSO instead.
+
+.. note::
+    Always use ``https`` endpoints for the IdP in production. The token exchange and the DataGerry access token both
+    depend on transport security.
+
+Registering DataGerry at the IdP
+--------------------------------
+Create a confidential client at your IdP and register the backend callback URL as an allowed redirect URI:
+
+    ``https://<your-datagerry-host>/rest/auth/oidc/callback``
+
+For a local development setup (SPA served by ``ng serve`` on port 4200, backend on port 4000) the redirect URI is
+``http://localhost:4000/rest/auth/oidc/callback``.
+
+Configuration
+-------------
+The provider is configured under *Settings → Authentication*. The recommended path is to set the **Discovery URL**
+(``.well-known/openid-configuration``) and press **Discover** - the issuer and all endpoints are then resolved
+server-side. Explicitly configured endpoint values always take precedence; discovery only fills empty fields.
+
+Required values:
+
+* **Discovery URL** (or the individual endpoints: authorization, token, JWKS) and the **Issuer**
+* **Client ID** and **Client Secret**
+* **Scopes** (``openid`` is always requested)
+
+Optional values:
+
+* **Token Endpoint Auth Method** - ``client_secret_basic`` (default) or ``client_secret_post``
+* **Redirect URI Override** - only needed behind a reverse proxy / TLS offloader
+* **Frontend Origins** - allowlist of additional SPA origins (e.g. ``http://localhost:4200`` for dev). The backend's
+  own origin is always allowed. This prevents open redirects.
+* **Auto Redirect** - skip the login form and send users straight to the IdP. The local login form always stays
+  reachable via ``/auth?local=true`` (and after any error), so there is no redirect trap.
+* **JIT Provisioning** - automatically create a DataGerry user on first successful login.
+
+Claims mapping
+--------------
+The user attributes are read from the OIDC claims. All five mappings are editable and support dotted paths
+(e.g. ``resource_access.myclient.roles``). Claims from the ``userinfo`` endpoint take precedence over the ID token.
+Defaults: ``user_name`` → ``preferred_username`` (falls back to ``sub``), ``email`` → ``email``,
+``first_name`` → ``given_name``, ``last_name`` → ``family_name``, ``groups`` → ``groups``.
+
+OIDC group mapping
+------------------
+Like LDAP, OIDC group values (from the configured groups claim) can be mapped to DataGerry groups. The mapping must be
+activated explicitly; while inactive, every OIDC user is assigned to the default group. The first matching mapping
+entry wins; unmapped users fall back to the default group.
+
+.. note::
+    Group claims are only read from the ID token and the userinfo endpoint - access tokens are treated as opaque per
+    the OIDC specification. Configure your IdP to include the groups/roles claim in the ID token or userinfo response.
+
+Security
+--------
+The ``state`` parameter (256-bit, single-use) protects against CSRF, and the ``nonce`` (stored server-side and verified
+against the ID token) protects against replay. ID tokens are validated for JWKS signature, issuer, audience/``azp``
+and expiry. The DataGerry access token is handed to the SPA in the URL fragment (never a query string) and stripped
+from the browser history immediately.

@@ -26,6 +26,7 @@ import { PermissionLinkDirective } from './directives/permission-link.directive'
 import { PermissionGuard } from './guards/permission.guard';
 
 import { LoginComponent } from './login/login.component';
+import { OidcCallbackComponent } from './oidc-callback/oidc-callback.component';
 import { SessionTimeoutModalComponent } from './modals/session-timeout-modal/session-timeout-modal.component';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { LayoutModule } from 'src/app/layout/layout.module';
@@ -35,6 +36,7 @@ import { CoreModule } from 'src/app/core/core.module';
 @NgModule({
     declarations: [
         LoginComponent,
+        OidcCallbackComponent,
         PermissionLinkDirective,
         SessionTimeoutModalComponent
     ],

@@ -127,6 +127,38 @@ export class AuthService<T = any> implements ApiServicePrefix {
         );
     }
 
+    /* ----------------------------------------------------- OIDC ----------------------------------------------------- */
+
+    /**
+     * Queries the public OIDC status endpoint (config only, no network I/O on the backend).
+     * Rendered on every login-page load, so it uses the interceptor-free HttpBackend client.
+     */
+    public checkOidcAvailability(): Observable<{ available: boolean; auto_redirect: boolean }> {
+        const url = `${this.connectionService.getApiBaseUrl()}/${this.restPrefix}/${this.servicePrefix}/oidc/status`;
+
+        return this.http.get<{ available: boolean; auto_redirect: boolean }>(url, httpOptions);
+    }
+
+    /**
+     * Builds the backend OIDC login-initiation URL, passing the current SPA origin so the
+     * backend can validate it (open-redirect prevention) and return the browser here.
+     */
+    public getOidcLoginUrl(): string {
+        const base = `${this.connectionService.getApiBaseUrl()}/${this.restPrefix}/${this.servicePrefix}/oidc/login`;
+
+        return `${base}?origin=${encodeURIComponent(window.location.origin)}`;
+    }
+
+    /**
+     * Applies an externally minted (OIDC) login: persists user/token and pushes both subjects.
+     */
+    public applyExternalLogin(user: User, token: Token): void {
+        localStorage.setItem('current-user', JSON.stringify(user));
+        localStorage.setItem('access-token', JSON.stringify(token));
+        this.currentUserSubject.next(user);
+        this.currentUserTokenSubject.next(token);
+    }
+
     /* -------------------------------------------------- LOGIN/LOGOUT -------------------------------------------------- */
     /**
      * Logs in the user with the provided credentials.
@@ -211,7 +243,9 @@ export class AuthService<T = any> implements ApiServicePrefix {
         if (this.stepByStepModal !== undefined) {
             this.stepByStepModal.close();
         }
-        this.router.navigate(['/auth']);
+        // Force the local login form on logout so an active OIDC auto_redirect does not
+        // immediately bounce the user back to the IdP (SSO) and log them straight back in.
+        this.router.navigate(['/auth'], { queryParams: { local: true } });
     }
 
     /* -------------------------------------------------- INTRO SECTION ------------------------------------------------- */

@@ -41,6 +41,7 @@ from cmdb.manager.user_settings_manager import UserSettingsManager
 from cmdb.manager.persons_manager import PersonsManager
 from cmdb.manager.person_groups_manager import PersonGroupsManager
 from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
+from cmdb.manager.oidc_request_manager import OidcRequestManager
 
 # System Managers
 from cmdb.manager.system_manager.settings_manager import SettingsManager
@@ -122,4 +123,5 @@ __all__: list[str] = [
     'OcLicenseManager',
     'DgServicePortalManager',
     'OcConnectionLogManager',
+    'OidcRequestManager',
 ]

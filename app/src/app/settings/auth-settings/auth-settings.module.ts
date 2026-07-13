@@ -30,6 +30,7 @@ import { AuthSettingsComponent } from './auth-settings.component';
 import { LdapAuthenticationProviderFormComponent } from './providers/ldap-authentication-provider-form/ldap-authentication-provider-form.component';
 import { LocalAuthenticationProviderFormComponent } from './providers/local-authentication-provider-form/local-authentication-provider-form.component';
 import { LdapProviderFormGroupMappingComponent } from './providers/ldap-authentication-provider-form/ldap-provider-form-group-mapping/ldap-provider-form-group-mapping.component';
+import { OidcAuthenticationProviderFormComponent } from './providers/oidc-authentication-provider-form/oidc-authentication-provider-form.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -38,7 +39,8 @@ import { LdapProviderFormGroupMappingComponent } from './providers/ldap-authenti
         ActiveProvidersPipe,
         LdapAuthenticationProviderFormComponent,
         LocalAuthenticationProviderFormComponent,
-        LdapProviderFormGroupMappingComponent
+        LdapProviderFormGroupMappingComponent,
+        OidcAuthenticationProviderFormComponent
     ],
     imports: [
         CommonModule,

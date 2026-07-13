@@ -1,0 +1,284 @@
+<div class="card-header">
+  <ul class="nav nav-tabs card-header-tabs">
+    <li class="nav-item">
+      <a class="nav-link active" data-bs-toggle="tab" href="#oidc-general-panel" role="tab">
+        OpenID Connect Authentication Provider
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#oidc-provider-panel" role="tab">
+        Provider
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#oidc-endpoints-panel" role="tab">
+        Endpoints
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#oidc-scopes-panel" role="tab">
+        Scopes
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#oidc-claims-panel" role="tab">
+        Claims Mapping
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#oidc-group-mapping-panel" role="tab">
+        Group Mapping
+      </a>
+    </li>
+  </ul>
+</div>
+<div class="card-body" [formGroup]="form">
+  <div class="tab-content">
+
+    <!-- General Tab -->
+    <div id="oidc-general-panel" class="tab-pane fade show active">
+      <div class="form-group row mb-3">
+        <div class="col-sm-3">Active:</div>
+        <div class="col-sm-9">
+          <div class="form-check">
+            <input class="custom-control-input" type="checkbox" id="oidc-active-input" formControlName="active">
+            <label class="custom-control-label" for="oidc-active-input"></label>
+          </div>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <div class="col-sm-3">JIT Provisioning:</div>
+        <div class="col-sm-9">
+          <div class="form-check">
+            <input class="custom-control-input" type="checkbox" id="oidc-jit-input" formControlName="jit_provisioning">
+            <label class="custom-control-label" for="oidc-jit-input"></label>
+          </div>
+          <small class="description form-text text-muted">
+            Automatically create users on first OIDC login
+          </small>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-default-group-input">Default Group:</label>
+        <div class="col-sm-9">
+          <select class="form-control" id="oidc-default-group-input" formControlName="default_group">
+            <option *ngFor="let group of groups" [value]="group.public_id">
+              {{group.label}}
+            </option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <div class="col-sm-3">Auto Redirect:</div>
+        <div class="col-sm-9">
+          <div class="form-check">
+            <input class="custom-control-input" type="checkbox" id="oidc-auto-redirect-input" formControlName="auto_redirect">
+            <label class="custom-control-label" for="oidc-auto-redirect-input"></label>
+          </div>
+          <small class="description form-text text-muted">
+            Skip the login form and redirect directly to the OIDC provider
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Provider Tab -->
+    <div id="oidc-provider-panel" class="tab-pane fade">
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-discovery-input">Discovery URL:</label>
+        <div class="col-sm-9">
+          <div class="input-group">
+            <input class="form-control" type="text" id="oidc-discovery-input" formControlName="discovery_url"
+                   placeholder="https://idp.example.com/.well-known/openid-configuration">
+            <button class="btn btn-outline-primary" type="button" (click)="onDiscover()" [disabled]="discovering">
+              <i class="fas" [ngClass]="discovering ? 'fa-spinner fa-spin' : 'fa-search'"></i> Discover
+            </button>
+          </div>
+          <small class="description form-text text-muted">
+            If set, endpoint URLs are auto-populated from the discovery document
+          </small>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-issuer-input">Issuer:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-issuer-input" formControlName="issuer"
+                 placeholder="https://idp.example.com">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-client-id-input">Client ID:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-client-id-input" formControlName="client_id">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-client-secret-input">Client Secret:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="password" id="oidc-client-secret-input" formControlName="client_secret"
+                 autocomplete="new-password">
+        </div>
+      </div>
+    </div>
+
+    <!-- Endpoints Tab -->
+    <div id="oidc-endpoints-panel" class="tab-pane fade">
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-auth-endpoint-input">Authorization Endpoint:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-auth-endpoint-input" formControlName="authorization_endpoint">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-token-endpoint-input">Token Endpoint:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-token-endpoint-input" formControlName="token_endpoint">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-userinfo-endpoint-input">UserInfo Endpoint:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-userinfo-endpoint-input" formControlName="userinfo_endpoint">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-jwks-input">JWKS URI:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-jwks-input" formControlName="jwks_uri">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-auth-method-input">Token Endpoint Auth Method:</label>
+        <div class="col-sm-9">
+          <select class="form-control" id="oidc-auth-method-input" formControlName="token_endpoint_auth_method">
+            <option value="client_secret_basic">client_secret_basic</option>
+            <option value="client_secret_post">client_secret_post</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-redirect-uri-input">Redirect URI Override:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-redirect-uri-input" formControlName="redirect_uri"
+                 placeholder="https://datagerry.example.com/rest/auth/oidc/callback">
+          <small class="description form-text text-muted">
+            Optional. Leave empty to derive the callback URL automatically (reverse proxy / TLS offload only)
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scopes Tab -->
+    <div id="oidc-scopes-panel" class="tab-pane fade">
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-scopes-input">Scopes:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-scopes-input" formControlName="scopes"
+                 placeholder="openid, profile, email">
+          <small class="description form-text text-muted">
+            Comma-separated list of OIDC scopes to request ('openid' is always included)
+          </small>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-frontend-origins-input">Frontend Origins:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-frontend-origins-input" formControlName="frontend_origins"
+                 placeholder="http://localhost:4200">
+          <small class="description form-text text-muted">
+            Comma-separated allowlist of extra SPA origins (e.g. dev server). The backend's own origin is always allowed
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Claims Mapping Tab -->
+    <div id="oidc-claims-panel" class="tab-pane fade" [formGroup]="claimsMappingControl">
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-claim-username">Username:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-claim-username" formControlName="user_name"
+                 placeholder="preferred_username">
+          <small class="description form-text text-muted">
+            OIDC claim to use as the DataGerry username. Supports dotted paths (e.g. resource_access.myclient.roles)
+          </small>
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-claim-email">Email:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-claim-email" formControlName="email" placeholder="email">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-claim-firstname">First Name:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-claim-firstname" formControlName="first_name"
+                 placeholder="given_name">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-claim-lastname">Last Name:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-claim-lastname" formControlName="last_name"
+                 placeholder="family_name">
+        </div>
+      </div>
+      <div class="form-group row mb-3">
+        <label class="col-sm-3 col-form-label" for="oidc-claim-groups">Groups:</label>
+        <div class="col-sm-9">
+          <input class="form-control" type="text" id="oidc-claim-groups" formControlName="groups"
+                 placeholder="groups">
+          <small class="description form-text text-muted">
+            OIDC claim containing group/role memberships for group mapping (dotted paths supported)
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Group Mapping Tab -->
+    <div id="oidc-group-mapping-panel" class="tab-pane fade" [formGroup]="groupsMappingControl">
+      <div class="form-group row mb-3">
+        <div class="col-sm-3">Active:</div>
+        <div class="col-sm-9">
+          <div class="form-check">
+            <input class="custom-control-input" type="checkbox" id="oidc-group-mapping-active-input" formControlName="active">
+            <label class="custom-control-label" for="oidc-group-mapping-active-input"></label>
+          </div>
+          <small class="description form-text text-muted">
+            Map OIDC group/role values to internal DataGerry groups
+          </small>
+        </div>
+      </div>
+
+      <div class="form-group" formArrayName="mapping">
+        <label class="mb-2">Group Mappings:</label>
+        <div *ngFor="let mapping of groupMappingControl.controls; index as i" [formGroupName]="i"
+             class="row mb-2 align-items-center">
+          <div class="col-md-5">
+            <input class="form-control" type="text" formControlName="oidc_group"
+                   placeholder="OIDC group name">
+          </div>
+          <div class="col-md-5">
+            <select class="form-control" formControlName="group_id">
+              <option *ngFor="let group of groups" [value]="group.public_id">
+                {{group.label}}
+              </option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="button" class="btn btn-danger btn-sm"
+                    (click)="groupMappingControl.removeAt(i)">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-primary mt-2"
+                (click)="addGroupMapping()">
+          <i class="fas fa-plus"></i> Add Mapping
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>

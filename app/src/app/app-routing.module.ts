@@ -21,6 +21,7 @@ import { Routes, RouterModule, PreloadAllModules } from '@angular/router';
 import { AuthGuard } from './modules/auth/guards/auth.guard';
 
 import { LoginComponent } from './modules/auth/login/login.component';
+import { OidcCallbackComponent } from './modules/auth/oidc-callback/oidc-callback.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -37,6 +38,13 @@ const routes: Routes = [
             view: 'embedded'
         },
         component: LoginComponent
+    },
+    {
+        path: 'oidc-callback',
+        data: {
+            view: 'embedded'
+        },
+        component: OidcCallbackComponent
     },
     {
         path: '',
