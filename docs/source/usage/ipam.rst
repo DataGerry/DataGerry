@@ -67,10 +67,16 @@ have two options:
 - **Type Builder** – When creating a new :ref:`Type <types-anchor>`, use the **Special type** selector in the basic
   step to mark the type as *Supernet*, *Subnet* or *VLAN*.
 
-.. figure:: img/ipam/ipam_setup_special_type_2.png
+.. figure:: img/ipam/ipam_setup_special_type.png
     :width: 800
 
     Picture: Creating the IPAM types via the Start Assistant
+
+
+.. figure:: img/ipam/ipam_setup_special_type_2.png
+    :width: 800
+
+    Picture: Creating the IPAM types via the type configuration
 
 |
 
