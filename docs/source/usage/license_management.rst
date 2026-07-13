@@ -87,7 +87,7 @@ From the overview header you can:
   (requires ``base.license.delete``).
 
 .. figure:: img/license_management/license_overview.png
-    :width: 600
+    :width: 800
 
     Picture: License overview of an activated instance
 
@@ -122,7 +122,7 @@ Base64 text block. You can **Copy** it to the clipboard or **Download** it as ``
 Click **Continue** to proceed.
 
 .. figure:: img/license_management/license_generate_request.png
-    :width: 600
+    :width: 800
 
     Picture: Generating the activation request
 
@@ -147,10 +147,17 @@ Drag and drop the license file into the drop zone, or click to browse for it. On
     Import the license file within **60 minutes** of generating it in the portal. After that it expires and you must
     start again from Step 1.
 
-.. figure:: img/license_management/license_import.png
-    :width: 600
+    Picture: Importing the license file 1
 
-    Picture: Importing the license file
+.. figure:: img/license_management/license_import.png
+    :width: 800
+
+    Picture: Importing the license file 2
+
+.. figure:: img/license_management/license_import_2.png
+    :width: 800
+
+    Picture: Importing the license file 3
 
 |
 
