@@ -70,12 +70,12 @@ have two options:
 .. figure:: img/ipam/ipam_setup_special_type.png
     :width: 800
 
-    Picture: Marking a type as an IPAM special type in the Type Builder
+    Picture: Creating the IPAM types via the Start Assistant.
 
 .. figure:: img/ipam/ipam_setup_special_type_2.png
     :width: 800
 
-    Picture: Marking a type as an IPAM special type in the Type Builder 2
+    Picture: Creating the IPAM types via the Start Assistant Part 2
 
 |
 
@@ -122,6 +122,11 @@ Registering a Supernet
    family of the range.
 
 Open the saved Supernet to view its overview.
+
+.. figure:: img/ipam/ipam_supernet_create.png
+    :width: 800
+
+    Picture: Creating a supernet
 
 |
 
@@ -226,17 +231,12 @@ You can assign a **free** address from the IP table to an existing object:
 .. figure:: img/ipam/ipam_assign_ip.png
     :width: 800
 
-    Picture: Assigning a free IP address to an object
+    Picture: Starting the assignment from a Free IP row.
 
 .. figure:: img/ipam/ipam_assign_ip_2.png
     :width: 800
 
-    Picture: Assigning a free IP address to an object 2
-
-.. figure:: img/ipam/ipam_assign_ip_3.png
-    :width: 800
-
-    Picture: Assigning a free IP address to an object 3
+    Picture: Selecting the target object in the Assign IP dialog.
 
 |
 
