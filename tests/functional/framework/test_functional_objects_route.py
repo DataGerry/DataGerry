@@ -74,6 +74,9 @@ BULK_UPDATED_VALUE: str = 'bulk-updated'
 SEED_VERSION: str = '1.0.0'
 UPDATE_VERSION: str = '1.0.1'
 SEED_AUTHOR_ID: int = 1
+# public_id of the authenticated user behind the rest_api fixture (full_access_user); the update
+# pipeline stamps this as the object's editor_id
+REQUEST_USER_ID: int = 1
 
 
 def _type_doc() -> dict[str, Any]:
@@ -307,6 +310,66 @@ class TestPatchObject:
         )
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_patch_bumps_version_from_field_diff(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """Changing the single field of a one-field object bumps the version 1.0.0 -> 1.0.1 (patch)."""
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_PATCH, ORIGINAL_VALUE)
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}',
+                json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+            )
+            assert response.status_code == HTTPStatus.ACCEPTED
+
+            follow_up = rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_PATCH}')
+            stored = CmdbObject.from_data(follow_up.get_json())
+            assert stored.version == UPDATE_VERSION
+        finally:
+            _drop_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+    def test_patch_stamps_editor_id_to_request_user(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """PATCH stamps editor_id with the requesting user, exactly like the PUT pipeline."""
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_PATCH, ORIGINAL_VALUE)
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}',
+                json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+            )
+            assert response.status_code == HTTPStatus.ACCEPTED
+
+            follow_up = rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_PATCH}')
+            stored = CmdbObject.from_data(follow_up.get_json())
+            assert stored.editor_id == REQUEST_USER_ID
+        finally:
+            _drop_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+    def test_patch_empty_payload_returns_400(self, rest_api) -> None:
+        """A PATCH that carries no changing key is rejected 400 before any object is fetched."""
+        response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}', json={})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_patch_comment_only_returns_400(self, rest_api) -> None:
+        """A comment does not count as a change, so a comment-only PATCH is rejected 400."""
+        response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}', json={'comment': 'nothing to change'})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_patch_non_object_body_returns_400(self, rest_api) -> None:
+        """A PATCH body that is valid JSON but not an object (a list) is rejected 400."""
+        response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}', json=[{'name': NAME_FIELD, 'value': 1}])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
