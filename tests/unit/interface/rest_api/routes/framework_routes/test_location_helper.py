@@ -32,13 +32,24 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     resolve_location_name,
     build_location_forest,
     parse_required_int,
+    extract_object_location_parent,
+    validate_object_location_change,
+    sync_object_location,
 )
+from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper'
 
 OBJECT_ID: int = 4242
 ROOT_PUBLIC_ID: int = 1
+
+LOCATION_FIELD_TYPE: str = FieldType.LOCATION.value
+TEXT_FIELD_TYPE: str = FieldType.TEXT.value
+OWN_LOCATION_ID: int = 50
+DESCENDANT_LOCATION_ID: int = 51
+NEW_PARENT_ID: int = 60
+RESOLVED_NAME: str = 'Resolved Location Name'
 
 EXPLICIT_NAME: str = 'Server Room A'
 RENDERED_SUMMARY: str = 'Rendered Summary Line'
@@ -193,3 +204,223 @@ class TestBuildLocationForest:
         locations = [_location(CHILD_ID, PARENT_ID)]  # PARENT_ID is absent and is not the root id
 
         assert build_location_forest(locations) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          extract_object_location_parent                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestExtractObjectLocationParent:
+    """extract_object_location_parent reads the parent id from an object's location-typed field."""
+
+    def test_no_location_field_returns_false(self) -> None:
+        """A field list without a location field flags has_location_field=False and no parent."""
+        fields = [{'name': 'text', 'type': TEXT_FIELD_TYPE, 'value': 'x'}]
+
+        assert extract_object_location_parent(fields) == (False, None)
+
+    def test_positive_value_returns_parent(self) -> None:
+        """A positive location value is returned as the parent id."""
+        fields = [{'name': 'dg_location', 'type': LOCATION_FIELD_TYPE, 'value': NEW_PARENT_ID}]
+
+        assert extract_object_location_parent(fields) == (True, NEW_PARENT_ID)
+
+    def test_null_value_means_remove(self) -> None:
+        """A null location value flags the field present but yields no parent (removal)."""
+        fields = [{'name': 'dg_location', 'type': LOCATION_FIELD_TYPE, 'value': None}]
+
+        assert extract_object_location_parent(fields) == (True, None)
+
+    def test_non_positive_value_means_remove(self) -> None:
+        """A zero/negative location value flags the field present but yields no parent (removal)."""
+        fields = [{'name': 'dg_location', 'type': LOCATION_FIELD_TYPE, 'value': 0}]
+
+        assert extract_object_location_parent(fields) == (True, None)
+
+    def test_non_integer_value_means_remove(self) -> None:
+        """A non-integer location value cannot be a parent id, so it is treated as removal."""
+        fields = [{'name': 'dg_location', 'type': LOCATION_FIELD_TYPE, 'value': 'not-a-number'}]
+
+        assert extract_object_location_parent(fields) == (True, None)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        validate_object_location_change                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValidateObjectLocationChange:
+    """validate_object_location_change rejects a missing parent, a cycle or an orphaning removal."""
+
+    @staticmethod
+    def _manager(existing: dict[str, Any] | None) -> MagicMock:
+        """A MagicMock LocationsManager whose get_location_for_object returns the given existing doc."""
+        manager = MagicMock(name='locations_manager')
+        manager.get_location_for_object.return_value = existing
+        return manager
+
+    def test_unchanged_parent_is_a_noop(self, flask_app: Flask) -> None:
+        """When the parent equals the current one nothing is validated and no lookups are made."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
+
+        with flask_app.test_request_context():
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+
+        manager.get_location.assert_not_called()
+        manager.get_all_descendant_locations.assert_not_called()
+
+    def test_missing_parent_aborts_400(self, flask_app: Flask) -> None:
+        """Setting a non-existent, non-root parent is rejected with 400."""
+        manager = self._manager(None)
+        manager.get_location.return_value = None
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_root_parent_needs_no_existence_check(self, flask_app: Flask) -> None:
+        """The root id is always a valid parent, so its existence is not looked up."""
+        manager = self._manager(None)
+
+        with flask_app.test_request_context():
+            validate_object_location_change(OBJECT_ID, ROOT_PUBLIC_ID, manager)
+
+        manager.get_location.assert_not_called()
+
+    def test_parent_in_own_subtree_aborts_400(self, flask_app: Flask) -> None:
+        """A parent that is a descendant of the object's own location would create a cycle -> 400."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+        manager.get_location.return_value = {'public_id': DESCENDANT_LOCATION_ID}
+        manager.get_all_descendant_locations.return_value = [{'public_id': DESCENDANT_LOCATION_ID}]
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_change(OBJECT_ID, DESCENDANT_LOCATION_ID, manager)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_parent_is_own_location_aborts_400(self, flask_app: Flask) -> None:
+        """An object cannot be parented under its own location node (a trivial cycle) -> 400."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+        manager.get_location.return_value = {'public_id': OWN_LOCATION_ID}
+        manager.get_all_descendant_locations.return_value = []
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_change(OBJECT_ID, OWN_LOCATION_ID, manager)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_valid_new_parent_passes(self, flask_app: Flask) -> None:
+        """An existing parent outside the object's own subtree is accepted."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+        manager.get_location.return_value = {'public_id': NEW_PARENT_ID}
+        manager.get_all_descendant_locations.return_value = [{'public_id': DESCENDANT_LOCATION_ID}]
+
+        with flask_app.test_request_context():
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+
+    def test_remove_with_children_aborts_400(self, flask_app: Flask) -> None:
+        """Removing the placement while the object's location still has children is rejected -> 400."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
+        manager.location_has_children.return_value = True
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_change(OBJECT_ID, None, manager)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_remove_without_children_passes(self, flask_app: Flask) -> None:
+        """Removing the placement is allowed when the object's location has no children."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
+        manager.location_has_children.return_value = False
+
+        with flask_app.test_request_context():
+            validate_object_location_change(OBJECT_ID, None, manager)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              sync_object_location                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSyncObjectLocation:
+    """sync_object_location creates/updates/deletes the CmdbLocation and swallows write failures."""
+
+    @staticmethod
+    def _object_type() -> MagicMock:
+        """A MagicMock CmdbType supplying the label/icon/selectable used for a new location node."""
+        object_type = MagicMock(name='object_type')
+        object_type.public_id = 20
+        object_type.label = 'Test Type'
+        object_type.get_icon.return_value = 'fa-cube'
+        object_type.selectable_as_parent = True
+        return object_type
+
+    @staticmethod
+    def _manager(existing: dict[str, Any] | None) -> MagicMock:
+        """A MagicMock LocationsManager whose get_location_for_object returns the given existing doc."""
+        manager = MagicMock(name='locations_manager')
+        manager.get_location_for_object.return_value = existing
+        return manager
+
+    def _sync(self, manager: MagicMock, parent: int | None, location_name: str | None) -> None:
+        """Runs sync_object_location with resolve_location_name patched to a fixed value."""
+        with patch(f'{HELPER_PATH}.resolve_location_name', return_value=RESOLVED_NAME):
+            sync_object_location(
+                OBJECT_ID, parent, location_name, self._object_type(),
+                MagicMock(name='request_user'), MagicMock(name='objects_manager'), manager,
+            )
+
+    def test_creates_location_when_none_exists(self) -> None:
+        """A parent with no existing location inserts a new CmdbLocation carrying that parent + name."""
+        manager = self._manager(None)
+
+        self._sync(manager, NEW_PARENT_ID, None)
+
+        manager.insert_location.assert_called_once()
+        inserted = manager.insert_location.call_args.args[0]
+        assert inserted['parent'] == NEW_PARENT_ID
+        assert inserted['object_id'] == OBJECT_ID
+        assert inserted['name'] == RESOLVED_NAME
+        manager.update_location.assert_not_called()
+        manager.delete_location.assert_not_called()
+
+    def test_updates_location_when_parent_changes(self) -> None:
+        """A changed parent on an existing location updates it in place."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+
+        self._sync(manager, NEW_PARENT_ID, None)
+
+        manager.update_location.assert_called_once_with(OBJECT_ID, {'parent': NEW_PARENT_ID, 'name': RESOLVED_NAME})
+        manager.insert_location.assert_not_called()
+
+    def test_deletes_location_when_parent_removed(self) -> None:
+        """A removed parent deletes the existing CmdbLocation."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+
+        self._sync(manager, None, None)
+
+        manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
+        manager.insert_location.assert_not_called()
+        manager.update_location.assert_not_called()
+
+    def test_unchanged_parent_without_name_is_a_noop(self) -> None:
+        """An unchanged parent and no explicit name leaves the location untouched."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
+
+        self._sync(manager, NEW_PARENT_ID, None)
+
+        manager.insert_location.assert_not_called()
+        manager.update_location.assert_not_called()
+        manager.delete_location.assert_not_called()
+
+    def test_name_only_change_updates_location(self) -> None:
+        """An explicit name updates the location even when the parent is unchanged."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
+
+        self._sync(manager, NEW_PARENT_ID, 'Renamed Node')
+
+        manager.update_location.assert_called_once_with(OBJECT_ID, {'parent': NEW_PARENT_ID, 'name': RESOLVED_NAME})
+
+    def test_write_failure_is_swallowed(self) -> None:
+        """A failing location write is logged and swallowed so the object save is never lost."""
+        manager = self._manager(None)
+        manager.insert_location.side_effect = RuntimeError('boom')
+
+        # Must not raise
+        self._sync(manager, NEW_PARENT_ID, None)

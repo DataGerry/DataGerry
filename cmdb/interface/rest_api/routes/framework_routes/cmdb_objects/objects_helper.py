@@ -77,6 +77,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     ObjectViewMode,
     ObjectPatchKey,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
+    extract_object_location_parent, validate_object_location_change, sync_object_location,
+)
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -684,6 +687,8 @@ def build_new_object_data(
 
     new_object_data['creation_time'] = datetime.now(timezone.utc)
     new_object_data['version'] = '1.0.0'
+    # Transient location name: never stored (the POST route reads it from the raw body for the sync)
+    new_object_data.pop('location_name', None)
 
     # Validate fields have a type property (and backfill it from the type schema when omitted)
     validate_and_fill_object_fields(objects_manager, new_object_data)
@@ -837,9 +842,18 @@ def apply_object_update(  # pylint: disable=too-many-locals
     })
 
     update_comment: str = new_data.pop('comment', "")
+    location_name: str | None = new_data.pop('location_name', None)  # transient, never stored
 
     # Validate fields have a type (and backfill it) - the full payload is the source of truth
     validate_and_fill_object_fields(objects_manager, new_data)
+
+    # Location placement is validated BEFORE the write; the CmdbLocation mirror runs best-effort after
+    has_location_field, location_parent = extract_object_location_parent(new_data.get('fields', []))
+    locations_manager: LocationsManager | None = None
+
+    if has_location_field:
+        locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+        validate_object_location_change(obj_id, location_parent, locations_manager)
 
     previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
 
@@ -862,6 +876,10 @@ def apply_object_update(  # pylint: disable=too-many-locals
     new_data['version'] = new_version
 
     objects_manager.update_object(obj_id, new_data, request_user, AccessControlPermission.UPDATE)
+
+    if has_location_field:
+        sync_object_location(obj_id, location_parent, location_name, current_type_instance,
+                             request_user, objects_manager, locations_manager)
 
     object_after: dict[str, Any] | None = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
 
@@ -952,6 +970,7 @@ def get_object_patch_schema() -> dict[str, Any]:
             },
         },
         'comment': {'type': 'string', 'required': False, 'nullable': True, 'empty': True},
+        'location_name': {'type': 'string', 'required': False, 'nullable': True, 'empty': True},
     }
 
 
@@ -982,15 +1001,17 @@ def validate_object_patch_payload(raw_data: Any) -> dict[str, Any]:
     if disallowed_keys:
         abort(400, f"These keys cannot be patched: {disallowed_keys}")
 
+    # LOCATION_NAME counts as a change (a rename of the object's location node); COMMENT alone does not
     changing_keys: list[str] = [
         ObjectPatchKey.FIELDS.value,
         ObjectPatchKey.CREATED_MDS_ROWS.value,
         ObjectPatchKey.EDITED_MDS_ROWS.value,
         ObjectPatchKey.DELETED_MDS_ROWS.value,
+        ObjectPatchKey.LOCATION_NAME.value,
     ]
 
     if not any(raw_data.get(key) for key in changing_keys):
-        abort(400, "Patch payload must change at least one field or multi_data_section row!")
+        abort(400, "Patch payload must change at least one field, multi_data_section row or the location name!")
 
     validator: Validator = Validator(get_object_patch_schema())
 
@@ -1253,6 +1274,9 @@ def build_patched_object_data(
 
     if ObjectPatchKey.COMMENT.value in patch_data:
         merged_data[ObjectPatchKey.COMMENT.value] = patch_data[ObjectPatchKey.COMMENT.value]
+
+    if ObjectPatchKey.LOCATION_NAME.value in patch_data:
+        merged_data[ObjectPatchKey.LOCATION_NAME.value] = patch_data[ObjectPatchKey.LOCATION_NAME.value]
 
     return merged_data
 
