@@ -43,6 +43,7 @@ MAIN_OBJ_ID: int = 88111
 REF_OBJ_ID: int = 88112
 REFSEC_OBJ_ID: int = 88113
 MAIN_OBJ_ID_2: int = 88114
+REFSEC_OBJ_ID_NULL: int = 88115
 
 NAME_FIELD: str = 'dg-name'
 REF_FIELD: str = 'ref-field'
@@ -56,7 +57,7 @@ REF_NAME_VALUE: str = 'Ref-Target'
 DATE_VALUE: str = '2024-01-02'
 
 ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID]
-ALL_OBJ_IDS: list[int] = [MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2]
+ALL_OBJ_IDS: list[int] = [MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2, REFSEC_OBJ_ID_NULL]
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +146,12 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
             {'type': 'text', 'name': NAME_FIELD, 'value': MAIN_NAME_VALUE_2},
             {'type': 'ref', 'name': REF_FIELD, 'value': REF_OBJ_ID},
             {'type': 'date', 'name': DATE_FIELD, 'value': DATE_VALUE},
+        ]),
+        # A refsec object with NO object referenced yet (value None) - mirrors an object cleaned
+        # after a ref-section was added to its type
+        _obj_doc(REFSEC_OBJ_ID_NULL, REFSEC_TYPE_ID, [
+            {'type': 'text', 'name': NAME_FIELD, 'value': 'NoRef'},
+            {'type': 'ref', 'name': REFSEC_REF_FIELD, 'value': None},
         ]),
     ])
     yield
@@ -297,6 +304,24 @@ class TestReferenceSection:
         assert ref_field['references']['type_id'] == REF_TYPE_ID
         merged = _field(ref_field['references']['fields'], NAME_FIELD)
         assert merged['value'] == REF_NAME_VALUE
+
+    def test_ref_section_field_survives_when_no_object_is_referenced(self, full_access_user,
+                                                                     database_manager, database_name) -> None:
+        """Regression: a null-reference ref-section still emits its field so the frontend shows the section.
+
+        The ref target type is loaded only via the ref-section scan here (no referenced object pulls it
+        into the cache), so before the fix __merge_fields_value dropped the field and the section vanished.
+        """
+        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'public_id': REFSEC_OBJ_ID_NULL})
+        refsec_obj = CmdbObject.from_data(doc)
+
+        result = CmdbMultiRender([refsec_obj], full_access_user, True).result(single_object=True)
+
+        ref_field = next((field for field in result.fields if field['name'] == REFSEC_REF_FIELD), None)
+        assert ref_field is not None
+        assert ref_field['value'] is None
+        assert ref_field['references']['type_id'] == REF_TYPE_ID
 
 
 class TestHelpers:

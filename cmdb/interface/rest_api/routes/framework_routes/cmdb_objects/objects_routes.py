@@ -71,6 +71,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     clean_type_reports,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
+    extract_object_location_parent,
+    validate_object_location_change,
+    sync_object_location,
+)
 from cmdb.framework.ipam.enforcement import (
     enforce_object_invariants,
     format_errors_for_abort,
@@ -110,7 +115,7 @@ MAX_DASHBOARD_GROUPS: int = 5
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.add')
-def insert_cmdb_object(request_user: CmdbUser) -> Response:
+def insert_cmdb_object(request_user: CmdbUser) -> Response:  # pylint: disable=too-many-statements
     """
     HTTP `POST` route to insert a CmdbObject into the database
 
@@ -135,6 +140,10 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
             if request_user.is_config_item_limit_reached(objects_count):
                 abort(400, "The maximum amout of ConfigItems is reached!")
 
+        # The custom CmdbLocation tree name (if any) travels in the object body; the parent itself is
+        # the object's location field value. location_name is transient - build_new_object_data strips it
+        location_name: str | None = (request.json or {}).get('location_name')
+
         # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
         new_object_data, object_type = build_new_object_data(objects_manager, request.json)
 
@@ -151,11 +160,31 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         if ipam_errors:
             abort(400, format_errors_for_abort(ipam_errors))
 
+        # Validate the location placement (parent exists) before the object is written
+        has_location_field, location_parent = extract_object_location_parent(new_object_data.get('fields', []))
+        locations_manager: LocationsManager | None = None
+
+        if has_location_field:
+            locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+            validate_object_location_change(new_object_data['public_id'], location_parent, locations_manager)
+
         new_object_id: int = objects_manager.insert_object(
             new_object_data,
             request_user,
             AccessControlPermission.CREATE
         )
+
+        # Mirror the placement into the CmdbLocation tree (best-effort, after the object is saved)
+        if has_location_field:
+            sync_object_location(
+                new_object_id,
+                location_parent,
+                location_name,
+                object_type,
+                request_user,
+                objects_manager,
+                locations_manager,
+            )
 
         current_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
 

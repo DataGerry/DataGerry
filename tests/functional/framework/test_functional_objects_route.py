@@ -1327,3 +1327,222 @@ class TestErrorMappingWriteAndDelete:
             assert response.status_code == HTTPStatus.BAD_REQUEST
         finally:
             _drop_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    OBJECT-DRIVEN LOCATION SYNC (create/edit)                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+LSYNC_TYPE_ID: int = 9404
+LSYNC_OBJECT_ID: int = 9470
+LSYNC_CHILD_OBJECT_ID: int = 9471
+LSYNC_PARENT_A: int = 9490
+LSYNC_PARENT_B: int = 9491
+LSYNC_OWN_LOCATION: int = 9492
+LSYNC_CHILD_LOCATION: int = 9493
+NONEXISTENT_PARENT: int = 88888
+ROOT_LOCATION_ID: int = 1
+CUSTOM_LOCATION_NAME: str = 'Custom Location Name'
+
+
+def _location_type_doc() -> dict[str, Any]:
+    """A CmdbType carrying a location-typed field, so its objects mirror into the CmdbLocation tree."""
+    return {
+        'public_id': LSYNC_TYPE_ID,
+        'name': f'loc-type-{LSYNC_TYPE_ID}',
+        'label': 'Location Type',
+        'author_id': SEED_AUTHOR_ID,
+        'creation_time': datetime.now(timezone.utc),
+        'active': True,
+        'fields': [
+            {'type': 'text', 'name': NAME_FIELD, 'label': 'Name'},
+            {'type': 'location', 'name': LOCATION_FIELD_NAME, 'label': 'Location'},
+        ],
+        'render_meta': {
+            'icon': 'fa-cube',
+            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main',
+                          'fields': [NAME_FIELD, LOCATION_FIELD_NAME]}],
+            'summary': {'fields': [NAME_FIELD]},
+        },
+        'acl': {'activated': False, 'groups': {'includes': None}},
+        'version': SEED_VERSION,
+    }
+
+
+def _loc_object_payload(public_id: int, parent: int | None) -> dict[str, Any]:
+    """POST/PUT body for a LOC_TYPE object placed under `parent` (0/None => no location)."""
+    return {
+        'public_id': public_id,
+        'type_id': LSYNC_TYPE_ID,
+        'active': True,
+        'author_id': SEED_AUTHOR_ID,
+        'version': SEED_VERSION,
+        'fields': [
+            {'type': 'text', 'name': NAME_FIELD, 'value': ORIGINAL_VALUE},
+            {'type': 'location', 'name': LOCATION_FIELD_NAME, 'value': parent},
+        ],
+    }
+
+
+def _loc_doc(public_id: int, object_id: int, parent: int) -> dict[str, Any]:
+    """A CmdbLocation doc for direct insertion into the locations collection."""
+    return {
+        'public_id': public_id,
+        'name': f'loc-{public_id}',
+        'parent': parent,
+        'object_id': object_id,
+        'type_id': LSYNC_TYPE_ID,
+        'type_label': 'Location Type',
+        'type_icon': 'fa-cube',
+        'type_selectable': True,
+    }
+
+
+class TestObjectLocationSync:
+    """POST/PUT/PATCH mirror the object's location field into the CmdbLocation tree and validate it."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds the location-field type and two selectable parent locations; cleans everything after."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+
+        types.insert_one(_location_type_doc())
+        locations.insert_many([
+            _loc_doc(LSYNC_PARENT_A, 9480, ROOT_LOCATION_ID),
+            _loc_doc(LSYNC_PARENT_B, 9481, ROOT_LOCATION_ID),
+        ])
+        yield
+        types.delete_one({'public_id': LSYNC_TYPE_ID})
+        objects.delete_many({'public_id': {'$in': [LSYNC_OBJECT_ID, LSYNC_CHILD_OBJECT_ID]}})
+        locations.delete_many(
+            {'public_id': {'$in': [LSYNC_PARENT_A, LSYNC_PARENT_B, LSYNC_OWN_LOCATION, LSYNC_CHILD_LOCATION]}}
+        )
+        locations.delete_many({'object_id': {'$in': [LSYNC_OBJECT_ID, LSYNC_CHILD_OBJECT_ID]}})
+
+    @staticmethod
+    def _location_of(database_manager: MongoDatabaseManager, database_name: str, object_id: int):
+        """Returns the CmdbLocation doc linked to the given object, or None."""
+        return database_manager.get_collection(CmdbLocation.COLLECTION, database_name)\
+            .find_one({'object_id': object_id})
+
+    # ---- CREATE ---- #
+    def test_post_creates_location_for_new_object(self, rest_api, database_manager, database_name) -> None:
+        """POSTing an object with a parent creates a mirrored CmdbLocation carrying that parent."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        assert response.status_code == HTTPStatus.OK
+        location = self._location_of(database_manager, database_name, LSYNC_OBJECT_ID)
+        assert location is not None
+        assert location['parent'] == LSYNC_PARENT_A
+
+    def test_post_uses_custom_location_name(self, rest_api, database_manager, database_name) -> None:
+        """A location_name in the POST body is used verbatim as the CmdbLocation tree name."""
+        payload = _loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A)
+        payload['location_name'] = CUSTOM_LOCATION_NAME
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.OK
+        location = self._location_of(database_manager, database_name, LSYNC_OBJECT_ID)
+        assert location['name'] == CUSTOM_LOCATION_NAME
+
+    def test_post_without_parent_creates_no_location(self, rest_api, database_manager, database_name) -> None:
+        """POSTing an object with no parent leaves the location tree untouched."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_loc_object_payload(LSYNC_OBJECT_ID, 0))
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._location_of(database_manager, database_name, LSYNC_OBJECT_ID) is None
+
+    def test_post_nonexistent_parent_rejected(self, rest_api) -> None:
+        """POSTing under a parent location that does not exist is rejected 400 (object not created)."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_loc_object_payload(LSYNC_OBJECT_ID, NONEXISTENT_PARENT))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.get(f'{ROUTE_URL}/native/{LSYNC_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+
+    # ---- EDIT (PUT) ---- #
+    def test_put_updates_location_parent(self, rest_api, database_manager, database_name) -> None:
+        """Changing the object's location field via PUT moves its CmdbLocation to the new parent."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.put(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}',
+                                json=_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_B))
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert self._location_of(database_manager, database_name, LSYNC_OBJECT_ID)['parent'] == LSYNC_PARENT_B
+
+    def test_put_removes_location_when_parent_cleared(self, rest_api, database_manager, database_name) -> None:
+        """Clearing the location field via PUT deletes the object's (childless) CmdbLocation."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.put(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}',
+                                json=_loc_object_payload(LSYNC_OBJECT_ID, 0))
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert self._location_of(database_manager, database_name, LSYNC_OBJECT_ID) is None
+
+    def test_put_nonexistent_parent_rejected(self, rest_api, database_manager, database_name) -> None:
+        """Moving to a parent location that does not exist is rejected 400."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.put(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}',
+                                json=_loc_object_payload(LSYNC_OBJECT_ID, NONEXISTENT_PARENT))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_put_cycle_rejected(self, rest_api, database_manager, database_name) -> None:
+        """Setting the parent to a location inside the object's own subtree is rejected 400 (cycle)."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, ROOT_LOCATION_ID),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, ROOT_LOCATION_ID))
+        locations.insert_one(_loc_doc(LSYNC_CHILD_LOCATION, LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION))
+
+        response = rest_api.put(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}',
+                                json=_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_CHILD_LOCATION))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_put_remove_with_children_rejected(self, rest_api, database_manager, database_name) -> None:
+        """Clearing the location is refused 400 while the object's location still has children."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, ROOT_LOCATION_ID),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, ROOT_LOCATION_ID))
+        locations.insert_one(_loc_doc(LSYNC_CHILD_LOCATION, LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION))
+
+        response = rest_api.put(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}',
+                                json=_loc_object_payload(LSYNC_OBJECT_ID, 0))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    # ---- PATCH (name-only) ---- #
+    def test_patch_location_name_only_renames_node(self, rest_api, database_manager, database_name) -> None:
+        """A name-only PATCH renames the CmdbLocation without a field change and is not rejected as empty."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.patch(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}', json={'location_name': CUSTOM_LOCATION_NAME})
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        location = self._location_of(database_manager, database_name, LSYNC_OBJECT_ID)
+        assert location['name'] == CUSTOM_LOCATION_NAME
+        assert location['parent'] == LSYNC_PARENT_A

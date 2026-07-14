@@ -396,8 +396,14 @@ class CmdbMultiRender:
 
     def get_all_linked_types(self) -> dict[int, CmdbType]:
         """
-        Collect the type ids of the rendered objects and of every referenced object, and return them
-        as a single bulk lookup (one query) keyed by public_id
+        Collect the types needed to render every object and return them as a bulk lookup by public_id
+
+        Loads three groups in at most two queries: the rendered objects' own types, the types of every
+        referenced object already in the cache, and the target type of every ref-section declared by
+        those types. The ref-section target must be loaded even when no object is referenced yet (value
+        None) - otherwise __merge_fields_value drops the ref-section field and the frontend hides the
+        whole section. Only the direct ref-section targets are pulled here; deeper reference chains are
+        resolved by the nested render that runs once an object is actually referenced
 
         Returns:
             dict[int, CmdbType]: Lookup of type public_id -> CmdbType (empty when none are referenced)
@@ -414,12 +420,44 @@ class CmdbMultiRender:
         # Only fetch the types not already cached (a nested render reuses the outer cache)
         type_ids -= set(self.types_cache)
 
-        if not type_ids:
-            return {}
+        linked_types: dict[int, CmdbType] = {}
 
-        linked_types: dict[int, CmdbType] = self.types_manager.get_types_lookup(list(type_ids))
+        if type_ids:
+            linked_types = self.types_manager.get_types_lookup(list(type_ids))
+
+        # Every ref-section renders fields from a target type regardless of whether an object is
+        # referenced, so that target must be cached too. Scan the loaded (and already cached) types
+        # for their ref-section targets and bulk-fetch the ones still missing.
+        known_types: dict[int, CmdbType] = {**self.types_cache, **linked_types}
+        missing_ref_type_ids: set[int] = self.__collect_ref_section_type_ids(list(known_types.values())) \
+                                         - set(known_types)
+
+        if missing_ref_type_ids:
+            linked_types.update(self.types_manager.get_types_lookup(list(missing_ref_type_ids)))
 
         return linked_types
+
+
+    @staticmethod
+    def __collect_ref_section_type_ids(types: list[CmdbType]) -> set[int]:
+        """
+        Collect the reference target type_id of every ref-section declared by the given types
+
+        Args:
+            types (list[CmdbType]): The types whose render_meta sections should be scanned
+
+        Returns:
+            set[int]: The type_ids referenced by any ref-section (empty when there are none)
+        """
+        ref_type_ids: set[int] = set()
+
+        for type_instance in types:
+            for section in type_instance.render_meta.sections:
+                if isinstance(section, TypeReferenceSection) and section.reference \
+                        and section.reference.type_id is not None:
+                    ref_type_ids.add(section.reference.type_id)
+
+        return ref_type_ids
 
 
     def get_all_linked_objects(self) -> dict[int, CmdbObject]:

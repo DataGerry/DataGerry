@@ -16,13 +16,16 @@
 """
 Helper methods shared by the CmdbLocation REST routes
 """
+from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort
 
-from cmdb.manager import ObjectsManager
+from cmdb.manager import ObjectsManager, LocationsManager
 
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectFieldKey
+from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.location_node import LocationNode
 from cmdb.framework.rendering.render_list import RenderList
@@ -31,6 +34,8 @@ from cmdb.database.predefined_data.predefined_data_constants import RootLocation
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import OBJECT_ID_NAME_TEMPLATE
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 
 def parse_required_int(data: dict[str, Any], key: str) -> int:
@@ -131,3 +136,141 @@ def build_location_forest(locations: list[dict[str, Any]]) -> list[dict[str, Any
         root_location.children = root_location.get_children(root_location.public_id, descendant_locations)
 
     return [LocationNode.to_json(root_location) for root_location in root_locations]
+
+
+# ------------------------------------------ OBJECT-DRIVEN LOCATION SYNC --------------------------------------------- #
+
+def extract_object_location_parent(fields: list[dict[str, Any]]) -> tuple[bool, int | None]:
+    """
+    Reads the parent-location id from an object's location-typed field
+
+    A CmdbType has at most one location field and its stored value is the public_id of the parent
+    CmdbLocation. The first return flags whether the object even has a location field, so callers can
+    skip the whole location sync for types without one; the second is the coerced parent id, where
+    None means "no parent / remove" (a null or non-positive value)
+
+    Args:
+        fields (list[dict[str, Any]]): The object's fields (each a name+value+type triple)
+
+    Returns:
+        tuple[bool, int | None]: (has_location_field, parent_location_id_or_None)
+    """
+    location_field: dict[str, Any] | None = next(
+        (field for field in fields if field.get(CmdbObjectFieldKey.TYPE) == FieldType.LOCATION),
+        None,
+    )
+
+    if location_field is None:
+        return False, None
+
+    try:
+        parent: int = int(location_field.get(CmdbObjectFieldKey.VALUE))
+    except (TypeError, ValueError):
+        return True, None
+
+    return True, parent if parent > 0 else None
+
+
+def validate_object_location_change(
+        object_id: int,
+        parent: int | None,
+        locations_manager: LocationsManager) -> None:
+    """
+    Validates a pending change to an object's location placement, aborting 400 when invalid
+
+    Only a real change is validated (an unchanged parent is a no-op). Setting a parent requires that
+    parent CmdbLocation to exist and to not sit inside the object's own location subtree (which would
+    create a cycle). Removing the parent is refused while the object's location still has children, as
+    that would orphan the subtree
+
+    Args:
+        object_id (int): public_id of the CmdbObject whose location is changing
+        parent (int | None): The new parent CmdbLocation id, or None to remove the placement
+        locations_manager (LocationsManager): db interface for CmdbLocations
+
+    Raises:
+        HTTPException: 400 when the parent does not exist, the change would create a cycle, or
+            removing the placement would orphan child locations
+    """
+    existing: dict[str, Any] | None = locations_manager.get_location_for_object(object_id)
+    current_parent: int | None = existing['parent'] if existing else None
+
+    if parent == current_parent:
+        return
+
+    if parent is None:
+        if existing and locations_manager.location_has_children(existing['public_id']):
+            abort(400, f"The Location of Object with ID:{object_id} has child Locations and cannot be removed!")
+        return
+
+    if parent != RootLocationDefault.PUBLIC_ID and not locations_manager.get_location(parent):
+        abort(400, f"The selected parent Location (ID:{parent}) does not exist!")
+
+    if existing:
+        forbidden: set[int] = {existing['public_id']}
+        forbidden |= {
+            descendant['public_id']
+            for descendant in locations_manager.get_all_descendant_locations(existing['public_id'])
+        }
+
+        if parent in forbidden:
+            abort(400, f"The selected parent Location (ID:{parent}) would create a cycle in the location tree!")
+
+
+def sync_object_location(
+        object_id: int,
+        parent: int | None,
+        location_name: str | None,
+        object_type: CmdbType,
+        request_user: CmdbUser,
+        objects_manager: ObjectsManager,
+        locations_manager: LocationsManager) -> None:
+    """
+    Mirrors an object's location placement into the CmdbLocation tree (best-effort)
+
+    Creates, updates or deletes the object's CmdbLocation so the separate location tree matches the
+    object's location field: a parent with no existing location -> create; a changed parent (or an
+    explicit name) on an existing location -> update; a removed parent -> delete. An unchanged parent
+    with no name given is a no-op. Any failure is logged and swallowed so the already-persisted object
+    is never lost - there are no cross-collection transactions here (best-effort). Call
+    validate_object_location_change first to reject an invalid placement before the object is saved
+
+    Args:
+        object_id (int): public_id of the CmdbObject
+        parent (int | None): The parent CmdbLocation id, or None to remove the placement
+        location_name (str | None): Optional custom tree name; when None the name is derived
+        object_type (CmdbType): The object's CmdbType (supplies label/icon/selectable for a new node)
+        request_user (CmdbUser): The user making the request (used to render a derived name)
+        objects_manager (ObjectsManager): db interface used to derive the name
+        locations_manager (LocationsManager): db interface for CmdbLocations
+    """
+    try:
+        existing: dict[str, Any] | None = locations_manager.get_location_for_object(object_id)
+        current_parent: int | None = existing['parent'] if existing else None
+
+        # Nothing changed and no explicit rename requested -> leave the location untouched
+        if parent == current_parent and location_name is None:
+            return
+
+        if parent is None:
+            if existing:
+                locations_manager.delete_location(existing['public_id'])
+            return
+
+        resolved_name: str = resolve_location_name(location_name, object_id, objects_manager, request_user)
+
+        if existing:
+            locations_manager.update_location(object_id, {'parent': parent, 'name': resolved_name})
+        else:
+            locations_manager.insert_location({
+                'object_id': object_id,
+                'parent': parent,
+                'type_id': object_type.public_id,
+                'type_label': object_type.label,
+                'type_icon': object_type.get_icon(),
+                'type_selectable': object_type.selectable_as_parent,
+                'name': resolved_name,
+            })
+    except Exception as err:
+        LOGGER.error("[sync_object_location] Failed to sync Location for Object ID:%s: %s. Type: %s",
+                     object_id, err, type(err))

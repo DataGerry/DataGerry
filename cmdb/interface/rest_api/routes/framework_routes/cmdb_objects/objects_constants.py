@@ -40,12 +40,14 @@ class ObjectPatchKey(BaseStrEnum):
 
     A PATCH body may carry a subset of regular ``FIELDS`` plus three symmetric MDS-row lists:
     ``CREATED_MDS_ROWS`` (the backend assigns each new row's multi_data_id and bumps the section
-    counter), ``EDITED_MDS_ROWS`` and ``DELETED_MDS_ROWS``, and an optional ``COMMENT`` for the
-    edit log. Any other key (an immutable identifier or a server-managed field) is rejected so
-    clients cannot silently attempt to change it
+    counter), ``EDITED_MDS_ROWS`` and ``DELETED_MDS_ROWS``, an optional ``COMMENT`` for the edit
+    log, and an optional ``LOCATION_NAME`` (the custom CmdbLocation tree name; the parent itself is
+    patched through the location field in ``FIELDS``). Any other key (an immutable identifier or a
+    server-managed field) is rejected so clients cannot silently attempt to change it
     """
     FIELDS = 'fields'
     CREATED_MDS_ROWS = 'created_mds_rows'
     EDITED_MDS_ROWS = 'edited_mds_rows'
     DELETED_MDS_ROWS = 'deleted_mds_rows'
     COMMENT = 'comment'
+    LOCATION_NAME = 'location_name'
