@@ -276,11 +276,11 @@ class TestConnectorExists:
         assert connector_manager.connector_exists(CONNECTOR_TITLE) is True
         connector_manager.oc_connector.oc_get.assert_called_once_with(f"{CONNECTOR_EXISTS_URL}/{CONNECTOR_TITLE}")
 
-    def test_missing_result_key_returns_none(self, connector_manager: OcConnectorManager) -> None:
-        """A 2xx body without a 'result' key returns None instead of raising KeyError (uses .get)."""
+    def test_missing_result_key_returns_false(self, connector_manager: OcConnectorManager) -> None:
+        """A 2xx body without a 'result' key returns False (the method's -> bool contract)."""
         connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {})
 
-        assert connector_manager.connector_exists(CONNECTOR_TITLE) is None
+        assert connector_manager.connector_exists(CONNECTOR_TITLE) is False
 
     def test_non_2xx_raises_get_error(self, connector_manager: OcConnectorManager) -> None:
         """A non-2xx response raises OcConnectorGetError."""

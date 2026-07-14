@@ -21,3 +21,6 @@ String constants used by the CmdbLocation REST routes
 # Fallback name template applied when a CmdbLocation has no explicit name and the linked
 # CmdbObject yields no usable summary line. Format with the object's public_id.
 OBJECT_ID_NAME_TEMPLATE: str = 'ObjectID: {object_id}'
+
+# Response-only key added to each lazy location-tree node signalling whether it can be expanded
+LOCATION_TREE_HAS_CHILDREN_KEY: str = 'has_children'

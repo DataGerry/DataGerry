@@ -35,6 +35,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     extract_object_location_parent,
     validate_object_location_change,
     sync_object_location,
+    build_location_level,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -424,3 +425,58 @@ class TestSyncObjectLocation:
 
         # Must not raise
         self._sync(manager, NEW_PARENT_ID, None)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              build_location_level                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBuildLocationLevel:
+    """build_location_level flags each node of a tree level with a has_children hint."""
+
+    def test_flags_has_children_per_node(self) -> None:
+        """Only the nodes reported by get_parents_with_children are flagged has_children=True."""
+        manager = MagicMock(name='locations_manager')
+        manager.get_parents_with_children.return_value = {OWN_LOCATION_ID}
+
+        level = build_location_level(
+            [{'public_id': OWN_LOCATION_ID, 'name': 'a'}, {'public_id': NEW_PARENT_ID, 'name': 'b'}],
+            manager,
+        )
+
+        assert level[0]['has_children'] is True
+        assert level[1]['has_children'] is False
+        manager.get_parents_with_children.assert_called_once_with([OWN_LOCATION_ID, NEW_PARENT_ID])
+
+    def test_empty_level_returns_empty_list(self) -> None:
+        """An empty level yields an empty result and no node flags."""
+        manager = MagicMock(name='locations_manager')
+        manager.get_parents_with_children.return_value = set()
+
+        assert build_location_level([], manager) == []
+
+    def test_preserves_original_node_fields(self) -> None:
+        """The original location fields are carried through unchanged alongside has_children."""
+        manager = MagicMock(name='locations_manager')
+        manager.get_parents_with_children.return_value = set()
+
+        level = build_location_level([{'public_id': NEW_PARENT_ID, 'name': 'node', 'parent': ROOT_PUBLIC_ID}], manager)
+
+        assert level[0]['name'] == 'node'
+        assert level[0]['parent'] == ROOT_PUBLIC_ID
+        assert level[0]['has_children'] is False
+
+    def test_drops_unused_type_metadata(self) -> None:
+        """type_id, type_label and type_selectable are stripped; the other fields are kept."""
+        manager = MagicMock(name='locations_manager')
+        manager.get_parents_with_children.return_value = set()
+
+        node = build_location_level([{
+            'public_id': NEW_PARENT_ID, 'name': 'node', 'parent': ROOT_PUBLIC_ID, 'object_id': 99,
+            'type_icon': 'fa-cube', 'type_id': 6, 'type_label': 'Building', 'type_selectable': True,
+        }], manager)[0]
+
+        assert 'type_id' not in node
+        assert 'type_label' not in node
+        assert 'type_selectable' not in node
+        assert node['type_icon'] == 'fa-cube'
+        assert node['object_id'] == 99

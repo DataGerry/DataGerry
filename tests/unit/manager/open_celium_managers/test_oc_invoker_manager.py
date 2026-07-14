@@ -106,11 +106,11 @@ class TestCheckInvokerExists:
         assert invoker_manager.check_invoker_exists(INVOKER_NAME) is True
         invoker_manager.oc_connector.oc_get.assert_called_once_with(f"{INVOKER_EXISTS_URL}/{INVOKER_NAME}")
 
-    def test_missing_result_key_returns_none(self, invoker_manager: OcInvokerManager) -> None:
-        """A 2xx body without a 'result' key returns None instead of raising KeyError (uses .get)."""
+    def test_missing_result_key_returns_false(self, invoker_manager: OcInvokerManager) -> None:
+        """A 2xx body without a 'result' key returns False (the method's -> bool contract)."""
         invoker_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {})
 
-        assert invoker_manager.check_invoker_exists(INVOKER_NAME) is None
+        assert invoker_manager.check_invoker_exists(INVOKER_NAME) is False
 
     def test_non_2xx_raises_get_error(self, invoker_manager: OcInvokerManager) -> None:
         """A non-2xx response raises OcInvokerGetError."""

@@ -16,11 +16,9 @@
 """
 Implementation of OpenCelium InvokerManager
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
-
-from requests import Response
+from urllib.parse import quote
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
@@ -59,12 +57,11 @@ class OcInvokerManager(OcBaseManager):
         if not name:
             raise OcInvokerGetError("No name for Invoker provided!")
 
-        target_invoker_response: Response = self.oc_connector.oc_get(f"{INVOKER_URL}/{name}")
-
-        if self.is_valid_response(target_invoker_response):
-            return json.loads(target_invoker_response.text)
-
-        raise OcInvokerGetError(f"Failed to retrieve OpenCelium Invoker with name: {name}")
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{INVOKER_URL}/{quote(name)}"),
+            OcInvokerGetError,
+            f"Failed to retrieve OpenCelium Invoker with name: {name}",
+        )
 
 
     def check_invoker_exists(self, name: str) -> bool:
@@ -84,19 +81,21 @@ class OcInvokerManager(OcBaseManager):
         if not name:
             raise OcInvokerGetError("No name for Invoker provided!")
 
-        target_invoker_response: Response = self.oc_connector.oc_get(f"{INVOKER_EXISTS_URL}/{name}")
+        data: dict[str, Any] = self.parse_response(
+            self.oc_connector.oc_get(f"{INVOKER_EXISTS_URL}/{quote(name)}"),
+            OcInvokerGetError,
+            f"Failed to check OpenCelium Invoker with name: {name}",
+        )
 
-        if self.is_valid_response(target_invoker_response):
-            data: dict[str, Any] = json.loads(target_invoker_response.text)
-
-            return data.get('result')
-
-        raise OcInvokerGetError(f"Failed to check OpenCelium Invoker with name: {name}")
+        return bool(data.get('result'))
 
 
-    def get_all_invokers(self, with_operations: bool=True) -> list[dict[str, Any]]:
+    def get_all_invokers(self, with_operations: bool = True) -> list[dict[str, Any]]:
         """
         Retrieves all Invokers from OpenCelium
+
+        Args:
+            with_operations (bool): When False, request the invokers without their operations
 
         Raises:
             OcInvokerGetError: When retrieving the Invokers fails
@@ -109,14 +108,8 @@ class OcInvokerManager(OcBaseManager):
         if not with_operations:
             invoker_route = f"{ALL_INVOKERS_URL}?opsIncluded=false"
 
-        all_invokers_response: Response = self.oc_connector.oc_get(invoker_route)
-
-        # LOGGER.debug(f"[get_all_invokers] response: {all_invokers_response}")
-        # LOGGER.debug(f"[get_all_invokers] status_code: {all_invokers_response.status_code}")
-        # LOGGER.debug(f"[get_all_invokers] headers: {all_invokers_response.headers}")
-        # LOGGER.debug(f"[get_all_invokers] body: {all_invokers_response.text}")
-
-        if self.is_valid_response(all_invokers_response):
-            return json.loads(all_invokers_response.text)
-
-        raise OcInvokerGetError("Failed to retrieve Invokers from OpenCelium!")
+        return self.parse_response(
+            self.oc_connector.oc_get(invoker_route),
+            OcInvokerGetError,
+            "Failed to retrieve Invokers from OpenCelium!",
+        )
