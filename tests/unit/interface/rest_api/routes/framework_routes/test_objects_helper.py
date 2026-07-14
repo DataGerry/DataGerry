@@ -934,6 +934,56 @@ class TestBuildPatchedObjectData:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                    PATCH new-field type backfill (boundary)                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPatchNewFieldTypeBackfill:
+    """A PATCH-added field the stored object lacks is a name+value pair after merge; the shared update
+    pipeline then backfills its type from the type schema (or rejects an undeclared field), so no field
+    with a missing type is ever persisted. This locks why the merge_patch_fields 2-tuple is safe.
+    """
+
+    @staticmethod
+    def _manager(type_schema: dict[str, Any]) -> MagicMock:
+        """A MagicMock ObjectsManager whose get_object_type returns the given type schema."""
+        manager = MagicMock()
+        manager.get_object_type.return_value = type_schema
+        return manager
+
+    def test_merge_appends_new_field_without_a_type(self) -> None:
+        """build_patched_object_data appends a stored-missing field as a name+value pair (no type yet)."""
+        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
+
+        result = build_patched_object_data(current, {'fields': [{'name': 'fresh', 'value': 5}]}, set())
+
+        fresh = next(field for field in result['fields'] if field['name'] == 'fresh')
+        assert 'type' not in fresh
+
+    def test_pipeline_backfills_the_new_field_type(self) -> None:
+        """The merged object run through validate_and_fill_object_fields becomes a full name+value+type triple."""
+        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
+        merged = build_patched_object_data(current, {'fields': [{'name': 'fresh', 'value': 5}]}, set())
+        manager = self._manager({'fields': [
+            {'name': 'stored', 'type': 'text'}, {'name': 'fresh', 'type': 'number'},
+        ]})
+
+        validate_and_fill_object_fields(manager, merged)
+
+        fresh = next(field for field in merged['fields'] if field['name'] == 'fresh')
+        assert fresh == {'name': 'fresh', 'value': 5, 'type': 'number'}
+
+    def test_pipeline_rejects_new_field_not_declared_by_the_type(self) -> None:
+        """A PATCH-added field the type does not declare is rejected 400 (never persisted as a 2-tuple)."""
+        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
+        merged = build_patched_object_data(current, {'fields': [{'name': 'ghost', 'value': 5}]}, set())
+        manager = self._manager({'fields': [{'name': 'stored', 'type': 'text'}]})
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_and_fill_object_fields(manager, merged)
+
+        assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                              guard_object_delete                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardObjectDelete:
