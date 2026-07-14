@@ -25,11 +25,11 @@ import { catchError, map, switchMap, finalize, shareReplay } from 'rxjs/operator
 
 import { ApiCallService, ApiServicePrefix, httpObserveOptions, resp } from '../../services/api-call.service';
 
-import { CmdbObject } from '../models/cmdb-object';
+import { CmdbObject, ObjectPatchPayload } from '../models/cmdb-object';
 import { RenderResult } from '../models/cmdb-render';
 import { GeneralModalComponent } from '../../layout/helpers/modals/general-modal/general-modal.component';
 import { CollectionParameters } from '../../services/models/api-parameter';
-import { APIGetListResponse, APIGetMultiResponse, APIUpdateMultiResponse } from '../../services/models/api-response';
+import { APIGetListResponse, APIGetMultiResponse, APIUpdateMultiResponse, APIUpdateSingleResponse } from '../../services/models/api-response';
 import { CmdbType } from '../models/cmdb-type';
 import { LocationsModalComponent } from 'src/app/layout/helpers/modals/locations-modal/locations-modal.component';
 import { UserService } from 'src/app/management/services/user.service';
@@ -378,6 +378,23 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     public putObject(publicID: number, objectInstance: CmdbObject, httpOptions = httpObserveOptions): Observable<any> {
         return this.api.callPut<T>(`${this.servicePrefix}/${publicID}`, objectInstance, httpOptions).pipe(
             map((apiResponse: HttpResponse<APIUpdateMultiResponse<T>>) => {
+                return apiResponse.body;
+            }),
+            finalize(() => this.executedAction('update'))
+        );
+    }
+
+
+    /**
+     * Partially updates a single object via the PATCH route.
+     * Only the changed fields and multi_data_section rows are sent.
+     *
+     * @param publicID (number): public_id of the object to patch
+     * @param payload (ObjectPatchPayload): the partial update payload
+     */
+    public patchObject(publicID: number, payload: ObjectPatchPayload, httpOptions = httpObserveOptions): Observable<any> {
+        return this.api.callPatch<T>(`${this.servicePrefix}/${publicID}`, payload, httpOptions).pipe(
+            map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
                 return apiResponse.body;
             }),
             finalize(() => this.executedAction('update'))

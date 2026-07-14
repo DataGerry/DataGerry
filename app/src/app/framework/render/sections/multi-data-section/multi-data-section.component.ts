@@ -41,6 +41,7 @@ import {
     MdsRowValidator,
     MdsRowValidatorHandle
 } from '../multi-data-section/mds-row-validator';
+import { getNextMultiDataId } from './mds-id.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -477,14 +478,17 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
         this.modalRef.result.then((values: any) => {
             if (values){
-                this.addNewValuesToControl(values);
+                // Assign one collision-free id and reuse it for the data row, the table row and
+                // the highest_id counter so the three never drift apart.
+                const newMultiDataID = getNextMultiDataId(this.formatedDataSection);
+                this.addNewValuesToControl(values, newMultiDataID);
 
                 values = this.formatNewValuesForTable(values);
-                values['dg-multiDataRowIndex'] = this.getCurrentHighestMultiDataID();
+                values['dg-multiDataRowIndex'] = newMultiDataID;
 
                 this.tableMultiDataValues.push(values);
                 this.setValuesForPagination();
-                this.incrementCurrentMultiDataID();
+                this.formatedDataSection.highest_id = newMultiDataID;
                 this.calculateCurrentPage("create");
 
                 this.form.markAsDirty();
@@ -574,12 +578,13 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
     /**
      * Adds the new values to control
-     * 
+     *
      * @param newValues the new values
+     * @param multiDataID the collision-free id assigned to the new row
      */
-    private addNewValuesToControl(newValues: any){
+    private addNewValuesToControl(newValues: any, multiDataID: number){
         let newDataSet: MultiDataSectionSet = {
-            "multi_data_id": this.getCurrentHighestMultiDataID(),
+            "multi_data_id": multiDataID,
             "data": []
         }
 
@@ -837,16 +842,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
 
     /**
-     * Retrieves the current highest ID for a MultiDataSet
-     *
-     * @returns (number): the current highest ID for a MultiDataSet
-     */
-    getCurrentHighestMultiDataID(): number {
-        return this.formatedDataSection.highest_id;
-    }
-
-
-    /**
      * Resolves the public_id of the object currently being edited so backend validators can
      * exclude it from collision checks. Returns null when the object does not yet exist (create mode).
      */
@@ -941,14 +936,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
             }
         }
         return null;
-    }
-
-
-    /**
-     * Incrementy the current highest ID for MultiDataSets
-     */
-    incrementCurrentMultiDataID(): void {
-        this.formatedDataSection.highest_id += 1;
     }
 
 /* ------------------------------------------- VIEW/EDIT TABLE ROW HELPER ------------------------------------------- */
