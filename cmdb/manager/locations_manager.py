@@ -282,6 +282,38 @@ class LocationsManager(BaseManager):
         except BaseManagerGetError as err:
             raise LocationsManagerGetError(str(err)) from err
 
+
+    def get_parents_with_children(self, parent_ids: list[int]) -> set[int]:
+        """
+        Determines which of the given CmdbLocations have at least one direct child
+
+        Resolves the has-children hint for a whole tree level in a single grouped aggregation
+        (``$match`` on the candidate parents, then ``$group`` by parent) instead of one count per
+        node, so a lazily-expanded tree level stays a single query
+
+        Args:
+            parent_ids (list[int]): public_ids of the CmdbLocations to test for children
+
+        Raises:
+            LocationsManagerGetError: If the grouped lookup could not be executed
+
+        Returns:
+            set[int]: The subset of parent_ids that have at least one direct child location
+        """
+        if not parent_ids:
+            return set()
+
+        pipeline: list[dict[str, Any]] = [
+            {"$match": {LocationKey.PARENT.value: {"$in": parent_ids}}},
+            {"$group": {"_id": f"${LocationKey.PARENT.value}"}},
+        ]
+
+        try:
+            return {doc["_id"] for doc in self.aggregate(pipeline)}
+        except Exception as err:
+            LOGGER.error("[get_parents_with_children] Exception: %s. Type: %s", err, type(err))
+            raise LocationsManagerGetError(str(err)) from err
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_location(self, object_id: int, data: CmdbLocation | dict) -> None:

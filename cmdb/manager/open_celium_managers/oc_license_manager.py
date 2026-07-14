@@ -16,12 +16,9 @@
 """
 Implementation of OpenCelium LicenseManager
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timedelta
-
-from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
@@ -52,12 +49,11 @@ class OcLicenseManager(OcBaseManager):
         Returns:
             Any: The retrieved OpenCelium License activation
         """
-        license_activation_response: Response = self.oc_connector.oc_get(LICENSE_ACTIVATION_URL)
-
-        if self.is_valid_response(license_activation_response):
-            return json.loads(license_activation_response.text)
-
-        raise OcLicenseGetError("Failed to retrieve License activation!")
+        return self.parse_response(
+            self.oc_connector.oc_get(LICENSE_ACTIVATION_URL),
+            OcLicenseGetError,
+            "Failed to retrieve License activation!",
+        )
 
 
     def get_active_license(self) -> dict[str, Any]:
@@ -67,12 +63,11 @@ class OcLicenseManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved OpenCelium License
         """
-        active_license_response: Response = self.oc_connector.oc_get(ACTIVE_LICENSE_URL)
-
-        if self.is_valid_response(active_license_response):
-            return json.loads(active_license_response.text)
-
-        raise OcLicenseGetError("Failed to retrieve active License!")
+        return self.parse_response(
+            self.oc_connector.oc_get(ACTIVE_LICENSE_URL),
+            OcLicenseGetError,
+            "Failed to retrieve active License!",
+        )
 
 
     def get_license_usage(self, page: int = 0, size: int = 5) -> dict[str, Any]:
@@ -84,14 +79,13 @@ class OcLicenseManager(OcBaseManager):
         """
         start_date, end_date = self.get_current_month_boundaries()
 
-        license_usage_response: Response = self.oc_connector.oc_get(
-            f"{LICENSE_USAGE_URL}?page={page}&size={size}&startDate={start_date}&endDate={end_date}"
+        return self.parse_response(
+            self.oc_connector.oc_get(
+                f"{LICENSE_USAGE_URL}?page={page}&size={size}&startDate={start_date}&endDate={end_date}"
+            ),
+            OcLicenseGetError,
+            "Failed to retrieve License usage!",
         )
-
-        if self.is_valid_response(license_usage_response):
-            return json.loads(license_usage_response.text)
-
-        raise OcLicenseGetError("Failed to retrieve License usage!")
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

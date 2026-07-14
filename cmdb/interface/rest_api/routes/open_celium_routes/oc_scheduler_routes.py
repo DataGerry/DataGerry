@@ -31,6 +31,7 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper import assert_scheduler_access
 
 from cmdb.errors.open_celium.scheduler import (
     OcSchedulerCreateError,
@@ -181,29 +182,8 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             request_user.database
         )
 
-        # CLOUD MODE → Validate scheduler access (CACHE FIRST)
-        if current_app.cloud_mode and not current_app.local_mode:
-            dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
-
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.SCHEDULERS,
-                    scheduler_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_scheduler_in_sub(
-                    scheduler_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
-                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
+        # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
+        assert_scheduler_access(request_user, scheduler_id)
 
         # Fetch scheduler
         scheduler = oc_scheduler_manager.get_scheduler(scheduler_id)
@@ -426,29 +406,8 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             request_user.database
         )
 
-        # CLOUD MODE → Validate scheduler access (CACHE FIRST)
-        if current_app.cloud_mode and not current_app.local_mode:
-            dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
-
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.SCHEDULERS,
-                    scheduler_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_scheduler_in_sub(
-                    scheduler_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
-                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
+        # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
+        assert_scheduler_access(request_user, scheduler_id)
 
         # Execute Scheduler
         scheduler_result = oc_scheduler_manager.execute_scheduler(scheduler_id)
@@ -480,29 +439,8 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             request_user.database
         )
 
-        # CLOUD MODE → Validate scheduler access (CACHE FIRST)
-        if current_app.cloud_mode and not current_app.local_mode:
-            dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
-
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.SCHEDULERS,
-                    scheduler_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_scheduler_in_sub(
-                    scheduler_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
-                abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
+        # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
+        assert_scheduler_access(request_user, scheduler_id)
 
         # UPDATE PARAMS
         params: dict[str, Any] = request.json

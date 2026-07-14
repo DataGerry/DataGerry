@@ -30,12 +30,22 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.location_node import LocationNode
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
-from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
+from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault, LocationKey
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import OBJECT_ID_NAME_TEMPLATE
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    OBJECT_ID_NAME_TEMPLATE,
+    LOCATION_TREE_HAS_CHILDREN_KEY,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# CmdbLocation keys the lazy tree nodes omit - the frontend tree does not use them
+_TRIMMED_LOCATION_NODE_KEYS: frozenset[str] = frozenset({
+    LocationKey.TYPE_ID.value,
+    LocationKey.TYPE_LABEL.value,
+    LocationKey.TYPE_SELECTABLE.value,
+})
 
 
 def parse_required_int(data: dict[str, Any], key: str) -> int:
@@ -136,6 +146,40 @@ def build_location_forest(locations: list[dict[str, Any]]) -> list[dict[str, Any
         root_location.children = root_location.get_children(root_location.public_id, descendant_locations)
 
     return [LocationNode.to_json(root_location) for root_location in root_locations]
+
+
+def build_location_level(
+        child_locations: list[dict[str, Any]],
+        locations_manager: LocationsManager) -> list[dict[str, Any]]:
+    """
+    Serialises one level of the location tree, flagging which nodes have children of their own
+
+    Powers the lazily-expanded sidebar tree: each returned node carries a ``has_children`` boolean so
+    the frontend can render an expand control (and fetch the next level on demand) without loading the
+    whole forest. The has-children hint for the entire level is resolved in a single grouped query
+    rather than one lookup per node. Type metadata the tree does not use (type_id, type_label,
+    type_selectable) is dropped from each node
+
+    Args:
+        child_locations (list[dict[str, Any]]): The CmdbLocation dicts of a single tree level
+        locations_manager (LocationsManager): db interface used for the grouped children lookup
+
+    Returns:
+        list[dict[str, Any]]: The level's nodes, each with an added ``has_children`` boolean
+    """
+    node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in child_locations]
+    parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+
+    nodes: list[dict[str, Any]] = []
+
+    for location in child_locations:
+        node: dict[str, Any] = {
+            key: value for key, value in location.items() if key not in _TRIMMED_LOCATION_NODE_KEYS
+        }
+        node[LOCATION_TREE_HAS_CHILDREN_KEY] = location[LocationKey.PUBLIC_ID.value] in parents_with_children
+        nodes.append(node)
+
+    return nodes
 
 
 # ------------------------------------------ OBJECT-DRIVEN LOCATION SYNC --------------------------------------------- #

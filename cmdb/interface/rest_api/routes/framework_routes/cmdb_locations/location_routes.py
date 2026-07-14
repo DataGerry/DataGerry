@@ -46,8 +46,10 @@ from cmdb.interface.rest_api.responses import (
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     resolve_location_name,
     build_location_forest,
+    build_location_level,
     parse_required_int,
 )
+from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
@@ -211,6 +213,77 @@ def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser
     except Exception as err:
         LOGGER.error("[get_cmdb_locations_tree] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while requesting the Location tree!")
+
+
+@location_blueprint.route('/tree/roots', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@location_blueprint.protect(auth=True, right='base.framework.object.view')
+def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the first level of the location tree
+
+    Returns the direct children of the root location, each flagged with ``has_children`` so the
+    frontend can lazily expand deeper levels via ``/tree/<public_id>/children`` instead of loading
+    the whole forest at once
+
+    Args:
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The root location's direct children, each with has_children (DefaultResponse)
+    """
+    try:
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        children: list[dict[str, Any]] = [
+            CmdbLocation.to_json(location)
+            for location in locations_manager.get_locations_by(parent=RootLocationDefault.PUBLIC_ID)
+        ]
+
+        return DefaultResponse(build_location_level(children, locations_manager)).make_response()
+    except LocationsManagerGetError as err:
+        LOGGER.error("[get_cmdb_location_tree_roots] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the root Locations from the database!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_location_tree_roots] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while requesting the root Locations!")
+
+
+@location_blueprint.route('/tree/<int:public_id>/children', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@location_blueprint.protect(auth=True, right='base.framework.object.view')
+def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the direct children of one location in the tree
+
+    Powers the lazy expand of the sidebar location tree, one level at a time. Each returned node
+    carries a ``has_children`` flag so a further expand control can be shown without fetching its
+    subtree
+
+    Args:
+        public_id (int): public_id of the CmdbLocation whose direct children should be returned
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The location's direct children, each with has_children (DefaultResponse)
+    """
+    try:
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        children: list[dict[str, Any]] = [
+            CmdbLocation.to_json(location)
+            for location in locations_manager.get_locations_by(parent=public_id)
+        ]
+
+        return DefaultResponse(build_location_level(children, locations_manager)).make_response()
+    except LocationsManagerGetError as err:
+        LOGGER.error("[get_cmdb_location_tree_children] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the child Locations of Location with ID:{public_id}!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_location_tree_children] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while requesting children of Location with ID:{public_id}!")
 
 
 @location_blueprint.route('/<int:public_id>', methods=['GET'])

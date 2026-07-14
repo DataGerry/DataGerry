@@ -295,6 +295,34 @@ class TestGetLocationTreeAndRelations:
         child_ids = [child['public_id'] for child in response.get_json()]
         assert CHILD_LOCATION_ID in child_ids
 
+    def test_tree_roots_returns_root_children_flagged_has_children(self, rest_api) -> None:
+        """GET /locations/tree/roots returns the root's direct children, flagging those with children."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/roots')
+
+        assert response.status_code == HTTPStatus.OK
+        root_node = next(node for node in response.get_json() if node['public_id'] == ROOT_LOCATION_ID)
+        assert root_node['has_children'] is True  # it has CHILD_LOCATION_ID beneath it
+
+    def test_tree_children_returns_one_level_flagged(self, rest_api) -> None:
+        """GET /locations/tree/<id>/children returns the next level with has_children flags."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/{ROOT_LOCATION_ID}/children')
+
+        assert response.status_code == HTTPStatus.OK
+        nodes = {node['public_id']: node for node in response.get_json()}
+        assert CHILD_LOCATION_ID in nodes
+        assert nodes[CHILD_LOCATION_ID]['has_children'] is False  # leaf node
+        # Unused type metadata is trimmed from tree nodes
+        assert 'type_id' not in nodes[CHILD_LOCATION_ID]
+        assert 'type_label' not in nodes[CHILD_LOCATION_ID]
+        assert 'type_selectable' not in nodes[CHILD_LOCATION_ID]
+
+    def test_tree_children_of_leaf_is_empty(self, rest_api) -> None:
+        """A leaf location returns an empty children level."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/{CHILD_LOCATION_ID}/children')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == []
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  NAME DERIVATION                                                    #

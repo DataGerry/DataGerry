@@ -377,3 +377,31 @@ class TestGetAllDescendantLocationsCycleSafety:
 
         descendant_ids = {loc['public_id'] for loc in descendants}
         assert descendant_ids == {CYCLE_A_ID, CYCLE_B_ID}
+
+
+class TestGetParentsWithChildren:
+    """``get_parents_with_children`` returns only the queried ids that have a direct child."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """A parent with one child plus a childless standalone location."""
+        _insert_docs(database_manager, database_name, [
+            _location_doc(PARENT_LOCATION_ID, OBJECT_ID_FOR_GET, ROOT_PARENT_ID),
+            _location_doc(CHILD_A_LOCATION_ID, OBJECT_ID_FOR_UPDATE, PARENT_LOCATION_ID),
+            _location_doc(LOCATION_ID_FOR_INSERT, OBJECT_ID_FOR_INSERT, ROOT_PARENT_ID),
+        ])
+        yield
+        _drop_ids(database_manager, database_name,
+                  [PARENT_LOCATION_ID, CHILD_A_LOCATION_ID, LOCATION_ID_FOR_INSERT])
+
+    def test_returns_only_ids_with_children(self, locations_manager: LocationsManager) -> None:
+        """Of the queried ids only the parent (with a child) is returned; leaves are excluded."""
+        result = locations_manager.get_parents_with_children(
+            [PARENT_LOCATION_ID, CHILD_A_LOCATION_ID, LOCATION_ID_FOR_INSERT]
+        )
+
+        assert result == {PARENT_LOCATION_ID}
+
+    def test_empty_input_returns_empty_set(self, locations_manager: LocationsManager) -> None:
+        """An empty id list short-circuits to an empty set (no query)."""
+        assert locations_manager.get_parents_with_children([]) == set()
