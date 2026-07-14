@@ -27,13 +27,13 @@ import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { LocationService } from '../../services/location.service';
 
 import { CmdbMode } from '../../modes.enum';
-import { CmdbObject, MultiDataSectionEntry, MultiDataSectionFieldValue } from '../../models/cmdb-object';
+import { CmdbObject, MultiDataSectionEntry } from '../../models/cmdb-object';
 import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
+import { APIUpdateMultiResponse } from '../../../services/models/api-response';
 import { Column } from 'src/app/layout/table/table.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { finalize } from 'rxjs';
-import { buildObjectPatchPayload } from './object-patch.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -51,9 +51,6 @@ export class ObjectEditComponent implements OnInit {
     public commitForm: UntypedFormGroup;
     private objectID: number;
     public activeState: boolean;
-
-    // Object state as loaded from the backend, used to diff the PATCH payload
-    private originalSnapshot: CmdbObject;
 
     public selectedLocation: number = -1;
     public locationTreeName: string;
@@ -107,8 +104,6 @@ export class ObjectEditComponent implements OnInit {
             complete: () => {
                 this.objectService.getObject<CmdbObject>(this.objectID, true).subscribe(ob => {
                     this.objectInstance = ob;
-                    // Snapshot the pristine state so editObject() can build a minimal PATCH diff.
-                    this.originalSnapshot = JSON.parse(JSON.stringify(ob));
                 });
 
                 this.typeService.getType(this.renderResult.type_information.type_id).subscribe((value: CmdbType) => {
@@ -140,48 +135,102 @@ export class ObjectEditComponent implements OnInit {
     }
 
 
+    /**
+     * Adds the MultiDataSectionEntry data to the object instance
+     * @param multiDataSection (MultiDataSectionEntry):  the new data of the section 
+     */
+    handleMultiDataSection(multiDataSection: MultiDataSectionEntry) {
+        const existingSection = this.objectInstance.multi_data_sections.find(
+            s => s.section_id === multiDataSection.section_id
+        );
+        
+        if (existingSection) {
+            // Update existing section
+            existingSection.values = multiDataSection.values;
+        } else {
+            // Add new section
+            this.objectInstance.multi_data_sections.push(multiDataSection);
+        }
+    }
+
+
     public editObject(): void {
         this.renderForm.markAllAsTouched();
 
-        // Guard against a save fired before the pristine object finished loading: without the
-        // snapshot the diff cannot be trusted, so bail out instead of dereferencing undefined.
-        if (!this.renderForm.valid || !this.objectInstance || !this.originalSnapshot) {
-            return;
-        }
+        if (this.renderForm.valid) {
+            this.loaderService.show()
+            const patchValue = [];
 
-        const { fields, sections } = this.collectFormValues();
+            Object.keys(this.renderForm.value).forEach((key: string) => {
+                let val = this.renderForm.value[key];
 
-        this.handleLocation(
-            this.objectInstance.public_id,
-            this.selectedLocation,
-            this.locationTreeName,
-            this.objectInstance.type_id
-        );
+                if (key == 'dg_location') {
+                    this.selectedLocation = val;
+                } else if (key.startsWith('dg-mds-')) {
+                    if (val && !val.section_id) {
+                        const matchedSectionId = key.replace('dg-mds-', '');
+                        val.section_id = matchedSectionId;
+                    }
+                    this.handleMultiDataSection(val);
+                    // The mds control is UI-only; its data ships in multi_data_sections, not in fields.
+                    return;
+                }
+                else if (key == 'locationTreeName') {
+                    this.locationTreeName = val;
+                    return;
+                } else if (key == 'locationForObjectExists') {
+                    this.locationForObjectExists = String(val).toLowerCase() === 'true' ? true : false;
+                    return;
+                }
 
-        const { payload, hasChanges } = buildObjectPatchPayload({
-            originalFields: this.originalSnapshot?.fields ?? [],
-            editedFields: fields,
-            originalSections: this.originalSnapshot?.multi_data_sections ?? [],
-            editedSections: sections,
-            comment: this.commitForm.get('comment')?.value
-        });
+                if (val === undefined || val == null) {
+                    val = '';
 
-        // Nothing changed on the object itself; only the active state or location may differ.
-        if (!hasChanges) {
-            this.finalizeObjectUpdate();
-            return;
-        }
+                    if (key == "dg_location") {
+                        patchValue.push({
+                            name: key,
+                            value: null
+                        });
+                    }
+                } else {
+                    patchValue.push({
+                        name: key,
+                        value: val
+                    });
+                }
+            });
 
-        this.loaderService.show();
-        this.objectService.patchObject(this.objectID, payload)
-            .pipe(finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: () => this.finalizeObjectUpdate(),
+            this.handleLocation(this.objectInstance.public_id,
+                this.selectedLocation,
+                this.locationTreeName,
+                this.objectInstance.type_id);
+
+            this.objectInstance.fields = patchValue;
+            this.objectInstance.comment = this.commitForm.get('comment').value;
+            this.objectInstance.active = this.activeState;
+
+            this.objectService.putObject(this.objectID, this.objectInstance).pipe(finalize(() => this.loaderService.hide())).subscribe({
+                next: (res: APIUpdateMultiResponse) => {
+                    if (res.failed.length === 0) {
+                        this.objectService.changeState(this.objectID, this.activeState).subscribe((resp: boolean) => {
+                            this.sidebarService.ReloadSideBarData();
+                            this.toastService.success('Object was successfully updated!');
+                            this.router.navigate(['/framework/object/view/' + this.objectID]);
+                        });
+                    } else {
+                        for (const err of res.failed) {
+                            this.toastService.error(err.error_message);
+                        }
+
+                        this.router.navigate(['/framework/object/type/' + this.objectInstance.type_id]);
+                    }
+                },
                 error: e => {
                     this.toastService.error(e?.error?.message);
                     this.router.navigate(['/framework/object/type/' + this.objectInstance.type_id]);
                 }
             });
+        }
     }
 
 
@@ -240,69 +289,5 @@ export class ObjectEditComponent implements OnInit {
 
             return;
         }
-    }
-
-
-    /**
-     * Walks the render form once, splitting the controls into object fields and
-     * multi_data_section entries. Location-related controls are captured as a side
-     * effect and kept out of the field list, since location is persisted separately.
-     */
-    private collectFormValues(): { fields: MultiDataSectionFieldValue[]; sections: MultiDataSectionEntry[] } {
-        const fields: MultiDataSectionFieldValue[] = [];
-        const sections: MultiDataSectionEntry[] = [];
-
-        Object.keys(this.renderForm.value).forEach((key: string) => {
-            const value = this.renderForm.value[key];
-
-            if (key === 'dg_location') {
-                this.selectedLocation = value;
-                return;
-            }
-
-            if (key.startsWith('dg-mds-')) {
-                if (value) {
-                    if (!value.section_id) {
-                        value.section_id = key.replace('dg-mds-', '');
-                    }
-                    sections.push(value);
-                }
-                return;
-            }
-
-            if (key === 'locationTreeName') {
-                this.locationTreeName = value;
-                return;
-            }
-
-            if (key === 'locationForObjectExists') {
-                this.locationForObjectExists = String(value).toLowerCase() === 'true';
-                return;
-            }
-
-            fields.push({ name: key, value: value === undefined || value === null ? '' : value });
-        });
-
-        return { fields, sections };
-    }
-
-
-    /**
-     * Persists the active state and routes to the object view once the update is done.
-     */
-    private finalizeObjectUpdate(): void {
-        this.loaderService.show();
-        this.objectService.changeState(this.objectID, this.activeState)
-            .pipe(finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: () => {
-                    this.sidebarService.ReloadSideBarData();
-                    this.toastService.success('Object was successfully updated!');
-                    this.router.navigate(['/framework/object/view/' + this.objectID]);
-                },
-                error: e => {
-                    this.toastService.error(e?.error?.message);
-                }
-            });
     }
 }
