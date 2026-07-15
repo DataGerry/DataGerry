@@ -59,6 +59,16 @@ Example:
     :literal:
 
 | 
+You can also override configuration options using environment variables.
+This approach is especially useful when running DataGerry in Docker environments.
+
+.. code-block:: bash
+
+   DATAGERRY_<section_name>_<option_name>
+   DATAGERRY_Database_port=27018
+   
+|
+|
 Additionally there is a settings file for DataGerry frontend named ``app-config.json``,
 where you can define the settings for the connection to the backend.
 
@@ -68,13 +78,6 @@ Example:
     :literal:
 
 | 
-You can also override configuration options using environment variables.
-This approach is especially useful when running DataGerry in Docker environments.
-
-.. code-block:: bash
-
-   DATAGERRY_<section_name>_<option_name>
-   DATAGERRY_Database_port=27018
 
 
 =======================================================================================================================
