@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, BadRequest
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes import (
@@ -44,6 +44,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_rou
     get_cmdb_location_parent,
     get_cmdb_children,
     update_cmdb_location_for_object,
+    move_cmdb_location_for_object,
+    move_cmdb_locations,
     delete_cmdb_location_for_object,
 )
 from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
@@ -774,6 +776,36 @@ class TestUpdateCmdbLocationForObject:
         assert written['name'] == RESOLVED_NAME
         assert written['parent'] == PARENT_ID
 
+    def test_mirrors_the_parent_onto_the_object_location_field(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The object's location field is set to the same parent as the node (no desync)."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = SAMPLE_LOCATION_DICT
+
+        with patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME), \
+             patch(f'{ROUTE_PATH}.validate_object_location_change'), \
+             patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
+            self._call(flask_app, dict(UPDATE_PAYLOAD))
+
+        managers[ManagerType.OBJECTS].set_location_field_for_objects.assert_called_once_with(
+            [OBJECT_ID], PARENT_ID
+        )
+
+    def test_invalid_parent_placement_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A parent rejected by placement validation surfaces as 400 and nothing is written."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = SAMPLE_LOCATION_DICT
+
+        with patch(f'{ROUTE_PATH}.validate_object_location_change', side_effect=BadRequest('bad parent')):
+            with pytest.raises(HTTPException) as excinfo:
+                self._call(flask_app, dict(UPDATE_PAYLOAD))
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+        managers[ManagerType.LOCATIONS].update_location.assert_not_called()
+
     def test_missing_required_field_maps_to_400(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
@@ -854,17 +886,21 @@ class TestSearchCmdbLocationTree:
     def test_searches_and_builds_pruned_forest(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """The query is passed to the manager search and its result is handed to build_location_forest."""
+        """The search result + its has-children set are handed to build_location_forest."""
         del patched_provider
         matches = [{'public_id': 5, 'name': 'rack', 'parent': 1}]
         managers[ManagerType.LOCATIONS].search_locations_with_ancestors.return_value = matches
+        managers[ManagerType.LOCATIONS].get_parents_with_children.return_value = {5}
 
         with patch(f'{ROUTE_PATH}.build_location_forest', return_value=[{'public_id': 5}]) as forest, \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, 'rack')
 
         managers[ManagerType.LOCATIONS].search_locations_with_ancestors.assert_called_once_with('rack')
-        forest.assert_called_once_with(matches)
+        # the node ids of the search result drive the has-children lookup
+        managers[ManagerType.LOCATIONS].get_parents_with_children.assert_called_once_with([5])
+        # the forest is built from the matches AND the has-children set
+        forest.assert_called_once_with(matches, {5})
         response_cls.assert_called_once_with([{'public_id': 5}])
 
     def test_search_error_maps_to_400(
@@ -879,6 +915,119 @@ class TestSearchCmdbLocationTree:
             self._call(flask_app, 'rack')
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          move_cmdb_location_for_object                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMoveCmdbLocationForObject:
+    """``move_cmdb_location_for_object`` normalizes the parent then delegates to move_object_location."""
+
+    @staticmethod
+    def _call(flask_app: Flask, object_id: int, body: dict[str, Any]) -> Any:
+        """Drives the unwrapped handler inside a PATCH request context carrying the JSON body."""
+        with flask_app.test_request_context('/', method='PATCH', json=body):
+            return _unwrap(move_cmdb_location_for_object)(object_id=object_id, request_user=MagicMock())
+
+    def test_moves_with_normalized_parent(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A positive parent is passed through to move_object_location with both managers."""
+        del patched_provider
+
+        with patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             patch(f'{ROUTE_PATH}.move_object_location') as move:
+            self._call(flask_app, OBJECT_ID, {'parent': PARENT_ID})
+
+        args = move.call_args.args
+        assert args[0] == OBJECT_ID
+        assert args[1] == PARENT_ID
+        assert args[3] is managers[ManagerType.OBJECTS]
+        assert args[4] is managers[ManagerType.LOCATIONS]
+
+    def test_zero_parent_is_normalized_to_none(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A parent of 0 (no-parent sentinel) reaches move_object_location as None."""
+        del patched_provider
+
+        with patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             patch(f'{ROUTE_PATH}.move_object_location') as move:
+            self._call(flask_app, OBJECT_ID, {'parent': 0})
+
+        assert move.call_args.args[1] is None
+
+    def test_manager_error_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A LocationsManager error from the move is translated to HTTP 400."""
+        del patched_provider
+
+        with patch(f'{ROUTE_PATH}.move_object_location', side_effect=LocationsManagerUpdateError('boom')):
+            with pytest.raises(HTTPException) as excinfo:
+                self._call(flask_app, OBJECT_ID, {'parent': PARENT_ID})
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               move_cmdb_locations                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMoveCmdbLocations:
+    """``move_cmdb_locations`` guards the id list, validates every target, then moves each."""
+
+    @staticmethod
+    def _call(flask_app: Flask, body: dict[str, Any]) -> Any:
+        """Drives the unwrapped bulk handler inside a PATCH request context carrying the JSON body."""
+        with flask_app.test_request_context('/', method='PATCH', json=body):
+            return _unwrap(move_cmdb_locations)(request_user=MagicMock())
+
+    def test_non_list_object_ids_aborts_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A non-list object_ids body is rejected 400."""
+        del patched_provider
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, {'object_ids': OBJECT_ID, 'parent': PARENT_ID})
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_empty_object_ids_aborts_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """An empty object_ids list is rejected 400."""
+        del patched_provider
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, {'object_ids': [], 'parent': PARENT_ID})
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_non_integer_ids_abort_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A non-integer id in the list is rejected 400."""
+        del patched_provider
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, {'object_ids': ['not-an-int'], 'parent': PARENT_ID})
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_validates_all_targets_then_moves_each(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """Every target is validated up front, then each is moved with its pre-validated type."""
+        del patched_provider
+
+        with patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             patch(f'{ROUTE_PATH}.validate_object_location_move', return_value=MagicMock()) as validate_move, \
+             patch(f'{ROUTE_PATH}.move_object_location') as move:
+            self._call(flask_app, {'object_ids': [1, 2], 'parent': PARENT_ID})
+
+        assert validate_move.call_count == 2
+        assert move.call_count == 2
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -61,6 +61,8 @@ OBJECT_ID_FOR_UPDATE: int = 9885
 LOCATION_ID_FOR_DELETE: int = 9886
 OBJECT_ID_FOR_DELETE: int = 9886
 
+NON_SELECTABLE_PARENT_LOC: int = 9887
+
 DERIVE_POST_OBJECT_ID: int = 9890
 DERIVE_PUT_OBJECT_ID: int = 9891
 DERIVE_PUT_LOCATION_ID: int = 9892
@@ -85,6 +87,7 @@ ALL_LOCATION_IDS: list[int] = [
     LOCATION_ID_FOR_GET, ROOT_LOCATION_ID, CHILD_LOCATION_ID,
     LOCATION_ID_FOR_UPDATE, LOCATION_ID_FOR_DELETE, DERIVE_PUT_LOCATION_ID,
     SEARCH_DC_LOC, SEARCH_RACK_LOC, SEARCH_SRV_LOC, SEARCH_OFFICE_LOC,
+    NON_SELECTABLE_PARENT_LOC,
 ]
 ALL_OBJECT_IDS: list[int] = [
     OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_GET, ROOT_OBJECT_ID, CHILD_OBJECT_ID,
@@ -322,10 +325,10 @@ class TestGetLocationTreeAndRelations:
         nodes = {node['public_id']: node for node in response.get_json()}
         assert CHILD_LOCATION_ID in nodes
         assert nodes[CHILD_LOCATION_ID]['has_children'] is False  # leaf node
-        # Unused type metadata is trimmed from tree nodes
+        # Unused type metadata is trimmed from tree nodes, but type_selectable is kept for drag-drop
         assert 'type_id' not in nodes[CHILD_LOCATION_ID]
         assert 'type_label' not in nodes[CHILD_LOCATION_ID]
-        assert 'type_selectable' not in nodes[CHILD_LOCATION_ID]
+        assert 'type_selectable' in nodes[CHILD_LOCATION_ID]
 
     def test_tree_children_of_leaf_is_empty(self, rest_api) -> None:
         """A leaf location returns an empty children level."""
@@ -368,6 +371,13 @@ class TestSearchLocationTree:
         assert [node['public_id'] for node in rack_level] == [SEARCH_RACK_LOC]
         server_level = rack_level[0]['children']
         assert [node['public_id'] for node in server_level] == [SEARCH_SRV_LOC]
+        # each node carries has_children reflecting real direct children in the full tree
+        assert forest[0]['has_children'] is True       # Datacenter has Rack-01
+        assert rack_level[0]['has_children'] is True    # Rack-01 has Server-alpha
+        assert server_level[0]['has_children'] is False  # Server-alpha is a leaf
+        # and type_selectable is present on search nodes too (for drag-drop drop targets)
+        assert forest[0]['type_selectable'] is True
+        assert server_level[0]['type_selectable'] is True
 
     def test_search_no_match_returns_empty_forest(self, rest_api) -> None:
         """A query matching no location name returns an empty forest."""
@@ -455,6 +465,27 @@ class TestPutLocation:
             assert follow_up.get_json()['name'] == UPDATED_NAME
         finally:
             _drop_locations_by_ids(database_manager, database_name, [LOCATION_ID_FOR_UPDATE])
+
+    def test_update_to_non_selectable_parent_rejected(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Updating the location to a parent whose type is not selectable-as-parent is rejected 400."""
+        _insert_location(database_manager, database_name, _location_doc(
+            LOCATION_ID_FOR_UPDATE, OBJECT_ID_FOR_UPDATE, ROOT_PARENT_ID,
+        ))
+        non_selectable = _location_doc(NON_SELECTABLE_PARENT_LOC, NON_SELECTABLE_PARENT_LOC, ROOT_PARENT_ID)
+        non_selectable['type_selectable'] = False
+        _insert_location(database_manager, database_name, non_selectable)
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/update_location',
+                json={'object_id': OBJECT_ID_FOR_UPDATE, 'parent': NON_SELECTABLE_PARENT_LOC, 'name': UPDATED_NAME},
+            )
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_locations_by_ids(database_manager, database_name,
+                                   [LOCATION_ID_FOR_UPDATE, NON_SELECTABLE_PARENT_LOC])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

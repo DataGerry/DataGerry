@@ -76,6 +76,18 @@ class TestInit:
         with pytest.raises(LocationNodeInitError):
             LocationNode(incomplete)
 
+    def test_type_selectable_defaults_true_when_absent(self) -> None:
+        """A location dict without ``type_selectable`` defaults the node to selectable."""
+        node = LocationNode(_location(PARENT_ID, ROOT_PUBLIC_ID))
+
+        assert node.type_selectable is True
+
+    def test_type_selectable_is_read_from_params(self) -> None:
+        """An explicit ``type_selectable`` is copied onto the node."""
+        node = LocationNode({**_location(PARENT_ID, ROOT_PUBLIC_ID), 'type_selectable': False})
+
+        assert node.type_selectable is False
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     get_children                                                     #
@@ -159,6 +171,12 @@ class TestToJson:
         assert 'children' not in result
         assert result['public_id'] == PARENT_ID
         assert result['object_id'] == PARENT_ID + 100
+
+    def test_emits_type_selectable(self) -> None:
+        """``to_json`` includes ``type_selectable`` (used by the drag-drop drop-target check)."""
+        node = LocationNode({**_location(PARENT_ID, ROOT_PUBLIC_ID), 'type_selectable': False})
+
+        assert LocationNode.to_json(node)['type_selectable'] is False
 
     def test_nested_children_are_serialized_recursively(self) -> None:
         """A populated subtree is serialized with nested ``children`` arrays."""

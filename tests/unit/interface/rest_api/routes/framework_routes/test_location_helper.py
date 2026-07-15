@@ -37,6 +37,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     sync_object_location,
     build_location_level,
     delete_location_with_reparenting,
+    normalize_parent_id,
+    validate_object_location_move,
+    move_object_location,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -59,6 +62,8 @@ FALLBACK_NAME: str = f'ObjectID: {OBJECT_ID}'
 
 HTTP_BAD_REQUEST: int = 400
 HTTP_NOT_FOUND: int = 404
+HTTP_INTERNAL_SERVER_ERROR: int = 500
+TYPE_ID: int = 77
 
 PARENT_ID: int = 10
 CHILD_ID: int = 11
@@ -207,6 +212,29 @@ class TestBuildLocationForest:
 
         assert build_location_forest(locations) == []
 
+    def test_no_has_children_flag_without_the_set(self) -> None:
+        """Without a parents_with_children set the nodes carry no has_children flag (old /tree shape)."""
+        forest = build_location_forest([_location(PARENT_ID, ROOT_PUBLIC_ID)])
+
+        assert 'has_children' not in forest[0]
+
+    def test_annotates_has_children_from_the_supplied_set(self) -> None:
+        """With the set, every node (nested too) is flagged from real-tree children, not the prune."""
+        locations = [
+            _location(PARENT_ID, ROOT_PUBLIC_ID),
+            _location(CHILD_ID, PARENT_ID),
+            _location(GRANDCHILD_ID, CHILD_ID),
+        ]
+
+        forest = build_location_forest(locations, {PARENT_ID, CHILD_ID})
+
+        root = forest[0]
+        child = root['children'][0]
+        grandchild = child['children'][0]
+        assert root['has_children'] is True         # PARENT_ID is in the set
+        assert child['has_children'] is True        # CHILD_ID is in the set
+        assert grandchild['has_children'] is False  # GRANDCHILD_ID is not (a leaf in the full tree)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          extract_object_location_parent                                             #
@@ -309,10 +337,22 @@ class TestValidateObjectLocationChange:
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
-    def test_valid_new_parent_passes(self, flask_app: Flask) -> None:
-        """An existing parent outside the object's own subtree is accepted."""
+    def test_parent_not_selectable_as_parent_aborts_400(self, flask_app: Flask) -> None:
+        """A parent whose type is not selectable-as-parent (type_selectable False) is rejected -> 400."""
         manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
-        manager.get_location.return_value = {'public_id': NEW_PARENT_ID}
+        manager.get_location.return_value = {'public_id': NEW_PARENT_ID, 'type_selectable': False}
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        # rejected on selectability before the cycle lookup
+        manager.get_all_descendant_locations.assert_not_called()
+
+    def test_valid_new_parent_passes(self, flask_app: Flask) -> None:
+        """An existing, selectable parent outside the object's own subtree is accepted."""
+        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+        manager.get_location.return_value = {'public_id': NEW_PARENT_ID, 'type_selectable': True}
         manager.get_all_descendant_locations.return_value = [{'public_id': DESCENDANT_LOCATION_ID}]
 
         with flask_app.test_request_context():
@@ -335,6 +375,141 @@ class TestValidateObjectLocationChange:
 
         with flask_app.test_request_context():
             validate_object_location_change(OBJECT_ID, None, manager)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                normalize_parent_id                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestNormalizeParentId:
+    """normalize_parent_id keeps positive ids and maps null / non-positive / non-int to None."""
+
+    def test_positive_id_is_kept(self) -> None:
+        """A positive parent id is returned unchanged."""
+        assert normalize_parent_id(NEW_PARENT_ID) == NEW_PARENT_ID
+
+    def test_root_id_is_kept(self) -> None:
+        """The root id (1) is a valid positive parent and is kept."""
+        assert normalize_parent_id(ROOT_PUBLIC_ID) == ROOT_PUBLIC_ID
+
+    def test_zero_becomes_none(self) -> None:
+        """Zero (the no-parent sentinel) maps to None (remove placement)."""
+        assert normalize_parent_id(0) is None
+
+    def test_none_becomes_none(self) -> None:
+        """A null parent maps to None."""
+        assert normalize_parent_id(None) is None
+
+    def test_numeric_string_is_coerced(self) -> None:
+        """A numeric string is coerced to its int value."""
+        assert normalize_parent_id(str(NEW_PARENT_ID)) == NEW_PARENT_ID
+
+    def test_non_numeric_value_becomes_none(self) -> None:
+        """A non-numeric value maps to None rather than raising."""
+        assert normalize_parent_id('not-a-number') is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_object_location_move                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValidateObjectLocationMove:
+    """validate_object_location_move checks object/type/location-field, then runs placement validation."""
+
+    @staticmethod
+    def _object(has_location: bool) -> MagicMock:
+        """A MagicMock CmdbObject with a type id and a configurable has-location-field answer."""
+        cmdb_object = MagicMock(name='cmdb_object')
+        cmdb_object.get_type_id.return_value = TYPE_ID
+        cmdb_object.has_fields_of_type.return_value = has_location
+        return cmdb_object
+
+    def test_missing_object_aborts_404(self, flask_app: Flask) -> None:
+        """A missing object aborts 404."""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = None
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock())
+
+        assert exc_info.value.code == HTTP_NOT_FOUND
+
+    def test_missing_type_aborts_500(self, flask_app: Flask) -> None:
+        """An object whose type cannot be resolved aborts 500."""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = self._object(True)
+        objects_manager.get_object_type.return_value = None
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock())
+
+        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
+
+    def test_object_without_location_field_aborts_400(self, flask_app: Flask) -> None:
+        """An object whose type declares no location field cannot be placed -> 400."""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = self._object(False)
+        objects_manager.get_object_type.return_value = MagicMock(name='type')
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock())
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_valid_returns_type_and_runs_placement_validation(self) -> None:
+        """A placeable object returns its type and delegates the placement check to the validator."""
+        objects_manager = MagicMock(name='objects_manager')
+        cmdb_object = self._object(True)
+        object_type = MagicMock(name='type')
+        objects_manager.get_object.return_value = cmdb_object
+        objects_manager.get_object_type.return_value = object_type
+        locations_manager = MagicMock(name='locations_manager')
+
+        with patch(f'{HELPER_PATH}.validate_object_location_change') as validate_change:
+            result = validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager)
+
+        assert result is object_type
+        cmdb_object.has_fields_of_type.assert_called_once_with(FieldType.LOCATION)
+        validate_change.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, locations_manager)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              move_object_location                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMoveObjectLocation:
+    """move_object_location validates (unless a type is supplied), then mirrors field + node."""
+
+    def test_validates_then_mirrors_both_sides(self) -> None:
+        """With no pre-validated type, it validates first, sets the object field and syncs the node."""
+        objects_manager = MagicMock(name='objects_manager')
+        locations_manager = MagicMock(name='locations_manager')
+        request_user = MagicMock(name='request_user')
+        object_type = MagicMock(name='type')
+
+        with patch(f'{HELPER_PATH}.validate_object_location_move', return_value=object_type) as validate_move, \
+             patch(f'{HELPER_PATH}.sync_object_location') as sync:
+            move_object_location(OBJECT_ID, NEW_PARENT_ID, request_user, objects_manager, locations_manager)
+
+        validate_move.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager)
+        objects_manager.set_location_field_for_objects.assert_called_once_with([OBJECT_ID], NEW_PARENT_ID)
+        sync.assert_called_once_with(
+            OBJECT_ID, NEW_PARENT_ID, None, object_type, request_user, objects_manager, locations_manager
+        )
+
+    def test_supplied_type_skips_validation(self) -> None:
+        """When a pre-validated type is passed (bulk path) it does not re-validate; None removes placement."""
+        objects_manager = MagicMock(name='objects_manager')
+        locations_manager = MagicMock(name='locations_manager')
+        request_user = MagicMock(name='request_user')
+        object_type = MagicMock(name='type')
+
+        with patch(f'{HELPER_PATH}.validate_object_location_move') as validate_move, \
+             patch(f'{HELPER_PATH}.sync_object_location') as sync:
+            move_object_location(OBJECT_ID, None, request_user, objects_manager, locations_manager, object_type)
+
+        validate_move.assert_not_called()
+        objects_manager.set_location_field_for_objects.assert_called_once_with([OBJECT_ID], None)
+        sync.assert_called_once_with(
+            OBJECT_ID, None, None, object_type, request_user, objects_manager, locations_manager
+        )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -510,8 +685,8 @@ class TestBuildLocationLevel:
         assert level[0]['parent'] == ROOT_PUBLIC_ID
         assert level[0]['has_children'] is False
 
-    def test_drops_unused_type_metadata(self) -> None:
-        """type_id, type_label and type_selectable are stripped; the other fields are kept."""
+    def test_drops_unused_type_metadata_but_keeps_selectable(self) -> None:
+        """type_id and type_label are stripped; type_selectable is kept (for drag-drop) with the rest."""
         manager = MagicMock(name='locations_manager')
         manager.get_parents_with_children.return_value = set()
 
@@ -522,6 +697,6 @@ class TestBuildLocationLevel:
 
         assert 'type_id' not in node
         assert 'type_label' not in node
-        assert 'type_selectable' not in node
+        assert node['type_selectable'] is True
         assert node['type_icon'] == 'fa-cube'
         assert node['object_id'] == 99

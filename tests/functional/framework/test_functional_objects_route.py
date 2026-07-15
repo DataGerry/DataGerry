@@ -46,6 +46,7 @@ from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/objects'
+LOCATIONS_ROUTE_URL: str = '/locations'
 
 TYPE_ID: int = 9401
 TYPE_NAME: str = 'route-smoke-type'
@@ -1224,6 +1225,7 @@ LSYNC_PARENT_A: int = 9490
 LSYNC_PARENT_B: int = 9491
 LSYNC_OWN_LOCATION: int = 9492
 LSYNC_CHILD_LOCATION: int = 9493
+LSYNC_NONSELECTABLE_LOC: int = 9494
 NONEXISTENT_PARENT: int = 88888
 CUSTOM_LOCATION_NAME: str = 'Custom Location Name'
 
@@ -1345,6 +1347,21 @@ class TestObjectLocationSync:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert rest_api.get(f'{ROUTE_URL}/native/{LSYNC_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
 
+    def test_post_under_non_selectable_parent_rejected(self, rest_api, database_manager, database_name) -> None:
+        """POSTing under a parent whose type is not selectable-as-parent is rejected 400 (object not created)."""
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        non_selectable = _loc_doc(LSYNC_NONSELECTABLE_LOC, 9479, ROOT_LOCATION_ID)
+        non_selectable['type_selectable'] = False
+        locations.insert_one(non_selectable)
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/',
+                                     json=_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_NONSELECTABLE_LOC))
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert rest_api.get(f'{ROUTE_URL}/native/{LSYNC_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+        finally:
+            locations.delete_many({'public_id': LSYNC_NONSELECTABLE_LOC})
+
     # ---- EDIT (PUT) ---- #
     def test_put_updates_location_parent(self, rest_api, database_manager, database_name) -> None:
         """Changing the object's location field via PUT moves its CmdbLocation to the new parent."""
@@ -1443,3 +1460,107 @@ class TestObjectLocationSync:
         location = self._location_of(database_manager, database_name, LSYNC_OBJECT_ID)
         assert location['name'] == CUSTOM_LOCATION_NAME
         assert location['parent'] == LSYNC_PARENT_A
+
+    # ---- MOVE (drag & drop) ---- #
+    def test_move_single_reparents_node_and_object_field(self, rest_api, database_manager, database_name) -> None:
+        """PATCH /locations/<id>/parent moves the node to the new parent and mirrors the object field."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/{LSYNC_OBJECT_ID}/parent', json={'parent': LSYNC_PARENT_B})
+
+        assert response.status_code == HTTPStatus.OK
+        # the location NODE now points at the new parent
+        assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_B
+        # and the object's mirrored location field is updated too
+        moved_object = objects.find_one({'public_id': LSYNC_OBJECT_ID})
+        location_field = next(f for f in moved_object['fields'] if f['name'] == LOCATION_FIELD_NAME)
+        assert location_field['value'] == LSYNC_PARENT_B
+
+    def test_move_single_under_non_selectable_parent_rejected(
+        self, rest_api, database_manager, database_name,
+    ) -> None:
+        """A move onto a parent whose type is not selectable-as-parent is rejected 400 (unchanged)."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        non_selectable = _loc_doc(LSYNC_NONSELECTABLE_LOC, 9479, ROOT_LOCATION_ID)
+        non_selectable['type_selectable'] = False
+        locations.insert_one(non_selectable)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+        try:
+            response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/{LSYNC_OBJECT_ID}/parent',
+                                      json={'parent': LSYNC_NONSELECTABLE_LOC})
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            # the placement is unchanged
+            assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_A
+        finally:
+            locations.delete_many({'public_id': LSYNC_NONSELECTABLE_LOC})
+
+    def test_move_many_reparents_all_targets(self, rest_api, database_manager, database_name) -> None:
+        """PATCH /locations/parents moves every listed object's placement under the common parent."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        objects.insert_one({**_loc_object_payload(LSYNC_CHILD_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+        locations.insert_one(_loc_doc(LSYNC_CHILD_LOCATION, LSYNC_CHILD_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/parents',
+                                  json={'object_ids': [LSYNC_OBJECT_ID, LSYNC_CHILD_OBJECT_ID],
+                                        'parent': LSYNC_PARENT_B})
+
+        assert response.status_code == HTTPStatus.OK
+        assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_B
+        assert locations.find_one({'object_id': LSYNC_CHILD_OBJECT_ID})['parent'] == LSYNC_PARENT_B
+
+    def test_move_many_is_atomic_on_an_invalid_target(self, rest_api, database_manager, database_name) -> None:
+        """One invalid target (missing object) rejects the whole batch; the valid target is untouched."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/parents',
+                                  json={'object_ids': [LSYNC_OBJECT_ID, NONEXISTENT_PARENT],
+                                        'parent': LSYNC_PARENT_B})
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        # the valid target was NOT moved - the batch is atomic
+        assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_A
+
+    def test_move_many_empty_list_rejected(self, rest_api) -> None:
+        """An empty object_ids list is rejected 400."""
+        response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/parents', json={'object_ids': [], 'parent': LSYNC_PARENT_B})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    # ---- UPDATE_LOCATION route mirrors both sides ---- #
+    def test_update_location_route_mirrors_object_field(self, rest_api, database_manager, database_name) -> None:
+        """PUT /locations/update_location updates the node AND the object's mirrored location field."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+
+        response = rest_api.put(
+            f'{LOCATIONS_ROUTE_URL}/update_location',
+            json={'object_id': LSYNC_OBJECT_ID, 'parent': LSYNC_PARENT_B, 'name': 'moved'},
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        # the location NODE points at the new parent
+        assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_B
+        # and the object's mirrored location field matches it (no desync)
+        moved_object = objects.find_one({'public_id': LSYNC_OBJECT_ID})
+        location_field = next(f for f in moved_object['fields'] if f['name'] == LOCATION_FIELD_NAME)
+        assert location_field['value'] == LSYNC_PARENT_B
