@@ -103,11 +103,11 @@ To change the backend port do the following steps:
 		}
 
 
-    Restart DataGerry:
+	Restart DataGerry:
 
-    .. code-block:: console
+	.. code-block:: console
 	
-        systemctl restart datagerry
+		systemctl restart datagerry
 
 
 .. note::
