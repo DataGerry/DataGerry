@@ -47,7 +47,6 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access, h
 from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     extract_public_ids,
-    object_has_location,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     delete_one_cascade,
@@ -57,7 +56,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     handle_delete_invalid_object_relations,
     handle_delete_from_object_groups,
     handle_delete_object_location,
-    handle_delete_location_and_child_locations,
     sync_select_field_options,
     render_or_native,
     build_new_object_data,
@@ -1152,209 +1150,6 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         abort(500, f"An internal server error occured while deleting the Object with ID: {public_id}!")
 
 
-@objects_blueprint.route('/<int:public_id>/locations', methods=['DELETE'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
-def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `DELETE` route that removes a CmdbObject and every CmdbLocation beneath its location
-
-    Refuses the delete when the object is a SUPERNET / SUBNET still referenced by other IPAM
-    objects (subnets, vlans or interface rows). The 404 case is hit when either the object or
-    its location is missing
-
-    Args:
-        public_id (int): public_id of the CmdbObject to delete
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        DefaultResponse: True after a successful delete
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        # Check if object exists
-        to_delete_object: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
-
-        if not to_delete_object:
-            abort(404, f"Object with ID:{public_id} not found!")
-
-        if not object_has_location(request_user, public_id):
-            abort(404, f"Location of the Object with ID:{public_id} not found!")
-
-        to_delete_object_type: CmdbType | None = objects_manager.get_object_type(to_delete_object.get_type_id())
-
-        if not to_delete_object_type:
-            abort(500, f"Type of Object with ID:{public_id} not found in database!")
-
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        # Deleting an IPAM special-type object needs a valid IPAM license + passes the delete guards
-        guard_object_delete(objects_manager, types_manager, request_user, CmdbObject.to_json(to_delete_object))
-
-        # Delete the object (reusing the already-resolved type to skip a per-object type lookup)
-        objects_manager.delete_with_follow_up(
-            public_id, request_user, permission=AccessControlPermission.DELETE, object_type=to_delete_object_type
-        )
-
-        # Remove the object's location subtree. The child objects are KEPT, so clear the now-dangling
-        # location reference on each of them (the object_ids of the deleted descendant location nodes)
-        orphaned_child_object_ids: list[int] = handle_delete_location_and_child_locations(request_user, public_id)
-        objects_manager.clear_location_field_for_objects(orphaned_child_object_ids)
-
-        # Remove all references to this object from other CmdbObjects
-        objects_manager.delete_all_object_references(public_id)
-
-        # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
-
-        return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerUpdateError as err:
-        LOGGER.error("[delete_cmdb_object_with_child_locations] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(500, "Failed to delete Object references from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[delete_cmdb_object_with_child_locations] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the requested Object from the database!")
-    except ObjectsManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_object_with_child_locations] ObjectsManagerDeleteError: %s", err, exc_info=True)
-        abort(500, "Failed to delete the Object in the database!")
-    except Exception as err:
-        LOGGER.error(
-            "[delete_cmdb_object_with_child_locations] Exception: %s. Type: %s", err, type(err), exc_info=True
-        )
-        abort(500, "An internal server error occured while deleting Object with child Locations!")
-
-
-@objects_blueprint.route('/<int:public_id>/children', methods=['DELETE'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
-# Cohesive cascade: guard -> RA cascade -> per-child delete/relations/webhook/log -> target delete;
-# the locals/statements are inherent to the sequence
-# pylint: disable=too-many-locals,too-many-statements
-def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `DELETE` route that removes a CmdbObject together with every child CmdbObject in its
-    location tree, and every CmdbLocation beneath the target's location
-
-    The IPAM delete guard is run for the target and each cascade-deleted child up front, so a
-    single offending object refuses the whole cascade before any write happens
-
-    Args:
-        public_id (int): public_id of the root CmdbObject to delete
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        DefaultResponse: True after a successful cascade delete
-    """
-    try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        # check if object exists
-        target_object: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
-
-        if not target_object:
-            abort(404, f"Object with ID:{public_id} not found!")
-
-        # check if location for this object exists
-        if not object_has_location(request_user, public_id):
-            abort(404, f"Location for the Object with ID:{public_id} not found!")
-
-        to_delete_object_type: CmdbType | None = objects_manager.get_object_type(target_object.get_type_id())
-
-        if not to_delete_object_type:
-            abort(404, f"Type of Object with ID:{public_id} not found in database!")
-
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        # Resolve the child objects ONCE, up front: handle_delete_location_and_child_locations below
-        # deletes this object's own location, after which get_child_locations_object_ids can no
-        # longer resolve the children. The same snapshot is used for the guard and the deletion
-        children_object_ids: list[int] = locations_manager.get_child_locations_object_ids(public_id)
-        children_objects: list[dict[str, Any]] = []
-
-        if children_object_ids:
-            children_objects = objects_manager.find(criteria={"public_id": {"$in": children_object_ids}})
-
-        guard_targets: list[dict[str, Any]] = [CmdbObject.to_json(target_object), *children_objects]
-
-        for guard_target in guard_targets:
-            # Deleting an IPAM special-type object (parent or child) needs a license + passes guards
-            guard_object_delete(objects_manager, types_manager, request_user, guard_target)
-
-        # Resolve the type of every object to delete once, so the per-object deletes below reuse it
-        # instead of each re-fetching its type (bulk-delete N+1 avoidance)
-        child_type_map: dict[int, CmdbType] = types_manager.get_types_lookup(
-            [child["type_id"] for child in children_objects if child.get("type_id") is not None]
-        )
-
-        # RiskAssessment/ControlMeasureAssignment cascade for the whole set in one query pair,
-        # instead of the per-object cascade delete_with_follow_up would run for each object
-        objects_manager.delete_objects_from_risk_assessment_cascade([public_id, *children_object_ids])
-
-        # Remove all child locations
-        handle_delete_location_and_child_locations(request_user, public_id)
-
-        if children_object_ids:
-            for child_object in children_objects:
-                child_object_id = child_object["public_id"]
-
-                # Delete the current child object (RA cascade + type already handled/resolved above)
-                objects_manager.delete_object(
-                    child_object_id,
-                    request_user,
-                    AccessControlPermission.DELETE,
-                    object_type=child_type_map.get(child_object.get("type_id")),
-                )
-
-                # Remove invalid CmdbObjectRelations since the object no longer exists
-                handle_delete_invalid_object_relations(request_user, child_object_id)
-
-                # Notify via Webhooks
-                handle_notify_webhooks(request_user, CmdbObject.from_data(child_object), WebhookEventType.DELETE)
-
-                # Create object deletion log entry
-                handle_create_object_log(request_user, CmdbObject.from_data(child_object), LogAction.DELETE)
-
-            # Remove all child objects from static object groups
-            handle_delete_from_object_groups(request_user, children_object_ids)
-
-            # Scrub dangling references to the deleted children from sibling CmdbObjects
-            objects_manager.delete_all_object_references(children_object_ids)
-
-
-        # Delete target Object (RA cascade + type already handled/resolved above)
-        objects_manager.delete_object(
-            public_id, request_user, AccessControlPermission.DELETE, object_type=to_delete_object_type
-        )
-
-        # Remove all references to this object from other CmdbObjects
-        objects_manager.delete_all_object_references(public_id)
-
-        # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, target_object, objects_manager, LogAction.DELETE)
-
-        return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerUpdateError as err:
-        LOGGER.error("[delete_object_with_child_objects] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(500, "Failed to delete Object references from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[delete_object_with_child_objects] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the requested Object from the database!")
-    except ObjectsManagerDeleteError as err:
-        LOGGER.error("[delete_object_with_child_objects] ObjectsManagerDeleteError: %s", err, exc_info=True)
-        abort(500, "Failed to delete the Object in the database!")
-    except Exception as err:
-        LOGGER.error("[delete_object_with_child_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while deleting an Object with child Objects!")
-
-
 @objects_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
@@ -1366,8 +1161,9 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
     """
     HTTP `DELETE` route to bulk-delete CmdbObjects by a comma-separated id list
 
-    Refuses the operation when any target has a CmdbLocation. The IPAM delete guard is
-    evaluated atomically up front: if any one target would orphan IPAM references, no delete
+    Each located target has its CmdbLocation deleted and that location's direct children promoted
+    onto its parent (their grandparent), keeping the location tree connected. The IPAM delete guard
+    is evaluated atomically up front: if any one target would orphan IPAM references, no delete
     happens. After deleting, removes references to the deleted objects, drops them from static
     object groups, emits a webhook + log per object, and syncs the cloud-mode item count
 
@@ -1381,6 +1177,7 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        # Resolved once and reused for every target's location cleanup in the loop below
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
         to_delete_object_ids: list[int] = extract_public_ids(public_ids)
@@ -1388,15 +1185,6 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
         to_delete_objects: list[dict[str, Any]] = objects_manager.find(
             criteria={'public_id': {"$in": to_delete_object_ids}}
         )
-
-        # At the current state it is not possible to bulk delete objects with locations
-        # check if any object has a location
-        object_locations: list[dict[str, Any]] = locations_manager.find(
-            criteria={'object_id': {"$in": to_delete_object_ids}}
-        )
-
-        if object_locations:
-            abort(400, "It is not possible to bulk delete objects if any of them has a location!")
 
         # Get types of all objects which should be deleted
         object_type_ids: list[int] = [
@@ -1424,6 +1212,13 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
             if not current_object_type:
                 abort(404, f"Type of Object with ID:{current_object.get_public_id()} not found in database!")
+
+            # Delete the object's location (if any); its direct children are promoted onto the
+            # location's own parent (their grandparent), keeping the location tree connected.
+            # Managers are passed in so the loop doesn't re-resolve them per object
+            handle_delete_object_location(
+                request_user, current_object.get_public_id(), locations_manager, objects_manager
+            )
 
             # RA cascade already handled in bulk above; reuse the resolved type (skip the per-object lookup)
             objects_manager.delete_object(

@@ -459,58 +459,6 @@ PARENT_LOCATION_ID: int = 9431
 CHILD_LOCATION_ID: int = 9432
 
 
-class TestDeleteObjectWithChildObjects:
-    """DELETE /objects/<id>/children removes the target AND every child object in its location tree.
-
-    Regression for the bug where the child object ids were re-resolved AFTER the parent's own
-    location had already been deleted, so get_child_locations_object_ids returned nothing and the
-    child objects were silently never deleted.
-    """
-
-    def _seed(self, database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Seeds a parent object + child object and a location tree linking the child under the parent."""
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
-
-        objects.insert_one(_object_doc(PARENT_OBJECT_ID, 'parent'))
-        objects.insert_one(_object_doc(CHILD_OBJECT_ID, 'child'))
-
-        locations.insert_one({
-            'public_id': PARENT_LOCATION_ID, 'name': 'parent-loc', 'parent': 1,
-            'object_id': PARENT_OBJECT_ID, 'type_id': TYPE_ID, 'type_label': TYPE_NAME,
-        })
-        locations.insert_one({
-            'public_id': CHILD_LOCATION_ID, 'name': 'child-loc', 'parent': PARENT_LOCATION_ID,
-            'object_id': CHILD_OBJECT_ID, 'type_id': TYPE_ID, 'type_label': TYPE_NAME,
-        })
-
-    def _cleanup(self, database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Removes the seeded objects and locations regardless of test outcome."""
-        database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(
-            {'public_id': {'$in': [PARENT_OBJECT_ID, CHILD_OBJECT_ID]}}
-        )
-        database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
-            {'public_id': {'$in': [PARENT_LOCATION_ID, CHILD_LOCATION_ID]}}
-        )
-
-    def test_child_objects_are_deleted(
-        self,
-        rest_api,
-        database_manager: MongoDatabaseManager,
-        database_name: str,
-    ) -> None:
-        """After deleting the parent with its children, both parent and child objects report 404."""
-        self._seed(database_manager, database_name)
-        try:
-            response = rest_api.delete(f'{ROUTE_URL}/{PARENT_OBJECT_ID}/children')
-
-            assert response.status_code == HTTPStatus.OK
-            assert rest_api.get(f'{ROUTE_URL}/native/{PARENT_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
-            assert rest_api.get(f'{ROUTE_URL}/native/{CHILD_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
-        finally:
-            self._cleanup(database_manager, database_name)
-
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        GAP-FILL: shared helpers + ids                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -532,6 +480,10 @@ LOC_PARENT_OBJECT_ID: int = 9453
 LOC_CHILD_OBJECT_ID: int = 9454
 DELETE_MANY_IDS: list[int] = [9455, 9456]
 DELETE_MANY_LOCATED_ID: int = 9457
+DELETE_MANY_CHILD_OBJECT_ID: int = 9458
+DELETE_MANY_CHILD_LOCATION_ID: int = 9459
+
+ROOT_LOCATION_ID: int = 1  # the synthetic location-tree root; a top-level node's parent
 
 LOCATIONS_KEEP_PARENT_LOC: int = 9481
 LOCATIONS_KEEP_CHILD_LOC: int = 9482
@@ -665,6 +617,13 @@ def _location_exists(database_manager: MongoDatabaseManager, database_name: str,
     """True when a CmdbLocation with the given public_id is still present."""
     collection = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
     return collection.find_one({'public_id': location_id}) is not None
+
+
+def _location_parent(database_manager: MongoDatabaseManager, database_name: str, location_id: int) -> int | None:
+    """Returns the parent id of the CmdbLocation with the given public_id, or None when missing."""
+    collection = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+    location = collection.find_one({'public_id': location_id})
+    return location['parent'] if location else None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -899,81 +858,10 @@ class TestObjectReferencesHappyPath:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                  DELETE: with-child-locations + bulk delete                                          #
+#                                                DELETE: bulk delete                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestDeleteObjectWithChildLocations:
-    """DELETE /objects/<id>/locations removes the object + child locations but KEEPS child objects.
-
-    This is the behavioural distinction from DELETE /<id>/children (which also deletes the child
-    objects); the test locks that difference in.
-    """
-
-    def test_child_objects_are_kept(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """The target and its child locations are removed, but the child object survives."""
-        _insert_object_doc(database_manager, database_name, LOC_PARENT_OBJECT_ID, 'parent')
-        _insert_object_doc(database_manager, database_name, LOC_CHILD_OBJECT_ID, 'child')
-        _insert_location(database_manager, database_name, LOCATIONS_KEEP_PARENT_LOC, LOC_PARENT_OBJECT_ID, 1)
-        _insert_location(
-            database_manager, database_name, LOCATIONS_KEEP_CHILD_LOC, LOC_CHILD_OBJECT_ID, LOCATIONS_KEEP_PARENT_LOC,
-        )
-        try:
-            response = rest_api.delete(f'{ROUTE_URL}/{LOC_PARENT_OBJECT_ID}/locations')
-
-            assert response.status_code == HTTPStatus.OK
-            # Target object deleted
-            assert rest_api.get(f'{ROUTE_URL}/native/{LOC_PARENT_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
-            # Child OBJECT kept (only its location was removed)
-            assert rest_api.get(f'{ROUTE_URL}/native/{LOC_CHILD_OBJECT_ID}').status_code == HTTPStatus.OK
-            assert _location_exists(database_manager, database_name, LOCATIONS_KEEP_CHILD_LOC) is False
-        finally:
-            database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(
-                {'public_id': {'$in': [LOC_PARENT_OBJECT_ID, LOC_CHILD_OBJECT_ID]}}
-            )
-            database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
-                {'public_id': {'$in': [LOCATIONS_KEEP_PARENT_LOC, LOCATIONS_KEEP_CHILD_LOC]}}
-            )
-
-    def test_kept_child_objects_have_location_reference_cleared(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """A surviving child object gets its dg_location field cleared (no dangling location ref)."""
-        _insert_object_doc(database_manager, database_name, LOC_CLEAR_PARENT_OBJECT_ID, 'parent')
-        # Seed the child object WITH a location field pointing at the (to-be-deleted) parent location
-        child_doc = _object_doc(LOC_CLEAR_CHILD_OBJECT_ID, 'child')
-        child_doc['fields'].append(
-            {'name': LOCATION_FIELD_NAME, 'type': 'location', 'value': LOC_CLEAR_PARENT_LOC}
-        )
-        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(child_doc)
-        _insert_location(database_manager, database_name, LOC_CLEAR_PARENT_LOC, LOC_CLEAR_PARENT_OBJECT_ID, 1)
-        _insert_location(
-            database_manager, database_name, LOC_CLEAR_CHILD_LOC, LOC_CLEAR_CHILD_OBJECT_ID, LOC_CLEAR_PARENT_LOC,
-        )
-        try:
-            response = rest_api.delete(f'{ROUTE_URL}/{LOC_CLEAR_PARENT_OBJECT_ID}/locations')
-
-            assert response.status_code == HTTPStatus.OK
-            # Child object survives, its location node is gone
-            follow_up = rest_api.get(f'{ROUTE_URL}/native/{LOC_CLEAR_CHILD_OBJECT_ID}')
-            assert follow_up.status_code == HTTPStatus.OK
-            assert _location_exists(database_manager, database_name, LOC_CLEAR_CHILD_LOC) is False
-            # And its dg_location reference has been cleared (no longer points at the deleted node)
-            location_field = next(
-                field for field in follow_up.get_json()['fields'] if field['name'] == LOCATION_FIELD_NAME
-            )
-            assert location_field['value'] is None
-        finally:
-            database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(
-                {'public_id': {'$in': [LOC_CLEAR_PARENT_OBJECT_ID, LOC_CLEAR_CHILD_OBJECT_ID]}}
-            )
-            database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
-                {'public_id': {'$in': [LOC_CLEAR_PARENT_LOC, LOC_CLEAR_CHILD_LOC]}}
-            )
-
-
 class TestDeleteManyObjects:
-    """DELETE /objects/delete/<ids> bulk-deletes location-free objects and refuses located ones."""
+    """DELETE /objects/delete/<ids> bulk-deletes objects, re-parenting the children of located ones."""
 
     def test_bulk_delete_removes_all_targets(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -993,22 +881,31 @@ class TestDeleteManyObjects:
             for public_id in DELETE_MANY_IDS:
                 _drop_object(database_manager, database_name, public_id)
 
-    def test_bulk_delete_refused_when_a_target_has_a_location(
+    def test_bulk_delete_reparents_children_of_located_targets(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The whole bulk delete is refused with 400 when any target has a location."""
+        """A located target is deleted and its location's children are promoted onto the grandparent."""
         _insert_object_doc(database_manager, database_name, DELETE_MANY_LOCATED_ID, ORIGINAL_VALUE)
-        _insert_location(database_manager, database_name, DELETE_MANY_LOCATION_ID, DELETE_MANY_LOCATED_ID, 1)
+        _insert_location(database_manager, database_name, DELETE_MANY_LOCATION_ID,
+                         DELETE_MANY_LOCATED_ID, ROOT_LOCATION_ID)
+        _insert_location(database_manager, database_name, DELETE_MANY_CHILD_LOCATION_ID,
+                         DELETE_MANY_CHILD_OBJECT_ID, DELETE_MANY_LOCATION_ID)
         try:
             response = rest_api.delete(f'{ROUTE_URL}/delete/{DELETE_MANY_LOCATED_ID}')
 
-            assert response.status_code == HTTPStatus.BAD_REQUEST
-            # The object must still exist since the delete was refused
-            assert rest_api.get(f'{ROUTE_URL}/native/{DELETE_MANY_LOCATED_ID}').status_code == HTTPStatus.OK
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json()['successfully'] == [DELETE_MANY_LOCATED_ID]
+            # target object + its own location node are gone
+            assert rest_api.get(f'{ROUTE_URL}/native/{DELETE_MANY_LOCATED_ID}').status_code == HTTPStatus.NOT_FOUND
+            assert _location_exists(database_manager, database_name, DELETE_MANY_LOCATION_ID) is False
+            # the child location survives, promoted onto the deleted node's own parent (the root)
+            assert _location_parent(
+                database_manager, database_name, DELETE_MANY_CHILD_LOCATION_ID,
+            ) == ROOT_LOCATION_ID
         finally:
             _drop_object(database_manager, database_name, DELETE_MANY_LOCATED_ID)
             database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
-                {'public_id': DELETE_MANY_LOCATION_ID}
+                {'public_id': {'$in': [DELETE_MANY_LOCATION_ID, DELETE_MANY_CHILD_LOCATION_ID]}}
             )
 
 
@@ -1304,18 +1201,6 @@ class TestErrorMappingWriteAndDelete:
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_delete_with_children_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerGetError maps the delete-with-children route to 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
-
-        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/children').status_code == HTTPStatus.BAD_REQUEST
-
-    def test_delete_with_child_locations_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerGetError maps the delete-with-child-locations route to 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
-
-        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/locations').status_code == HTTPStatus.BAD_REQUEST
-
     def test_state_update_error_returns_400(self, rest_api, monkeypatch, database_manager, database_name) -> None:
         """An ObjectsManagerUpdateError while toggling the state maps PUT /state to 400."""
         _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_UPDATE, 'x')
@@ -1340,7 +1225,6 @@ LSYNC_PARENT_B: int = 9491
 LSYNC_OWN_LOCATION: int = 9492
 LSYNC_CHILD_LOCATION: int = 9493
 NONEXISTENT_PARENT: int = 88888
-ROOT_LOCATION_ID: int = 1
 CUSTOM_LOCATION_NAME: str = 'Custom Location Name'
 
 
@@ -1517,11 +1401,15 @@ class TestObjectLocationSync:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_put_remove_with_children_rejected(self, rest_api, database_manager, database_name) -> None:
-        """Clearing the location is refused 400 while the object's location still has children."""
+    def test_put_remove_with_children_promotes_them(self, rest_api, database_manager, database_name) -> None:
+        """Clearing the location promotes children to the grandparent - both the child location NODE
+        and the child OBJECT's mirrored location field (the two-collection mirror, end to end)."""
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
         locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
         objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, ROOT_LOCATION_ID),
+                            'creation_time': datetime.now(timezone.utc)})
+        # the child object is placed under the parent's location (its dg_location field points there)
+        objects.insert_one({**_loc_object_payload(LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION),
                             'creation_time': datetime.now(timezone.utc)})
         locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, ROOT_LOCATION_ID))
         locations.insert_one(_loc_doc(LSYNC_CHILD_LOCATION, LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION))
@@ -1529,7 +1417,16 @@ class TestObjectLocationSync:
         response = rest_api.put(f'{ROUTE_URL}/{LSYNC_OBJECT_ID}',
                                 json=_loc_object_payload(LSYNC_OBJECT_ID, 0))
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.status_code == HTTPStatus.ACCEPTED
+        # the object's own placement is removed
+        assert self._location_of(database_manager, database_name, LSYNC_OBJECT_ID) is None
+        # the child location NODE survives, promoted onto the removed node's own parent (the root)
+        child_node = locations.find_one({'public_id': LSYNC_CHILD_LOCATION})
+        assert child_node is not None and child_node['parent'] == ROOT_LOCATION_ID
+        # and the child OBJECT's mirrored location field is re-pointed at the grandparent too
+        child_object = objects.find_one({'public_id': LSYNC_CHILD_OBJECT_ID})
+        location_field = next(f for f in child_object['fields'] if f['name'] == LOCATION_FIELD_NAME)
+        assert location_field['value'] == ROOT_LOCATION_ID
 
     # ---- PATCH (name-only) ---- #
     def test_patch_location_name_only_renames_node(self, rest_api, database_manager, database_name) -> None:

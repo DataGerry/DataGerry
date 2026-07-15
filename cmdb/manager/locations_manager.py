@@ -16,6 +16,7 @@
 """
 This module contains the implementation of the LocationsManager
 """
+import re
 from logging import Logger, getLogger
 from typing import Any
 
@@ -26,7 +27,7 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.framework.results import IterationResult
 
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.database.predefined_data.predefined_data_constants import LocationKey, RootLocationDefault
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -236,34 +237,6 @@ class LocationsManager(BaseManager):
             raise LocationsManagerChildrenError(str(err)) from err
 
 
-    def get_child_locations_object_ids(self, object_id: int) -> list[int]:
-        """
-        Retrieves the object_ids of every CmdbLocation beneath the given CmdbObject's location
-
-        Args:
-            object_id (int): public_id of the CmdbObject whose location subtree should be inspected
-
-        Raises:
-            LocationsManagerChildrenError: If the descendant CmdbLocations could not be retrieved
-
-        Returns:
-            list[int]: object_ids of all descendant CmdbLocations; empty when the object has no
-                       location or no children beneath it
-        """
-        target_location: dict[str, Any] | None = self.get_location_for_object(object_id)
-
-        if not target_location:
-            return []
-
-        descendant_locations: list[dict[str, Any]] = self.get_all_descendant_locations(target_location['public_id'])
-
-        return [
-            location["object_id"]
-            for location in descendant_locations
-            if location.get("object_id") is not None
-        ]
-
-
     def location_has_children(self, public_id: int) -> bool:
         """
         Checks whether a CmdbLocation has any direct child CmdbLocations
@@ -314,6 +287,74 @@ class LocationsManager(BaseManager):
             LOGGER.error("[get_parents_with_children] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerGetError(str(err)) from err
 
+
+    def search_locations_with_ancestors(self, query: str) -> list[dict[str, Any]]:
+        """
+        Finds locations whose name matches the query and returns them plus their ancestor chains
+
+        Reproduces the location tree's search on the backend: a case-insensitive, literal-substring
+        match on the stored location ``name`` (regex metacharacters in the query are escaped so it
+        stays a literal substring). Each match is returned together with every ancestor up to - but
+        excluding - the synthetic root, resolved in a single ``$graphLookup`` (parent -> public_id)
+        so the ancestor paths cost one aggregation instead of a walk per match. The flat,
+        de-duplicated result (sorted by public_id) is meant to be assembled into a pruned forest by
+        build_location_forest: non-matching descendants of a match are intentionally absent.
+        Requires MongoDB 3.4+ (well within the 7.0 floor)
+
+        Args:
+            query (str): The search string; an empty/whitespace query yields no matches
+
+        Raises:
+            LocationsManagerGetError: If the search aggregation fails
+
+        Returns:
+            list[dict[str, Any]]: matching locations + their ancestors, flat and de-duplicated
+        """
+        if not query.strip():
+            return []
+
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$match": {
+                    LocationKey.NAME.value: {"$regex": re.escape(query), "$options": "i"},
+                    LocationKey.PUBLIC_ID.value: {"$gt": RootLocationDefault.PUBLIC_ID},
+                }
+            },
+            {
+                "$graphLookup": {
+                    "from": CmdbLocation.COLLECTION,
+                    "startWith": f"${LocationKey.PARENT.value}",
+                    "connectFromField": LocationKey.PARENT.value,
+                    "connectToField": LocationKey.PUBLIC_ID.value,
+                    "as": "ancestors",
+                }
+            },
+        ]
+
+        try:
+            matches: list[dict[str, Any]] = list(self.aggregate(pipeline))
+        except BaseManagerIterationError as err:
+            raise LocationsManagerGetError(str(err)) from err
+        except Exception as err:
+            LOGGER.error("[search_locations_with_ancestors] Exception: %s. Type: %s", err, type(err))
+            raise LocationsManagerGetError(str(err)) from err
+
+        # collapse every match + its ancestors into a de-duplicated set, dropping the synthetic root
+        collected: dict[int, dict[str, Any]] = {}
+
+        for match in matches:
+            ancestors: list[dict[str, Any]] = match.pop("ancestors", [])
+
+            for location in [match, *ancestors]:
+                public_id: int = location[LocationKey.PUBLIC_ID.value]
+
+                if public_id == RootLocationDefault.PUBLIC_ID or public_id in collected:
+                    continue
+
+                collected[public_id] = location
+
+        return sorted(collected.values(), key=lambda location: location[LocationKey.PUBLIC_ID.value])
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_location(self, object_id: int, data: CmdbLocation | dict) -> None:
@@ -359,9 +400,41 @@ class LocationsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
+    def _reparent_children_to_grandparent(self, public_id: int) -> None:
+        """
+        Re-parents the direct children of a CmdbLocation onto that location's own parent
+
+        Looks up the location's ``parent`` and points every CmdbLocation currently parented to
+        ``public_id`` at it, in a single ``update_many`` (cost independent of the number of
+        children). A no-op when the location does not exist or has no children. Called by
+        :meth:`delete_location` so a deleted node's subtree is promoted one level instead of
+        being orphaned
+
+        Args:
+            public_id (int): public_id of the CmdbLocation whose children should be promoted
+
+        Raises:
+            BaseManagerGetError: If the location lookup fails
+            BaseManagerUpdateError: If the re-parenting update fails
+        """
+        location: dict[str, Any] | None = self.get_one_by({LocationKey.PUBLIC_ID.value: public_id})
+
+        if not location:
+            return
+
+        self.update_many(
+            criteria={LocationKey.PARENT.value: public_id},
+            update={LocationKey.PARENT.value: location[LocationKey.PARENT.value]},
+        )
+
+
     def delete_location(self, public_id: int) -> bool:
         """
-        Deletes a CmdbLocation from the database
+        Deletes a CmdbLocation from the database, promoting its direct children
+
+        Before the location is removed, every CmdbLocation that has it as ``parent`` is re-parented
+        onto the deleted location's own parent (its grandparent). This keeps the location tree
+        connected: the deleted node's subtree simply shifts up one level rather than being orphaned
 
         Args:
             public_id (int): public_id of the CmdbLocation which should be deleted
@@ -373,23 +446,8 @@ class LocationsManager(BaseManager):
             bool: True if deletion was successful
         """
         try:
-            return self.delete({'public_id':public_id})
-        except BaseManagerDeleteError as err:
-            raise LocationsManagerDeleteError(str(err)) from err
+            self._reparent_children_to_grandparent(public_id)
 
-
-    def delete_locations(self, locations: list[dict[str, Any]]) -> None:
-        """
-        Deletes all given locations
-
-        Args:
-            locations (list[dict[str, Any]]): list of CmdbLocations which should be deleted
-
-        Raises:
-            LocationsManagerDeleteError: When the delete operation fails
-        """
-        try:
-            location_ids: list[int] = [location['public_id'] for location in locations]
-            self.delete_many_raw({"public_id": {"$in": location_ids}})
-        except BaseManagerDeleteError as err:
+            return self.delete({LocationKey.PUBLIC_ID.value: public_id})
+        except (BaseManagerGetError, BaseManagerUpdateError, BaseManagerDeleteError) as err:
             raise LocationsManagerDeleteError(str(err)) from err

@@ -18,11 +18,6 @@ Implementation of general API route helpers
 """
 from logging import Logger, getLogger
 from flask import request, abort
-
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import LocationsManager
-
-from cmdb.models.user_model.cmdb_user import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -50,10 +45,3 @@ def extract_public_ids(public_ids: str) -> list[int]:
             abort(400, f"Invalid value detected for public_id: {v} !")
 
     return extracted_ids
-
-
-def object_has_location(request_user: CmdbUser, public_id: int) -> bool:
-    """TODO: document"""
-    locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-
-    return locations_manager.get_location_for_object(public_id) is not None

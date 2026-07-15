@@ -21,11 +21,11 @@ Pins the manager-layer behavior against a real MongoDB instance:
 - insert / get / get_for_object / update / delete round-trip through the bound collection
 - get_locations_by filters by parent and returns model-bound results
 - update_locations_by_type bulk-updates only the matching type and leaves others untouched
-- delete_locations removes a batch via a single ``$in`` raw delete
+- delete_location removes one row and re-parents its direct children onto the grandparent
 - get_all_descendant_locations resolves the full subtree with a real ``$graphLookup`` (the
   query that the unit suite can only mock) - including the multi-level chain, exclusion of
   unrelated branches, and cycle-safety for a malformed parent loop
-- get_child_locations_object_ids maps an object's subtree to the descendants' object_ids
+- search_locations_with_ancestors matches names and folds in each match's ancestor chain
 """
 from typing import Any
 
@@ -74,8 +74,28 @@ CHAIN_LEAF_OBJECT_ID: int = 9972
 CYCLE_A_ID: int = 9774
 CYCLE_B_ID: int = 9775
 
-DELETE_BATCH_A_ID: int = 9776
-DELETE_BATCH_B_ID: int = 9777
+# delete-with-reparenting fixtures (grandparent <- parent <- {childA <- grandchild, childB})
+REPARENT_GRANDPARENT_ID: int = 9780
+REPARENT_PARENT_ID: int = 9781
+REPARENT_CHILD_A_ID: int = 9782
+REPARENT_CHILD_B_ID: int = 9783
+REPARENT_GRANDCHILD_ID: int = 9784
+REPARENT_TOP_ID: int = 9785
+REPARENT_TOP_CHILD_ID: int = 9786
+REPARENT_OBJECT_BASE_ID: int = 9980
+
+# search fixtures: Datacenter <- Rack-01 <- {Server-alpha (match), Server-beta}, plus unrelated Office
+SEARCH_ROOT_ID: int = 9790
+SEARCH_MID_ID: int = 9791
+SEARCH_MATCH_ID: int = 9792
+SEARCH_SIBLING_ID: int = 9793
+SEARCH_UNRELATED_ID: int = 9794
+SEARCH_ROOT_NAME: str = 'Datacenter'
+SEARCH_MID_NAME: str = 'Rack-01'
+SEARCH_MATCH_NAME: str = 'Server-alpha'
+SEARCH_SIBLING_NAME: str = 'Server-beta'
+SEARCH_UNRELATED_NAME: str = 'Office'
+SEARCH_OBJECT_BASE_ID: int = 9990
 
 ITERATE_A_ID: int = 9778
 ITERATE_B_ID: int = 9779
@@ -93,8 +113,11 @@ ALL_SEED_IDS: list[int] = [
     PARENT_LOCATION_ID, CHILD_A_LOCATION_ID, CHILD_B_LOCATION_ID,
     BULK_TYPE_LOCATION_A, BULK_TYPE_LOCATION_B, BULK_TYPE_LOCATION_OTHER,
     CHAIN_ROOT_ID, CHAIN_MID_ID, CHAIN_LEAF_ID, CHAIN_UNRELATED_ID,
-    CYCLE_A_ID, CYCLE_B_ID, DELETE_BATCH_A_ID, DELETE_BATCH_B_ID,
+    CYCLE_A_ID, CYCLE_B_ID,
     ITERATE_A_ID, ITERATE_B_ID,
+    REPARENT_GRANDPARENT_ID, REPARENT_PARENT_ID, REPARENT_CHILD_A_ID, REPARENT_CHILD_B_ID,
+    REPARENT_GRANDCHILD_ID, REPARENT_TOP_ID, REPARENT_TOP_CHILD_ID,
+    SEARCH_ROOT_ID, SEARCH_MID_ID, SEARCH_MATCH_ID, SEARCH_SIBLING_ID, SEARCH_UNRELATED_ID,
 ]
 
 
@@ -275,7 +298,7 @@ class TestUpdateLocation:
 #                                                       DELETE                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteLocation:
-    """``delete_location`` removes one row; ``delete_locations`` removes a batch."""
+    """``delete_location`` removes one row (after promoting its direct children)."""
 
     def test_delete_location_removes_row(
         self, locations_manager: LocationsManager, database_manager: MongoDatabaseManager, database_name: str,
@@ -290,24 +313,107 @@ class TestDeleteLocation:
         finally:
             _drop_ids(database_manager, database_name, [LOCATION_ID_FOR_DELETE])
 
-    def test_delete_locations_removes_the_whole_batch(
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        DELETE re-parents direct children                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestDeleteLocationReparentsChildren:
+    """Deleting a location promotes its direct children onto the deleted node's own parent."""
+
+    def test_direct_children_are_promoted_to_the_grandparent(
         self, locations_manager: LocationsManager, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """A batch delete removes every supplied location in a single operation."""
+        """
+        Deleting a mid-tree node re-parents its direct children onto its parent (their grandparent),
+        while grandchildren stay under their own - surviving - parent
+        """
         _insert_docs(database_manager, database_name, [
-            _location_doc(DELETE_BATCH_A_ID, OBJECT_ID_FOR_DELETE + 1, ROOT_PARENT_ID),
-            _location_doc(DELETE_BATCH_B_ID, OBJECT_ID_FOR_DELETE + 2, ROOT_PARENT_ID),
+            _location_doc(REPARENT_GRANDPARENT_ID, REPARENT_OBJECT_BASE_ID, ROOT_PARENT_ID),
+            _location_doc(REPARENT_PARENT_ID, REPARENT_OBJECT_BASE_ID + 1, REPARENT_GRANDPARENT_ID),
+            _location_doc(REPARENT_CHILD_A_ID, REPARENT_OBJECT_BASE_ID + 2, REPARENT_PARENT_ID),
+            _location_doc(REPARENT_CHILD_B_ID, REPARENT_OBJECT_BASE_ID + 3, REPARENT_PARENT_ID),
+            _location_doc(REPARENT_GRANDCHILD_ID, REPARENT_OBJECT_BASE_ID + 4, REPARENT_CHILD_A_ID),
         ])
         try:
-            locations_manager.delete_locations([
-                {'public_id': DELETE_BATCH_A_ID},
-                {'public_id': DELETE_BATCH_B_ID},
+            assert locations_manager.delete_location(REPARENT_PARENT_ID) is True
+
+            # the deleted node is gone
+            assert locations_manager.get_location(REPARENT_PARENT_ID) is None
+            # both direct children now point at the grandparent
+            assert locations_manager.get_location(REPARENT_CHILD_A_ID)['parent'] == REPARENT_GRANDPARENT_ID
+            assert locations_manager.get_location(REPARENT_CHILD_B_ID)['parent'] == REPARENT_GRANDPARENT_ID
+            # the grandchild is untouched - still under its own (surviving) parent
+            assert locations_manager.get_location(REPARENT_GRANDCHILD_ID)['parent'] == REPARENT_CHILD_A_ID
+        finally:
+            _drop_ids(database_manager, database_name, [
+                REPARENT_GRANDPARENT_ID, REPARENT_PARENT_ID, REPARENT_CHILD_A_ID,
+                REPARENT_CHILD_B_ID, REPARENT_GRANDCHILD_ID,
             ])
 
-            assert locations_manager.get_location(DELETE_BATCH_A_ID) is None
-            assert locations_manager.get_location(DELETE_BATCH_B_ID) is None
+    def test_deleting_a_top_level_node_promotes_children_to_root(
+        self, locations_manager: LocationsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Deleting a location whose parent is the root re-parents its children onto the root."""
+        _insert_docs(database_manager, database_name, [
+            _location_doc(REPARENT_TOP_ID, REPARENT_OBJECT_BASE_ID + 5, ROOT_PARENT_ID),
+            _location_doc(REPARENT_TOP_CHILD_ID, REPARENT_OBJECT_BASE_ID + 6, REPARENT_TOP_ID),
+        ])
+        try:
+            assert locations_manager.delete_location(REPARENT_TOP_ID) is True
+
+            assert locations_manager.get_location(REPARENT_TOP_ID) is None
+            assert locations_manager.get_location(REPARENT_TOP_CHILD_ID)['parent'] == ROOT_PARENT_ID
         finally:
-            _drop_ids(database_manager, database_name, [DELETE_BATCH_A_ID, DELETE_BATCH_B_ID])
+            _drop_ids(database_manager, database_name, [REPARENT_TOP_ID, REPARENT_TOP_CHILD_ID])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    search_locations_with_ancestors ($graphLookup)                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSearchLocationsWithAncestors:
+    """Name search returns matches + their ancestor chains, excluding non-matching / unrelated nodes."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_tree(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds Datacenter <- Rack-01 <- {Server-alpha, Server-beta} plus an unrelated Office root."""
+        _insert_docs(database_manager, database_name, [
+            _location_doc(SEARCH_ROOT_ID, SEARCH_OBJECT_BASE_ID, ROOT_PARENT_ID, name=SEARCH_ROOT_NAME),
+            _location_doc(SEARCH_MID_ID, SEARCH_OBJECT_BASE_ID + 1, SEARCH_ROOT_ID, name=SEARCH_MID_NAME),
+            _location_doc(SEARCH_MATCH_ID, SEARCH_OBJECT_BASE_ID + 2, SEARCH_MID_ID, name=SEARCH_MATCH_NAME),
+            _location_doc(SEARCH_SIBLING_ID, SEARCH_OBJECT_BASE_ID + 3, SEARCH_MID_ID, name=SEARCH_SIBLING_NAME),
+            _location_doc(SEARCH_UNRELATED_ID, SEARCH_OBJECT_BASE_ID + 4, ROOT_PARENT_ID, name=SEARCH_UNRELATED_NAME),
+        ])
+        yield
+        _drop_ids(database_manager, database_name, [
+            SEARCH_ROOT_ID, SEARCH_MID_ID, SEARCH_MATCH_ID, SEARCH_SIBLING_ID, SEARCH_UNRELATED_ID,
+        ])
+
+    def test_returns_match_plus_ancestor_chain_excluding_others(
+        self, locations_manager: LocationsManager,
+    ) -> None:
+        """A substring match resolves to the match + its ancestors; sibling and unrelated are absent."""
+        result = locations_manager.search_locations_with_ancestors('alpha')
+
+        result_ids = {location['public_id'] for location in result}
+        assert result_ids == {SEARCH_ROOT_ID, SEARCH_MID_ID, SEARCH_MATCH_ID}
+
+    def test_match_is_case_insensitive(self, locations_manager: LocationsManager) -> None:
+        """The name match ignores case."""
+        result_ids = {location['public_id'] for location in locations_manager.search_locations_with_ancestors('ALPHA')}
+        assert result_ids == {SEARCH_ROOT_ID, SEARCH_MID_ID, SEARCH_MATCH_ID}
+
+    def test_matching_an_ancestor_name_returns_that_subtree_paths(
+        self, locations_manager: LocationsManager,
+    ) -> None:
+        """Matching a shared substring ('Server') returns both servers + their common ancestors."""
+        result_ids = {
+            location['public_id'] for location in locations_manager.search_locations_with_ancestors('Server')
+        }
+        assert result_ids == {SEARCH_ROOT_ID, SEARCH_MID_ID, SEARCH_MATCH_ID, SEARCH_SIBLING_ID}
+
+    def test_no_match_returns_empty(self, locations_manager: LocationsManager) -> None:
+        """A query matching nothing yields an empty result."""
+        assert locations_manager.search_locations_with_ancestors('nonexistent-xyz') == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -340,14 +446,6 @@ class TestGetAllDescendantLocations:
     def test_leaf_has_no_descendants(self, locations_manager: LocationsManager) -> None:
         """A leaf location resolves to an empty descendant set."""
         assert locations_manager.get_all_descendant_locations(CHAIN_LEAF_ID) == []
-
-    def test_get_child_locations_object_ids_maps_subtree_to_object_ids(
-        self, locations_manager: LocationsManager,
-    ) -> None:
-        """The object's subtree resolves to the descendants' object_ids (not the root's own)."""
-        child_object_ids = locations_manager.get_child_locations_object_ids(CHAIN_ROOT_OBJECT_ID)
-
-        assert set(child_object_ids) == {CHAIN_MID_OBJECT_ID, CHAIN_LEAF_OBJECT_ID}
 
     def test_location_has_children_true_for_a_parent(self, locations_manager: LocationsManager) -> None:
         """A location with a direct child reports has-children True."""

@@ -224,8 +224,8 @@ def validate_object_location_change(
 
     Only a real change is validated (an unchanged parent is a no-op). Setting a parent requires that
     parent CmdbLocation to exist and to not sit inside the object's own location subtree (which would
-    create a cycle). Removing the parent is refused while the object's location still has children, as
-    that would orphan the subtree
+    create a cycle). Removing the parent is always allowed: the location node's direct children are
+    promoted onto its own parent rather than being orphaned
 
     Args:
         object_id (int): public_id of the CmdbObject whose location is changing
@@ -233,8 +233,7 @@ def validate_object_location_change(
         locations_manager (LocationsManager): db interface for CmdbLocations
 
     Raises:
-        HTTPException: 400 when the parent does not exist, the change would create a cycle, or
-            removing the placement would orphan child locations
+        HTTPException: 400 when the parent does not exist or the change would create a cycle
     """
     existing: dict[str, Any] | None = locations_manager.get_location_for_object(object_id)
     current_parent: int | None = existing['parent'] if existing else None
@@ -243,8 +242,8 @@ def validate_object_location_change(
         return
 
     if parent is None:
-        if existing and locations_manager.location_has_children(existing['public_id']):
-            abort(400, f"The Location of Object with ID:{object_id} has child Locations and cannot be removed!")
+        # Removing the placement deletes the location node; its direct children are promoted onto
+        # the node's own parent (see LocationsManager.delete_location), so this is always allowed
         return
 
     if parent != RootLocationDefault.PUBLIC_ID and not locations_manager.get_location(parent):
@@ -259,6 +258,44 @@ def validate_object_location_change(
 
         if parent in forbidden:
             abort(400, f"The selected parent Location (ID:{parent}) would create a cycle in the location tree!")
+
+
+def delete_location_with_reparenting(
+        location: dict[str, Any],
+        locations_manager: LocationsManager,
+        objects_manager: ObjectsManager) -> bool:
+    """
+    Deletes a CmdbLocation node and re-parents its direct children onto the node's own parent
+
+    Keeps the object<->location mirror consistent across both collections: the child location NODES
+    are promoted onto the deleted node's parent by LocationsManager.delete_location, and the owning
+    child OBJECTS' location field (which stores their parent-location id) is re-pointed at the same
+    grandparent here. Without the object-side update those fields would dangle at the deleted node
+    and the objects would fail validate_object_location_change on their next edit
+
+    Args:
+        location (dict[str, Any]): The CmdbLocation to delete (carries its public_id and parent)
+        locations_manager (LocationsManager): db interface for CmdbLocations
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+
+    Returns:
+        bool: True if the location was deleted
+    """
+    public_id: int = location[LocationKey.PUBLIC_ID.value]
+    grandparent_id: int = location[LocationKey.PARENT.value]
+
+    # snapshot the owning objects of the direct children BEFORE the delete promotes their nodes
+    child_object_ids: list[int] = [
+        child.object_id for child in locations_manager.get_locations_by(parent=public_id)
+    ]
+
+    # promotes the child location NODES onto the grandparent, then removes this node
+    ack: bool = locations_manager.delete_location(public_id)
+
+    # keep the mirrored object fields in sync with the re-parented nodes
+    objects_manager.set_location_field_for_objects(child_object_ids, grandparent_id)
+
+    return ack
 
 
 def sync_object_location(
@@ -298,7 +335,7 @@ def sync_object_location(
 
         if parent is None:
             if existing:
-                locations_manager.delete_location(existing['public_id'])
+                delete_location_with_reparenting(existing, locations_manager, objects_manager)
             return
 
         resolved_name: str = resolve_location_name(location_name, object_id, objects_manager, request_user)

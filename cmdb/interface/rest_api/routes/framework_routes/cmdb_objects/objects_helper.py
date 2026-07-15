@@ -79,6 +79,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
+    delete_location_with_reparenting,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -370,34 +371,41 @@ def handle_create_object_log(
         LOGGER.error("[handle_create_object_log] Failed to create ObjectLog. Error: %s", err)
 
 
-def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> None:
+def handle_delete_object_location(
+        request_user: CmdbUser,
+        public_id: int,
+        locations_manager: LocationsManager | None = None,
+        objects_manager: ObjectsManager | None = None) -> None:
     """
-    Deletes the CmdbLocation of an object, refusing when that location has children
+    Deletes the CmdbLocation of an object, promoting its direct children
 
-    Looks up the object's location; if it exists and is not the parent of other locations it is
-    deleted, otherwise the request aborts with 400
+    A no-op when the object has no location. When the location exists it is deleted and its direct
+    child locations are re-parented onto its own parent (their grandparent) by
+    LocationsManager.delete_location, so a location with children is deletable and the subtree
+    stays connected
+
+    Callers already holding the managers (e.g. a bulk-delete loop) can pass them in to avoid a
+    ManagerProvider lookup per object; when omitted they are resolved on demand
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         public_id (int): public_id of the CmdbObject whose location should be removed
+        locations_manager (LocationsManager | None): Optional pre-resolved CmdbLocations manager
+        objects_manager (ObjectsManager | None): Optional pre-resolved CmdbObjects manager
 
     Raises:
-        HTTPException: 400 when the object's location is a parent of other locations, or 500 on an
-            unexpected error
+        HTTPException: 500 on an unexpected error
     """
     try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+        if locations_manager is None:
+            locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
-        object_location = locations_manager.get_location_for_object(public_id)
+        object_location: dict[str, Any] | None = locations_manager.get_location_for_object(public_id)
 
         if object_location:
-            child_location = locations_manager.get_one_by({'parent': object_location['public_id']})
-
-            if child_location and len(child_location) > 0:
-                abort(400, "The Location of this Object has child Locations and is therefore not deletable!")
-
-            # Delete the location because it is not a parent to another location
-            locations_manager.delete_location(object_location['public_id'])
+            if objects_manager is None:
+                objects_manager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+            delete_location_with_reparenting(object_location, locations_manager, objects_manager)
     except HTTPException as http_err:
         raise http_err
     except Exception as error:
@@ -405,50 +413,6 @@ def handle_delete_object_location(request_user: CmdbUser, public_id: int) -> Non
             "[handle_delete_object_location] Locations Exception: %s. Type: %s", error, type(error), exc_info=True
         )
         abort(500, "An internal server error occured while handling Locations of this Object!")
-
-
-def handle_delete_location_and_child_locations(request_user: CmdbUser, public_id: int) -> list[int]:
-    """
-    Deletes the CmdbLocation of an object together with every location beneath it
-
-    A no-op when the object has no location. Child locations are resolved from the full location
-    tree and removed before the object's own location. Returns the object_ids of the removed
-    descendant locations - the child objects that SURVIVE this deletion - so the caller can clear
-    their now-dangling location reference
-
-    Args:
-        request_user (CmdbUser): The CmdbUser making the request
-        public_id (int): public_id of the CmdbObject whose location subtree should be removed
-
-    Returns:
-        list[int]: public_ids of the child CmdbObjects whose location node was deleted
-    """
-    locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-
-    # check if location for this object exists
-    object_location: dict[str, Any] | None = locations_manager.get_location_for_object(public_id)
-
-    if not object_location:
-        return []
-
-    # get all child locations for this location (resolved server-side via $graphLookup)
-    all_child_locations: list[dict[str, Any]] = locations_manager.get_all_descendant_locations(
-        object_location['public_id']
-    )
-
-    # object_ids of the descendant location nodes = the child objects that survive this delete
-    child_object_ids: list[int] = [
-        location['object_id'] for location in all_child_locations if 'object_id' in location
-    ]
-
-    # delete all child locations
-    if all_child_locations:
-        locations_manager.delete_locations(all_child_locations)
-
-    # delete Location of current Object
-    locations_manager.delete_location(object_location['public_id'])
-
-    return child_object_ids
 
 
 def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | list[int]) -> None:
