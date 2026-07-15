@@ -34,7 +34,7 @@ Requirements
 DataGerry has the following system requirements:
 
 - **Linux Operating System**
-- **MongoDB 6.0, 7.0 or 8.0** 
+- **MongoDB 7.0 or 8.0** 
 
 Although DataGerry ships with a built-in web server, it is recommended to place it behind **Nginx** for improved
 performance and security.
@@ -66,6 +66,14 @@ You can also override configuration options using environment variables:
    DATAGERRY_Database_port=27018
 
 This approach is especially useful when running DataGerry in Docker environments.
+
+Additionally there is a settings file for DataGerry frontend named ``app-config.json``,
+where you can define the settings for the connection to the backend.
+
+Example:
+
+.. include:: ../../../etc/cmdb.conf
+    :literal:
 
 | 
 
@@ -116,7 +124,8 @@ Use default Docker installation guide.
     
     git clone https://github.com/DataGerry/DataGerry-docker.git /opt/DataGerry-docker
     cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
-    cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
+	cp /opt/DataGerry-docker/conf/app-config_default.json /opt/DataGerry-docker/conf/app-config.json
+	cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
 .. note::
 	We recommend always to use the latest tag version.
