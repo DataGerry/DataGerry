@@ -76,6 +76,55 @@ configuration.
 
 | 
 
+Set Backend Port
+=========
+
+DataGerry backend is available on port 4000 by default.
+To change the backend port do the following steps:
+
+	
+	Modify "port" in /etc/datagerry/cmdb.conf: 
+	
+	.. code-block:: sh
+	
+        [WebServer]
+        host = 0.0.0.0
+        port = 4000
+
+		
+	Modify "apiPort" in /etc/datagerry/app-config.json: 
+	
+	.. code-block:: sh
+	
+        {
+        "protocol": "http",
+        "apiUrl": "localhost",
+        "apiPort": "4000"
+        }
+
+    Restart DataGerry:
+
+    .. code-block:: console
+	
+        systemctl restart datagerry
+
+
+.. note::
+    Ensure that the port configured in cmdb.conf and app-config.json is identical. 
+    A mismatch will prevent the frontend from communicating with the backend.
+
+|
+For Docker installations you will find the config files in the folder /datagerry/conf.
+Please also modify the port in your docker-compose.yml and in the nginx.conf.
+
+=======================================================================================================================
+
+| 
+
+=======================================================================================================================
+
+| 
+
 Backup
 ======
 
