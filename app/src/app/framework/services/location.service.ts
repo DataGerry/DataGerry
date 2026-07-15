@@ -21,7 +21,7 @@ import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { UntypedFormControl } from '@angular/forms';
 
 import { Observable, timer, Subject } from 'rxjs';
-import { catchError, map, switchMap, finalize } from 'rxjs/operators';
+import { catchError, map, switchMap } from 'rxjs/operators';
 
 import { ApiCallService, ApiServicePrefix, resp } from '../../services/api-call.service';
 
@@ -273,27 +273,6 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
             map((apiResponse) => {
                 return apiResponse.body;
             })
-        );
-    }
-
-
-/* -------------------------------------------------- CRUD - DELETE ------------------------------------------------- */
-
-    /**
-     * Deletes a location from the database where the object_id matches the given objectID
-     *
-     * @param objectID publicID of object for which the location should be deleted
-     * @returns Observable<any>
-     */
-    public deleteLocationForObject(objectID: any): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callDelete(`${ this.servicePrefix }/${ objectID }/object`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('delete'))
         );
     }
 

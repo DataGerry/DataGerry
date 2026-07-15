@@ -24,7 +24,6 @@ import { ObjectService } from '../../services/object.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { TypeService } from '../../services/type.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
-import { LocationService } from '../../services/location.service';
 
 import { CmdbMode } from '../../modes.enum';
 import { CmdbObject, MultiDataSectionEntry, MultiDataSectionFieldValue, ObjectPatchPayload } from '../../models/cmdb-object';
@@ -57,7 +56,6 @@ export class ObjectEditComponent implements OnInit {
 
     public selectedLocation: number = -1;
     public locationTreeName: string;
-    public locationForObjectExists: boolean = false;
     public isLoading$ = this.loaderService.isLoading$;
 
     // Table Template: Type actions column
@@ -78,7 +76,6 @@ export class ObjectEditComponent implements OnInit {
         private router: Router,
         private toastService: ToastService,
         private sidebarService: SidebarService,
-        private locationService: LocationService,
         private _location: Location,
         private loaderService: LoaderService,
     ) {
@@ -150,27 +147,21 @@ export class ObjectEditComponent implements OnInit {
         }
 
         const { fields, sections } = this.collectFormValues();
-        const removingLocation = (!this.selectedLocation || this.selectedLocation <= 0) && this.locationForObjectExists;
-
-        if (removingLocation) {
-            this.deleteObjectLocation(this.objectInstance.public_id);
-        }
-
-        const editedFields = removingLocation ? fields.filter((field) => field.name !== 'dg_location') : fields;
 
         const { payload, hasChanges } = buildObjectPatchPayload({
             originalFields: this.originalSnapshot?.fields ?? [],
-            editedFields,
+            editedFields: fields,
             originalSections: this.originalSnapshot?.multi_data_sections ?? [],
             editedSections: sections,
             comment: this.commitForm.get('comment')?.value
         });
 
-        // A selected location is persisted through the patch itself: dg_location rides along in
-        // the fields and its label is carried by location_name.
+        // Location is persisted through the object patch itself: dg_location rides along in the
+        // fields and its label is carried by location_name. The backend creates, updates or
+        // removes the location based on the dg_location value, so no separate call is needed.
         const locationChanged = this.applyLocationToPayload(payload);
 
-        // Nothing changed on the object itself; only the active state or a removed location may differ.
+        // Nothing changed on the object itself; only the active state may differ.
         if (!hasChanges && !locationChanged) {
             this.finalizeObjectUpdate();
             return;
@@ -197,7 +188,9 @@ export class ObjectEditComponent implements OnInit {
 
     /**
      * Folds the object's location into the patch payload. When a location is selected the
-     * dg_location field is guaranteed to be present
+     * dg_location field is guaranteed to be present (so a rename-only change still reaches the
+     * backend) and its label is attached as location_name. Returns whether the location has to
+     * be sent, so a location-only change still triggers the patch.
      */
     private applyLocationToPayload(payload: ObjectPatchPayload): boolean {
         if (!this.selectedLocation || this.selectedLocation <= 0) {
@@ -217,23 +210,10 @@ export class ObjectEditComponent implements OnInit {
 
 
     /**
-     * Removes the object's location through the dedicated delete route. Fire-and-forget, mirroring
-     * the previous behaviour so the object update and navigation proceed independently.
-     */
-    private deleteObjectLocation(objectId: number): void {
-        this.locationService.deleteLocationForObject(objectId).subscribe({
-            next: () => { },
-            error: error => {
-                this.toastService.error(error?.error?.message);
-            }
-        });
-    }
-
-
-    /**
      * Walks the render form once, splitting the controls into object fields and
      * multi_data_section entries. dg_location is kept in the field list so it is diffed and
-     * patched like any other field; the location label
+     * patched like any other field; the location label and the UI-only existence flag are
+     * captured as a side effect and never sent as object fields.
      */
     private collectFormValues(): { fields: MultiDataSectionFieldValue[]; sections: MultiDataSectionEntry[] } {
         const fields: MultiDataSectionFieldValue[] = [];
@@ -257,10 +237,8 @@ export class ObjectEditComponent implements OnInit {
                 return;
             }
 
-            // UI-only helper control written onto the form value by the location field; kept out
-            // of the object fields but used to decide whether a removed location must be deleted.
+            // UI-only helper control written onto the form value by the location field.
             if (key === 'locationForObjectExists') {
-                this.locationForObjectExists = String(value).toLowerCase() === 'true';
                 return;
             }
 
