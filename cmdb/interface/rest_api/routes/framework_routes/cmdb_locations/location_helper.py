@@ -40,11 +40,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_con
 
 LOGGER: Logger = getLogger(__name__)
 
-# CmdbLocation keys the lazy tree nodes omit - the frontend tree does not use them
+# CmdbLocation keys the lazy tree nodes omit - the frontend tree does not use them. type_selectable
+# is intentionally KEPT so a drag-and-drop can gray out nodes that are not selectable as a parent
 _TRIMMED_LOCATION_NODE_KEYS: frozenset[str] = frozenset({
     LocationKey.TYPE_ID.value,
     LocationKey.TYPE_LABEL.value,
-    LocationKey.TYPE_SELECTABLE.value,
 })
 
 
@@ -119,16 +119,44 @@ def resolve_location_name(
     return OBJECT_ID_NAME_TEMPLATE.format(object_id=object_id)
 
 
-def build_location_forest(locations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _annotate_has_children(nodes: list[dict[str, Any]], parents_with_children: set[int]) -> None:
+    """
+    Recursively adds a ``has_children`` flag to every node of a serialized location forest
+
+    The flag reflects whether the node has any direct child in the FULL tree (not merely in the
+    pruned forest), so a search result can tell the frontend a shown node still has children to
+    expand even when they were filtered out. Mutates the nodes in place
+
+    Args:
+        nodes (list[dict[str, Any]]): Serialized location nodes (each may carry a ``children`` list)
+        parents_with_children (set[int]): public_ids known to have at least one direct child
+    """
+    for node in nodes:
+        node[LOCATION_TREE_HAS_CHILDREN_KEY] = node[LocationKey.PUBLIC_ID.value] in parents_with_children
+
+        child_nodes: list[dict[str, Any]] = node.get('children', [])
+
+        if child_nodes:
+            _annotate_has_children(child_nodes, parents_with_children)
+
+
+def build_location_forest(
+        locations: list[dict[str, Any]],
+        parents_with_children: set[int] | None = None) -> list[dict[str, Any]]:
     """
     Assembles a flat list of CmdbLocation dicts into a nested location forest
 
     Locations whose ``parent`` is the root id become the roots of the forest; every other
     location is attached beneath its parent via ``LocationNode`` (which guards against parent
-    cycles). Each root is then serialized to a nested, JSON-compatible dict
+    cycles). Each root is then serialized to a nested, JSON-compatible dict. When
+    ``parents_with_children`` is supplied (e.g. for the pruned search forest) every node also gets a
+    ``has_children`` flag telling whether it has direct children in the FULL tree, even ones the
+    prune left out
 
     Args:
         locations (list[dict[str, Any]]): Flat list of CmdbLocation dicts (e.g. from ``to_json``)
+        parents_with_children (set[int] | None): public_ids that have at least one direct child in
+            the full tree; when given, each node is annotated with ``has_children``
 
     Returns:
         list[dict[str, Any]]: The root locations serialized as nested trees
@@ -145,7 +173,12 @@ def build_location_forest(locations: list[dict[str, Any]]) -> list[dict[str, Any
     for root_location in root_locations:
         root_location.children = root_location.get_children(root_location.public_id, descendant_locations)
 
-    return [LocationNode.to_json(root_location) for root_location in root_locations]
+    forest: list[dict[str, Any]] = [LocationNode.to_json(root_location) for root_location in root_locations]
+
+    if parents_with_children is not None:
+        _annotate_has_children(forest, parents_with_children)
+
+    return forest
 
 
 def build_location_level(
@@ -157,8 +190,9 @@ def build_location_level(
     Powers the lazily-expanded sidebar tree: each returned node carries a ``has_children`` boolean so
     the frontend can render an expand control (and fetch the next level on demand) without loading the
     whole forest. The has-children hint for the entire level is resolved in a single grouped query
-    rather than one lookup per node. Type metadata the tree does not use (type_id, type_label,
-    type_selectable) is dropped from each node
+    rather than one lookup per node. Type metadata the tree does not use (type_id, type_label) is
+    dropped from each node; type_selectable is kept so a drag-and-drop can gray out nodes that are
+    not selectable as a parent
 
     Args:
         child_locations (list[dict[str, Any]]): The CmdbLocation dicts of a single tree level
@@ -223,9 +257,10 @@ def validate_object_location_change(
     Validates a pending change to an object's location placement, aborting 400 when invalid
 
     Only a real change is validated (an unchanged parent is a no-op). Setting a parent requires that
-    parent CmdbLocation to exist and to not sit inside the object's own location subtree (which would
-    create a cycle). Removing the parent is always allowed: the location node's direct children are
-    promoted onto its own parent rather than being orphaned
+    parent CmdbLocation to exist, to belong to a type that is selectable as a parent, and to not sit
+    inside the object's own location subtree (which would create a cycle). Removing the parent is
+    always allowed: the location node's direct children are promoted onto its own parent rather than
+    being orphaned. The synthetic root is always a valid, selectable parent
 
     Args:
         object_id (int): public_id of the CmdbObject whose location is changing
@@ -233,7 +268,8 @@ def validate_object_location_change(
         locations_manager (LocationsManager): db interface for CmdbLocations
 
     Raises:
-        HTTPException: 400 when the parent does not exist or the change would create a cycle
+        HTTPException: 400 when the parent does not exist, is not selectable as a parent, or the
+            change would create a cycle
     """
     existing: dict[str, Any] | None = locations_manager.get_location_for_object(object_id)
     current_parent: int | None = existing['parent'] if existing else None
@@ -246,8 +282,16 @@ def validate_object_location_change(
         # the node's own parent (see LocationsManager.delete_location), so this is always allowed
         return
 
-    if parent != RootLocationDefault.PUBLIC_ID and not locations_manager.get_location(parent):
-        abort(400, f"The selected parent Location (ID:{parent}) does not exist!")
+    # The synthetic root is always a valid, selectable parent; any other parent must exist and be
+    # selectable as a parent (its type's selectable_as_parent, denormalized onto the location node)
+    if parent != RootLocationDefault.PUBLIC_ID:
+        parent_location: dict[str, Any] | None = locations_manager.get_location(parent)
+
+        if not parent_location:
+            abort(400, f"The selected parent Location (ID:{parent}) does not exist!")
+
+        if not parent_location.get(LocationKey.TYPE_SELECTABLE.value, True):
+            abort(400, f"The selected parent Location (ID:{parent}) is not selectable as a parent!")
 
     if existing:
         forbidden: set[int] = {existing['public_id']}
@@ -296,6 +340,109 @@ def delete_location_with_reparenting(
     objects_manager.set_location_field_for_objects(child_object_ids, grandparent_id)
 
     return ack
+
+
+def normalize_parent_id(raw_parent: Any) -> int | None:
+    """
+    Coerces a request-supplied parent id to a positive int, or None for "no placement"
+
+    Mirrors the object location field semantics (see extract_object_location_parent): a null,
+    non-integer, or non-positive value (e.g. 0) means "remove the placement", any positive value is
+    a parent CmdbLocation id
+
+    Args:
+        raw_parent (Any): The raw ``parent`` value from the request body
+
+    Returns:
+        int | None: The positive parent id, or None to remove the placement
+    """
+    try:
+        parent: int = int(raw_parent)
+    except (TypeError, ValueError):
+        return None
+
+    return parent if parent > 0 else None
+
+
+def validate_object_location_move(
+        object_id: int,
+        parent: int | None,
+        objects_manager: ObjectsManager,
+        locations_manager: LocationsManager) -> CmdbType:
+    """
+    Read-only validation of a placement move; returns the object's type for the caller to reuse
+
+    Confirms the object exists, its type resolves and declares a location field (only such objects
+    can sit in the location tree), and the target placement is legal (parent exists, is
+    selectable-as-parent, no cycle - via validate_object_location_change). Writes nothing, so a
+    bulk move can validate every target up front and reject the whole batch before any change
+
+    Args:
+        object_id (int): public_id of the CmdbObject to move
+        parent (int | None): The new parent CmdbLocation id, or None to remove the placement
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        locations_manager (LocationsManager): db interface for CmdbLocations
+
+    Raises:
+        HTTPException: 404 when the object is missing, 400 when it has no location field or the
+            placement is invalid, 500 when the object's type cannot be resolved
+
+    Returns:
+        CmdbType: The moved object's resolved CmdbType (reused by move_object_location)
+    """
+    current_object: CmdbObject | None = objects_manager.get_object(object_id, as_dict=False)
+
+    if not current_object:
+        abort(404, f"Object with ID:{object_id} not found!")
+
+    object_type: CmdbType | None = objects_manager.get_object_type(current_object.get_type_id())
+
+    if not object_type:
+        abort(500, f"Type of Object with ID:{object_id} not found in database!")
+
+    if not current_object.has_fields_of_type(FieldType.LOCATION):
+        abort(400, f"Object with ID:{object_id} has no location field and cannot be placed in the location tree!")
+
+    validate_object_location_change(object_id, parent, locations_manager)
+
+    return object_type
+
+
+def move_object_location(
+        object_id: int,
+        parent: int | None,
+        request_user: CmdbUser,
+        objects_manager: ObjectsManager,
+        locations_manager: LocationsManager,
+        object_type: CmdbType | None = None) -> None:
+    """
+    Moves one object's location placement to a new parent, mirroring both sides of the tree
+
+    Validates the move (unless a pre-validated ``object_type`` is supplied by a bulk caller), then
+    updates BOTH sides of the object<->location mirror: the object's location field value and its
+    CmdbLocation node (created / re-parented / removed by sync_object_location, which promotes the
+    node's children onto its own parent when the placement is removed). ``parent`` None removes the
+    placement. This is a targeted placement change - it deliberately does NOT bump the object
+    version or emit an edit log / webhook (matching the direct location-update route, not the full
+    object-edit pipeline)
+
+    Args:
+        object_id (int): public_id of the CmdbObject to move
+        parent (int | None): The new parent CmdbLocation id, or None to remove the placement
+        request_user (CmdbUser): The user making the request (used to derive the node name)
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        locations_manager (LocationsManager): db interface for CmdbLocations
+        object_type (CmdbType | None): Pre-validated type from validate_object_location_move; when
+            None the move is validated here first
+
+    Raises:
+        HTTPException: 404 / 400 / 500 as raised by validate_object_location_move
+    """
+    if object_type is None:
+        object_type = validate_object_location_move(object_id, parent, objects_manager, locations_manager)
+
+    objects_manager.set_location_field_for_objects([object_id], parent)
+    sync_object_location(object_id, parent, None, object_type, request_user, objects_manager, locations_manager)
 
 
 def sync_object_location(
