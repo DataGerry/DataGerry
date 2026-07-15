@@ -36,6 +36,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     validate_object_location_change,
     sync_object_location,
     build_location_level,
+    delete_location_with_reparenting,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -317,15 +318,15 @@ class TestValidateObjectLocationChange:
         with flask_app.test_request_context():
             validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
 
-    def test_remove_with_children_aborts_400(self, flask_app: Flask) -> None:
-        """Removing the placement while the object's location still has children is rejected -> 400."""
+    def test_remove_with_children_is_allowed(self, flask_app: Flask) -> None:
+        """Removing the placement is always allowed - the node's children are promoted, not orphaned."""
         manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
-        manager.location_has_children.return_value = True
+        manager.location_has_children.return_value = True  # must not be consulted anymore
 
-        with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with flask_app.test_request_context():
             validate_object_location_change(OBJECT_ID, None, manager)
 
-        assert exc_info.value.code == HTTP_BAD_REQUEST
+        manager.location_has_children.assert_not_called()
 
     def test_remove_without_children_passes(self, flask_app: Flask) -> None:
         """Removing the placement is allowed when the object's location has no children."""
@@ -334,6 +335,47 @@ class TestValidateObjectLocationChange:
 
         with flask_app.test_request_context():
             validate_object_location_change(OBJECT_ID, None, manager)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        delete_location_with_reparenting                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestDeleteLocationWithReparenting:
+    """Promotes the direct-child location nodes AND their objects' location fields to the grandparent."""
+
+    def test_reparents_child_nodes_and_object_fields(self) -> None:
+        """The child nodes are promoted by delete_location; the owning objects' fields are re-pointed."""
+        locations_manager = MagicMock(name='locations_manager')
+        objects_manager = MagicMock(name='objects_manager')
+        locations_manager.get_locations_by.return_value = [
+            MagicMock(object_id=101), MagicMock(object_id=102),
+        ]
+        locations_manager.delete_location.return_value = True
+
+        result = delete_location_with_reparenting(
+            {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}, locations_manager, objects_manager,
+        )
+
+        assert result is True
+        # children snapshotted by parent, then the node deleted (which promotes the child nodes)
+        locations_manager.get_locations_by.assert_called_once_with(parent=OWN_LOCATION_ID)
+        locations_manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
+        # the owning objects' location fields are re-pointed at the grandparent
+        objects_manager.set_location_field_for_objects.assert_called_once_with([101, 102], NEW_PARENT_ID)
+
+    def test_no_children_still_deletes_and_syncs_empty(self) -> None:
+        """With no children the node is still deleted and the object-field sync is a no-op ([])."""
+        locations_manager = MagicMock(name='locations_manager')
+        objects_manager = MagicMock(name='objects_manager')
+        locations_manager.get_locations_by.return_value = []
+        locations_manager.delete_location.return_value = True
+
+        delete_location_with_reparenting(
+            {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}, locations_manager, objects_manager,
+        )
+
+        locations_manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
+        objects_manager.set_location_field_for_objects.assert_called_once_with([], NEW_PARENT_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -390,13 +432,16 @@ class TestSyncObjectLocation:
         manager.update_location.assert_called_once_with(OBJECT_ID, {'parent': NEW_PARENT_ID, 'name': RESOLVED_NAME})
         manager.insert_location.assert_not_called()
 
-    def test_deletes_location_when_parent_removed(self) -> None:
-        """A removed parent deletes the existing CmdbLocation."""
-        manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID})
+    def test_deletes_location_with_reparenting_when_parent_removed(self) -> None:
+        """A removed parent deletes the existing CmdbLocation via the re-parenting helper."""
+        existing = {'public_id': OWN_LOCATION_ID, 'parent': ROOT_PUBLIC_ID}
+        manager = self._manager(existing)
 
-        self._sync(manager, None, None)
+        with patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
+            self._sync(manager, None, None)
 
-        manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
+        reparent.assert_called_once()
+        assert reparent.call_args.args[0] == existing
         manager.insert_location.assert_not_called()
         manager.update_location.assert_not_called()
 

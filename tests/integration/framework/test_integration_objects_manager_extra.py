@@ -58,6 +58,11 @@ LOC_CLEAR_WITH_LOCATION_IDS: list[int] = [9771, 9772]
 LOC_CLEAR_NO_LOCATION_ID: int = 9773
 LOCATION_FIELD_NAME: str = 'dg_location'
 
+# set_location_field_for_objects ids
+LOC_SET_WITH_LOCATION_IDS: list[int] = [9774, 9775]
+LOC_SET_SEED_PARENT_ID: int = 42
+LOC_SET_NEW_PARENT_ID: int = 77
+
 # count_objects_grouped_by_type ids
 GROUP_TYPE_ID_A: int = 9781
 GROUP_TYPE_ID_B: int = 9782
@@ -246,6 +251,44 @@ class TestClearLocationFieldForObjects:
     def test_empty_list_is_noop(self, objects_manager: ObjectsManager) -> None:
         """An empty id list performs no update and does not raise."""
         objects_manager.clear_location_field_for_objects([])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        set_location_field_for_objects                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSetLocationFieldForObjects:
+    """Sets the location-type field value to a given parent id for the targets (re-parent mirror)."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds two objects carrying a populated location field pointing at the seed parent."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        for public_id in LOC_SET_WITH_LOCATION_IDS:
+            doc = _object_doc(public_id)
+            doc['fields'].append(
+                {'name': LOCATION_FIELD_NAME, 'type': 'location', 'value': LOC_SET_SEED_PARENT_ID}
+            )
+            objects.insert_one(doc)
+        yield
+        objects.delete_many({'public_id': {'$in': LOC_SET_WITH_LOCATION_IDS}})
+
+    def test_sets_location_value_on_targets(
+        self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The location field value becomes the new parent id on each target object."""
+        objects_manager.set_location_field_for_objects(LOC_SET_WITH_LOCATION_IDS, LOC_SET_NEW_PARENT_ID)
+
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        for public_id in LOC_SET_WITH_LOCATION_IDS:
+            doc = objects.find_one({'public_id': public_id})
+            location_field = next(field for field in doc['fields'] if field['name'] == LOCATION_FIELD_NAME)
+            assert location_field['value'] == LOC_SET_NEW_PARENT_ID
+
+    def test_empty_list_is_noop(self, objects_manager: ObjectsManager) -> None:
+        """An empty id list performs no update and does not raise."""
+        objects_manager.set_location_field_for_objects([], LOC_SET_NEW_PARENT_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

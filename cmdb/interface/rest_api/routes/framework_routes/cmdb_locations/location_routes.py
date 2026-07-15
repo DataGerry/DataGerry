@@ -48,6 +48,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     build_location_forest,
     build_location_level,
     parse_required_int,
+    delete_location_with_reparenting,
 )
 from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
 
@@ -248,6 +249,42 @@ def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[get_cmdb_location_tree_roots] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while requesting the root Locations!")
+
+
+@location_blueprint.route('/tree/search', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@location_blueprint.protect(auth=True, right='base.framework.object.view')
+def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning a pruned location tree matching a search query
+
+    Reproduces the sidebar tree's search on the backend so it works without loading the whole
+    forest: every location whose name matches the ``query`` (case-insensitive, literal substring)
+    is returned together with its ancestor chain, assembled into a nested forest. Non-matching
+    descendants of a match are excluded, so the response is the filtered tree view ready to render.
+    An empty ``query`` yields an empty forest
+
+    Args:
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The pruned location forest of matches and their ancestors (DefaultResponse)
+    """
+    try:
+        query: str = request.args.get('query', '', type=str)
+
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        matches_and_ancestors: list[dict[str, Any]] = locations_manager.search_locations_with_ancestors(query)
+
+        return DefaultResponse(build_location_forest(matches_and_ancestors)).make_response()
+    except LocationsManagerGetError as err:
+        LOGGER.error("[search_cmdb_location_tree] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to search the Location tree!")
+    except Exception as err:
+        LOGGER.error("[search_cmdb_location_tree] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while searching the Location tree!")
 
 
 @location_blueprint.route('/tree/<int:public_id>/children', methods=['GET', 'HEAD'])
@@ -509,20 +546,17 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
     """
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         to_delete_location = locations_manager.get_location_for_object(object_id)
 
         if not to_delete_location:
             abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
 
-        location_public_id = to_delete_location['public_id']
-
-        # A location with child locations must not be deleted - it would orphan the whole subtree
-        if locations_manager.location_has_children(location_public_id):
-            abort(403, f"The Location linked to Object with ID: {object_id} has child Locations and "
-                       "cannot be deleted!")
-
-        ack = locations_manager.delete_location(location_public_id)
+        # Deleting a location promotes its direct children - both the location nodes and the mirrored
+        # object location fields - onto this location's own parent, so a location with children is
+        # deletable (see delete_location_with_reparenting)
+        ack = delete_location_with_reparenting(to_delete_location, locations_manager, objects_manager)
 
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:

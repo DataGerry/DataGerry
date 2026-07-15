@@ -41,7 +41,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     apply_object_update,
     sync_select_field_options,
     handle_delete_object_location,
-    handle_delete_location_and_child_locations,
     build_type_object_counts,
     handle_sync_config_item_count,
     validate_object_patch_payload,
@@ -467,76 +466,45 @@ class TestSyncSelectFieldOptions:
 #                                             handle_delete_object_location                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHandleDeleteObjectLocation:
-    """handle_delete_object_location deletes a childless location and refuses a parent one with 400."""
+    """handle_delete_object_location deletes the object's location, promoting its direct children."""
 
-    def test_deletes_childless_location(self) -> None:
-        """A location with no children is removed."""
+    def test_deletes_location_via_reparenting_helper(self) -> None:
+        """The object's location is handed to the re-parenting delete helper."""
+        location = {'public_id': 50, 'parent': 1}
         locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50}
-        locations_manager.get_one_by.return_value = None
+        locations_manager.get_location_for_object.return_value = location
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
             handle_delete_object_location(MagicMock(), 5)
 
-        locations_manager.delete_location.assert_called_once_with(50)
-
-    def test_parent_location_aborts_400(self) -> None:
-        """A location that still parents other locations is refused with 400 (business rule)."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50}
-        locations_manager.get_one_by.return_value = [{'public_id': 60}]
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            with pytest.raises(HTTPException) as exc_info:
-                handle_delete_object_location(MagicMock(), 5)
-
-        assert exc_info.value.code == 400
-        locations_manager.delete_location.assert_not_called()
+        reparent.assert_called_once()
+        assert reparent.call_args.args[0] == location
 
     def test_no_location_is_noop(self) -> None:
         """When the object has no location nothing is deleted."""
         locations_manager = MagicMock()
         locations_manager.get_location_for_object.return_value = None
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
             handle_delete_object_location(MagicMock(), 5)
 
-        locations_manager.delete_location.assert_not_called()
+        reparent.assert_not_called()
 
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                     handle_delete_location_and_child_locations                                      #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleDeleteLocationAndChildLocations:
-    """The helper deletes the location subtree and returns the surviving child objects' ids."""
-
-    def test_returns_descendant_object_ids_and_deletes_subtree(self) -> None:
-        """Descendant location object_ids are returned; child locations and own location are deleted."""
+    def test_passed_in_managers_skip_the_provider_lookup(self) -> None:
+        """When both managers are supplied (e.g. a bulk loop) no ManagerProvider lookup happens."""
+        location = {'public_id': 50, 'parent': 1}
         locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50, 'object_id': 5}
-        descendants = [
-            {'public_id': 51, 'object_id': 6},
-            {'public_id': 52, 'object_id': 7},
-        ]
-        locations_manager.get_all_descendant_locations.return_value = descendants
+        locations_manager.get_location_for_object.return_value = location
+        objects_manager = MagicMock()
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            result = handle_delete_location_and_child_locations(MagicMock(), 5)
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager, \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
+            handle_delete_object_location(MagicMock(), 5, locations_manager, objects_manager)
 
-        assert result == [6, 7]
-        locations_manager.delete_locations.assert_called_once_with(descendants)
-        locations_manager.delete_location.assert_called_once_with(50)
-
-    def test_no_location_returns_empty_list(self) -> None:
-        """When the object has no location the helper returns [] and deletes nothing."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = None
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            result = handle_delete_location_and_child_locations(MagicMock(), 5)
-
-        assert result == []
-        locations_manager.delete_location.assert_not_called()
+        get_manager.assert_not_called()
+        reparent.assert_called_once_with(location, locations_manager, objects_manager)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

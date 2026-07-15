@@ -68,12 +68,23 @@ DERIVE_PUT_LOCATION_ID: int = 9892
 MISSING_LOCATION_ID: int = 9898
 MISSING_OBJECT_ID: int = 9899
 
+# search tree fixtures: Datacenter <- Rack-01 <- Server-alpha, plus an unrelated Office root
+SEARCH_DC_LOC: int = 9893
+SEARCH_RACK_LOC: int = 9894
+SEARCH_SRV_LOC: int = 9895
+SEARCH_OFFICE_LOC: int = 9896
+SEARCH_DC_NAME: str = 'Datacenter'
+SEARCH_RACK_NAME: str = 'Rack-01'
+SEARCH_SRV_NAME: str = 'Server-alpha'
+SEARCH_OFFICE_NAME: str = 'Office'
+
 ORIGINAL_NAME: str = 'Original Location'
 UPDATED_NAME: str = 'Updated Location'
 
 ALL_LOCATION_IDS: list[int] = [
     LOCATION_ID_FOR_GET, ROOT_LOCATION_ID, CHILD_LOCATION_ID,
     LOCATION_ID_FOR_UPDATE, LOCATION_ID_FOR_DELETE, DERIVE_PUT_LOCATION_ID,
+    SEARCH_DC_LOC, SEARCH_RACK_LOC, SEARCH_SRV_LOC, SEARCH_OFFICE_LOC,
 ]
 ALL_OBJECT_IDS: list[int] = [
     OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_GET, ROOT_OBJECT_ID, CHILD_OBJECT_ID,
@@ -325,6 +336,55 @@ class TestGetLocationTreeAndRelations:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                   TREE SEARCH                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSearchLocationTree:
+    """GET /locations/tree/search returns a pruned nested forest of matches + their ancestor paths."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds Datacenter <- Rack-01 <- Server-alpha plus an unrelated Office root."""
+        _insert_location(database_manager, database_name,
+                         _location_doc(SEARCH_DC_LOC, SEARCH_DC_LOC, ROOT_PARENT_ID, name=SEARCH_DC_NAME))
+        _insert_location(database_manager, database_name,
+                         _location_doc(SEARCH_RACK_LOC, SEARCH_RACK_LOC, SEARCH_DC_LOC, name=SEARCH_RACK_NAME))
+        _insert_location(database_manager, database_name,
+                         _location_doc(SEARCH_SRV_LOC, SEARCH_SRV_LOC, SEARCH_RACK_LOC, name=SEARCH_SRV_NAME))
+        _insert_location(database_manager, database_name,
+                         _location_doc(SEARCH_OFFICE_LOC, SEARCH_OFFICE_LOC, ROOT_PARENT_ID, name=SEARCH_OFFICE_NAME))
+        yield
+        _drop_locations_by_ids(database_manager, database_name,
+                               [SEARCH_DC_LOC, SEARCH_RACK_LOC, SEARCH_SRV_LOC, SEARCH_OFFICE_LOC])
+
+    def test_search_returns_match_nested_under_its_ancestors(self, rest_api) -> None:
+        """A match is returned nested under its full ancestor path; the unrelated root is excluded."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/search', query_string={'query': 'alpha'})
+
+        assert response.status_code == HTTPStatus.OK
+        forest = response.get_json()
+        # only the Datacenter branch is present (Office excluded)
+        assert [node['public_id'] for node in forest] == [SEARCH_DC_LOC]
+        rack_level = forest[0]['children']
+        assert [node['public_id'] for node in rack_level] == [SEARCH_RACK_LOC]
+        server_level = rack_level[0]['children']
+        assert [node['public_id'] for node in server_level] == [SEARCH_SRV_LOC]
+
+    def test_search_no_match_returns_empty_forest(self, rest_api) -> None:
+        """A query matching no location name returns an empty forest."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/search', query_string={'query': 'nonexistent-xyz'})
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == []
+
+    def test_search_empty_query_returns_empty_forest(self, rest_api) -> None:
+        """An empty query yields an empty forest rather than the whole tree."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/search', query_string={'query': ''})
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  NAME DERIVATION                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestLocationNameDerivation:
@@ -425,10 +485,10 @@ class TestDeleteLocation:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_delete_location_with_children_returns_403(
+    def test_delete_location_with_children_promotes_them_to_grandparent(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """A location that still has child locations cannot be deleted (403) and survives."""
+        """Deleting a location with children succeeds and re-parents them onto its parent (root here)."""
         _insert_location(database_manager, database_name, _location_doc(
             ROOT_LOCATION_ID, ROOT_OBJECT_ID, ROOT_PARENT_ID,
         ))
@@ -438,8 +498,11 @@ class TestDeleteLocation:
         try:
             response = rest_api.delete(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object')
 
-            assert response.status_code == HTTPStatus.FORBIDDEN
-            # the parent location still exists
-            assert rest_api.get(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object').status_code == HTTPStatus.OK
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED, HTTPStatus.NO_CONTENT)
+            # the deleted parent location is gone
+            assert rest_api.get(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object').status_code == HTTPStatus.NOT_FOUND
+            # the child survives, re-parented onto the deleted node's own parent (the root)
+            child = rest_api.get(f'{ROUTE_URL}/{CHILD_LOCATION_ID}').get_json()
+            assert child['parent'] == ROOT_PARENT_ID
         finally:
             _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, CHILD_LOCATION_ID])

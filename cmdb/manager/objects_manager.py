@@ -1069,17 +1069,23 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerUpdateError(str(err)) from err
 
 
-    def clear_location_field_for_objects(self, object_ids: list[int]) -> None:
+    def set_location_field_for_objects(self, object_ids: list[int], parent_id: int | None) -> None:
         """
-        Clears the location-type field value on the given CmdbObjects
+        Sets the location-type field value on the given CmdbObjects to a parent location id
 
-        Used when the CmdbLocation nodes of surviving objects are deleted (e.g. deleting an object
-        but keeping its child objects): the child objects would otherwise keep a `dg_location` field
-        value pointing at a now-deleted location node. The location field is identified by its type
-        (a CmdbType has at most one location field), so its value is reset to None in place
+        An object's location field stores the public_id of its parent CmdbLocation (its placement),
+        mirrored onto the object's CmdbLocation node's `parent`. This bulk-updates that value in
+        place for every listed object - used when the objects' location nodes are re-parented (e.g.
+        their parent location was deleted and its children were promoted) so the mirrored object
+        field keeps pointing at the correct parent. Passing None clears the placement. The location
+        field is identified by its type (a CmdbType has at most one location field)
 
         Args:
-            object_ids (list[int]): public_ids of the CmdbObjects whose location field should be cleared
+            object_ids (list[int]): public_ids of the CmdbObjects whose location field should be set
+            parent_id (int | None): The new parent CmdbLocation id, or None to clear the placement
+
+        Raises:
+            ObjectsManagerUpdateError: If the update fails
         """
         if not object_ids:
             return
@@ -1090,12 +1096,26 @@ class ObjectsManager(BaseManager):
                     "public_id": {"$in": object_ids},
                     "fields": {"$elemMatch": {"type": FieldType.LOCATION.value}},
                 },
-                update={"$set": {"fields.$[f].value": None}},
+                update={"$set": {"fields.$[f].value": parent_id}},
                 array_filters=[{"f.type": FieldType.LOCATION.value}],
             )
         except Exception as err:
-            LOGGER.error("[clear_location_field_for_objects] Exception: %s, Type: %s", err, type(err))
+            LOGGER.error("[set_location_field_for_objects] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(str(err)) from err
+
+
+    def clear_location_field_for_objects(self, object_ids: list[int]) -> None:
+        """
+        Clears the location-type field value on the given CmdbObjects
+
+        Convenience wrapper around set_location_field_for_objects with no placement (None). Used when
+        surviving objects' location nodes are removed and the objects should no longer reference any
+        parent location
+
+        Args:
+            object_ids (list[int]): public_ids of the CmdbObjects whose location field should be cleared
+        """
+        self.set_location_field_for_objects(object_ids, None)
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 

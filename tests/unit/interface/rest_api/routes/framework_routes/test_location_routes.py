@@ -38,6 +38,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_rou
     get_cmdb_locations_tree,
     get_cmdb_location_tree_roots,
     get_cmdb_location_tree_children,
+    search_cmdb_location_tree,
     get_cmdb_location,
     get_cmdb_location_for_object,
     get_cmdb_location_parent,
@@ -69,7 +70,6 @@ TOTAL_LOCATIONS: int = 2
 RESOLVED_NAME: str = 'resolved-name'
 
 HTTP_BAD_REQUEST: int = 400
-HTTP_FORBIDDEN: int = 403
 HTTP_NOT_FOUND: int = 404
 HTTP_SERVER_ERROR: int = 500
 
@@ -840,6 +840,48 @@ class TestUpdateCmdbLocationForObject:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                             search_cmdb_location_tree                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSearchCmdbLocationTree:
+    """``search_cmdb_location_tree`` reads the query, runs the name search and builds the forest."""
+
+    @staticmethod
+    def _call(flask_app: Flask, query: str) -> Any:
+        """Drives the unwrapped handler inside a GET request context carrying ?query=."""
+        with flask_app.test_request_context(f'/?query={query}', method='GET'):
+            return _unwrap(search_cmdb_location_tree)(request_user=MagicMock())
+
+    def test_searches_and_builds_pruned_forest(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The query is passed to the manager search and its result is handed to build_location_forest."""
+        del patched_provider
+        matches = [{'public_id': 5, 'name': 'rack', 'parent': 1}]
+        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.return_value = matches
+
+        with patch(f'{ROUTE_PATH}.build_location_forest', return_value=[{'public_id': 5}]) as forest, \
+             patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
+            self._call(flask_app, 'rack')
+
+        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.assert_called_once_with('rack')
+        forest.assert_called_once_with(matches)
+        response_cls.assert_called_once_with([{'public_id': 5}])
+
+    def test_search_error_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A ``LocationsManagerGetError`` from the search is translated to HTTP 400."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.side_effect = \
+            LocationsManagerGetError('search failed')
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, 'rack')
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                            delete_cmdb_location_for_object                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteCmdbLocationForObject:
@@ -851,34 +893,21 @@ class TestDeleteCmdbLocationForObject:
         with flask_app.test_request_context('/', method='DELETE'):
             return _unwrap(delete_cmdb_location_for_object)(object_id=object_id, request_user=MagicMock())
 
-    def test_deletes_resolved_location(
+    def test_deletes_resolved_location_via_reparenting_helper(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """The location resolved for the object is deleted by its public_id."""
+        """The resolved location is handed to the re-parenting delete helper with both managers."""
         del patched_provider
-        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
-        managers[ManagerType.LOCATIONS].location_has_children.return_value = False
-        managers[ManagerType.LOCATIONS].delete_location.return_value = True
+        resolved = {'public_id': LOCATION_PUBLIC_ID, 'parent': PARENT_ID}
+        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = resolved
 
-        with patch(f'{ROUTE_PATH}.DefaultResponse'):
+        with patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             patch(f'{ROUTE_PATH}.delete_location_with_reparenting', return_value=True) as reparent:
             self._call(flask_app, OBJECT_ID)
 
-        managers[ManagerType.LOCATIONS].delete_location.assert_called_once_with(LOCATION_PUBLIC_ID)
-
-    def test_location_with_children_aborts_403(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """A location that still has child locations is refused with 403 and never deleted."""
-        del patched_provider
-        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
-        managers[ManagerType.LOCATIONS].location_has_children.return_value = True
-
-        with pytest.raises(HTTPException) as excinfo:
-            self._call(flask_app, OBJECT_ID)
-
-        assert excinfo.value.code == HTTP_FORBIDDEN
-        managers[ManagerType.LOCATIONS].location_has_children.assert_called_once_with(LOCATION_PUBLIC_ID)
-        managers[ManagerType.LOCATIONS].delete_location.assert_not_called()
+        reparent.assert_called_once_with(
+            resolved, managers[ManagerType.LOCATIONS], managers[ManagerType.OBJECTS],
+        )
 
     def test_missing_location_aborts_404(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
@@ -887,23 +916,28 @@ class TestDeleteCmdbLocationForObject:
         del patched_provider
         managers[ManagerType.LOCATIONS].get_location_for_object.return_value = None
 
-        with pytest.raises(HTTPException) as excinfo:
-            self._call(flask_app, MISSING_OBJECT_ID)
+        with patch(f'{ROUTE_PATH}.delete_location_with_reparenting') as reparent:
+            with pytest.raises(HTTPException) as excinfo:
+                self._call(flask_app, MISSING_OBJECT_ID)
 
         assert excinfo.value.code == HTTP_NOT_FOUND
-        managers[ManagerType.LOCATIONS].delete_location.assert_not_called()
+        reparent.assert_not_called()
 
     def test_delete_error_maps_to_400(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """A ``LocationsManagerDeleteError`` is translated to HTTP 400."""
+        """A ``LocationsManagerDeleteError`` from the helper is translated to HTTP 400."""
         del patched_provider
-        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
-        managers[ManagerType.LOCATIONS].location_has_children.return_value = False
-        managers[ManagerType.LOCATIONS].delete_location.side_effect = LocationsManagerDeleteError('delete failed')
+        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {
+            'public_id': LOCATION_PUBLIC_ID, 'parent': PARENT_ID,
+        }
 
-        with pytest.raises(HTTPException) as excinfo:
-            self._call(flask_app, OBJECT_ID)
+        with patch(
+            f'{ROUTE_PATH}.delete_location_with_reparenting',
+            side_effect=LocationsManagerDeleteError('delete failed'),
+        ):
+            with pytest.raises(HTTPException) as excinfo:
+                self._call(flask_app, OBJECT_ID)
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
 

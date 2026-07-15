@@ -292,38 +292,6 @@ class TestGetAllDescendantLocations:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            get_child_locations_object_ids                                           #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestGetChildLocationsObjectIds:
-    """``get_child_locations_object_ids`` maps an object's subtree to the descendants' object_ids."""
-
-    def test_no_location_for_object_returns_empty(self) -> None:
-        """An object with no location yields no child object ids and skips the descendant lookup."""
-        mgr = _mock_manager()
-        mgr.get_location_for_object.return_value = None
-
-        result = LocationsManager.get_child_locations_object_ids(mgr, OBJECT_ID)
-
-        assert result == []
-        mgr.get_all_descendant_locations.assert_not_called()
-
-    def test_collects_object_ids_and_drops_none_entries(self) -> None:
-        """Descendant object_ids are collected; entries without an object_id are dropped."""
-        mgr = _mock_manager()
-        mgr.get_location_for_object.return_value = {'public_id': LOCATION_PUBLIC_ID}
-        mgr.get_all_descendant_locations.return_value = [
-            {'object_id': CHILD_OBJECT_ID},
-            {'object_id': None},
-            {'public_id': 99},  # no object_id key at all
-        ]
-
-        result = LocationsManager.get_child_locations_object_ids(mgr, OBJECT_ID)
-
-        mgr.get_all_descendant_locations.assert_called_once_with(LOCATION_PUBLIC_ID)
-        assert result == [CHILD_OBJECT_ID]
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                                location_has_children                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestLocationHasChildren:
@@ -420,10 +388,92 @@ class TestUpdateLocationsByType:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                        search_locations_with_ancestors                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSearchLocationsWithAncestors:
+    """The search matches names, folds in each match's ancestors, dedupes, drops root, sorts."""
+
+    @staticmethod
+    def _match(public_id: int, name: str, parent: int, ancestors: list[dict[str, Any]]) -> dict[str, Any]:
+        """An aggregation result row: a matched location carrying its $graphLookup ancestors."""
+        return {'public_id': public_id, 'name': name, 'parent': parent, 'ancestors': ancestors}
+
+    def test_returns_matches_and_ancestors_deduped_sorted_without_root(self) -> None:
+        """Two matches sharing a parent yield rack + both servers once each, root excluded, sorted."""
+        mgr = _mock_manager()
+        rack = {'public_id': 5, 'name': 'rack', 'parent': 1}
+        root = {'public_id': 1, 'name': 'Root', 'parent': 0}
+        mgr.aggregate.return_value = [
+            self._match(10, 'srv-a', 5, [dict(rack), dict(root)]),
+            self._match(11, 'srv-b', 5, [dict(rack), dict(root)]),
+        ]
+
+        result = LocationsManager.search_locations_with_ancestors(mgr, 'srv')
+
+        assert [loc['public_id'] for loc in result] == [5, 10, 11]
+        assert all('ancestors' not in loc for loc in result)
+
+    def test_pipeline_uses_escaped_case_insensitive_regex_and_excludes_root(self) -> None:
+        """The query is escaped to a literal case-insensitive substring; the synthetic root is skipped."""
+        mgr = _mock_manager()
+        mgr.aggregate.return_value = []
+
+        LocationsManager.search_locations_with_ancestors(mgr, 'a.b')
+
+        pipeline = mgr.aggregate.call_args.args[0]
+        assert pipeline[0]['$match']['name'] == {'$regex': 'a\\.b', '$options': 'i'}
+        assert pipeline[0]['$match']['public_id'] == {'$gt': 1}
+        graph = pipeline[1]['$graphLookup']
+        assert graph['connectFromField'] == 'parent'
+        assert graph['connectToField'] == 'public_id'
+
+    def test_empty_query_returns_empty_without_querying(self) -> None:
+        """A blank query short-circuits to [] and never touches the database."""
+        mgr = _mock_manager()
+
+        assert LocationsManager.search_locations_with_ancestors(mgr, '   ') == []
+        mgr.aggregate.assert_not_called()
+
+    def test_aggregation_error_wraps_as_locations_get_error(self) -> None:
+        """A ``BaseManagerIterationError`` from the aggregation becomes ``LocationsManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.aggregate.side_effect = BaseManagerIterationError('bad pipeline')
+
+        with pytest.raises(LocationsManagerGetError):
+            LocationsManager.search_locations_with_ancestors(mgr, 'srv')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                    delete_location(s)                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestReparentChildrenToGrandparent:
+    """``_reparent_children_to_grandparent`` promotes direct children onto the node's own parent."""
+
+    def test_children_are_repointed_to_the_nodes_parent(self) -> None:
+        """The node's parent is read and every direct child is re-pointed at it in one update_many."""
+        mgr = _mock_manager()
+        mgr.get_one_by.return_value = dict(SAMPLE_LOCATION_DICT)  # parent == PARENT_ID
+
+        LocationsManager._reparent_children_to_grandparent(mgr, LOCATION_PUBLIC_ID)
+
+        mgr.get_one_by.assert_called_once_with({'public_id': LOCATION_PUBLIC_ID})
+        mgr.update_many.assert_called_once_with(
+            criteria={'parent': LOCATION_PUBLIC_ID},
+            update={'parent': PARENT_ID},
+        )
+
+    def test_missing_location_is_a_noop(self) -> None:
+        """When the node does not exist, no re-parenting update is issued."""
+        mgr = _mock_manager()
+        mgr.get_one_by.return_value = None
+
+        LocationsManager._reparent_children_to_grandparent(mgr, LOCATION_PUBLIC_ID)
+
+        mgr.update_many.assert_not_called()
+
+
 class TestDeleteLocation:
-    """``delete_location`` removes one row; ``delete_locations`` removes a batch via ``$in``."""
+    """``delete_location`` removes one row after promoting its direct children."""
 
     def test_delete_location_matches_on_public_id(self) -> None:
         """A single delete is scoped to the row's ``public_id`` and returns the ack."""
@@ -435,6 +485,16 @@ class TestDeleteLocation:
         mgr.delete.assert_called_once_with({'public_id': LOCATION_PUBLIC_ID})
         assert result is True
 
+    def test_delete_location_reparents_children_before_removing_the_node(self) -> None:
+        """The node's direct children are promoted before the node itself is deleted."""
+        mgr = _mock_manager()
+        mgr.delete.return_value = True
+
+        LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
+
+        mgr._reparent_children_to_grandparent.assert_called_once_with(LOCATION_PUBLIC_ID)
+        mgr.delete.assert_called_once_with({'public_id': LOCATION_PUBLIC_ID})
+
     def test_delete_location_error_wraps_as_locations_delete_error(self) -> None:
         """A ``BaseManagerDeleteError`` from ``delete`` becomes ``LocationsManagerDeleteError``."""
         mgr = _mock_manager()
@@ -443,24 +503,18 @@ class TestDeleteLocation:
         with pytest.raises(LocationsManagerDeleteError):
             LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
 
-    def test_delete_locations_removes_the_batch_by_public_ids(self) -> None:
-        """The batch delete extracts the public_ids and issues one ``$in`` raw delete."""
+    def test_delete_location_reparent_get_error_wraps_as_locations_delete_error(self) -> None:
+        """A ``BaseManagerGetError`` raised while re-parenting becomes ``LocationsManagerDeleteError``."""
         mgr = _mock_manager()
-        locations = [
-            {'public_id': LOCATION_PUBLIC_ID},
-            {'public_id': LOCATION_PUBLIC_ID + 1},
-        ]
-
-        LocationsManager.delete_locations(mgr, locations)
-
-        mgr.delete_many_raw.assert_called_once_with(
-            {'public_id': {'$in': [LOCATION_PUBLIC_ID, LOCATION_PUBLIC_ID + 1]}}
-        )
-
-    def test_delete_locations_error_wraps_as_locations_delete_error(self) -> None:
-        """A ``BaseManagerDeleteError`` from ``delete_many_raw`` becomes ``LocationsManagerDeleteError``."""
-        mgr = _mock_manager()
-        mgr.delete_many_raw.side_effect = BaseManagerDeleteError('delete failed')
+        mgr._reparent_children_to_grandparent.side_effect = BaseManagerGetError('lookup failed')
 
         with pytest.raises(LocationsManagerDeleteError):
-            LocationsManager.delete_locations(mgr, [{'public_id': LOCATION_PUBLIC_ID}])
+            LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
+
+    def test_delete_location_reparent_update_error_wraps_as_locations_delete_error(self) -> None:
+        """A ``BaseManagerUpdateError`` raised while re-parenting becomes ``LocationsManagerDeleteError``."""
+        mgr = _mock_manager()
+        mgr._reparent_children_to_grandparent.side_effect = BaseManagerUpdateError('update failed')
+
+        with pytest.raises(LocationsManagerDeleteError):
+            LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
