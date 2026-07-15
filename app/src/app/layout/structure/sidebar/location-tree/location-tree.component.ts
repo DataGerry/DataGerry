@@ -21,27 +21,27 @@ import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
 
-import { ReplaySubject, BehaviorSubject, Subscription } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { EMPTY, ReplaySubject, BehaviorSubject, Subject, Subscription, merge } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, map, switchMap, takeUntil } from 'rxjs/operators';
 
-import { LocationService } from 'src/app/framework/services/location.service';
-import { TreeManagerService } from 'src/app/services/tree-manager.service';
+import { LocationService, LocationTreeNode, LocationTreeSearchNode } from 'src/app/framework/services/location.service';
 import { ObjectService } from 'src/app/framework/services/object.service';
-
-import { CollectionParameters } from 'src/app/services/models/api-parameter';
-import { RenderResult } from '../../../../framework/models/cmdb-render';
-import { APIGetMultiResponse } from 'src/app/services/models/api-response';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 
 /* -------------------------------------------------------------------------- */
 /*                                 INTERFACES                                 */
 /* -------------------------------------------------------------------------- */
 
 interface LocationNode {
+    public_id: number;
     name: string;
     icon: string;
     parent: number;
     object_id: number;
-    children?: LocationNode[];
+    has_children: boolean;
+    children$: BehaviorSubject<LocationNode[]>;
+    loaded: boolean;
+    loading: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -54,13 +54,17 @@ interface LocationNode {
 })
 export class LocationTreeComponent implements OnInit, OnDestroy {
 
+    private static readonly SEARCH_DEBOUNCE_MS = 300;
+    private static readonly ROOTS_ERROR = "We couldn't load the locations. Please try again.";
+    private static readonly SEARCH_ERROR = "We couldn't complete the location search. Please try again.";
+    private static readonly CHILDREN_ERROR = "We couldn't load the child locations. Please try again.";
+
     private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
-    public changedReference: BehaviorSubject<any> = new BehaviorSubject<any>(undefined);
 
     objectServiceSubscription: Subscription;
     locationServiceSubscription: Subscription;
 
-    treeControl = new NestedTreeControl<LocationNode>(node => node.children);
+    treeControl = new NestedTreeControl<LocationNode>(node => node.children$);
     dataSource = new MatTreeNestedDataSource<LocationNode>();
 
     /**
@@ -79,20 +83,39 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      */
     public selectedLocationID: number;
     private _searchString: string = '';
+
+    /** Browse mode has at least one root location */
     public hasLocations: boolean = false;
+    /** The active search returned at least one match */
     public hasSearchResults: boolean = true;
+    /** The tree is showing search results rather than the browse tree */
+    public inSearchMode: boolean = false;
+    /** A search request is in flight */
+    public isSearching: boolean = false;
+    /** Message shown in the location section when a load/search fails */
+    public errorMessage: string | null = null;
+
+    /**
+     * public_ids of the nodes expanded while browsing. Kept so the browse tree can restore its
+     * shape after a reload (object/location change) or after leaving search, without re-fetching
+     * the whole forest.
+     */
+    private readonly expandedIds = new Set<number>();
+
+    /** Raw search-box keystrokes */
+    private readonly searchInput$ = new Subject<string>();
+    /** Re-runs the current view (browse or search) after a data change */
+    private readonly refresh$ = new Subject<void>();
+
+    private readonly locationService = inject(LocationService);
+    private readonly objectService = inject(ObjectService);
+    private readonly toast = inject(ToastService);
+    private readonly route = inject(Router);
+    private readonly cdRef = inject(ChangeDetectorRef);
 
     /* -------------------------------------------------------------------------- */
     /*                                LIFE - CYCLE                                */
     /* -------------------------------------------------------------------------- */
-
-
-    private readonly locationService = inject(LocationService);
-    private readonly treeManagerService = inject(TreeManagerService);
-    private readonly objectService = inject(ObjectService);
-    private readonly route = inject(Router);
-    private readonly cdRef = inject(ChangeDetectorRef);
-
 
     public ngOnInit() {
         this.objectServiceSubscription = this.objectService.objectActionSource.subscribe(
@@ -103,20 +126,20 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
             (action: string) => this.onLocationActionEventRecieved(action)
         );
 
-        this.getLocationTree();
+        this.listenForSearch();
+        this.loadRoots();
     }
 
     public ngOnDestroy(): void {
         this.objectServiceSubscription?.unsubscribe();
+        this.locationServiceSubscription?.unsubscribe();
+        this.unsubscribe.next();
+        this.unsubscribe.complete();
     }
 
-
-    /**
-    * Reset the search string
-    */
-    handleSearchReset() {
-        this.searchString = "";
-    }
+    /* -------------------------------------------------------------------------- */
+    /*                                   SEARCH                                   */
+    /* -------------------------------------------------------------------------- */
 
     /**
      * Getter for search string
@@ -126,122 +149,27 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     }
 
     /**
-     * Setter for search string that updates search results
+     * Setter for the search string. Feeds the debounced search pipeline.
      */
     set searchString(value: string) {
         this._searchString = value;
-        this.updateSearchResults();
+        this.searchInput$.next(value);
     }
 
-
     /**
-    * Filter function for leaf nodes
-    */
-    filterLeafNode(node: LocationNode): boolean {
-
-        if (!this.searchString || !node.name) {
-            return false;
-        }
-        const nodeName = node.name.toLowerCase();
-        return nodeName.indexOf(this.searchString.toLowerCase()) === -1;
-    }
-
-
-    /**
-     * Filters a parent node based on a search string.
-     * 
-     * @param node The parent node to be filtered.
-     * @returns A boolean indicating whether the node should be filtered out or not.
+     * Reset the search string, returning to the browse tree.
      */
-    filterParentNode(node: LocationNode): boolean {
-        if (!this.searchString) {
-            return false;
-        }
-
-        // Check if the search string matches the parent node
-        if (node.name.toLowerCase().indexOf(this.searchString?.toLowerCase()) !== -1) {
-            return false;
-        }
-
-        // Check if any descendants match the search string
-        const descendants = this.treeControl.getDescendants(node);
-        if (descendants.some((descendantNode) => descendantNode.name.toLowerCase().indexOf(this.searchString?.toLowerCase()) !== -1)) {
-            return false;
-        }
-
-        // If the search string matches the immediate child, show the parent
-        const immediateChild = descendants.find((descendantNode) => descendantNode.name === node.name + 1);
-        if (immediateChild && immediateChild.name.toLowerCase().indexOf(this.searchString?.toLowerCase()) !== -1) {
-            return true;
-        }
-
-        return true;
+    handleSearchReset() {
+        this.searchString = "";
     }
-
 
     /* -------------------------------------------------------------------------- */
     /*                               TREE FUNCTIONS                               */
     /* -------------------------------------------------------------------------- */
 
-
-    /**
-    * Get all locations except the root location formatted as hierarchical tree data
-    */
-    private getLocationTree() {
-        const params: CollectionParameters = {
-            filter: [{ $match: { public_id: { $gt: 1 } } }],
-            limit: 0, sort: 'public_id', order: 1, page: 1
-        };
-
-        this.locationService.getLocationsTree(params).pipe(takeUntil(this.unsubscribe))
-            .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                const locations = this.forceCast<LocationNode[]>(apiResponse.results);
-                this.hasLocations = locations.length > 0;
-                this.dataSource.data = locations;
-                this.treeManagerService.expandNodes(this.dataSource.data, this.treeControl);
-                this.updateSearchResults();
-            });
-    }
-
-    /**
-     * Update the search results flag based on current search string and data
-     */
-    private updateSearchResults(): void {
-        if (!this.searchString || !this.dataSource.data.length) {
-            this.hasSearchResults = true; // Show tree when no search or no data
-            return;
-        }
-        
-        // Check if any nodes match the search
-        const hasMatches = this.dataSource.data.some(node => 
-            !this.filterParentNode(node) || 
-            (node.children && node.children.some(child => !this.filterLeafNode(child)))
-        );
-        this.hasSearchResults = hasMatches;
-    }
-
-
-    /**
-     * EventListener function which will update the tree when objects were changed
-     * 
-     * @param action (string): Type of object action (create, delete or update)
-     */
-    public onObjectActionEventRecieved(action: string) {
-        this.getLocationTree();
-    }
-
-    /**
-  * EventListener function which will update the tree when objects were changed
-  * 
-  * @param action (string): Type of object action (create, delete or update)
-  */
-    public onLocationActionEventRecieved(action: string) {
-        this.getLocationTree();
-    }
-
     /**
     * Set the selected location and loads the object overview in the content view
-    * 
+    *
     * @param clickedObjectID the objectID of the location which is clicked in location tree
     */
     public onLocationElementClicked(clickedObjectID: number) {
@@ -249,12 +177,25 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
         this.route.navigateByUrl('/framework/object/view/' + clickedObjectID);
     }
 
-
     /**
-     * Updates status of all expanded locations and saves them
+     * Expands or collapses a node. While browsing, children are fetched on first expand and cached
+     * on the node; while searching every node is already loaded, so this never triggers a request.
+     *
+     * @param node the node to toggle
      */
-    public onTreeExpandClicked() {
-        this.treeManagerService.extractExpandedIds(this.treeControl.expansionModel.selected);
+    public toggleNode(node: LocationNode): void {
+        if (this.treeControl.isExpanded(node)) {
+            this.treeControl.collapse(node);
+            this.expandedIds.delete(node.public_id);
+            return;
+        }
+
+        if (node.has_children && !node.loaded) {
+            this.loadChildren(node);
+            return;
+        }
+
+        this.expandNode(node);
     }
 
     /**
@@ -265,29 +206,248 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     }
 
     /**
-    * Checks if a node has a child
+    * Whether a node should render an expand control. Uses the has_children flag so the control
+    * appears before the children are loaded.
     */
-    hasChild = (_: number, node: LocationNode) => !!node.children && node.children.length > 0;
+    hasChild = (_: number, node: LocationNode) => node.has_children;
 
     /**
-     * Reloads the tree after an update
+     * EventListener function which reloads the tree when objects were changed
+     *
+     * @param action (string): Type of object action (create, delete or update)
+     */
+    public onObjectActionEventRecieved(action: string) {
+        this.refresh$.next();
+    }
+
+    /**
+     * EventListener function which reloads the tree when locations were changed
+     *
+     * @param action (string): Type of location action (create, delete or update)
+     */
+    public onLocationActionEventRecieved(action: string) {
+        this.refresh$.next();
+    }
+
+    /**
+     * Reloads the current view (browse or search)
      */
     public reloadTree() {
-        this.ngOnInit();
+        this.refresh$.next();
     }
 
     /* -------------------------------------------------------------------------- */
     /*                             HELPER - FUNCTIONS                             */
     /* -------------------------------------------------------------------------- */
 
+    private listenForSearch(): void {
+        const typedTerm$ = this.searchInput$.pipe(
+            debounceTime(LocationTreeComponent.SEARCH_DEBOUNCE_MS),
+            map((term) => term.trim()),
+            distinctUntilChanged()
+        );
+
+        merge(typedTerm$, this.refresh$.pipe(map(() => this._searchString.trim())))
+            .pipe(
+                switchMap((term) => {
+                    if (!term) {
+                        this.exitSearchMode();
+                        return EMPTY;
+                    }
+
+                    this.beginSearch();
+
+                    return this.locationService.searchTree(term).pipe(
+                        catchError(() => {
+                            this.showLoadError(LocationTreeComponent.SEARCH_ERROR);
+                            return EMPTY;
+                        })
+                    );
+                }),
+                takeUntil(this.unsubscribe)
+            )
+            .subscribe((results: LocationTreeSearchNode[]) => this.applySearchResults(results));
+    }
 
     /**
-    * This function is used to force cast to LocationNode[]
-    * 
-    * @param input api response with location tree
-    * @returns array of LocationNode
-    */
-    public forceCast<T>(input: any): T {
-        return input;
+     * Loads the first level of the browse tree and restores any previously expanded branches.
+     */
+    private loadRoots(): void {
+        this.locationService.getTreeRoots().pipe(takeUntil(this.unsubscribe))
+            .subscribe({
+                next: (roots: LocationTreeNode[]) => {
+                    const nodes = roots.map((root) => this.toBrowseNode(root));
+                    this.errorMessage = null;
+                    this.inSearchMode = false;
+                    this.hasLocations = nodes.length > 0;
+                    this.dataSource.data = nodes;
+                    this.restoreExpansion(nodes);
+                    this.cdRef.markForCheck();
+                },
+                error: () => this.showLoadError(LocationTreeComponent.ROOTS_ERROR)
+            });
+    }
+
+    /**
+     * Fetches the direct children of a node, publishes them to the tree, then expands it.
+     *
+     * @param node the node whose children should be loaded
+     */
+    private loadChildren(node: LocationNode): void {
+        node.loading = true;
+
+        this.locationService.getTreeChildren(node.public_id).pipe(takeUntil(this.unsubscribe))
+            .subscribe({
+                next: (children: LocationTreeNode[]) => {
+                    node.children$.next(children.map((child) => this.toBrowseNode(child)));
+                    node.loaded = true;
+                    node.loading = false;
+                    this.expandNode(node);
+                },
+                error: () => {
+                    node.loading = false;
+                    this.toast.error(LocationTreeComponent.CHILDREN_ERROR);
+                    this.cdRef.markForCheck();
+                }
+            });
+    }
+
+    /**
+     * Marks a search as started, clearing any previous error and blanking the tree while the
+     * request is in flight.
+     */
+    private beginSearch(): void {
+        this.inSearchMode = true;
+        this.isSearching = true;
+        this.errorMessage = null;
+        this.cdRef.markForCheck();
+    }
+
+    /**
+     * Renders a search result: the backend already returns the matching subtrees fully materialised,
+     * so the nodes are mapped and expanded in place with no further requests.
+     *
+     * @param results the matching subtrees returned by the search endpoint
+     */
+    private applySearchResults(results: LocationTreeSearchNode[]): void {
+        const nodes = results.map((result) => this.toSearchNode(result));
+        this.isSearching = false;
+        this.hasSearchResults = nodes.length > 0;
+        this.dataSource.data = nodes;
+        this.expandAll(nodes);
+        this.cdRef.markForCheck();
+    }
+
+    /**
+     * Leaves search mode and reloads the browse tree.
+     */
+    private exitSearchMode(): void {
+        this.inSearchMode = false;
+        this.isSearching = false;
+        this.loadRoots();
+    }
+
+    /**
+     * Re-fetches and re-expands the branches that were open before a browse reload.
+     *
+     * @param nodes the freshly loaded nodes of the current level
+     */
+    private restoreExpansion(nodes: LocationNode[]): void {
+        if (!this.expandedIds.size) {
+            return;
+        }
+
+        for (const node of nodes) {
+            if (!node.has_children || !this.expandedIds.has(node.public_id)) {
+                continue;
+            }
+
+            this.locationService.getTreeChildren(node.public_id).pipe(takeUntil(this.unsubscribe))
+                .subscribe((children: LocationTreeNode[]) => {
+                    const childNodes = children.map((child) => this.toBrowseNode(child));
+                    node.children$.next(childNodes);
+                    node.loaded = true;
+                    this.treeControl.expand(node);
+                    this.restoreExpansion(childNodes);
+                    this.cdRef.markForCheck();
+                });
+        }
+    }
+
+    /**
+     * Expands a node and remembers it so its state survives a browse reload.
+     *
+     * @param node the node to expand
+     */
+    private expandNode(node: LocationNode): void {
+        this.treeControl.expand(node);
+        this.expandedIds.add(node.public_id);
+        this.cdRef.markForCheck();
+    }
+
+    /**
+     * Expands every node that has children (used to fully open a search result).
+     *
+     * @param nodes the nodes to expand recursively
+     */
+    private expandAll(nodes: LocationNode[]): void {
+        for (const node of nodes) {
+            if (node.has_children) {
+                this.treeControl.expand(node);
+                this.expandAll(node.children$.value);
+            }
+        }
+    }
+
+    /**
+     * Shows an error message in the location section.
+     *
+     * @param message the user-facing message
+     */
+    private showLoadError(message: string): void {
+        this.isSearching = false;
+        this.errorMessage = message;
+        this.cdRef.markForCheck();
+    }
+
+    /**
+     * Maps a lazy (browse) backend node to the view model. Children are loaded on demand.
+     *
+     * @param raw the node returned by the lazy tree endpoints
+     */
+    private toBrowseNode(raw: LocationTreeNode): LocationNode {
+        return {
+            public_id: raw.public_id,
+            name: raw.name,
+            icon: raw.type_icon,
+            parent: raw.parent,
+            object_id: raw.object_id,
+            has_children: raw.has_children,
+            children$: new BehaviorSubject<LocationNode[]>([]),
+            loaded: !raw.has_children,
+            loading: false
+        };
+    }
+
+    /**
+     * Maps a search backend node (with its subtree embedded) to the view model. All descendants are
+     * already present, so the node is flagged as loaded.
+     *
+     * @param raw the node returned by the search endpoint
+     */
+    private toSearchNode(raw: LocationTreeSearchNode): LocationNode {
+        const children = (raw.children ?? []).map((child) => this.toSearchNode(child));
+
+        return {
+            public_id: raw.public_id,
+            name: raw.name,
+            icon: raw.icon,
+            parent: raw.parent,
+            object_id: raw.object_id,
+            has_children: children.length > 0,
+            children$: new BehaviorSubject<LocationNode[]>(children),
+            loaded: true,
+            loading: false
+        };
     }
 }

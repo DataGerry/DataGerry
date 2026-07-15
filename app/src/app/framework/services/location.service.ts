@@ -31,39 +31,33 @@ import { CollectionParameters } from '../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-// export const checkLocationExistsValidator = (locationService: LocationService, time: number = 500) => {
-//   return (control: UntypedFormControl) => {
-//     return timer(time).pipe(switchMap(() => {
-//       return locationService.getLocation(+control.value).pipe(
-//         map((response) => {
-//           if (response === null) {
-//             return { locationExists: true };
-//           } else {
-//             return null;
-//           }
-//         }),
-//         catchError((e) => {
-//           return new Promise(resolve => {
-//             if (e.status === 403) {
-//               resolve({ locationProtected: true });
-//             }
-//             resolve({ locationExists: true });
-//           });
-//         })
-//       );
-//     }));
-//   };
-// };
-
-// export const httpLocationObserveOptions = {
-//   headers: new HttpHeaders({
-//     'Content-Type': 'application/json'
-//   }),
-//   observe: resp
-// };
 
 export const PARAMETER = 'params';
 export const COOCKIENAME = 'onlyActiveObjCookie';
+
+/**
+ * A single level of the sidebar location tree as returned by the lazy tree endpoints
+ */
+export interface LocationTreeNode {
+    public_id: number;
+    name: string;
+    parent: number;
+    object_id: number;
+    type_icon: string;
+    has_children: boolean;
+}
+
+/**
+ * A node of the location tree search result (`/tree/search`).
+ */
+export interface LocationTreeSearchNode {
+    public_id: number;
+    name: string;
+    parent: number;
+    object_id: number;
+    icon: string;
+    children?: LocationTreeSearchNode[];
+}
 
 @Injectable({
   providedIn: 'root'
@@ -174,6 +168,54 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
             map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
                 return apiResponse.body;
             })
+        );
+    }
+
+
+    /**
+     * Retrieves the first level of the location tree (the direct children of the root location).
+     * 
+     * @returns Observable<LocationTreeNode[]> the root level nodes, each flagged with has_children
+     */
+    public getTreeRoots(): Observable<LocationTreeNode[]> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationTreeNode[]>(`${ this.servicePrefix }/tree/roots`, options).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Retrieves the direct children of a single location for lazy tree expansion.
+     *
+     * @param publicID (int): public_id of the location whose children should be loaded
+     * @returns Observable<LocationTreeNode[]> the child nodes, each flagged with has_children
+     */
+    public getTreeChildren(publicID: number): Observable<LocationTreeNode[]> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationTreeNode[]>(`${ this.servicePrefix }/tree/${ publicID }/children`, options).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Searches the location tree, returning a fully materialised forest of the matches together with
+     * their ancestor path, so the result can be rendered fully expanded without any lazy loading.
+     *
+     * @param query (string): the search term
+     * @returns Observable<LocationTreeSearchNode[]> the matching subtrees
+     */
+    public searchTree(query: string): Observable<LocationTreeSearchNode[]> {
+        const options = this.options;
+        options.params = new HttpParams().set('query', query);
+
+        return this.api.callGet<LocationTreeSearchNode[]>(`${ this.servicePrefix }/tree/search`, options).pipe(
+            map((apiResponse) => apiResponse.body)
         );
     }
 
