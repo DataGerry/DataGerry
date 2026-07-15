@@ -20,8 +20,8 @@ DataGerry can be installed in different environments depending on your use case 
 The following installation methods are supported:
 
 - **Docker Image** (simplified deployment via containers)
-- **RPM Package** (for RHEL/CentOS-based systems)
-- **zip Package with Setup Script** (for all distributions)
+- **Rpm Package** (for RHEL/CentOS-based systems)
+- **Zip Package with Setup Script** (for all distributions)
 - **Deb Package** (for Debian-based systems)
 
 For the fastest setup, we recommend using Docker along with the provided docker-compose configuration.
@@ -58,24 +58,24 @@ Example:
 .. include:: ../../../etc/cmdb.conf
     :literal:
 
-You can also override configuration options using environment variables:
-
-.. code-block:: bash
-
-   DATAGERRY_<section_name>_<option_name>
-   DATAGERRY_Database_port=27018
-
-This approach is especially useful when running DataGerry in Docker environments.
 
 Additionally there is a settings file for DataGerry frontend named ``app-config.json``,
 where you can define the settings for the connection to the backend.
 
 Example:
 
-.. include:: ../../../etc/cmdb.conf
+.. include:: ../../../etc/app-config.json
     :literal:
 
 | 
+You can also override configuration options using environment variables.
+This approach is especially useful when running DataGerry in Docker environments.
+
+.. code-block:: bash
+
+   DATAGERRY_<section_name>_<option_name>
+   DATAGERRY_Database_port=27018
+
 
 =======================================================================================================================
 
@@ -124,8 +124,8 @@ Use default Docker installation guide.
     
     git clone https://github.com/DataGerry/DataGerry-docker.git /opt/DataGerry-docker
     cp /opt/DataGerry-docker/conf/cmdb_default.conf /opt/DataGerry-docker/conf/cmdb.conf
-	cp /opt/DataGerry-docker/conf/app-config_default.json /opt/DataGerry-docker/conf/app-config.json
-	cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
+    cp /opt/DataGerry-docker/conf/app-config_default.json /opt/DataGerry-docker/conf/app-config.json
+    cp /opt/DataGerry-docker/conf/nginx_default.conf /opt/DataGerry-docker/conf/nginx.conf
 
 .. note::
 	We recommend always to use the latest tag version.
