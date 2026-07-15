@@ -44,6 +44,7 @@
     "chart.js": "^4.4.3",
     "chartjs-plugin-datalabels": "^2.2.0",
     "core-js": "^3.37.1",
+    "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.11.11",
     "html2canvas": "^1.4.1",
@@ -75,7 +76,6 @@
     "tinymce": "^7.9.2",
     "tslib": "2.4.1",
     "uuid": "^10.0.0",
-    "xlsx": "^0.18.5",
     "zone.js": "~0.15.1",
     "zxcvbn": "^4.4.2"
   },

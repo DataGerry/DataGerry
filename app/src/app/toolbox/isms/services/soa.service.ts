@@ -73,10 +73,16 @@ export class SoaService extends BaseApiService<ControlMeasure> {
    */
   exportXlsx(filename: string, data: ControlMeasure[]): void {
     const exportData = this.mapExportData(data);
-    import('xlsx').then((xlsx: any) => {
-      const worksheet = xlsx.utils.json_to_sheet(exportData);
-      const workbook = { Sheets: { data: worksheet }, SheetNames: ['data'] };
-      const excelBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+    import('exceljs').then(async (ExcelJS) => {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('data');
+      const headers = exportData.length > 0 ? Object.keys(exportData[0]) : [];
+
+      if (headers.length) {
+        worksheet.addRow(headers);
+        exportData.forEach(row => worksheet.addRow(headers.map(header => row[header])));
+      }
+      const excelBuffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([excelBuffer], { type: 'application/octet-stream' });
       saveAs(blob, `${filename}.xlsx`);
     });

@@ -45,10 +45,17 @@ export class FileExportService {
     exportXlsx(filename: string, data: any[], columns: string[], headerMap?: Record<string, string>): void {
         const mapped = this.mapFields(data, columns);
         const renamed = this.renameHeaders(mapped, headerMap, columns);
-        import('xlsx').then((xlsx: any) => {
-            const worksheet = xlsx.utils.json_to_sheet(renamed);
-            const workbook = { Sheets: { data: worksheet }, SheetNames: ['data'] };
-            const excelBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+        import('exceljs').then(async (ExcelJS) => {
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('data');
+            const headers = renamed.length > 0 ? Object.keys(renamed[0]) : [];
+
+            if (headers.length) {
+                worksheet.addRow(headers);
+                renamed.forEach(row => worksheet.addRow(headers.map(header => row[header])));
+            }
+
+            const excelBuffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([excelBuffer], { type: 'application/octet-stream' });
             saveAs(blob, `${filename}.xlsx`);
         });
