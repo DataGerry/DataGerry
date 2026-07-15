@@ -28,7 +28,7 @@ import { ApiCallService, ApiServicePrefix, resp } from '../../services/api-call.
 import { CmdbLocation } from '../models/cmdb-location';
 import { RenderResult } from '../models/cmdb-render';
 import { CollectionParameters } from '../../services/models/api-parameter';
-import { APIGetMultiResponse, APIUpdateSingleResponse } from '../../services/models/api-response';
+import { APIGetMultiResponse } from '../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 // export const checkLocationExistsValidator = (locationService: LocationService, time: number = 500) => {
@@ -92,29 +92,6 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                   CRUD - SECTION                                                   */
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-
-/* -------------------------------------------------- CRUD - CREATE ------------------------------------------------- */
-
-
-    /**
-     * Creates and stores a CmdbLocation in the database
-     * 
-     * @param objectInstance (CmdbLocation): location which should be crated
-     * @returns Observable<any>
-     */
-    public postLocation(params): Observable<any> {
-
-      const postOptions = this.options;
-      postOptions.params = new HttpParams();
-
-      return this.api.callPost<CmdbLocation>(this.servicePrefix + '/', params , postOptions).pipe(
-          map((apiResponse) => {
-          return apiResponse.body;
-          }),
-          finalize(() => this.executedAction('create'))
-      );
-  }
 
 
 /* --------------------------------------------------- CRUD - READ -------------------------------------------------- */
@@ -300,56 +277,11 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
     }
 
 
-/* -------------------------------------------------- CRUD - UPDATE ------------------------------------------------- */
-
-    /**
-     * Updates a CmdbLocation in the database
-     * 
-     * @param publicID (int): public_id of the location
-     * @param objectInstance (CmdbLocation): the data which should be updated
-     * @param httpOptions httpObserveOptions
-     * @returns Observable<any>
-     */
-    public updateLocationForObject(params): Observable<any> {
-
-        const putOptions = this.options;
-        putOptions.params = new HttpParams();
-
-        return this.api.callPut<T>(`${ this.servicePrefix }/update_location`, params, putOptions).pipe(
-            map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('update'))
-        );
-    }
-
-
 /* -------------------------------------------------- CRUD - DELETE ------------------------------------------------- */
 
     /**
-     * Deletes a location from the database with the given public_id
-     * 
-     * @param publicID (int): public_id of location which should be deleted
-     * @returns Observable<any>
-     */
-
-    //TODO: not implemented on backend - start
-    // public deleteLocation(publicID: any): Observable<any> {
-        
-
-    //     const options = this.options;
-    //     options.params = new HttpParams();
-
-    //     return this.api.callDelete(`${ this.servicePrefix }/${ publicID }`, options).pipe(
-    //         map((apiResponse) => {
-    //             return apiResponse.body;
-    //         })
-    //     );
-    // }
-
-    /**
      * Deletes a location from the database where the object_id matches the given objectID
-     * 
+     *
      * @param objectID publicID of object for which the location should be deleted
      * @returns Observable<any>
      */
@@ -364,6 +296,7 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
             finalize(() => this.executedAction('delete'))
         );
     }
+
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                   HELPER SECTION                                                   */
