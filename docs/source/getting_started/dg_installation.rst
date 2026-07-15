@@ -58,7 +58,7 @@ Example:
 .. include:: ../../../etc/cmdb.conf
     :literal:
 
-| 
+ 
 You can also override configuration options using environment variables.
 This approach is especially useful when running DataGerry in Docker environments.
 
@@ -66,7 +66,7 @@ This approach is especially useful when running DataGerry in Docker environments
 
    DATAGERRY_<section_name>_<option_name>
    DATAGERRY_Database_port=27018
-   
+
 |
 |
 Additionally there is a settings file for DataGerry frontend named ``app-config.json``,
