@@ -111,12 +111,13 @@ To change the backend port do the following steps:
 
 
 .. note::
-    |Ensure that the port configured in cmdb.conf and app-config.json is identical. 
-    |A mismatch will prevent the frontend from communicating with the backend.
+    | Ensure that the port configured in cmdb.conf and app-config.json is identical. 
+    | A mismatch will prevent the frontend from communicating with the backend.
 
 |
-|For Docker installations you will find the config files in the folder /datagerry/conf.
-|Please also modify the port in your docker-compose.yml and in the nginx.conf.
+| For Docker installations you will find the config files in the folder /datagerry/conf.
+| Please also modify the port in your docker-compose.yml and in the nginx.conf
+| and restart your docker compose.
 
 =======================================================================================================================
 
