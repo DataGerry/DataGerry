@@ -87,20 +87,20 @@ To change the backend port do the following steps:
 	
 	.. code-block:: sh
 
-        [WebServer]
-        host = 0.0.0.0
-        port = 4000
+		[WebServer]
+		host = 0.0.0.0
+		port = 4000
 
 		
 	Modify "apiPort" in /etc/datagerry/app-config.json: 
 	
-    .. code-block:: sh
+	.. code-block:: sh
 
-    	{
+		{
 		"protocol": "http",
 		"apiUrl": "localhost",
 		"apiPort": "4000"
-	    }
+		}
 
 
     Restart DataGerry:
