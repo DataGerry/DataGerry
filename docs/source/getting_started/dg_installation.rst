@@ -58,8 +58,7 @@ Example:
 .. include:: ../../../etc/cmdb.conf
     :literal:
 
-
-
+| 
 Additionally there is a settings file for DataGerry frontend named ``app-config.json``,
 where you can define the settings for the connection to the backend.
 
