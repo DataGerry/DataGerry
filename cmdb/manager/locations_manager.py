@@ -355,6 +355,74 @@ class LocationsManager(BaseManager):
 
         return sorted(collected.values(), key=lambda location: location[LocationKey.PUBLIC_ID.value])
 
+
+    def get_locations_on_path_to(self, public_id: int) -> list[dict[str, Any]]:
+        """
+        Retrieves the location tree expanded along the ancestor path of a single CmdbLocation
+
+        Powers the location picker's "open to the current selection" case: given a target location
+        (the value stored in an object's location field), returns the flat set of all locations
+        needed to render the tree already expanded down to that target - every ROOT location plus
+        every direct child of each ancestor on the path from the root to the target (i.e. the full
+        set of siblings at each level along the path, so the user keeps sideways context). The
+        target itself and its own siblings are included (they are the deepest expanded level); the
+        target's own children are NOT - like the rest of the lazy tree they load on demand via
+        get_locations_by.
+
+        The ancestor chain is resolved in a single ``$graphLookup`` (parent -> public_id); the
+        sibling levels are then one ``$in`` query over {root} + {ancestors}. Returns an empty list
+        when the target does not exist. Requires MongoDB 3.4+ (well within the 7.0 floor)
+
+        Args:
+            public_id (int): public_id of the target CmdbLocation to expand the tree to
+
+        Raises:
+            LocationsManagerGetError: If the path/level aggregation fails
+
+        Returns:
+            list[dict[str, Any]]: flat, de-duplicated list of every root location plus all direct
+                children of each ancestor on the path to the target (which includes the target and
+                its siblings); empty when the target does not exist
+        """
+        ancestor_pipeline: list[dict[str, Any]] = [
+            {"$match": {LocationKey.PUBLIC_ID.value: public_id}},
+            {
+                "$graphLookup": {
+                    "from": CmdbLocation.COLLECTION,
+                    "startWith": f"${LocationKey.PARENT.value}",
+                    "connectFromField": LocationKey.PARENT.value,
+                    "connectToField": LocationKey.PUBLIC_ID.value,
+                    "as": "ancestors",
+                }
+            },
+        ]
+
+        try:
+            matches: list[dict[str, Any]] = list(self.aggregate(ancestor_pipeline))
+
+            # Target does not exist -> nothing to expand to
+            if not matches:
+                return []
+
+            ancestors: list[dict[str, Any]] = matches[0].get("ancestors", [])
+
+            # The parents whose direct children make up the expanded levels: the synthetic root plus
+            # every ancestor of the target (the synthetic root is excluded from the ancestor chain)
+            expand_parents: set[int] = {RootLocationDefault.PUBLIC_ID}
+            expand_parents |= {
+                ancestor[LocationKey.PUBLIC_ID.value]
+                for ancestor in ancestors
+                if ancestor[LocationKey.PUBLIC_ID.value] != RootLocationDefault.PUBLIC_ID
+            }
+
+            # One $in over all sibling levels at once (children of the root + of each ancestor)
+            return self.get_many(**{LocationKey.PARENT.value: {"$in": list(expand_parents)}})
+        except (BaseManagerGetError, BaseManagerIterationError) as err:
+            raise LocationsManagerGetError(str(err)) from err
+        except Exception as err:
+            LOGGER.error("[get_locations_on_path_to] Exception: %s. Type: %s", err, type(err))
+            raise LocationsManagerGetError(str(err)) from err
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
     def update_location(self, object_id: int, data: CmdbLocation | dict) -> None:

@@ -299,6 +299,56 @@ def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
         abort(500, "An internal server error occured while searching the Location tree!")
 
 
+@location_blueprint.route('/tree/path/<int:public_id>', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@location_blueprint.protect(auth=True, right='base.framework.object.view')
+def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the location tree pre-expanded to one location
+
+    Powers the location picker when editing an object that already has a location: given the
+    selected location's ``public_id`` (the value stored in the object's location field) it returns
+    the forest opened all the way down to that node in ONE call - every root plus the full set of
+    siblings at each level along the ancestor path to the target - instead of forcing the frontend
+    to walk the lazy ``/tree/roots`` + ``/tree/<id>/children`` levels itself. Each node carries a
+    ``has_children`` flag (real children in the FULL tree, so untouched branches stay expandable).
+    The target's own children are not expanded; they load on demand like the rest of the lazy tree.
+    The caller already knows which node is selected (it is ``public_id``), so no node is flagged
+
+    Args:
+        public_id (int): public_id of the selected CmdbLocation to open the tree to
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The forest expanded to the selected location, each node with has_children
+                  (DefaultResponse)
+    """
+    try:
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        path_locations: list[dict[str, Any]] = locations_manager.get_locations_on_path_to(public_id)
+
+        if not path_locations:
+            abort(404, f"The Location with ID:{public_id} was not found!")
+
+        # has_children reflects real direct children in the FULL tree (deeper levels are not fetched)
+        node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in path_locations]
+        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+
+        forest: list[dict[str, Any]] = build_location_forest(path_locations, parents_with_children)
+
+        return DefaultResponse(forest).make_response()
+    except HTTPException:
+        raise
+    except LocationsManagerGetError as err:
+        LOGGER.error("[get_cmdb_location_tree_path] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Location tree path to Location with ID:{public_id}!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_location_tree_path] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while requesting the path to Location with ID:{public_id}!")
+
+
 @location_blueprint.route('/tree/<int:public_id>/children', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)

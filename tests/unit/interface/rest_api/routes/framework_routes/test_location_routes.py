@@ -38,6 +38,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_rou
     get_cmdb_locations_tree,
     get_cmdb_location_tree_roots,
     get_cmdb_location_tree_children,
+    get_cmdb_location_tree_path,
     search_cmdb_location_tree,
     get_cmdb_location,
     get_cmdb_location_for_object,
@@ -915,6 +916,78 @@ class TestSearchCmdbLocationTree:
             self._call(flask_app, 'rack')
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          get_cmdb_location_tree_path                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetCmdbLocationTreePath:
+    """``get_cmdb_location_tree_path`` expands the tree to one location's ancestor path."""
+
+    @staticmethod
+    def _call(flask_app: Flask, public_id: int) -> Any:
+        """Drives the unwrapped handler inside a GET request context."""
+        with flask_app.test_request_context('/', method='GET'):
+            return _unwrap(get_cmdb_location_tree_path)(public_id=public_id, request_user=MagicMock())
+
+    def test_builds_forest_from_path_and_has_children_set(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The path rows + their has-children set are handed to build_location_forest."""
+        del patched_provider
+        path_rows = [{'public_id': 5, 'parent': 1}, {'public_id': LOCATION_PUBLIC_ID, 'parent': 5}]
+        managers[ManagerType.LOCATIONS].get_locations_on_path_to.return_value = path_rows
+        managers[ManagerType.LOCATIONS].get_parents_with_children.return_value = {5}
+        forest_result = [{'public_id': 5}]
+
+        with patch(f'{ROUTE_PATH}.build_location_forest', return_value=forest_result) as forest, \
+             patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
+            self._call(flask_app, LOCATION_PUBLIC_ID)
+
+        managers[ManagerType.LOCATIONS].get_locations_on_path_to.assert_called_once_with(LOCATION_PUBLIC_ID)
+        # the node ids of the path rows drive the has-children lookup
+        managers[ManagerType.LOCATIONS].get_parents_with_children.assert_called_once_with([5, LOCATION_PUBLIC_ID])
+        forest.assert_called_once_with(path_rows, {5})
+        response_cls.assert_called_once_with(forest_result)
+
+    def test_missing_location_aborts_404(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """An unknown target (empty path) aborts 404 and never builds a forest."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_locations_on_path_to.return_value = []
+
+        with patch(f'{ROUTE_PATH}.build_location_forest') as forest:
+            with pytest.raises(HTTPException) as excinfo:
+                self._call(flask_app, LOCATION_PUBLIC_ID)
+
+        assert excinfo.value.code == HTTP_NOT_FOUND
+        forest.assert_not_called()
+
+    def test_get_error_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A ``LocationsManagerGetError`` from the path lookup is translated to HTTP 400."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_locations_on_path_to.side_effect = \
+            LocationsManagerGetError('path failed')
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, LOCATION_PUBLIC_ID)
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_unexpected_error_maps_to_500(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A generic exception is translated to HTTP 500."""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_locations_on_path_to.side_effect = RuntimeError('boom')
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, LOCATION_PUBLIC_ID)
+
+        assert excinfo.value.code == HTTP_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -31,6 +31,7 @@ import pytest
 
 from cmdb.manager.locations_manager import LocationsManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
+from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
 
 from cmdb.errors.models.cmdb_location import CmdbLocationToJsonError
 from cmdb.errors.manager import (
@@ -52,6 +53,7 @@ from cmdb.errors.manager.locations_manager import (
 
 MODULE_PATH: str = 'cmdb.manager.locations_manager'
 
+ROOT_PUBLIC_ID: int = RootLocationDefault.PUBLIC_ID
 LOCATION_PUBLIC_ID: int = 7
 OBJECT_ID: int = 42
 PARENT_ID: int = 3
@@ -441,6 +443,91 @@ class TestSearchLocationsWithAncestors:
 
         with pytest.raises(LocationsManagerGetError):
             LocationsManager.search_locations_with_ancestors(mgr, 'srv')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             get_locations_on_path_to                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetLocationsOnPathTo:
+    """``get_locations_on_path_to`` expands the tree along a target's ancestor path in one $in query."""
+
+    def test_expands_root_and_each_ancestor_level(self) -> None:
+        """The $in over the level query covers the synthetic root plus every (non-root) ancestor id."""
+        mgr = _mock_manager()
+        # target 9 sits under parent 5 under 2 under the synthetic root 1
+        ancestors = [
+            {'public_id': 5, 'name': 'b', 'parent': 2},
+            {'public_id': 2, 'name': 'a', 'parent': ROOT_PUBLIC_ID},
+            {'public_id': ROOT_PUBLIC_ID, 'name': 'Root', 'parent': 0},
+        ]
+        mgr.aggregate.return_value = [{'public_id': 9, 'name': 't', 'parent': 5, 'ancestors': ancestors}]
+        level_rows = [{'public_id': 9}]
+        mgr.get_many.return_value = level_rows
+
+        result = LocationsManager.get_locations_on_path_to(mgr, 9)
+
+        assert result is level_rows
+        parent_filter = mgr.get_many.call_args.kwargs['parent']
+        assert sorted(parent_filter['$in']) == [ROOT_PUBLIC_ID, 2, 5]
+
+    def test_pipeline_walks_parent_to_public_id_from_the_target(self) -> None:
+        """The aggregation matches the target then graph-walks up ``parent`` -> ``public_id`` edges."""
+        mgr = _mock_manager()
+        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.get_many.return_value = []
+
+        LocationsManager.get_locations_on_path_to(mgr, 9)
+
+        pipeline = mgr.aggregate.call_args.args[0]
+        assert pipeline[0]['$match'] == {'public_id': 9}
+        graph = pipeline[1]['$graphLookup']
+        assert graph['from'] == CmdbLocation.COLLECTION
+        assert graph['startWith'] == '$parent'
+        assert graph['connectFromField'] == 'parent'
+        assert graph['connectToField'] == 'public_id'
+
+    def test_root_level_target_expands_only_the_root(self) -> None:
+        """A target directly under the synthetic root expands just the root level (no ancestors)."""
+        mgr = _mock_manager()
+        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.get_many.return_value = []
+
+        LocationsManager.get_locations_on_path_to(mgr, 9)
+
+        assert mgr.get_many.call_args.kwargs['parent'] == {'$in': [ROOT_PUBLIC_ID]}
+
+    def test_missing_target_returns_empty_without_level_query(self) -> None:
+        """An unknown target short-circuits to [] and never runs the level query."""
+        mgr = _mock_manager()
+        mgr.aggregate.return_value = []
+
+        assert LocationsManager.get_locations_on_path_to(mgr, 9) == []
+        mgr.get_many.assert_not_called()
+
+    def test_aggregation_error_wraps_as_locations_get_error(self) -> None:
+        """A ``BaseManagerIterationError`` from the ancestor aggregation becomes ``LocationsManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.aggregate.side_effect = BaseManagerIterationError('bad pipeline')
+
+        with pytest.raises(LocationsManagerGetError):
+            LocationsManager.get_locations_on_path_to(mgr, 9)
+
+    def test_level_query_error_wraps_as_locations_get_error(self) -> None:
+        """A ``BaseManagerGetError`` from the level query becomes ``LocationsManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.get_many.side_effect = BaseManagerGetError('boom')
+
+        with pytest.raises(LocationsManagerGetError):
+            LocationsManager.get_locations_on_path_to(mgr, 9)
+
+    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
+        """A generic exception is also wrapped as ``LocationsManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.aggregate.side_effect = RuntimeError('boom')
+
+        with pytest.raises(LocationsManagerGetError):
+            LocationsManager.get_locations_on_path_to(mgr, 9)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

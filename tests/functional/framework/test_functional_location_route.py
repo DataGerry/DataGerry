@@ -70,6 +70,18 @@ DERIVE_PUT_LOCATION_ID: int = 9892
 MISSING_LOCATION_ID: int = 9898
 MISSING_OBJECT_ID: int = 9899
 
+# path tree fixtures: DC <- {Rack, Rack2}; Rack <- {target, target-sibling}; target <- child; Office <- child.
+# Expanding to the target returns every sibling level down to it, excluding the target's child and
+# the off-path Office branch.
+PATH_DC_LOC: int = 9870
+PATH_OFFICE_LOC: int = 9871
+PATH_RACK_LOC: int = 9872
+PATH_RACK2_LOC: int = 9873
+PATH_TARGET_LOC: int = 9874
+PATH_TARGET_SIBLING_LOC: int = 9875
+PATH_TARGET_CHILD_LOC: int = 9876
+PATH_OFFICE_CHILD_LOC: int = 9877
+
 # search tree fixtures: Datacenter <- Rack-01 <- Server-alpha, plus an unrelated Office root
 SEARCH_DC_LOC: int = 9893
 SEARCH_RACK_LOC: int = 9894
@@ -88,6 +100,8 @@ ALL_LOCATION_IDS: list[int] = [
     LOCATION_ID_FOR_UPDATE, LOCATION_ID_FOR_DELETE, DERIVE_PUT_LOCATION_ID,
     SEARCH_DC_LOC, SEARCH_RACK_LOC, SEARCH_SRV_LOC, SEARCH_OFFICE_LOC,
     NON_SELECTABLE_PARENT_LOC,
+    PATH_DC_LOC, PATH_OFFICE_LOC, PATH_RACK_LOC, PATH_RACK2_LOC, PATH_TARGET_LOC,
+    PATH_TARGET_SIBLING_LOC, PATH_TARGET_CHILD_LOC, PATH_OFFICE_CHILD_LOC,
 ]
 ALL_OBJECT_IDS: list[int] = [
     OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_GET, ROOT_OBJECT_ID, CHILD_OBJECT_ID,
@@ -392,6 +406,82 @@ class TestSearchLocationTree:
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json() == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              TREE PATH (open to selection)                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetLocationTreePath:
+    """GET /locations/tree/path/<id> returns the tree pre-expanded down to one selected location."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds DC <- {Rack <- {target, sibling} <- target-child, Rack2} and an off-path Office <- child."""
+        for public_id, parent in [
+            (PATH_DC_LOC, ROOT_PARENT_ID),
+            (PATH_OFFICE_LOC, ROOT_PARENT_ID),
+            (PATH_RACK_LOC, PATH_DC_LOC),
+            (PATH_RACK2_LOC, PATH_DC_LOC),
+            (PATH_TARGET_LOC, PATH_RACK_LOC),
+            (PATH_TARGET_SIBLING_LOC, PATH_RACK_LOC),
+            (PATH_TARGET_CHILD_LOC, PATH_TARGET_LOC),
+            (PATH_OFFICE_CHILD_LOC, PATH_OFFICE_LOC),
+        ]:
+            _insert_location(database_manager, database_name, _location_doc(public_id, public_id, parent))
+        yield
+        _drop_locations_by_ids(database_manager, database_name, [
+            PATH_DC_LOC, PATH_OFFICE_LOC, PATH_RACK_LOC, PATH_RACK2_LOC, PATH_TARGET_LOC,
+            PATH_TARGET_SIBLING_LOC, PATH_TARGET_CHILD_LOC, PATH_OFFICE_CHILD_LOC,
+        ])
+
+    @staticmethod
+    def _by_id(nodes: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+        """Indexes a level of forest nodes by public_id for order-independent assertions."""
+        return {node['public_id']: node for node in nodes}
+
+    def test_path_expands_every_sibling_level_to_the_target(self, rest_api) -> None:
+        """The forest opens down to the target: full siblings per level, deeper levels stay lazy."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/path/{PATH_TARGET_LOC}')
+
+        assert response.status_code == HTTPStatus.OK
+        roots = self._by_id(response.get_json())
+        # both roots are present (full sibling context at level 1)
+        assert set(roots) == {PATH_DC_LOC, PATH_OFFICE_LOC}
+
+        # the on-path root is expanded to its children; the off-path root is not, but is flagged expandable
+        assert 'children' not in roots[PATH_OFFICE_LOC]
+        assert roots[PATH_OFFICE_LOC]['has_children'] is True
+
+        dc_children = self._by_id(roots[PATH_DC_LOC]['children'])
+        assert set(dc_children) == {PATH_RACK_LOC, PATH_RACK2_LOC}
+        assert dc_children[PATH_RACK2_LOC]['has_children'] is False  # off-path leaf
+
+        rack_children = self._by_id(dc_children[PATH_RACK_LOC]['children'])
+        assert set(rack_children) == {PATH_TARGET_LOC, PATH_TARGET_SIBLING_LOC}
+
+        # the target reports it still has children (loaded lazily, not inlined here)
+        target = rack_children[PATH_TARGET_LOC]
+        assert target['has_children'] is True
+        assert 'children' not in target
+        # its sibling is (here) a leaf
+        assert rack_children[PATH_TARGET_SIBLING_LOC]['has_children'] is False
+
+    def test_path_to_root_level_target_returns_the_roots(self, rest_api) -> None:
+        """Opening to a root-level location returns just the root level (its children load lazily)."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/path/{PATH_DC_LOC}')
+
+        assert response.status_code == HTTPStatus.OK
+        roots = self._by_id(response.get_json())
+        assert set(roots) == {PATH_DC_LOC, PATH_OFFICE_LOC}
+        # the root level is the deepest expanded level; children load lazily
+        assert 'children' not in roots[PATH_DC_LOC]
+        assert roots[PATH_DC_LOC]['has_children'] is True
+
+    def test_path_to_missing_location_returns_404(self, rest_api) -> None:
+        """Opening to a non-existent location returns 404."""
+        response = rest_api.get(f'{ROUTE_URL}/tree/path/{MISSING_LOCATION_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
