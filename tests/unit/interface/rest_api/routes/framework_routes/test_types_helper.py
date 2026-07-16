@@ -37,6 +37,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_hel
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeCleanStatusKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     guard_location_field_removal,
+    guard_selectable_as_parent_change,
+    build_location_usage_payload,
     compute_removed_global_templates,
     apply_removed_global_template_cleanup,
     build_types_clean_status_items,
@@ -100,6 +102,55 @@ def test_guard_location_field_removal_allows_when_no_objects_use_it() -> None:
 
     with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
         guard_location_field_removal(MagicMock(), old_type, new_type)  # must not raise
+
+
+# ------------------------------------------------- guard_selectable_as_parent_change -------------------------------- #
+
+def _type_selectable(value: bool) -> SimpleNamespace:
+    """Builds a CmdbType stand-in carrying only the selectable_as_parent flag the guard reads."""
+    return SimpleNamespace(selectable_as_parent=value)
+
+
+@pytest.mark.parametrize('old_value, new_value', [(True, True), (False, True), (False, False)])
+def test_guard_selectable_as_parent_change_noop_unless_turning_off(old_value: bool, new_value: bool) -> None:
+    """No usage lookup runs unless the flag transitions true -> false."""
+    with patch(f'{PATH}.get_objects_using_location_field') as mock_usage:
+        guard_selectable_as_parent_change(MagicMock(), _type_selectable(old_value), _type_selectable(new_value))
+
+    mock_usage.assert_not_called()
+
+
+def test_guard_selectable_as_parent_change_aborts_when_objects_placed() -> None:
+    """Turning selectable_as_parent off while objects of the type are placed aborts 400."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2]):
+        with pytest.raises(HTTPException) as exc_info:
+            guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_guard_selectable_as_parent_change_allows_when_no_objects_placed() -> None:
+    """Turning selectable_as_parent off is allowed when no object of the type is placed."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))  # no raise
+
+
+# ------------------------------------------------- build_location_usage_payload ------------------------------------- #
+
+def test_build_location_usage_payload_reports_not_in_use_when_empty() -> None:
+    """With no placed objects the payload reports in_use False, count 0, empty id list."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        payload = build_location_usage_payload(MagicMock(), SimpleNamespace())
+
+    assert payload == {'in_use': False, 'count': 0, 'object_public_ids': []}
+
+
+def test_build_location_usage_payload_reports_in_use_with_ids() -> None:
+    """With placed objects the payload reports in_use True, the count, and the ids."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[7, 8, 9]):
+        payload = build_location_usage_payload(MagicMock(), SimpleNamespace())
+
+    assert payload == {'in_use': True, 'count': 3, 'object_public_ids': [7, 8, 9]}
 
 
 # ------------------------------------------------- compute_removed_global_templates --------------------------------- #

@@ -59,9 +59,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     verify_type_deletable,
     type_deletion_followup,
     special_type_is_unchanged,
-    get_objects_using_location_field,
+    build_location_usage_payload,
     get_type_or_404,
     guard_location_field_removal,
+    guard_selectable_as_parent_change,
     compute_removed_global_templates,
     apply_type_update_side_effects,
     build_types_clean_status_items,
@@ -359,13 +360,7 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         target_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
 
-        object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
-
-        return DefaultResponse({
-            'in_use': bool(object_public_ids),
-            'count': len(object_public_ids),
-            'object_public_ids': object_public_ids,
-        }).make_response()
+        return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectsManagerGetError as err:
@@ -381,6 +376,50 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
         abort(
             500,
             f"An internal server error occured while determining location-field usage for Type with ID: {public_id}!"
+        )
+
+
+@types_blueprint.route('/selectable_as_parent_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+def get_selectable_as_parent_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns whether the given CmdbType still has placed CmdbObjects, blocking a selectable-as-parent
+    change to false
+
+    The frontend uses this to decide whether the 'selectable_as_parent' toggle may be turned off:
+    it may not while any CmdbObject of this Type is placed in the location tree (holds a location
+    value > 0). The same check is enforced server-side on update by guard_selectable_as_parent_change
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+
+        return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[get_selectable_as_parent_usage_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine selectable-as-parent usage for Type with ID: {public_id}!")
+    except TypesManagerGetError as err:
+        LOGGER.error("[get_selectable_as_parent_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
+    except Exception as err:
+        LOGGER.error(
+            "[get_selectable_as_parent_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True
+        )
+        abort(
+            500,
+            "An internal server error occured while determining selectable-as-parent usage "
+            f"for Type with ID: {public_id}!"
         )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -422,6 +461,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         # Block removal of the location field while CmdbObjects still hold a location value
         guard_location_field_removal(request_user, old_type, new_type)
+
+        # Block disabling selectable_as_parent while CmdbObjects of this Type are placed in the tree
+        guard_selectable_as_parent_change(request_user, old_type, new_type)
 
         # Compute templates being removed by comparing the pre-update state to the incoming
         # payload (NOT the post-update type) and snapshot each removed template's section info

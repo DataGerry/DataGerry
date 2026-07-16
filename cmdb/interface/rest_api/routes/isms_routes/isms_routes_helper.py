@@ -23,6 +23,10 @@ from flask import abort
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_BULK_DELETE_DELETED_KEY,
+    ISMS_BULK_DELETE_IN_USE_KEY,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -55,3 +59,37 @@ def get_item_or_404(
         abort(404, not_found_message)
 
     return item
+
+
+def bulk_delete_reporting_in_use(
+        manager: GenericManager,
+        requested_ids: list[int],
+        in_use_ids: set[int]) -> dict[str, list[int]]:
+    """
+    Deletes the unused subset of requested ISMS items and reports which were skipped as in-use
+
+    Shared by the ISMS bulk-delete routes whose single-delete refuses a still-referenced item
+    (IsmsControlMeasure, IsmsVulnerability). The caller resolves which requested ids are still in
+    use in one batched query per entity; this deletes every OTHER requested id and reports both
+    lists. It relies on ``delete_item`` returning True only when a document was actually removed, so
+    a non-existent id never lands in the deleted list - no separate existence query is needed
+
+    Args:
+        manager (GenericManager): The manager whose items are deleted (delete_item wraps its own
+            delete error)
+        requested_ids (list[int]): The requested item public_ids
+        in_use_ids (set[int]): Subset of requested_ids still referenced elsewhere; never deleted
+
+    Returns:
+        dict[str, list[int]]: {'successfully': [deleted ids], 'in_use': [skipped in-use ids]}, both
+            sorted ascending
+    """
+    deleted_ids: list[int] = [
+        public_id for public_id in requested_ids
+        if public_id not in in_use_ids and manager.delete_item(public_id)
+    ]
+
+    return {
+        ISMS_BULK_DELETE_DELETED_KEY: sorted(deleted_ids),
+        ISMS_BULK_DELETE_IN_USE_KEY: sorted(in_use_ids),
+    }

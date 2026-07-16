@@ -32,6 +32,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager, ObjectsManager
 from cmdb.models.type_model import CmdbType
+from cmdb.models.object_model import CmdbObject
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_routes
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
@@ -56,7 +57,13 @@ TYPE_ID_FOR_DUPLICATE: int = 9702
 TYPE_ID_FOR_GET: int = 9703
 TYPE_ID_FOR_UPDATE: int = 9704
 TYPE_ID_FOR_DELETE: int = 9705
+TYPE_ID_FOR_SELECTABLE: int = 9706
 MISSING_TYPE_ID: int = 9799
+
+# selectable_as_parent guard fixtures
+LOCATION_FIELD_NAME: str = 'dg_location'
+PLACED_OBJECT_ID: int = 9806
+PLACED_PARENT_LOCATION_ID: int = 999
 
 ALL_TYPE_IDS: list[int] = [
     TYPE_ID_FOR_CREATE,
@@ -64,6 +71,7 @@ ALL_TYPE_IDS: list[int] = [
     TYPE_ID_FOR_GET,
     TYPE_ID_FOR_UPDATE,
     TYPE_ID_FOR_DELETE,
+    TYPE_ID_FOR_SELECTABLE,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -112,6 +120,42 @@ def _drop_type(database_manager: MongoDatabaseManager, database_name: str, publi
 def _insert_type_doc(database_manager: MongoDatabaseManager, database_name: str, public_id: int, label: str) -> None:
     """Inserts a CmdbType doc directly via the collection, bypassing the POST route validation."""
     database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(_type_doc(public_id, label))
+
+
+def _type_payload_with_location(public_id: int, label: str, selectable_as_parent: bool = True) -> dict[str, Any]:
+    """Builds a CmdbType payload that carries a location field and a selectable_as_parent flag."""
+    payload = _type_payload(public_id, label)
+    payload['selectable_as_parent'] = selectable_as_parent
+    payload['fields'].append({'type': 'location', 'name': LOCATION_FIELD_NAME, 'label': 'Location'})
+    payload['render_meta']['sections'][0]['fields'].append(LOCATION_FIELD_NAME)
+    return payload
+
+
+def _insert_type_doc_with_location(database_manager: MongoDatabaseManager, database_name: str,
+                                   public_id: int) -> None:
+    """Inserts a CmdbType doc that has a location field and is selectable_as_parent (default True)."""
+    doc = _type_payload_with_location(public_id, ORIGINAL_LABEL)
+    doc['creation_time'] = datetime.now(timezone.utc)
+    database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(doc)
+
+
+def _insert_placed_object(database_manager: MongoDatabaseManager, database_name: str,
+                          object_id: int, type_id: int) -> None:
+    """Inserts a CmdbObject of the type holding a location value > 0 (i.e. placed in the tree)."""
+    database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one({
+        'public_id': object_id,
+        'type_id': type_id,
+        'active': True,
+        'author_id': SEED_AUTHOR_ID,
+        'version': SEED_VERSION,
+        'fields': [{'type': 'location', 'name': LOCATION_FIELD_NAME, 'value': PLACED_PARENT_LOCATION_ID}],
+        'creation_time': datetime.now(timezone.utc),
+    })
+
+
+def _drop_object(database_manager: MongoDatabaseManager, database_name: str, object_id: int) -> None:
+    """Removes a single CmdbObject doc directly via the collection, for per-test cleanup."""
+    database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_one({'public_id': object_id})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -285,6 +329,75 @@ class TestTypeReadExtras:
             assert response.get_json() == 0
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       SELECTABLE-AS-PARENT GUARD                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSelectableAsParentGuard:
+    """selectable_as_parent may not be turned off while objects of the Type are placed in the tree."""
+
+    def test_usage_in_use_true_when_object_placed(self, rest_api, database_manager, database_name) -> None:
+        """The pre-check route reports in_use True when an object of the type holds a location value."""
+        _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+        _insert_placed_object(database_manager, database_name, PLACED_OBJECT_ID, TYPE_ID_FOR_SELECTABLE)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{TYPE_ID_FOR_SELECTABLE}')
+
+            assert response.status_code == HTTPStatus.OK
+            body = response.get_json()
+            assert body['in_use'] is True
+            assert body['count'] == 1
+            assert body['object_public_ids'] == [PLACED_OBJECT_ID]
+        finally:
+            _drop_object(database_manager, database_name, PLACED_OBJECT_ID)
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+
+    def test_usage_false_when_no_object_placed(self, rest_api, database_manager, database_name) -> None:
+        """The pre-check route reports in_use False when no object of the type is placed."""
+        _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{TYPE_ID_FOR_SELECTABLE}')
+
+            assert response.status_code == HTTPStatus.OK
+            body = response.get_json()
+            assert body['in_use'] is False
+            assert body['count'] == 0
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+
+    def test_update_blocked_when_disabling_with_placed_object(self, rest_api, database_manager, database_name) -> None:
+        """Turning selectable_as_parent off is rejected 400 while an object of the type is placed."""
+        _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+        _insert_placed_object(database_manager, database_name, PLACED_OBJECT_ID, TYPE_ID_FOR_SELECTABLE)
+        try:
+            payload = _type_payload_with_location(TYPE_ID_FOR_SELECTABLE, ORIGINAL_LABEL, selectable_as_parent=False)
+
+            response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_FOR_SELECTABLE}', json=payload)
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            # the flag is preserved (still selectable) since the update was rejected
+            assert rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_SELECTABLE}')\
+                .get_json()['result']['selectable_as_parent'] is True
+        finally:
+            _drop_object(database_manager, database_name, PLACED_OBJECT_ID)
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+
+    def test_update_allowed_when_disabling_without_placed_object(
+        self, rest_api, database_manager, database_name,
+    ) -> None:
+        """Turning selectable_as_parent off succeeds when no object of the type is placed."""
+        _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+        try:
+            payload = _type_payload_with_location(TYPE_ID_FOR_SELECTABLE, ORIGINAL_LABEL, selectable_as_parent=False)
+
+            response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_FOR_SELECTABLE}', json=payload)
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            assert rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_SELECTABLE}')\
+                .get_json()['result']['selectable_as_parent'] is False
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -329,6 +329,61 @@ def get_objects_using_location_field(
     return [obj[CmdbObjectKey.PUBLIC_ID] for obj in matching_objects]
 
 
+def build_location_usage_payload(request_user: CmdbUser, target_type: CmdbType) -> dict[str, Any]:
+    """
+    Builds the shared "is this Type's location placement in use" pre-check payload
+
+    Resolves the CmdbObjects of the given CmdbType that currently store a location value and packs
+    them into the {in_use, count, object_public_ids} shape returned by the location-field-usage and
+    selectable-as-parent-usage GET routes. Both routes answer the same underlying question - are any
+    objects of this type placed in the location tree - so they share this builder
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        target_type (CmdbType): The CmdbType to inspect
+
+    Returns:
+        dict[str, Any]: {in_use: bool, count: int, object_public_ids: list[int]}
+    """
+    object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
+
+    return {
+        'in_use': bool(object_public_ids),
+        'count': len(object_public_ids),
+        'object_public_ids': object_public_ids,
+    }
+
+
+def guard_selectable_as_parent_change(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update turns 'selectable_as_parent' off while objects of the type are placed
+
+    A CmdbType may only stop being selectable as a parent once no CmdbObject of that type is placed
+    in the location tree; otherwise a placed object of a now-non-selectable type would remain in the
+    tree (and could still act as a parent) while its type forbids it. Only the true -> false
+    transition is guarded - keeping it off, or turning it on, is always allowed. 400 follows the
+    codebase convention for business-rule rejections (the same as the location-field removal guard)
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+    """
+    turning_off: bool = old_type.selectable_as_parent and not new_type.selectable_as_parent
+
+    if not turning_off:
+        return
+
+    object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
+
+    if object_public_ids:
+        abort(
+            400,
+            "Cannot disable 'selectable as parent': "
+            f"{len(object_public_ids)} Object(s) of this Type are placed in the location tree. "
+        )
+
+
 def verify_type_deletable(
     request_user: CmdbUser,
     public_id: int,

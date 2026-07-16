@@ -48,6 +48,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes imp
     get_cmdb_type,
     count_objects_of_cmdb_type,
     get_location_field_usage_of_cmdb_type,
+    get_selectable_as_parent_usage_of_cmdb_type,
     update_cmdb_type,
     delete_cmdb_type,
 )
@@ -391,7 +392,8 @@ class TestLocationFieldUsage:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.get_objects_using_location_field', return_value=[1, 2]), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload',
+                   return_value={'in_use': True, 'count': 2, 'object_public_ids': [1, 2]}), \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
             self._call(flask_app)
 
@@ -405,7 +407,47 @@ class TestLocationFieldUsage:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.get_objects_using_location_field', side_effect=ObjectsManagerGetError('x')), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=ObjectsManagerGetError('x')), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   get_selectable_as_parent_usage_of_cmdb_type                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSelectableAsParentUsage:
+    """``get_selectable_as_parent_usage_of_cmdb_type`` reports whether objects of the type are placed."""
+
+    @staticmethod
+    def _call(flask_app: Flask) -> Any:
+        with flask_app.test_request_context('/selectable_as_parent_usage/7'):
+            return _unwrap(get_selectable_as_parent_usage_of_cmdb_type)(
+                public_id=TYPE_PUBLIC_ID, request_user=MagicMock(),
+            )
+
+    def test_returns_usage_payload(self, flask_app: Flask, patched_manager_provider: Any) -> None:
+        """The in_use flag, count and object public_ids are returned via DefaultResponse."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload',
+                   return_value={'in_use': True, 'count': 2, 'object_public_ids': [1, 2]}), \
+             patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
+            self._call(flask_app)
+
+        payload = response_ctor.call_args.args[0]
+        assert payload['in_use'] is True
+        assert payload['count'] == 2
+        assert payload['object_public_ids'] == [1, 2]
+
+    def test_objects_error_maps_to_400(self, flask_app: Flask, patched_manager_provider: Any) -> None:
+        """An ObjectsManagerGetError maps to HTTP 400."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=ObjectsManagerGetError('x')), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
 
@@ -433,6 +475,7 @@ class TestUpdateCmdbType:
             patch(f'{ROUTE_PATH}.CmdbType'),
             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True),
             patch(f'{ROUTE_PATH}.guard_location_field_removal'),
+            patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'),
             patch(f'{ROUTE_PATH}.compute_removed_global_templates', return_value=(set(), {})),
             patch(f'{ROUTE_PATH}.apply_type_update_side_effects'),
         ]
@@ -505,6 +548,23 @@ class TestUpdateCmdbType:
         assert exc_info.value.code == HTTP_BAD_REQUEST
         mgr.update_type.assert_not_called()
 
+    def test_selectable_as_parent_guard_propagates(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A 400 from guard_selectable_as_parent_change propagates and no update runs."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.CmdbType'), \
+             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change', side_effect=BadRequest()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        mgr.update_type.assert_not_called()
+
     def test_update_error_maps_to_400(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
         """A TypesManagerUpdateError maps to HTTP 400."""
         del patched_manager_provider
@@ -514,6 +574,7 @@ class TestUpdateCmdbType:
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'), \
              patch(f'{ROUTE_PATH}.compute_removed_global_templates', return_value=(set(), {})), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app, dict(SAMPLE_TYPE_DICT))
