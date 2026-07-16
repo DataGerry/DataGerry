@@ -1,8 +1,11 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { MatTreeModule } from '@angular/material/tree';
 import { LoadingPopupComponent } from './components/loading-popup/loading-popup.component';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { ObjectSelectorComponent } from './components/object_selector/object-selector.component';
+import { LocationTreeSelectComponent } from './components/location-tree-select/location-tree-select.component';
+import { LocationTreePickerModalComponent } from './components/location-tree-select/location-tree-picker-modal.component';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { WarningAlertComponent } from './components/warning-message/warning-alert.component';
 import { ExtendableOptionManagerComponent } from './components/extendable_option_manager/extendable-option-manager.component';
@@ -32,6 +35,8 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
   declarations: [
     LoadingPopupComponent,
     ObjectSelectorComponent,
+    LocationTreeSelectComponent,
+    LocationTreePickerModalComponent,
     WarningAlertComponent,
     ExtendableOptionManagerComponent,
     FormInputComponent,
@@ -54,6 +59,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
   imports: [
     CommonModule,
     NgSelectModule,
+    MatTreeModule,
     FormsModule,
     ReactiveFormsModule,
     HorizontalResizeDirective,
@@ -65,6 +71,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
   exports: [
     LoadingPopupComponent,
     ObjectSelectorComponent,
+    LocationTreeSelectComponent,
     WarningAlertComponent,
     ExtendableOptionManagerComponent,
     FormInputComponent,

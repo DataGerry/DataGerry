@@ -15,14 +15,13 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormControl, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 
 import { ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
-import { NgSelectComponent } from '@ng-select/ng-select';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { LocationService } from '../../../services/location.service';
@@ -30,8 +29,7 @@ import { LocationService } from '../../../services/location.service';
 import { RenderFieldComponent } from '../components.fields';
 import { ObjectPreviewModalComponent } from '../../../object/modals/object-preview-modal/object-preview-modal.component';
 import { RenderResult } from '../../../models/cmdb-render';
-import { CollectionParameters } from '../../../../services/models/api-parameter';
-import { APIGetMultiResponse } from '../../../../services/models/api-response';
+import { LocationSelection } from 'src/app/core/components/location-tree-select/location-tree-select.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -40,24 +38,23 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
     standalone: false
 })
 export class LocationComponent extends RenderFieldComponent implements OnInit, OnDestroy {
-  // fallback objectID for modal preview
-  public objectID: number;
-  private modalRef: NgbModalRef;
-  private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
-  public protect: boolean = false;
+    // fallback objectID for modal preview
+    public objectID: number;
+    public protect: boolean = false;
 
-  public currentObjectID: number;
-  public objectLocation: RenderResult;
-  private hasChildren: boolean = false; 
+    public currentObjectID: number;
+    public objectLocation: RenderResult;
+    public hasChildren: boolean = false;
 
-  public locationsList: Array<RenderResult> = [];
-  public ownLocation;
+    /** Renders the tree-select trigger for a preselected parent without a second lookup. */
+    public objectLocationDisplay: { name: string; icon: string } | null = null;
 
-  public locationTree = new FormControl('', Validators.required);
-  public locationForObjectExists = new FormControl('', Validators.required);
-  
-  @ViewChild('locationSelect') locationSelect: NgSelectComponent;
-  public clearable = true;
+    public locationTree = new FormControl('', Validators.required);
+    public locationForObjectExists = new FormControl('', Validators.required);
+    public clearable = true;
+
+    private modalRef: NgbModalRef;
+    private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -67,11 +64,13 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
         super();
     }
 
+
     public ngOnInit(): void {
-        if(this.mode != this.MODES.Bulk){
+        if (this.mode != this.MODES.Bulk) {
             this.registerForEventChanges();
             this.setTreeName('');
             this.setLocationExists('false');
+
             // Only read the route publicID as object ID in view/edit flows.
             if (this.mode === this.MODES.View || this.mode === this.MODES.Edit) {
                 this.currentObjectID = Number(this.route.snapshot.params.publicID);
@@ -83,8 +82,8 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
 
             this.getParent();
             this.getChildren();
-            this.getLocations();
-        } 
+            this.getOwnLocation();
+        }
     }
 
 
@@ -102,159 +101,108 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
 /* ---------------------------------------------------- API CALLS --------------------------------------------------- */
 
     /**
-     * Get all locations which are selectable as parent
+     * Loads the currently selected parent location so its id populates the form control and its
+     * name/icon can render on the tree-select trigger and in view mode.
      */
-    private getLocations(){
-        const params: CollectionParameters = {
-            filter: [{ $match: { name: { $ne: null } } }],
-            limit: 0,
-            sort: 'public_id',
-            order: 1,
-            page: 1
-        };
-
-        this.locationService.getLocations(params).pipe(takeUntil(this.unsubscribe))
-            .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.setLocationExists('false');
-                let locations = this.extractOwnLocation(apiResponse.results);
-                let ownChildren = [];
-
-                if(this.ownLocation){
-                    ownChildren = this.locationService.extractAllChildren(this.ownLocation['public_id'],locations);
-                }
-
-                this.setValidLocations(ownChildren,locations);
-
-                if(this.mode == this.MODES.Edit && this.hasChildren){
-                    this.clearable = false;
-                }
-        });
-    }
-
-
-    private getChildren(){
-        if(this.currentObjectID){
-            this.locationService.getChildren(this.currentObjectID).pipe(takeUntil(this.unsubscribe))
-            .subscribe({
-                next: (children: RenderResult[]) => {
-                            if(children.length > 0){
-                    this.hasChildren = true;
-                } 
-            },
-            error: (error) => {
-                if (error.status != 404) {
-                    // console.error("Error:", error);
-                }
-            }
-            
-            }
-        );
+    private getParent(): void {
+        if (!this.currentObjectID) {
+            return;
         }
-    }
 
-
-    private getParent() {
-        if (this.currentObjectID) {
-            this.locationService.getParent(this.currentObjectID).pipe(takeUntil(this.unsubscribe))
-                .subscribe({
-                    next: (locationObject: RenderResult) => {
-                        if (locationObject) {
-                            this.objectLocation = locationObject;
-                            var public_id = this.objectLocation['public_id'];
-                            this.parentFormGroup.patchValue({ 'dg_location': public_id });
-                            this.setLocationExists('true');
-                        }
-                    },
-                    error: (error) => {
-                        if (error.status != 404) {
-                            // console.error("Error:", error);
-                        }
+        this.locationService.getParent(this.currentObjectID).pipe(takeUntil(this.unsubscribe))
+            .subscribe({
+                next: (locationObject: RenderResult) => {
+                    if (locationObject) {
+                        this.objectLocation = locationObject;
+                        const publicId = this.objectLocation['public_id'];
+                        this.parentFormGroup.patchValue({ 'dg_location': publicId });
+                        this.objectLocationDisplay = {
+                            name: this.objectLocation['name'],
+                            icon: this.objectLocation['type_icon']
+                        };
+                        this.setLocationExists('true');
+                    }
+                },
+                error: (error) => {
+                    if (error.status != 404) {
+                        // A missing placement (404) simply means no parent is set yet.
                     }
                 }
-                );
-        }
-    }
-
-/* ------------------------------------------------- HELPER SECTION ------------------------------------------------- */
-
-    /**
-     * Removes the location of the current object and filters unselectable locations
-     * 
-     * @param locations all locations from backend
-     * @returns all selectable locations without the location of the current object
-     */
-    private extractOwnLocation(locations){
-        let selectableLocations = [];
-
-        for(let location of locations){
-            if(location['object_id'] == this.currentObjectID){
-                this.ownLocation = location;
-                this.setTreeName(this.ownLocation['name']);
-                this.setLocationExists('true');
-                continue;
-            }
-
-            if(location['type_selectable']){
-                selectableLocations.push(location);
-            }
-        }
-
-        return selectableLocations;
+            });
     }
 
 
     /**
-     * Removes child locations of current object location to prevent loops
-     * 
-     * @param children 
-     * @param locations 
+     * Determines whether this object is itself a parent of other locations. When it is, its
+     * placement may not be cleared (removing it would orphan its children).
      */
-    private setValidLocations(children, locations){
-        let validLocations = [];
-        let childIDs: number[] = [];
-
-        for(let child of children){
-            childIDs.push(Number(child['public_id']));
+    private getChildren(): void {
+        if (!this.currentObjectID) {
+            return;
         }
 
-        for(let location of locations){
-            //add location to selection when it is not a child of current object
-            if(!childIDs.includes(location['public_id'])){
-                validLocations.push(location);
-            }
-        }
+        this.locationService.getChildren(this.currentObjectID).pipe(takeUntil(this.unsubscribe))
+            .subscribe({
+                next: (children: RenderResult[]) => {
+                    if (children.length > 0) {
+                        this.hasChildren = true;
 
-        this.locationsList = validLocations;
+                        if (this.mode == this.MODES.Edit) {
+                            this.clearable = false;
+                        }
+                    }
+                },
+                error: (error) => {
+                    if (error.status != 404) {
+                        // No children found (404) is expected for leaf objects.
+                    }
+                }
+            });
     }
 
 
     /**
-     * Removes the selected location when unselecting
-     * 
-     * @param event 
+     * Loads the object's own location entry to prefill the "Label in location tree" input in edit
+     * flows (its name is the label shown for this object in the tree).
      */
-    public locationChanged(event){
-        if(event == undefined){
+    private getOwnLocation(): void {
+        if (!this.currentObjectID) {
+            return;
+        }
+
+        this.locationService.getLocationForObject<RenderResult>(this.currentObjectID).pipe(takeUntil(this.unsubscribe))
+            .subscribe({
+                next: (ownLocation: RenderResult) => {
+                    if (ownLocation) {
+                        this.setTreeName(ownLocation['name']);
+                        this.setLocationExists('true');
+                    }
+                },
+                error: (error) => {
+                    if (error.status != 404) {
+                        // Object has no own location entry yet (404) - nothing to prefill.
+                    }
+                }
+            });
+    }
+
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    /**
+     * Reacts to a parent chosen (or cleared) in the tree-select and keeps the existence flag in sync.
+     *
+     * @param selection the picked location, or null when the value was cleared
+     */
+    public onLocationSelected(selection: LocationSelection | null): void {
+        this.setLocationExists(selection ? 'true' : 'false');
+
+        if (!selection) {
             this.data.value = null;
         }
     }
 
 
-    public searchRef(term: string, item: any) {
-        term = term.toLocaleLowerCase();
-        const value = item.object_information.object_id + item.type_information.type_label + item.summary_line;
-
-        return value.toLocaleLowerCase().indexOf(term) > -1 || value.toLocaleLowerCase().includes(term);
-    }
-
-
-    public showReferencePreview() {
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg' });
-        this.modalRef.componentInstance.renderResult = this.objectLocation;
-    }
-
-
-    public onTreeNameChanged(currentName){
+    public onTreeNameChanged(currentName: string): void {
         this.locationTree.setValue(currentName);
         this.parentFormGroup.value['locationTreeName'] = currentName;
         this.parentFormGroup.markAsDirty();
@@ -263,29 +211,29 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
     }
 
 
-    private setLocationExists(val: string){
+    public showReferencePreview(): void {
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg' });
+        this.modalRef.componentInstance.renderResult = this.objectLocation;
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private setLocationExists(val: string): void {
         this.locationForObjectExists.setValue(val);
         this.parentFormGroup.value['locationForObjectExists'] = val;
     }
 
 
-    private setTreeName(val: string){
+    private setTreeName(val: string): void {
         this.locationTree.setValue(val);
         this.parentFormGroup.value['locationTreeName'] = val;
     }
 
 
-    private registerForEventChanges() {
-        this.parentFormGroup.valueChanges.subscribe( (event) => {
-        this.parentFormGroup.value['locationTreeName'] = this.locationTree.value;
-        this.parentFormGroup.value['locationForObjectExists'] = this.locationForObjectExists.value;
+    private registerForEventChanges(): void {
+        this.parentFormGroup.valueChanges.pipe(takeUntil(this.unsubscribe)).subscribe(() => {
+            this.parentFormGroup.value['locationTreeName'] = this.locationTree.value;
+            this.parentFormGroup.value['locationForObjectExists'] = this.locationForObjectExists.value;
         });
     }
-
-
-    groupByFn = (item) => item.type_label;
-
-    groupValueFn = (_: string, children: any[]) => ({
-        name: children[0].type_label
-    })
 }

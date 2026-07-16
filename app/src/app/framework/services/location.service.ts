@@ -44,6 +44,7 @@ export interface LocationTreeNode {
     parent: number;
     object_id: number;
     type_icon: string;
+    type_selectable?: boolean;
     has_children: boolean;
 }
 
@@ -56,6 +57,7 @@ export interface LocationTreeSearchNode {
     parent: number;
     object_id: number;
     icon: string;
+    type_selectable?: boolean;
     children?: LocationTreeSearchNode[];
 }
 
