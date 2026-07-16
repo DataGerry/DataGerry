@@ -61,6 +61,15 @@ export interface LocationTreeSearchNode {
     children?: LocationTreeSearchNode[];
 }
 
+/**
+ * A node returned by `/tree/path/<public_id>`: the root level with the ancestor chain of a single
+ * location materialised inline. Nodes on the path carry their `children`; off-path siblings omit the
+ * key and stay collapsed for lazy loading, exactly like {@link LocationTreeNode}.
+ */
+export interface LocationTreePathNode extends LocationTreeNode {
+    children?: LocationTreePathNode[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -200,6 +209,24 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
         options.params = new HttpParams();
 
         return this.api.callGet<LocationTreeNode[]>(`${ this.servicePrefix }/tree/${ publicID }/children`, options).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Retrieves the location tree pre-expanded down to a single location: all root nodes plus the
+     * materialised ancestor chain of the target, so a deeply nested selection can be revealed without
+     * expanding each level by hand. Off-path nodes are returned collapsed for lazy loading.
+     *
+     * @param publicID (int): public_id of the location to reveal
+     * @returns Observable<LocationTreePathNode[]> the root level with the target's path expanded
+     */
+    public getTreePath(publicID: number): Observable<LocationTreePathNode[]> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationTreePathNode[]>(`${ this.servicePrefix }/tree/path/${ publicID }`, options).pipe(
             map((apiResponse) => apiResponse.body)
         );
     }

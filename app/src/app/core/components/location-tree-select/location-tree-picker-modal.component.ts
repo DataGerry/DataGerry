@@ -23,7 +23,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { BehaviorSubject, EMPTY, ReplaySubject, Subject } from 'rxjs';
 import { catchError, debounceTime, distinctUntilChanged, map, switchMap, takeUntil } from 'rxjs/operators';
 
-import { LocationService, LocationTreeNode, LocationTreeSearchNode } from 'src/app/framework/services/location.service';
+import { LocationService, LocationTreeNode, LocationTreePathNode, LocationTreeSearchNode } from 'src/app/framework/services/location.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LocationTreeSelectNode, ROOT_LOCATION } from './location-tree-select.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -63,6 +63,7 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
     public errorMessage: string | null = null;
 
     private _searchString = '';
+    private scrollTimer: ReturnType<typeof setTimeout> | null = null;
     private readonly searchInput$ = new Subject<string>();
     private readonly unsubscribe = new ReplaySubject<void>(1);
 
@@ -77,10 +78,14 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
     public ngOnInit(): void {
         this.listenForSearch();
         this.listenForExpansion();
-        this.loadRoots();
+        this.loadInitialTree();
     }
 
     public ngOnDestroy(): void {
+        if (this.scrollTimer !== null) {
+            clearTimeout(this.scrollTimer);
+        }
+
         this.unsubscribe.next();
         this.unsubscribe.complete();
     }
@@ -181,6 +186,38 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
         });
     }
 
+    /** Reveals the pre-selected location's full path when one is set, otherwise shows the root level. */
+    private loadInitialTree(): void {
+        if (this.selectedId != null && this.selectedId !== this.root.public_id) {
+            this.loadPath(this.selectedId);
+            return;
+        }
+
+        this.loadRoots();
+    }
+
+    /**
+     * Loads the tree already expanded down to the selected location so a deeply nested selection is
+     * visible immediately. Falls back to the plain root list if the path lookup fails.
+     */
+    private loadPath(publicID: number): void {
+        this.isLoadingRoots = true;
+        this.errorMessage = null;
+
+        this.locationService.getTreePath(publicID).pipe(takeUntil(this.unsubscribe)).subscribe({
+            next: (roots: LocationTreePathNode[]) => {
+                const nodes = roots.map((root) => this.toPathNode(root, false));
+                this.isLoadingRoots = false;
+                this.inSearchMode = false;
+                this.hasLocations = nodes.length > 0;
+                this.dataSource.data = nodes;
+                this.expandPath(nodes);
+                this.scrollSelectedIntoView();
+            },
+            error: () => this.loadRoots()
+        });
+    }
+
     private loadRoots(): void {
         this.isLoadingRoots = true;
         this.errorMessage = null;
@@ -231,7 +268,7 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
     private exitSearchMode(): void {
         this.inSearchMode = false;
         this.isSearching = false;
-        this.loadRoots();
+        this.loadInitialTree();
     }
 
     private showRootsError(message: string): void {
@@ -252,6 +289,26 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
             excluded: parentExcluded || this.isSelf(raw.object_id),
             children$: new BehaviorSubject<LocationTreeSelectNode[]>([]),
             loaded: !raw.has_children,
+            loading: false
+        };
+    }
+
+    private toPathNode(raw: LocationTreePathNode, parentExcluded: boolean): LocationTreeSelectNode {
+        const excluded = parentExcluded || this.isSelf(raw.object_id);
+        const hasInlineChildren = Array.isArray(raw.children);
+        const children = raw.children?.map((child) => this.toPathNode(child, excluded)) ?? [];
+
+        return {
+            public_id: raw.public_id,
+            name: raw.name,
+            icon: raw.type_icon,
+            parent: raw.parent,
+            object_id: raw.object_id,
+            has_children: raw.has_children,
+            selectable: raw.type_selectable !== false,
+            excluded,
+            children$: new BehaviorSubject<LocationTreeSelectNode[]>(children),
+            loaded: hasInlineChildren || !raw.has_children,
             loading: false
         };
     }
@@ -282,6 +339,29 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
                 this.expandAll(node.children$.value);
             }
         }
+    }
+
+    /** Expands only the nodes whose children arrived inline — the ancestor chain of the selection. */
+    private expandPath(nodes: LocationTreeSelectNode[]): void {
+        for (const node of nodes) {
+            if (node.loaded && node.children$.value.length > 0) {
+                this.treeControl.expand(node);
+                this.expandPath(node.children$.value);
+            }
+        }
+    }
+
+    /** Brings the highlighted node into view once the expanded path has rendered. */
+    private scrollSelectedIntoView(): void {
+        if (this.selectedId == null) {
+            return;
+        }
+
+        this.scrollTimer = setTimeout(() => {
+            const selected = this.treeContainer?.nativeElement
+                .querySelector<HTMLElement>('.ltp-node.is-selected');
+            selected?.scrollIntoView({ block: 'center' });
+        });
     }
 
     private isSelf(objectId: number): boolean {
