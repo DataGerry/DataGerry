@@ -49,10 +49,17 @@ THREAT_ID_FOR_BLOCKED_DELETE: int = 97104
 MISSING_THREAT_ID: int = 97199
 RISK_ID: int = 97150
 
+# bulk-delete fixtures: two unused threats, one still referenced by a Risk
+THREAT_BULK_UNUSED_A: int = 97111
+THREAT_BULK_UNUSED_B: int = 97112
+THREAT_BULK_USED: int = 97113
+BULK_RISK_ID: int = 97151
+
 ALL_THREAT_IDS: list[int] = [
     THREAT_ID_FOR_GET, THREAT_ID_FOR_UPDATE, THREAT_ID_FOR_DELETE, THREAT_ID_FOR_BLOCKED_DELETE,
+    THREAT_BULK_UNUSED_A, THREAT_BULK_UNUSED_B, THREAT_BULK_USED,
 ]
-ALL_RISK_IDS: list[int] = [RISK_ID]
+ALL_RISK_IDS: list[int] = [RISK_ID, BULK_RISK_ID]
 
 THREAT_NAME: str = 'Functional Threat'
 
@@ -187,6 +194,48 @@ class TestDeleteThreat:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert rest_api.get(f'{ROUTE_URL}/{THREAT_ID_FOR_BLOCKED_DELETE}').status_code == HTTPStatus.OK
+
+
+class TestDeleteManyThreats:
+    """DELETE /isms/threats/delete/<ids> removes unused threats, reports Risk-referenced ones."""
+
+    def test_bulk_delete_removes_unused_and_reports_in_use(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Unused threats are deleted; the one referenced by a Risk is kept and reported in_use."""
+        _insert_threat(database_manager, database_name, THREAT_BULK_UNUSED_A)
+        _insert_threat(database_manager, database_name, THREAT_BULK_UNUSED_B)
+        _insert_threat(database_manager, database_name, THREAT_BULK_USED)
+        database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+            .insert_one({'public_id': BULK_RISK_ID, 'threats': [THREAT_BULK_USED], 'vulnerabilities': []})
+
+        ids = f'{THREAT_BULK_UNUSED_A},{THREAT_BULK_UNUSED_B},{THREAT_BULK_USED}'
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{ids}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        body = response.get_json()
+        assert body['successfully'] == sorted([THREAT_BULK_UNUSED_A, THREAT_BULK_UNUSED_B])
+        assert body['in_use'] == [THREAT_BULK_USED]
+        assert rest_api.get(f'{ROUTE_URL}/{THREAT_BULK_UNUSED_A}').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{ROUTE_URL}/{THREAT_BULK_USED}').status_code == HTTPStatus.OK
+
+    def test_bulk_delete_ignores_non_existent_ids(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A non-existent id is neither deleted-reported nor errored; only real deletions are listed."""
+        _insert_threat(database_manager, database_name, THREAT_BULK_UNUSED_A)
+
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{THREAT_BULK_UNUSED_A},{MISSING_THREAT_ID}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        body = response.get_json()
+        assert body['successfully'] == [THREAT_BULK_UNUSED_A]
+        assert body['in_use'] == []
+
+    def test_bulk_delete_invalid_id_returns_400(self, rest_api) -> None:
+        """A non-integer id in the list is rejected with 400."""
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{THREAT_BULK_UNUSED_A},not-an-int')\
+            .status_code == HTTPStatus.BAD_REQUEST
 
 
 def _raiser(exc: Exception):

@@ -32,7 +32,11 @@ from cmdb.models.isms_model import IsmsThreat
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    get_item_or_404,
+    bulk_delete_reporting_in_use,
+)
+from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -41,6 +45,7 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
     UpdateSingleResponse,
     DeleteSingleResponse,
+    DefaultResponse,
 )
 
 from cmdb.errors.manager.threat_manager import (
@@ -252,3 +257,48 @@ def delete_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[delete_isms_threat] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the Threat with ID: {public_id}!")
+
+
+@threat_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@threat_blueprint.protect(auth=True, right='base.isms.threat.delete')
+def delete_many_isms_threats(public_ids: str, request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route to bulk-delete IsmsThreats by a comma-separated id list
+
+    A Threat can only be deleted while it is not referenced by any IsmsRisk (mirroring the
+    single-delete guard, since deleting it would leave a dangling id in that Risk's threats list).
+    This bulk variant is partial by design: every requested Threat still referenced by a Risk is left
+    untouched and reported back, while the unused ones are deleted. Non-existent ids are silently
+    ignored. The used-check runs as a single grouped query for the whole batch
+
+    Args:
+        public_ids (str): Comma-separated IsmsThreat public_ids to delete
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        DefaultResponse: {'successfully': [deleted ids], 'in_use': [skipped ids still referenced]}
+    """
+    try:
+        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+
+        requested_ids: list[int] = extract_public_ids(public_ids)
+
+        # Partition the whole batch in one grouped query: ids a Risk still references are kept
+        in_use_ids: set[int] = threat_manager.get_used_threat_ids(requested_ids)
+
+        payload: dict[str, list[int]] = bulk_delete_reporting_in_use(threat_manager, requested_ids, in_use_ids)
+
+        return DefaultResponse(payload).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ThreatManagerGetError as err:
+        LOGGER.error("[delete_many_isms_threats] ThreatManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to determine which Threats are still in use!")
+    except ThreatManagerDeleteError as err:
+        LOGGER.error("[delete_many_isms_threats] ThreatManagerDeleteError: %s", err, exc_info=True)
+        abort(400, "Failed to delete one of the requested Threats!")
+    except Exception as err:
+        LOGGER.error("[delete_many_isms_threats] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while bulk-deleting Threats!")

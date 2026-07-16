@@ -465,6 +465,9 @@ class TestGetLocationTreePath:
         assert 'children' not in target
         # its sibling is (here) a leaf
         assert rack_children[PATH_TARGET_SIBLING_LOC]['has_children'] is False
+        # every node carries type_selectable (drives drag-drop drop-target enablement)
+        assert target['type_selectable'] is True
+        assert roots[PATH_DC_LOC]['type_selectable'] is True
 
     def test_path_to_root_level_target_returns_the_roots(self, rest_api) -> None:
         """Opening to a root-level location returns just the root level (its children load lazily)."""

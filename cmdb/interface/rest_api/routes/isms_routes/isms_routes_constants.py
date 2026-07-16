@@ -31,3 +31,13 @@ MIN_CONFIGURED_RISK_CLASSES: int = 3
 MIN_CONFIGURED_LIKELIHOODS: int = 3
 MIN_CONFIGURED_IMPACTS: int = 3
 MIN_CONFIGURED_IMPACT_CATEGORIES: int = 1
+
+# Response keys shared by the ISMS bulk-delete routes (ControlMeasure, Vulnerability, Threat): the ids
+# that were deleted, and the ids that were skipped because they are still referenced elsewhere
+ISMS_BULK_DELETE_DELETED_KEY: str = 'successfully'
+ISMS_BULK_DELETE_IN_USE_KEY: str = 'in_use'
+
+# Extra response keys of the Risk bulk-delete route: how many downstream RiskAssessments and their
+# ControlMeasureAssignments the cascade removed alongside the deleted Risks
+RISK_BULK_DELETED_RA_KEY: str = 'deleted_risk_assessments'
+RISK_BULK_DELETED_CMA_KEY: str = 'deleted_control_measure_assignments'

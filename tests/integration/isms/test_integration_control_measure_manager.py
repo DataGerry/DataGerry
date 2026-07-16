@@ -31,8 +31,14 @@ from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignm
 CONTROL_MEASURE_ID: int = 98201
 CONTROL_ASSIGNMENT_ID: int = 98202
 
-ALL_CONTROL_MEASURE_IDS: list[int] = [CONTROL_MEASURE_ID]
-ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CONTROL_ASSIGNMENT_ID]
+# batched used-check fixtures: control A is referenced, control B is not, control C never exists
+USED_CONTROL_ID_A: int = 98211
+UNUSED_CONTROL_ID_B: int = 98212
+MISSING_CONTROL_ID_C: int = 98213
+BATCH_ASSIGNMENT_ID: int = 98222
+
+ALL_CONTROL_MEASURE_IDS: list[int] = [CONTROL_MEASURE_ID, USED_CONTROL_ID_A, UNUSED_CONTROL_ID_B]
+ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CONTROL_ASSIGNMENT_ID, BATCH_ASSIGNMENT_ID]
 
 
 @pytest.fixture(name='control_measure_manager')
@@ -76,3 +82,28 @@ class TestIsControlMeasureUsed:
     def test_false_when_not_referenced(self, control_measure_manager: ControlMeasureManager) -> None:
         """A ControlMeasure no assignment references returns False."""
         assert control_measure_manager.is_control_measure_used(CONTROL_MEASURE_ID) is False
+
+
+class TestGetUsedControlMeasureIds:
+    """get_used_control_measure_ids reports which candidate ids an assignment references, in one query."""
+
+    def test_returns_only_referenced_candidates(self, control_measure_manager: ControlMeasureManager,
+                                                database_manager: MongoDatabaseManager,
+                                                database_name: str) -> None:
+        """Of the candidates, only the one an assignment references is returned; unused/missing excluded."""
+        _insert(database_manager, database_name, IsmsControlMeasureAssignment.COLLECTION,
+                {'public_id': BATCH_ASSIGNMENT_ID, 'control_measure_id': USED_CONTROL_ID_A})
+
+        result = control_measure_manager.get_used_control_measure_ids(
+            [USED_CONTROL_ID_A, UNUSED_CONTROL_ID_B, MISSING_CONTROL_ID_C]
+        )
+
+        assert result == {USED_CONTROL_ID_A}
+
+    def test_empty_when_none_referenced(self, control_measure_manager: ControlMeasureManager) -> None:
+        """Candidates with no referencing assignment yield an empty set."""
+        assert control_measure_manager.get_used_control_measure_ids([UNUSED_CONTROL_ID_B]) == set()
+
+    def test_empty_input_returns_empty_set(self, control_measure_manager: ControlMeasureManager) -> None:
+        """An empty candidate list yields an empty set."""
+        assert control_measure_manager.get_used_control_measure_ids([]) == set()
