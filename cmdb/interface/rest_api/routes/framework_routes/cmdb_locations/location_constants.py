@@ -16,7 +16,17 @@
 """
 String constants used by the CmdbLocation REST routes
 """
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class LocationRight(BaseStrEnum):
+    """The ``base.framework.location.*`` ACL rights enforced by the CmdbLocation routes."""
+    VIEW = 'base.framework.location.view'
+    ADD = 'base.framework.location.add'
+    EDIT = 'base.framework.location.edit'
+    DELETE = 'base.framework.location.delete'
+
 
 # Fallback name template applied when a CmdbLocation has no explicit name and the linked
 # CmdbObject yields no usable summary line. Format with the object's public_id.

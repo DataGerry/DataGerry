@@ -54,6 +54,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     validate_object_location_move,
     move_object_location,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import LocationRight
 from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault, LocationKey
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -76,7 +77,7 @@ location_blueprint = APIBlueprint('locations', __name__)
 @location_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@location_blueprint.protect(auth=True, right=LocationRight.ADD.value)
 @location_blueprint.parse_request_body()
 def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -142,7 +143,7 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
 @location_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 @location_blueprint.parse_collection_parameters()
 def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -181,8 +182,8 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
 
 @location_blueprint.route('/tree', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 @location_blueprint.parse_collection_parameters()
 def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -222,8 +223,8 @@ def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser
 
 @location_blueprint.route('/tree/roots', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the first level of the location tree
@@ -257,8 +258,8 @@ def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
 
 @location_blueprint.route('/tree/search', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning a pruned location tree matching a search query
@@ -301,8 +302,8 @@ def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
 
 @location_blueprint.route('/tree/path/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the location tree pre-expanded to one location
@@ -351,8 +352,8 @@ def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Respo
 
 @location_blueprint.route('/tree/<int:public_id>/children', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the direct children of one location in the tree
@@ -388,7 +389,7 @@ def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> R
 @location_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbLocation
@@ -421,8 +422,8 @@ def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
 
 @location_blueprint.route('/<int:object_id>/object', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to return the selected CmdbLocation for a given object_id (public_id of CmdbObject)
@@ -455,8 +456,8 @@ def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Resp
 
 @location_blueprint.route('/<int:object_id>/parent', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to return the parent CmdbLocation for a given object_id (public_id of CmdbObject)
@@ -497,8 +498,8 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
 
 @location_blueprint.route('/<int:object_id>/children', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to get all direct child CmdbLocations for a given object_id
@@ -539,7 +540,7 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
 @location_blueprint.route('/update_location', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
 @location_blueprint.parse_request_body()
 def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -603,8 +604,8 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
 @location_blueprint.route('/<int:object_id>/parent', methods=['PATCH'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
 def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to move a single object's location placement to a new parent
@@ -647,8 +648,8 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
 
 @location_blueprint.route('/parents', methods=['PATCH'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
 def move_cmdb_locations(request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to move several objects' location placements under one common parent
@@ -711,8 +712,8 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 
 @location_blueprint.route('/<int:object_id>/object', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.DELETE.value)
 def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete the CmdbLocation linked to the given object_id

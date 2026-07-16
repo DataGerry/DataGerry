@@ -42,6 +42,9 @@ from cmdb.models.right_model.framework_rights import (
     ExtendableOptionRight,
     ObjectGroupRight,
     CiExplorerRight,
+    ReportRight,
+    IpamRight,
+    LocationRight,
 )
 from cmdb.models.right_model.isms_rights import (
     IsmsRight,
@@ -58,6 +61,7 @@ from cmdb.models.right_model.isms_rights import (
     RiskAssessmentRight,
     ControlMeasureAssignmentRight,
     IsmsReportRight,
+    IsmsImportRight,
 )
 from cmdb.models.right_model.oc_rights import (
     OpenCeliumRight,
@@ -190,6 +194,27 @@ FRAMEWORK_RIGHTS = (
             CiExplorerRight('view', description='View CiExplorer'),
             CiExplorerRight('edit', Levels.PROTECTED, description='Edit CiExplorer'),
         ),
+        ReportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Reports'),
+        (
+            ReportRight('view', description='View reports'),
+            ReportRight('add', description='Add reports'),
+            ReportRight('edit', Levels.PROTECTED, description='Edit reports'),
+            ReportRight('delete', Levels.SECURE, description='Delete reports'),
+        ),
+        IpamRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage IPAM'),
+        (
+            IpamRight('view', description='View IPAM'),
+            IpamRight('add', description='Add IPAM entries'),
+            IpamRight('edit', Levels.PROTECTED, description='Edit IPAM entries'),
+            IpamRight('delete', Levels.SECURE, description='Delete IPAM entries'),
+        ),
+        LocationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage locations'),
+        (
+            LocationRight('view', description='View locations'),
+            LocationRight('add', description='Add locations'),
+            LocationRight('edit', Levels.PROTECTED, description='Edit locations'),
+            LocationRight('delete', Levels.SECURE, description='Delete locations'),
+        ),
 )
 
 ISMS_RIGHTS = (
@@ -284,6 +309,10 @@ ISMS_RIGHTS = (
         IsmsReportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Reports of ISMS'),
         (
             IsmsReportRight('view', description='View ISMS Reports'),
+        ),
+        IsmsImportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ISMS imports'),
+        (
+            IsmsImportRight('add', description='Import ISMS entities'),
         ),
     ),
 )

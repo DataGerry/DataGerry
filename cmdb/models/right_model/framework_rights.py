@@ -173,3 +173,39 @@ class CiExplorerRight(FrameworkRight):
 
     def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
         super().__init__(name, level, description=description)
+
+
+class ReportRight(FrameworkRight):
+    """
+    Base class for CmdbReport rights
+    """
+    MIN_LEVEL = Levels.PERMISSION
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.report'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class IpamRight(FrameworkRight):
+    """
+    Base class for IPAM rights
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.ipam'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class LocationRight(FrameworkRight):
+    """
+    Base class for CmdbLocation rights
+    """
+    MIN_LEVEL = Levels.PERMISSION
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.location'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
