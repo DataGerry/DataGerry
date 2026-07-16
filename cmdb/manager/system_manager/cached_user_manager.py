@@ -48,6 +48,14 @@ class CachedUserManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the CachedUserManager against the cloud user-cache database
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Unused; the cache always lives in DG_CACHE_DB (kept for a uniform
+                manager signature)
+        """
         self.dg_sp_manager = DgServicePortalManager()
         super().__init__(dbm, CmdbCachedUser, CACHED_USER_MANAGER_ERRORS, DG_CACHE_DB)
 
@@ -71,10 +79,13 @@ class CachedUserManager(GenericManager):
 
     def cached_user_exists(self, email: str) -> bool:
         """
-        Checks if a user with the given email exists
+        Checks if a cached user with the given email exists
+
+        Args:
+            email (str): Email of the cached user to look up
 
         Returns:
-            bool: True if it exists
+            bool: True if a cached user with this email exists, otherwise False
         """
         cached_user: dict[str, Any] | None = self.dbm.find_one_by(
             collection=CmdbCachedUser.COLLECTION,
@@ -88,7 +99,18 @@ class CachedUserManager(GenericManager):
 
     def get_cached_user(self, email: str) -> dict[str, Any] | None:
         """
-        Retrieve cached user if available (password check included)
+        Retrieves a cached user by email, seeding the cache from the DG Service Portal on a miss
+
+        When the user is not in the local cache, their data is fetched from the DG Service Portal;
+        if found it is inserted into the cache and re-read so the stored document (with its id and
+        creation_time) is returned
+
+        Args:
+            email (str): Email of the cached user to retrieve
+
+        Returns:
+            dict[str, Any] | None: The cached user document, or None if unknown to both the cache
+                and the DG Service Portal
         """
         cached_user: dict[str, Any] | None = self.dbm.find_one_by(
             collection=CmdbCachedUser.COLLECTION,
@@ -118,7 +140,14 @@ class CachedUserManager(GenericManager):
         user_data: dict[str, Any]
     ) -> UpdateResult:
         """
-        Insert/update a cached user entry with TTL
+        Inserts or updates a cached user entry (upsert), refreshing its TTL creation_time
+
+        Args:
+            email (str): Email identifying the cached user
+            user_data (dict[str, Any]): The cached user data to store
+
+        Returns:
+            UpdateResult: The outcome of the upsert (matched / modified / upserted info)
         """
         user_data['creation_time'] = datetime.now(timezone.utc)
 
@@ -165,7 +194,7 @@ class CachedUserManager(GenericManager):
 
         # Update only the subscription matching subscription_database
         updated = False
-        for sub in cached_user['subscriptions']:
+        for sub in cached_user.get('subscriptions', []):
             if sub['database'] == subscription_database:
                 sub['api_key'] = api_key  # create or overwrite
                 updated = True
@@ -189,7 +218,13 @@ class CachedUserManager(GenericManager):
 
     def delete_cached_user(self, email: str) -> bool:
         """
-        Remove a cached user explicitly (logout)
+        Removes a cached user explicitly (e.g. on logout)
+
+        Args:
+            email (str): Email of the cached user to remove
+
+        Returns:
+            bool: True if a cached user was deleted, otherwise False
         """
         result = self.dbm.delete(
             collection=CmdbCachedUser.COLLECTION,
@@ -202,7 +237,13 @@ class CachedUserManager(GenericManager):
 
     def delete_multiple_cached_users(self, emails: list[str]) -> bool:
         """
-        Removes multiple cached users
+        Removes multiple cached users in one operation
+
+        Args:
+            emails (list[str]): Emails of the cached users to remove
+
+        Returns:
+            bool: True if at least one cached user was deleted, otherwise False
         """
         result = self.dbm.delete_many(
             collection=CmdbCachedUser.COLLECTION,
@@ -215,7 +256,10 @@ class CachedUserManager(GenericManager):
 
     def clear_cache(self) -> int:
         """
-        Remove all cached users (admin/debug)
+        Removes every cached user (admin / debug)
+
+        Returns:
+            int: The number of cached users that were removed
         """
         result = self.dbm.delete_many(
             collection=CmdbCachedUser.COLLECTION,
@@ -235,13 +279,22 @@ class CachedUserManager(GenericManager):
         api_key_required: bool = False
     ) -> dict[str, Any] | None:
         """
-        Validates the cached user
+        Validates a cached user's credentials and returns their data on success
+
+        Checks the password against the cached entry (seeding the cache from the DG Service Portal on
+        a miss). When an API key is required, keeps only the single valid subscription matching that
+        key. API keys are stripped from every subscription before the data is returned
 
         Args:
-            user_data (dict[str, Any]): _description_
+            email (str): Email of the user to validate
+            password (str): Password to check against the cached entry
+            api_key (str | None): API key to match a subscription against (used only when required)
+            api_key_required (bool): When True, an api_key must be supplied and match a valid
+                subscription, else None is returned. Defaults to False
 
         Returns:
-            dict[str, Any] | None: _description_
+            dict[str, Any] | None: The validated cached user (api keys removed), or None when the
+                user is unknown, the password mismatches, or no matching valid subscription is found
         """
         if api_key_required and not api_key:
             return None
@@ -260,7 +313,7 @@ class CachedUserManager(GenericManager):
             # Find single subscription for given api_key
             subscription = next(
                 (
-                    sub for sub in cached_user["subscriptions"]\
+                    sub for sub in cached_user.get("subscriptions", [])
                     if sub.get("api_key") == api_key and sub.get("is_valid", False)
                 ),
                 None
@@ -273,7 +326,7 @@ class CachedUserManager(GenericManager):
 
         # Remove all api_keys from subscriptions before returning
         sub: dict[str, Any]
-        for sub in cached_user["subscriptions"]:
+        for sub in cached_user.get("subscriptions", []):
             sub.pop("api_key", None)
 
         return cached_user
@@ -290,7 +343,10 @@ class CachedUserManager(GenericManager):
         Returns:
             dict[str, Any] | None: The target subscription data if found
         """
-        return next((sub for sub in user_data["subscriptions"] if sub["database"] == db_name), None)
+        return next(
+            (sub for sub in user_data.get("subscriptions", []) if sub.get("database") == db_name),
+            None,
+        )
 
 
     def get_master_pw_from_cached(
@@ -299,8 +355,21 @@ class CachedUserManager(GenericManager):
         db_name: str
     ) -> str:
         """
-        Retrieve the master password from the cached subscription.
-        Raises an exception if the subscription or password is missing.
+        Retrieves the master password from a cached user's subscription
+
+        When the subscription exists but carries no master password the cached user is dropped
+        immediately (the cache is considered stale) before raising
+
+        Args:
+            cached_user (dict[str, Any]): The cached user data holding the subscriptions
+            db_name (str): Database name selecting the subscription
+
+        Raises:
+            OcNoSubError: If no subscription matches the database
+            OcMasterPwNotSetError: If the matched subscription has no master password
+
+        Returns:
+            str: The cached master password
         """
         sub = self.get_sub_by_db_name(cached_user, db_name)
         if not sub:
@@ -322,7 +391,19 @@ class CachedUserManager(GenericManager):
         master_pw: str
     ) -> bool:
         """
-        Check whether the provided master password matches the cached one.
+        Checks whether the provided master password matches the cached one
+
+        Args:
+            cached_user (dict[str, Any]): The cached user data holding the subscriptions
+            db_name (str): Database name selecting the subscription
+            master_pw (str): The master password to verify
+
+        Raises:
+            OcNoSubError: If no subscription matches the database
+            OcMasterPwNotSetError: If the matched subscription has no master password
+
+        Returns:
+            bool: True if the provided master password matches the cached one
         """
         cached_master_pw = self.get_master_pw_from_cached(cached_user, db_name)
 
@@ -347,10 +428,8 @@ class CachedUserManager(GenericManager):
             list[int] | None: List of integer IDs, an empty list if none are defined,
             or None if the subscription or OpenCelium data is missing
         """
+        # Find the subscription for the given database
         target_sub: dict[str, Any] | None = self.get_sub_by_db_name(cached_user, db_name)
-
-        # Find subscription
-        target_sub = self.get_sub_by_db_name(cached_user, db_name)
         if not target_sub:
             return None
 

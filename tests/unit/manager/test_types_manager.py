@@ -40,6 +40,9 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerUpdateError,
     TypesManagerGetError,
     TypesManagerDeleteError,
+    TypesManagerInitError,
+    TypesManagerIterationError,
+    TypesManagerUpdateMDSError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=protected-access
@@ -394,3 +397,93 @@ def test_delete_type_wraps_delete_error() -> None:
 
     with pytest.raises(TypesManagerDeleteError):
         TypesManager.delete_type(mgr, 5)
+
+
+# -------------------------------------- error wrapping: init / read / MDS ------------------------------------------- #
+def test_init_wraps_super_failure_as_init_error() -> None:
+    """A failure while constructing the base manager (None dbm) surfaces as TypesManagerInitError."""
+    with pytest.raises(TypesManagerInitError):
+        TypesManager(None)
+
+
+def test_get_new_type_public_id_wraps_get_error() -> None:
+    """A BaseManagerGetError from the id counter surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_next_public_id.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_new_type_public_id(mgr)
+
+
+def test_iterate_wraps_failure_as_iteration_error() -> None:
+    """A failure in the aggregation surfaces as TypesManagerIterationError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerIterationError):
+        TypesManager.iterate(mgr, MagicMock())
+
+
+def test_get_all_types_wraps_base_get_error() -> None:
+    """A BaseManagerGetError from the fetch surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_all_types(mgr)
+
+
+def test_get_all_types_wraps_unexpected_error() -> None:
+    """Any other failure while hydrating types surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_all_types(mgr)
+
+
+def test_get_objects_for_type_wraps_base_get_error() -> None:
+    """A BaseManagerGetError from the object fetch surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many_from_other_collection.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_objects_for_type(mgr, 1)
+
+
+def test_update_multi_data_fields_wraps_get_error() -> None:
+    """A TypesManagerGetError while loading objects surfaces as TypesManagerUpdateError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_objects_for_type.side_effect = TypesManagerGetError('boom')
+
+    with pytest.raises(TypesManagerUpdateError):
+        TypesManager.update_multi_data_fields(mgr, SimpleNamespace(public_id=1), {SECTION_ID: ['f']}, {})
+
+
+def test_update_multi_data_fields_wraps_unexpected_error() -> None:
+    """Any other failure during MDS field mutation surfaces as TypesManagerUpdateError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_objects_for_type.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerUpdateError):
+        TypesManager.update_multi_data_fields(mgr, SimpleNamespace(public_id=1), {SECTION_ID: ['f']}, {})
+
+
+def test_handle_multi_data_sections_wraps_update_error_as_mds_error() -> None:
+    """A TypesManagerUpdateError from the field update surfaces as TypesManagerUpdateMDSError."""
+    mgr = _manager_with_real_fields_diff()
+    mgr.update_multi_data_fields.side_effect = TypesManagerUpdateError('boom')
+    old_type = _old_type_with_mds_section('sec', ['a'], SectionType.MDS_SECTION.value)
+    updated_type = _updated_type_doc('sec', ['a', 'b'], SectionType.MDS_SECTION.value)
+
+    with pytest.raises(TypesManagerUpdateMDSError):
+        TypesManager.handle_multi_data_sections(mgr, old_type, updated_type)
+
+
+def test_handle_multi_data_sections_wraps_unexpected_error_as_mds_error() -> None:
+    """A malformed updated_type (no render_meta) surfaces as TypesManagerUpdateMDSError."""
+    mgr = _manager_with_real_fields_diff()
+    old_type = _old_type_with_mds_section('sec', ['a'], SectionType.MDS_SECTION.value)
+
+    with pytest.raises(TypesManagerUpdateMDSError):
+        TypesManager.handle_multi_data_sections(mgr, old_type, {})

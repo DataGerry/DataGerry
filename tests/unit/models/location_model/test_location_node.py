@@ -171,6 +171,9 @@ class TestToJson:
         assert 'children' not in result
         assert result['public_id'] == PARENT_ID
         assert result['object_id'] == PARENT_ID + 100
+        # the icon is emitted under the same key as the lazy tree nodes (type_icon), not 'icon'
+        assert result['type_icon'] == TYPE_ICON
+        assert 'icon' not in result
 
     def test_emits_type_selectable(self) -> None:
         """``to_json`` includes ``type_selectable`` (used by the drag-drop drop-target check)."""
