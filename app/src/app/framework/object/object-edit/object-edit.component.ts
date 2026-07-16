@@ -24,10 +24,9 @@ import { ObjectService } from '../../services/object.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { TypeService } from '../../services/type.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
-import { LocationService } from '../../services/location.service';
 
 import { CmdbMode } from '../../modes.enum';
-import { CmdbObject, MultiDataSectionEntry, MultiDataSectionFieldValue } from '../../models/cmdb-object';
+import { CmdbObject, MultiDataSectionEntry, MultiDataSectionFieldValue, ObjectPatchPayload } from '../../models/cmdb-object';
 import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
 import { Column } from 'src/app/layout/table/table.types';
@@ -57,7 +56,6 @@ export class ObjectEditComponent implements OnInit {
 
     public selectedLocation: number = -1;
     public locationTreeName: string;
-    public locationForObjectExists: boolean = false;
     public isLoading$ = this.loaderService.isLoading$;
 
     // Table Template: Type actions column
@@ -77,7 +75,6 @@ export class ObjectEditComponent implements OnInit {
         private route: ActivatedRoute,
         private router: Router,
         private toastService: ToastService,
-        private locationService: LocationService,
         private sidebarService: SidebarService,
         private _location: Location,
         private loaderService: LoaderService,
@@ -151,13 +148,6 @@ export class ObjectEditComponent implements OnInit {
 
         const { fields, sections } = this.collectFormValues();
 
-        this.handleLocation(
-            this.objectInstance.public_id,
-            this.selectedLocation,
-            this.locationTreeName,
-            this.objectInstance.type_id
-        );
-
         const { payload, hasChanges } = buildObjectPatchPayload({
             originalFields: this.originalSnapshot?.fields ?? [],
             editedFields: fields,
@@ -166,8 +156,13 @@ export class ObjectEditComponent implements OnInit {
             comment: this.commitForm.get('comment')?.value
         });
 
-        // Nothing changed on the object itself; only the active state or location may differ.
-        if (!hasChanges) {
+        // Location is persisted through the object patch itself: dg_location rides along in the
+        // fields and its label is carried by location_name. The backend creates, updates or
+        // removes the location based on the dg_location value, so no separate call is needed.
+        const locationChanged = this.applyLocationToPayload(payload);
+
+        // Nothing changed on the object itself; only the active state may differ.
+        if (!hasChanges && !locationChanged) {
             this.finalizeObjectUpdate();
             return;
         }
@@ -191,62 +186,34 @@ export class ObjectEditComponent implements OnInit {
     }
 
 
-    private handleLocation(object_id: number, parent: number, name: string = "", type_id: number) {
-        let params = {
-            "object_id": object_id,
-            "parent": parent,
-            "name": name,
-            "type_id": type_id
+    /**
+     * Folds the object's location into the patch payload. When a location is selected the
+     * dg_location field is guaranteed to be present (so a rename-only change still reaches the
+     * backend) and its label is attached as location_name. Returns whether the location has to
+     * be sent, so a location-only change still triggers the patch.
+     */
+    private applyLocationToPayload(payload: ObjectPatchPayload): boolean {
+        if (!this.selectedLocation || this.selectedLocation <= 0) {
+            return false;
         }
 
-        //a parent is selected and there is no existing location for this object => create it
-        if (parent && parent > 0 && !this.locationForObjectExists) {
-            this.locationService.postLocation(params).subscribe({
-                next: () => {
+        payload.fields = payload.fields ?? [];
 
-                },
-                error: error => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-
-            return;
+        if (!payload.fields.some((field) => field.name === 'dg_location')) {
+            payload.fields.push({ name: 'dg_location', value: this.selectedLocation });
         }
 
-        //a parent is selected and location for this object exists => update existing location
-        if (parent && parent > 0 && this.locationForObjectExists) {
-            this.locationService.updateLocationForObject(params).subscribe({
-                next: () => {
+        payload.location_name = this.locationTreeName ?? '';
 
-                },
-                error: error => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-
-            return;
-        }
-
-        //parent is removed but location still exists => delete location
-        if (!parent && this.locationForObjectExists) {
-            this.locationService.deleteLocationForObject(object_id).subscribe({
-                next: () => {
-
-                },
-                error: error => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-
-            return;
-        }
+        return true;
     }
 
 
     /**
      * Walks the render form once, splitting the controls into object fields and
-     * multi_data_section entries. Location-related controls are captured as a side
-     * effect and kept out of the field list, since location is persisted separately.
+     * multi_data_section entries. dg_location is kept in the field list so it is diffed and
+     * patched like any other field; the location label and the UI-only existence flag are
+     * captured as a side effect and never sent as object fields.
      */
     private collectFormValues(): { fields: MultiDataSectionFieldValue[]; sections: MultiDataSectionEntry[] } {
         const fields: MultiDataSectionFieldValue[] = [];
@@ -254,11 +221,6 @@ export class ObjectEditComponent implements OnInit {
 
         Object.keys(this.renderForm.value).forEach((key: string) => {
             const value = this.renderForm.value[key];
-
-            if (key === 'dg_location') {
-                this.selectedLocation = value;
-                return;
-            }
 
             if (key.startsWith('dg-mds-')) {
                 if (value) {
@@ -275,9 +237,13 @@ export class ObjectEditComponent implements OnInit {
                 return;
             }
 
+            // UI-only helper control written onto the form value by the location field.
             if (key === 'locationForObjectExists') {
-                this.locationForObjectExists = String(value).toLowerCase() === 'true';
                 return;
+            }
+
+            if (key === 'dg_location') {
+                this.selectedLocation = value;
             }
 
             fields.push({ name: key, value: value === undefined || value === null ? '' : value });

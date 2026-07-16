@@ -26,7 +26,6 @@ import { ObjectEditComponent } from './object-edit.component';
 import { ObjectService } from '../../services/object.service';
 import { TypeService } from '../../services/type.service';
 import { ToastService } from '../../../layout/toast/toast.service';
-import { LocationService } from '../../services/location.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbObject, MultiDataSectionEntry } from '../../models/cmdb-object';
@@ -39,7 +38,6 @@ describe('ObjectEditComponent (PATCH flow)', () => {
 
     let objectService: jasmine.SpyObj<ObjectService>;
     let toastService: jasmine.SpyObj<ToastService>;
-    let locationService: jasmine.SpyObj<LocationService>;
     let sidebarService: jasmine.SpyObj<SidebarService>;
     let loaderService: jasmine.SpyObj<LoaderService>;
     let router: jasmine.SpyObj<Router>;
@@ -58,8 +56,6 @@ describe('ObjectEditComponent (PATCH flow)', () => {
     beforeEach(async () => {
         objectService = jasmine.createSpyObj('ObjectService', ['getObject', 'patchObject', 'changeState']);
         toastService = jasmine.createSpyObj('ToastService', ['success', 'error']);
-        locationService = jasmine.createSpyObj('LocationService',
-            ['postLocation', 'updateLocationForObject', 'deleteLocationForObject']);
         sidebarService = jasmine.createSpyObj('SidebarService', ['ReloadSideBarData']);
         loaderService = jasmine.createSpyObj('LoaderService', ['show', 'hide']);
         (loaderService as any).isLoading$ = of(false);
@@ -68,9 +64,6 @@ describe('ObjectEditComponent (PATCH flow)', () => {
         objectService.getObject.and.returnValue(of(null));
         objectService.patchObject.and.returnValue(of({ result: {} }));
         objectService.changeState.and.returnValue(of(true));
-        locationService.postLocation.and.returnValue(of(null));
-        locationService.updateLocationForObject.and.returnValue(of(null));
-        locationService.deleteLocationForObject.and.returnValue(of(null));
 
         await TestBed.configureTestingModule({
             declarations: [ObjectEditComponent],
@@ -78,7 +71,6 @@ describe('ObjectEditComponent (PATCH flow)', () => {
                 { provide: ObjectService, useValue: objectService },
                 { provide: TypeService, useValue: jasmine.createSpyObj('TypeService', ['getType']) },
                 { provide: ToastService, useValue: toastService },
-                { provide: LocationService, useValue: locationService },
                 { provide: SidebarService, useValue: sidebarService },
                 { provide: LoaderService, useValue: loaderService },
                 { provide: Router, useValue: router },
@@ -196,20 +188,67 @@ describe('ObjectEditComponent (PATCH flow)', () => {
         expect(router.navigate).toHaveBeenCalledWith(['/framework/object/type/' + TYPE_ID]);
     });
 
-    it('creates a location when a parent is chosen and none exists yet', () => {
+    it('sends dg_location as a field and attaches location_name when the location changes', () => {
         const form = new UntypedFormGroup({
-            dg_location: new UntypedFormControl(5),
+            dg_location: new UntypedFormControl(8),
+            locationTreeName: new UntypedFormControl('Rack 14 / Server A'),
             hostname: new UntypedFormControl('new-host')
         });
-        seed({ fields: [{ name: 'hostname', value: 'old-host' }] }, form);
-        component.locationForObjectExists = false;
+        seed({ fields: [{ name: 'hostname', value: 'old-host' }, { name: 'dg_location', value: 1 }] }, form);
 
         component.editObject();
 
-        expect(locationService.postLocation).toHaveBeenCalled();
-        // dg_location must never leak into the object field payload
+        expect(objectService.patchObject).toHaveBeenCalledWith(OBJECT_ID, {
+            fields: [{ name: 'dg_location', value: 8 }, { name: 'hostname', value: 'new-host' }],
+            location_name: 'Rack 14 / Server A'
+        });
+    });
+
+    it('still patches with the location label when only the location name changed', () => {
+        const form = new UntypedFormGroup({
+            dg_location: new UntypedFormControl(5),
+            locationTreeName: new UntypedFormControl('Renamed location'),
+            hostname: new UntypedFormControl('same')
+        });
+        seed({ fields: [{ name: 'hostname', value: 'same' }, { name: 'dg_location', value: 5 }] }, form);
+
+        component.editObject();
+
+        // dg_location is unchanged so the diff drops it, but a location-only edit must still
+        // reach the backend, so it is forced back in together with the new label.
+        expect(objectService.patchObject).toHaveBeenCalledWith(OBJECT_ID, {
+            fields: [{ name: 'dg_location', value: 5 }],
+            location_name: 'Renamed location'
+        });
+    });
+
+    it('never attaches a location when the object has none selected', () => {
+        const form = new UntypedFormGroup({
+            dg_location: new UntypedFormControl(0),
+            hostname: new UntypedFormControl('new-host')
+        });
+        seed({ fields: [{ name: 'hostname', value: 'old-host' }, { name: 'dg_location', value: 0 }] }, form);
+
+        component.editObject();
+
         expect(objectService.patchObject).toHaveBeenCalledWith(OBJECT_ID, {
             fields: [{ name: 'hostname', value: 'new-host' }]
+        });
+    });
+
+    it('removes the location by sending an emptied dg_location in the patch', () => {
+        const form = new UntypedFormGroup({
+            dg_location: new UntypedFormControl(null),
+            hostname: new UntypedFormControl('same')
+        });
+        seed({ fields: [{ name: 'hostname', value: 'same' }, { name: 'dg_location', value: 5 }] }, form);
+
+        component.editObject();
+
+        // Clearing the parent drops dg_location from a value to empty; the diff flags the change
+        // and the backend removes the location from the emptied field — no separate delete call.
+        expect(objectService.patchObject).toHaveBeenCalledWith(OBJECT_ID, {
+            fields: [{ name: 'dg_location', value: '' }]
         });
     });
 });

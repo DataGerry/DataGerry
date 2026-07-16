@@ -310,9 +310,14 @@
         transition: all 0.2s ease;
     }
 
+    .chevron-spinner {
+        width: 12px;
+        height: 12px;
+    }
+
     &:hover {
         background: rgba(0, 0, 0, 0.04);
-        
+
         .chevron-icon {
             color: #6b7280;
         }
@@ -320,6 +325,22 @@
 
     &:active {
         transform: scale(0.92);
+    }
+}
+
+.chevron-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid rgba(0, 0, 0, 0.12);
+    border-top-color: $dg-primary-color;
+    border-radius: 50%;
+    animation: chevron-spin 0.6s linear infinite;
+}
+
+@keyframes chevron-spin {
+    to {
+        transform: rotate(360deg);
     }
 }
 
@@ -518,15 +539,30 @@
     padding: 40px 20px;
     text-align: center;
     color: #6b7280;
-    
+
     i {
         font-size: 24px;
         margin-bottom: 12px;
         color: #9ca3af;
     }
-    
+
     span {
         font-size: 14px;
         line-height: 1.4;
+    }
+
+    &.error-state {
+        color: #b91c1c;
+
+        i {
+            color: #dc2626;
+        }
+    }
+
+    .search-spinner {
+        width: 22px;
+        height: 22px;
+        border-width: 2px;
+        margin-bottom: 12px;
     }
 }

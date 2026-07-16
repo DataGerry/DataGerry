@@ -63,6 +63,7 @@ import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/dir
 import { SupernetNetworkRangeValidatorDirective } from './special-types/supernet/directives/supernet-network-range-validator.directive';
 import { IPAM_INTERFACE_PROVIDERS } from './special-types/ipam-interface/ipam-interface.providers';
 import { IpamSubnetSelectComponent } from './special-types/ipam-interface/components/ipam-subnet-select/ipam-subnet-select.component';
+import { CoreModule } from '../../core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -74,7 +75,8 @@ import { IpamSubnetSelectComponent } from './special-types/ipam-interface/compon
         ReactiveFormsModule,
         RouterModule,
         FontAwesomeModule,
-        TableModule
+        TableModule,
+        CoreModule
     ],
     declarations: [
         RenderComponent,

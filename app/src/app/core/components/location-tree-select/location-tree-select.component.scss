@@ -1,0 +1,109 @@
+@import 'src/scss/variables';
+
+/* Style-guide tokens (datagerry-ui-style) */
+$brand-soft-hover: rgba($primary, 0.06);
+$focus-ring: 0 0 0 0.2rem rgba($primary, 0.15);
+$text-muted: #6b7280;
+$text-faint: #9ca3af;
+
+:host {
+    display: block;
+    width: 100%;
+    /* Behave as a form control when projected into a Bootstrap .input-group */
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.lts-field {
+    position: relative;
+    width: 100%;
+}
+
+/* Read-only display styled as a native form control; opens the picker modal on click */
+.lts-display {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+
+    &.has-clear {
+        padding-right: 3.5rem;
+    }
+
+    &:hover:not(:disabled) {
+        border-color: $primary;
+    }
+
+    &:focus-visible {
+        outline: none;
+        border-color: $primary;
+        box-shadow: $focus-ring;
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+    }
+}
+
+.lts-icon {
+    flex: 0 0 auto;
+    color: $text-muted;
+}
+
+.lts-text {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lts-placeholder {
+    color: $text-faint;
+}
+
+.lts-affordance {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: $text-faint;
+    font-size: 0.8rem;
+}
+
+.lts-clear {
+    position: absolute;
+    top: 50%;
+    right: 1.75rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: $text-faint;
+    border-radius: 0.35rem;
+    transition: background-color 180ms ease, color 180ms ease;
+
+    &:hover {
+        color: $text-muted;
+        background: $brand-soft-hover;
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: $focus-ring;
+    }
+}
+
+/* Validation states mirror Bootstrap's is-valid / is-invalid on the host */
+:host(.is-invalid) .lts-display {
+    border-color: #dc3545;
+}
+
+:host(.is-valid) .lts-display {
+    border-color: #198754;
+}

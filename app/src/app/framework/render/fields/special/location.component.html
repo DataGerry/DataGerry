@@ -67,34 +67,12 @@
                 [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
             }
             <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
-                <ng-select #locationSelect [clearable]="clearable" [items]="locationsList"
-                    class="ng-select-valid form-select ref-simple-select" [groupBy]="groupByFn"
-                    [groupValue]="groupValueFn" (change)="locationChanged($event)" bindValue="public_id"
-                    [searchFn]="searchRef" [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
-                            'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"
-                    [formControlName]="data.name">
-                    <ng-template ng-optgroup-tmp let-item="item">
-                        <span style="vertical-align: middle;">{{item.name}}</span>
-                    </ng-template>
-                    <ng-template ng-label-tmp let-item="item">
-                        @if (item.object_information == null) {
-
-                        @if (item.type_icon) {
-                        <div>
-                            <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
-                            #{{item?.object_id}} - {{item?.name}}
-                        </div>
-                        }
-
-                        }
-                    </ng-template>
-                    <ng-template ng-option-tmp let-item="item">
-                        <span [className]="controller.value === item?.object_id ? 'fw-bold' : ''">
-                            <i class="{{item?.type_icon}}"></i> {{item?.type_label}}
-                            #{{item?.object_id}} - {{item?.name}}
-                        </span>
-                    </ng-template>
-                </ng-select>
+                <app-location-tree-select [formControlName]="data.name" [excludeObjectId]="currentObjectID"
+                    [clearable]="clearable" [selectedDisplay]="objectLocationDisplay"
+                    (selectionChange)="onLocationSelected($event)"
+                    [class.is-valid]="controller.valid && (controller.dirty || controller.touched)"
+                    [class.is-invalid]="controller.invalid && (controller.dirty || controller.touched)">
+                </app-location-tree-select>
             </cmdb-input-appends>
             <small class="form-text text-muted text-start warning"
                 [style.visibility]="(mode == MODES.Edit && hasChildren == true) ? 'visible' : 'hidden'">
@@ -111,7 +89,7 @@
             <!-- switch=true - container -->
             @if (controller.invalid && (controller.dirty || controller.touched)) {
             <div class="invalid-feedback">
-                @if (controller.errors.required) {
+                @if (controller.errors?.required) {
                 <div class="text-end">
                     {{data.label}} is a required field.
                 </div>

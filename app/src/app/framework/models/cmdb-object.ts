@@ -49,6 +49,8 @@ export interface ObjectPatchPayload {
     created_mds_rows?: ObjectPatchCreatedRow[];
     edited_mds_rows?: ObjectPatchEditedRow[];
     deleted_mds_rows?: ObjectPatchDeletedRow[];
+    /** Label for the object's location; only sent when the object actually has a location. */
+    location_name?: string;
     comment?: string;
 }
 
@@ -92,4 +94,6 @@ export class CmdbObject implements CmdbDao {
     public last_edit_time: any;
     public author_name?: string;
     public comment?: string;
+    /** Label for the object's location, sent alongside the dg_location field on create. */
+    public location_name?: string;
 }
