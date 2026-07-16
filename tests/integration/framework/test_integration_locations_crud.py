@@ -84,6 +84,19 @@ REPARENT_TOP_ID: int = 9785
 REPARENT_TOP_CHILD_ID: int = 9786
 REPARENT_OBJECT_BASE_ID: int = 9980
 
+# path fixtures: two roots (A, B); A <- {mid, mid-sibling}; mid <- {target, target-sibling}; target <- child;
+# B <- other-branch. Expanding to the target must return every sibling level down to the target, but NOT
+# the target's own child nor B's off-path branch.
+PATH_ROOT_A_ID: int = 9700
+PATH_ROOT_B_ID: int = 9701
+PATH_MID_ID: int = 9702
+PATH_MID_SIBLING_ID: int = 9703
+PATH_TARGET_ID: int = 9704
+PATH_TARGET_SIBLING_ID: int = 9705
+PATH_TARGET_CHILD_ID: int = 9706
+PATH_OTHER_BRANCH_ID: int = 9707
+PATH_OBJECT_BASE_ID: int = 9600
+
 # search fixtures: Datacenter <- Rack-01 <- {Server-alpha (match), Server-beta}, plus unrelated Office
 SEARCH_ROOT_ID: int = 9790
 SEARCH_MID_ID: int = 9791
@@ -118,6 +131,8 @@ ALL_SEED_IDS: list[int] = [
     REPARENT_GRANDPARENT_ID, REPARENT_PARENT_ID, REPARENT_CHILD_A_ID, REPARENT_CHILD_B_ID,
     REPARENT_GRANDCHILD_ID, REPARENT_TOP_ID, REPARENT_TOP_CHILD_ID,
     SEARCH_ROOT_ID, SEARCH_MID_ID, SEARCH_MATCH_ID, SEARCH_SIBLING_ID, SEARCH_UNRELATED_ID,
+    PATH_ROOT_A_ID, PATH_ROOT_B_ID, PATH_MID_ID, PATH_MID_SIBLING_ID, PATH_TARGET_ID,
+    PATH_TARGET_SIBLING_ID, PATH_TARGET_CHILD_ID, PATH_OTHER_BRANCH_ID,
 ]
 
 
@@ -414,6 +429,58 @@ class TestSearchLocationsWithAncestors:
     def test_no_match_returns_empty(self, locations_manager: LocationsManager) -> None:
         """A query matching nothing yields an empty result."""
         assert locations_manager.search_locations_with_ancestors('nonexistent-xyz') == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                get_locations_on_path_to ($graphLookup + $in levels)                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetLocationsOnPathTo:
+    """``get_locations_on_path_to`` returns every sibling level down to the target via real queries."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_tree(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds two roots, a mid level, the target level, plus an off-path branch and target child."""
+        _insert_docs(database_manager, database_name, [
+            _location_doc(PATH_ROOT_A_ID, PATH_OBJECT_BASE_ID, ROOT_PARENT_ID),
+            _location_doc(PATH_ROOT_B_ID, PATH_OBJECT_BASE_ID + 1, ROOT_PARENT_ID),
+            _location_doc(PATH_MID_ID, PATH_OBJECT_BASE_ID + 2, PATH_ROOT_A_ID),
+            _location_doc(PATH_MID_SIBLING_ID, PATH_OBJECT_BASE_ID + 3, PATH_ROOT_A_ID),
+            _location_doc(PATH_TARGET_ID, PATH_OBJECT_BASE_ID + 4, PATH_MID_ID),
+            _location_doc(PATH_TARGET_SIBLING_ID, PATH_OBJECT_BASE_ID + 5, PATH_MID_ID),
+            _location_doc(PATH_TARGET_CHILD_ID, PATH_OBJECT_BASE_ID + 6, PATH_TARGET_ID),
+            _location_doc(PATH_OTHER_BRANCH_ID, PATH_OBJECT_BASE_ID + 7, PATH_ROOT_B_ID),
+        ])
+        yield
+        _drop_ids(database_manager, database_name, [
+            PATH_ROOT_A_ID, PATH_ROOT_B_ID, PATH_MID_ID, PATH_MID_SIBLING_ID, PATH_TARGET_ID,
+            PATH_TARGET_SIBLING_ID, PATH_TARGET_CHILD_ID, PATH_OTHER_BRANCH_ID,
+        ])
+
+    def test_returns_every_sibling_level_down_to_the_target(self, locations_manager: LocationsManager) -> None:
+        """All roots + children of each ancestor are returned; the target and its siblings are the deepest."""
+        result_ids = {loc['public_id'] for loc in locations_manager.get_locations_on_path_to(PATH_TARGET_ID)}
+
+        assert result_ids == {
+            PATH_ROOT_A_ID, PATH_ROOT_B_ID, PATH_MID_ID, PATH_MID_SIBLING_ID,
+            PATH_TARGET_ID, PATH_TARGET_SIBLING_ID,
+        }
+
+    def test_target_child_and_off_path_branch_are_excluded(self, locations_manager: LocationsManager) -> None:
+        """The target's own children and branches off the ancestor path are not expanded."""
+        result_ids = {loc['public_id'] for loc in locations_manager.get_locations_on_path_to(PATH_TARGET_ID)}
+
+        assert PATH_TARGET_CHILD_ID not in result_ids
+        assert PATH_OTHER_BRANCH_ID not in result_ids
+
+    def test_root_level_target_returns_only_the_roots(self, locations_manager: LocationsManager) -> None:
+        """A target directly under the synthetic root expands just the root level (both roots)."""
+        result_ids = {loc['public_id'] for loc in locations_manager.get_locations_on_path_to(PATH_ROOT_A_ID)}
+
+        assert result_ids == {PATH_ROOT_A_ID, PATH_ROOT_B_ID}
+
+    def test_missing_target_returns_empty(self, locations_manager: LocationsManager) -> None:
+        """An unknown target yields an empty list."""
+        assert locations_manager.get_locations_on_path_to(MISSING_LOCATION_ID) == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

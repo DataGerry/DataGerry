@@ -33,7 +33,13 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
     ObjectsManagerUpdateError,
     ObjectsManagerDeleteError,
+    ObjectsManagerInitError,
+    ObjectsManagerIterationError,
+    ObjectsManagerGetTypeError,
+    ObjectsManagerSummaryLineError,
+    ObjectsManagerMdsReferencesError,
 )
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -152,7 +158,7 @@ def test_load_types_lookup_returns_empty_dict_for_empty_type_ids() -> None:
 
     result = ObjectsManager._load_types_lookup(mock_self, [])
 
-    assert result == {}
+    assert not result
     mock_self.get_many_from_other_collection.assert_not_called()
 
 
@@ -242,7 +248,7 @@ def test_get_summary_lines_lookup_returns_empty_dict_for_empty_input() -> None:
 
     result = ObjectsManager.get_summary_lines_lookup(mock_self, [])
 
-    assert result == {}
+    assert not result
     mock_self.find_objects.assert_not_called()
 
 
@@ -312,7 +318,7 @@ def test_get_summary_lines_lookup_skips_object_with_non_int_public_id() -> None:
 
     result = ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID])
 
-    assert result == {}
+    assert not result
 
 
 def test_get_summary_lines_lookup_skips_object_with_non_int_type_id() -> None:
@@ -324,7 +330,7 @@ def test_get_summary_lines_lookup_skips_object_with_non_int_type_id() -> None:
 
     result = ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID])
 
-    assert result == {}
+    assert not result
 
 
 def test_get_summary_lines_lookup_with_object_docs_skips_the_find() -> None:
@@ -578,7 +584,7 @@ def test_delete_object_returns_false_for_missing_object() -> None:
     mock_self = MagicMock()
     mock_self.get_one.return_value = None
 
-    assert ObjectsManager.delete_object(mock_self, MISSING := 9999) is False
+    assert ObjectsManager.delete_object(mock_self, 9999) is False
     mock_self.get_object_type.assert_not_called()
 
 
@@ -631,3 +637,195 @@ def test_delete_object_raises_when_type_missing() -> None:
     with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
         with pytest.raises(ObjectsManagerDeleteError):
             ObjectsManager.delete_object(mock_self, OWNER_OBJECT_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       error wrapping: read / write delegations                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_init_wraps_super_failure_as_init_error() -> None:
+    """A failure constructing the base manager (None dbm) surfaces as ObjectsManagerInitError."""
+    with pytest.raises(ObjectsManagerInitError):
+        ObjectsManager(None)
+
+
+def test_get_object_wraps_unexpected_error() -> None:
+    """A generic failure while fetching an object surfaces as ObjectsManagerGetError."""
+    mock_self = MagicMock()
+    mock_self.get_one.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerGetError):
+        ObjectsManager.get_object(mock_self, 1)
+
+
+def test_iterate_wraps_failure_as_iteration_error() -> None:
+    """A failure in the aggregation surfaces as ObjectsManagerIterationError."""
+    mock_self = MagicMock()
+    mock_self.iterate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.iterate(mock_self, MagicMock())
+
+
+def test_get_objects_by_wraps_unexpected_error() -> None:
+    """A generic failure while fetching objects surfaces as ObjectsManagerGetError."""
+    mock_self = MagicMock()
+    mock_self.get_many.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerGetError):
+        ObjectsManager.get_objects_by(mock_self)
+
+
+def test_get_object_type_wraps_base_get_error() -> None:
+    """A BaseManagerGetError fetching the type surfaces as ObjectsManagerGetTypeError."""
+    mock_self = MagicMock()
+    mock_self.get_one_from_other_collection.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(ObjectsManagerGetTypeError):
+        ObjectsManager.get_object_type(mock_self, 1)
+
+
+def test_get_object_type_wraps_unexpected_error() -> None:
+    """Any other failure fetching the type surfaces as ObjectsManagerGetTypeError."""
+    mock_self = MagicMock()
+    mock_self.get_one_from_other_collection.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerGetTypeError):
+        ObjectsManager.get_object_type(mock_self, 1)
+
+
+def test_find_objects_wraps_unexpected_error() -> None:
+    """A generic failure in the find surfaces as ObjectsManagerGetError."""
+    mock_self = MagicMock()
+    mock_self.find.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerGetError):
+        ObjectsManager.find_objects(mock_self, {'public_id': 1})
+
+
+def test_get_new_object_public_id_wraps_get_error() -> None:
+    """A BaseManagerGetError from the id counter surfaces as ObjectsManagerGetError."""
+    mock_self = MagicMock()
+    mock_self.get_next_public_id.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(ObjectsManagerGetError):
+        ObjectsManager.get_new_object_public_id(mock_self)
+
+
+def test_aggregate_objects_wraps_iteration_error() -> None:
+    """A BaseManagerIterationError from the aggregation surfaces as ObjectsManagerIterationError."""
+    mock_self = MagicMock()
+    mock_self.aggregate.side_effect = BaseManagerIterationError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.aggregate_objects(mock_self, [])
+
+
+def test_get_object_field_name_sets_by_type_wraps_unexpected_error() -> None:
+    """A failure in the field-name aggregation surfaces as ObjectsManagerGetError."""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerGetError):
+        ObjectsManager.get_object_field_name_sets_by_type(mock_self, [1])
+
+
+def test_set_location_field_for_objects_wraps_unexpected_error() -> None:
+    """A failure writing the mirrored location field surfaces as ObjectsManagerUpdateError."""
+    mock_self = MagicMock()
+    mock_self.update_many_raw.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerUpdateError):
+        ObjectsManager.set_location_field_for_objects(mock_self, [1], 5)
+
+
+def test_get_summary_line_wraps_unexpected_error() -> None:
+    """A failure while composing a summary line surfaces as ObjectsManagerSummaryLineError."""
+    mock_self = MagicMock()
+    mock_self.get_object.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerSummaryLineError):
+        ObjectsManager.get_summary_line(mock_self, 1)
+
+
+def test_bulk_update_multi_data_sections_wraps_failure() -> None:
+    """A failing bulk write surfaces as ObjectsManagerUpdateError."""
+    mock_self = MagicMock()
+    mock_self.bulk_write.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerUpdateError):
+        ObjectsManager.bulk_update_multi_data_sections(mock_self, [MagicMock(public_id=1, multi_data_sections=[])])
+
+
+def test_group_objects_by_value_wraps_failure_and_skips_match_stage() -> None:
+    """With no match filter and a failing aggregation the error surfaces as ObjectsManagerIterationError."""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.group_objects_by_value(mock_self, 'type_id', match=None)
+
+
+def test_delete_object_wraps_get_type_error_as_delete_error() -> None:
+    """An ObjectsManagerGetError while resolving the type surfaces as ObjectsManagerDeleteError."""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = {'public_id': 1, 'type_id': 5}
+    mock_self.get_object_type.side_effect = ObjectsManagerGetError('boom')
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)):
+        with pytest.raises(ObjectsManagerDeleteError):
+            ObjectsManager.delete_object(mock_self, 1)
+
+
+def test_get_mds_references_for_object_wraps_failure() -> None:
+    """A failing cross-collection aggregation surfaces as ObjectsManagerIterationError."""
+    mock_self = MagicMock()
+    mock_self.aggregate_from_other_collection.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.get_mds_references_for_object(mock_self, MagicMock(type_id=5, public_id=1), {'$match': {}})
+
+
+def _references_self() -> MagicMock:
+    """A MagicMock self for references() with the reference-match builder stubbed to an empty list."""
+    mock_self = MagicMock()
+    mock_self._build_reference_match_queries.return_value = []
+    return mock_self
+
+
+def test_references_wraps_mds_references_error() -> None:
+    """An ObjectsManagerMdsReferencesError from the MDS lookup surfaces as ObjectsManagerIterationError."""
+    mock_self = _references_self()
+    mock_self.get_mds_references_for_object.side_effect = ObjectsManagerMdsReferencesError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
+
+
+def test_references_reraises_iteration_error() -> None:
+    """An ObjectsManagerIterationError from the object iteration is re-raised unchanged."""
+    mock_self = _references_self()
+    mock_self.iterate.side_effect = ObjectsManagerIterationError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
+
+
+def test_references_wraps_unexpected_error() -> None:
+    """Any other failure while resolving references surfaces as ObjectsManagerIterationError."""
+    mock_self = _references_self()
+    mock_self.iterate.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
+
+
+def test_merge_mds_references_wraps_failure() -> None:
+    """A failure while merging MDS references surfaces as ObjectsManagerMdsReferencesError."""
+    mock_self = MagicMock()
+    obj_result = MagicMock()
+    obj_result.results = []
+    merge = getattr(ObjectsManager, '_ObjectsManager__merge_mds_references')
+
+    with patch(f'{PATH}.CmdbObject.from_data', side_effect=RuntimeError('boom')):
+        with pytest.raises(ObjectsManagerMdsReferencesError):
+            merge(mock_self, [{'public_id': 9}], obj_result, 0, 0, 'public_id', 1)
