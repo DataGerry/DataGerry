@@ -257,47 +257,51 @@ def duplicate_isms_risk_assessment(
         if not target_ids:
             abort(400, "No valid public_ids were provided for duplication.")
 
+        # The duplicate mode depends only on the source payload, not the targets, so validate it once
+        if duplicate_mode == "object" and data.get('object_id_ref_type') != ObjectReferenceType.OBJECT:
+            abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
+        if duplicate_mode == "object_group" and data.get('object_id_ref_type') != ObjectReferenceType.OBJECT_GROUP:
+            abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
+
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
             ManagerType.RISK_ASSESSMENT, request_user
         )
 
+        # Fetch the source assignments and the assignment manager once, not per duplicated target
         if copy_cma:
             original_assignments = risk_assessment_manager.get_many_from_other_collection(
                                                                 IsmsControlMeasureAssignment.COLLECTION,
                                                                 risk_assessment_id=initial_risk_assessment_id
                                                             )
+            cma_manager: ControlMeasureAssignmentManager | None = ManagerProvider.get_manager(
+                ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
+            )
         else:
             original_assignments = []
+            cma_manager = None
+
+        # 'risk' mode retargets the risk_id; 'object'/'object_group' modes retarget the object_id
+        target_field = 'risk_id' if duplicate_mode == "risk" else 'object_id'
 
         created_risk_assessment_ids = []
 
         for target_id in target_ids:
             new_data = data.copy()
-
-            if duplicate_mode == "risk":
-                new_data['risk_id'] = target_id
-            elif duplicate_mode == "object":
-                if new_data.get('object_id_ref_type') != ObjectReferenceType.OBJECT:
-                    abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
-                new_data['object_id'] = target_id
-            elif duplicate_mode == "object_group":
-                if new_data.get('object_id_ref_type') != ObjectReferenceType.OBJECT_GROUP:
-                    abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
-                new_data['object_id'] = target_id
+            new_data[target_field] = target_id
 
             new_risk_assessment_id = risk_assessment_manager.insert_item(new_data)
             created_risk_assessment_ids.append(new_risk_assessment_id)
 
-            if copy_cma:
-                cma_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
-                    ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
-                )
-
+            # Copy the source assignments onto the new RiskAssessment in a single batched insert
+            if original_assignments:
+                new_assignments = []
                 for assignment in original_assignments:
                     new_assignment = assignment.copy()
                     new_assignment.pop('public_id', None)
                     new_assignment['risk_assessment_id'] = new_risk_assessment_id
-                    cma_manager.insert_item(new_assignment)
+                    new_assignments.append(new_assignment)
+
+                cma_manager.insert_many(new_assignments)
 
         return DefaultResponse(created_risk_assessment_ids).make_response()
     except HTTPException as http_err:

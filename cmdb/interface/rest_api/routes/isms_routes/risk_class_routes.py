@@ -36,7 +36,10 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    get_item_or_404,
+    update_multiple_items,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -238,50 +241,15 @@ def update_multiple_isms_risk_classes(request_user: CmdbUser) -> Response:
         DefaultResponse: A per-item result list describing which updates succeeded or failed
     """
     try:
-        data = request.get_json()
-
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        results = []
-        for item in data:
-            public_id = item.get("public_id")
-            if public_id is None:
-                results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
-                continue
-
-            try:
-                to_update_risk_class = risk_class_manager.get_item(public_id)
-
-                if not to_update_risk_class:
-                    results.append(
-                        {"public_id": public_id, "status": "failed", "message": f"RiskClass ID:{public_id} not found"}
-                    )
-                    continue
-
-                risk_class_manager.update_item(public_id, IsmsRiskClass.from_data(item))
-
-                results.append({"public_id": public_id, "status": "success"})
-            except RiskClassManagerGetError as err:
-                LOGGER.error("[update_multiple_isms_risk_classes] RiskClassManagerGetError: %s", err, exc_info=True)
-                results.append({
-                    "public_id": public_id,
-                    "status": "failed",
-                    "message": f"Failed to retrieve RiskClass ID: {public_id}"
-                })
-            except RiskClassManagerUpdateError as err:
-                LOGGER.error("[update_multiple_isms_risk_classes] RiskClassManagerUpdateError: %s", err, exc_info=True)
-                results.append({
-                    "public_id": public_id,
-                    "status": "failed",
-                    "message": f"Failed to update RiskClass ID: {public_id}"
-                })
-            except Exception as err:
-                LOGGER.error(
-                    "[update_multiple_isms_risk_classes] Exception: %s. Type: %s", err, type(err), exc_info=True
-                )
-                results.append(
-                    {"public_id": public_id, "status": "failed", "message": "Internal server error"}
-                )
+        results = update_multiple_items(
+            risk_class_manager,
+            IsmsRiskClass,
+            request.get_json(silent=True),
+            "RiskClass",
+            "update_multiple_isms_risk_classes",
+        )
 
         return DefaultResponse(results).make_response()
     except HTTPException as http_err:
