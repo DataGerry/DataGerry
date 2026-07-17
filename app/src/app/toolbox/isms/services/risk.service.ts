@@ -28,7 +28,7 @@ import {
     APIDeleteSingleResponse
 } from 'src/app/services/models/api-response';
 
-import { Risk } from '../models/risk.model';
+import { Risk, RiskBulkDeleteResult } from '../models/risk.model';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 
 @Injectable({
@@ -114,6 +114,23 @@ export class RiskService implements ApiServicePrefix {
             options
         ).pipe(
             map((res: HttpResponse<APIDeleteSingleResponse<Risk>>) => res.body),
+            catchError((error) => { throw error; })
+        );
+    }
+
+    /**
+     * Delete multiple Risks at once. Deleting a Risk cascades to its associated
+     * Risk Assessments and Control Measure Assignments; the response reports the
+     * deleted Risk ids together with the counts of cascaded records removed.
+     * @param publicIds risk public ids to delete
+     */
+    public deleteRisks(publicIds: number[]): Observable<RiskBulkDeleteResult> {
+        const options = { ...this.options };
+        return this.api.callDelete<RiskBulkDeleteResult>(
+            `${this.servicePrefix}/delete/${publicIds.join(',')}`,
+            options
+        ).pipe(
+            map((res: HttpResponse<RiskBulkDeleteResult>) => res.body),
             catchError((error) => { throw error; })
         );
     }
