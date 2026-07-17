@@ -29,7 +29,7 @@ import {
   APIDeleteSingleResponse
 } from 'src/app/services/models/api-response';
 
-import { Threat } from '../models/threat.model';
+import { Threat, ThreatBulkDeleteResult } from '../models/threat.model';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 
 @Injectable({
@@ -127,5 +127,22 @@ export class ThreatService<T = any> implements ApiServicePrefix {
           throw error;
         })
       );
+  }
+
+  /**
+   * Delete multiple Threats at once. Threats that are still assigned to a Risk
+   * are not deleted and are returned in the `in_use` list of the response.
+   * @param publicIds threat public ids to delete
+   */
+  public deleteThreats(publicIds: number[]): Observable<ThreatBulkDeleteResult> {
+    const options = { ...this.options };
+    return this.api.callDelete<ThreatBulkDeleteResult>(
+      `${this.servicePrefix}/delete/${publicIds.join(',')}`, options
+    ).pipe(
+      map((res: HttpResponse<ThreatBulkDeleteResult>) => res.body),
+      catchError((error) => {
+        throw error;
+      })
+    );
   }
 }
