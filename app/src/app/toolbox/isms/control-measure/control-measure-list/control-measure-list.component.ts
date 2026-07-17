@@ -34,7 +34,7 @@ import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/di
 
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { Column, Sort, SortDirection } from 'src/app/layout/table/table.types';
-import { ControlMeasure } from '../../models/control-measure.model';
+import { ControlMeasure, ControlMeasureBulkDeleteResult } from '../../models/control-measure.model';
 import { ControlMeasureService } from '../../services/control-measure.service';
 import { OptionType } from '../../models/option-type.enum';
 import { ExtendableOptionService } from '../../services/extendable-option.service';
@@ -53,6 +53,9 @@ export class ControlmeasuresListComponent implements OnInit {
 
     public controlMeasures: ControlMeasure[] = [];
     public totalControlMeasures = 0;
+
+    // Controls currently selected in the table for bulk actions
+    public selectedControls: ControlMeasure[] = [];
 
     // Table config
     public page = 1;
@@ -272,26 +275,86 @@ export class ControlmeasuresListComponent implements OnInit {
     }
 
 
+    /**
+     * Keep track of the controls selected in the table.
+     * @param selected - The currently selected controls
+     * @returns {void}
+     */
+    public onSelectedChange(selected: ControlMeasure[]): void {
+        this.selectedControls = selected ?? [];
+    }
+
+
+    /**
+     * Delete all currently selected controls. Controls assigned to a control
+     * measure assignment (CMA) are reported back as skipped.
+     * @returns {void}
+     */
+    public onDeleteSelected(): void {
+        const publicIds = this.selectedControls
+            .map((control) => control.public_id)
+            .filter((id): id is number => id != null);
+
+        if (!publicIds.length) {
+            return;
+        }
+
+        const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+        modalRef.componentInstance.title = 'Delete Controls';
+        modalRef.componentInstance.item = this.selectedControls;
+        modalRef.componentInstance.itemType = 'Controls';
+        modalRef.componentInstance.itemName = `${publicIds.length} selected Control${publicIds.length > 1 ? 's' : ''}`;
+        modalRef.componentInstance.warningMessage =
+            'Controls assigned to a control measure assignment (CMA) cannot be deleted and will be skipped.';
+
+        modalRef.result.then(
+            (result) => {
+                if (result !== 'confirmed') {
+                    return;
+                }
+                this.loaderService.show();
+                this.controlmeasureservice.deleteControlMeasures(publicIds)
+                    .pipe(finalize(() => this.loaderService.hide()))
+                    .subscribe({
+                        next: (response) => {
+                            this.notifyBulkDeleteResult(response);
+                            this.selectedControls = [];
+                            this.loadControlMeasures();
+                        },
+                        error: (err) => {
+                            this.toast.error(err?.error?.message);
+                        }
+                    });
+            },
+            () => { /* dismissed */ }
+        );
+    }
+
+
     /* ------------------------------------------------------------------
     * Pagination, sorting, and search functionality
     * ------------------------------------------------------------------ */
     public onPageChange(page: number): void {
+        this.selectedControls = [];
         this.page = page;
         this.loadControlMeasures();
     }
 
     public onPageSizeChange(limit: number): void {
+        this.selectedControls = [];
         this.limit = limit;
         this.page = 1;
         this.loadControlMeasures();
     }
 
     public onSortChange(sort: Sort): void {
+        this.selectedControls = [];
         this.sort = sort;
         this.loadControlMeasures();
     }
 
     public onSearchChange(search: string): void {
+        this.selectedControls = [];
         this.filter = search;
         this.page = 1;
         this.loadControlMeasures();
@@ -325,5 +388,39 @@ export class ControlmeasuresListComponent implements OnInit {
     getImplementationStateName(stateId: number): string {
         const option = this.implementationStateOptions.find(opt => opt.public_id === stateId);
         return option?.value;
+    }
+
+
+    /**
+     * Surface the outcome of a bulk delete: how many controls were removed and
+     * which ones were skipped because they are still assigned to a CMA.
+     * @param result - Bulk delete response 
+     */
+    private notifyBulkDeleteResult(result: ControlMeasureBulkDeleteResult): void {
+        const deletedCount = result?.successfully?.length ?? 0;
+        const inUseIds = result?.in_use ?? [];
+
+        if (deletedCount > 0) {
+            this.toast.success(`${deletedCount} Control${deletedCount > 1 ? 's' : ''} deleted successfully.`);
+        }
+
+        if (inUseIds.length) {
+            const names = inUseIds.map((id) => this.getControlName(id)).join(', ');
+            const isPlural = inUseIds.length > 1;
+            this.toast.warning(
+                `${inUseIds.length} Control${isPlural ? 's' : ''} could not be deleted because ` +
+                `${isPlural ? 'they are' : 'it is'} assigned to a control measure assignment (CMA): ${names}.`
+            );
+        }
+    }
+
+
+    /**
+     * Resolve a control's display name by its public id, falling back to the id.
+     * @param publicId - The control public id
+     */
+    private getControlName(publicId: number): string {
+        const control = this.controlMeasures.find((item) => item.public_id === publicId);
+        return control?.title ?? `#${publicId}`;
     }
 }
