@@ -27,6 +27,7 @@ import { catchError, debounceTime, distinctUntilChanged, map, switchMap, takeUnt
 import { LocationService, LocationTreeNode, LocationTreeSearchNode } from 'src/app/framework/services/location.service';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LocationOrganizerService } from 'src/app/core/components/location-tree-organizer/location-organizer.service';
 
 /* -------------------------------------------------------------------------- */
 /*                                 INTERFACES                                 */
@@ -112,6 +113,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     private readonly toast = inject(ToastService);
     private readonly route = inject(Router);
     private readonly cdRef = inject(ChangeDetectorRef);
+    private readonly locationOrganizer = inject(LocationOrganizerService);
 
     /* -------------------------------------------------------------------------- */
     /*                                LIFE - CYCLE                                */
@@ -203,6 +205,15 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      */
     public onSidebarExpandClicked() {
         this.expandClicked.emit();
+    }
+
+    /**
+     * Opens the location organizer modal for re-parenting locations via drag-and-drop. Moves made
+     * inside the modal emit a location action, which the subscription in ngOnInit turns into a tree
+     * refresh, so no explicit reload is needed here.
+     */
+    public openOrganizer(): void {
+        this.locationOrganizer.open();
     }
 
     /**

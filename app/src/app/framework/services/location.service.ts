@@ -348,6 +348,51 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
     }
 
 
+/* -------------------------------------------------- CRUD - UPDATE ------------------------------------------------- */
+
+
+    /**
+     * Re-parents a single location by moving the object behind it under a new parent location.
+     *
+     * @param objectID (int): object_id of the location to move
+     * @param parentPublicID (int): public_id of the target parent location (1 = root / top level)
+     * @returns Observable<{ object_id: number; parent: number }>
+     */
+    public moveLocation(objectID: number, parentPublicID: number): Observable<{ object_id: number; parent: number }> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callPatch<{ object_id: number; parent: number }>(
+            `${ this.servicePrefix }/${ objectID }/parent`,
+            { parent: parentPublicID },
+            options
+        ).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Re-parents several locations at once by moving the given objects under a new parent location.
+     *
+     * @param objectIDs (int[]): object_ids of the locations to move
+     * @param parentPublicID (int): public_id of the target parent location (1 = root / top level)
+     * @returns Observable<{ object_ids: number[]; parent: number }>
+     */
+    public moveLocations(objectIDs: number[], parentPublicID: number): Observable<{ object_ids: number[]; parent: number }> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callPatch<{ object_ids: number[]; parent: number }>(
+            `${ this.servicePrefix }/parents`,
+            { object_ids: objectIDs, parent: parentPublicID },
+            options
+        ).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                   HELPER SECTION                                                   */
 /* ------------------------------------------------------------------------------------------------------------------ */

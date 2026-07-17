@@ -6,6 +6,8 @@ import { NgSelectModule } from '@ng-select/ng-select';
 import { ObjectSelectorComponent } from './components/object_selector/object-selector.component';
 import { LocationTreeSelectComponent } from './components/location-tree-select/location-tree-select.component';
 import { LocationTreePickerModalComponent } from './components/location-tree-select/location-tree-picker-modal.component';
+import { LocationTreeOrganizerModalComponent } from './components/location-tree-organizer/location-tree-organizer-modal.component';
+import { DgModalComponent } from './components/modal/dg-modal.component';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { WarningAlertComponent } from './components/warning-message/warning-alert.component';
 import { ExtendableOptionManagerComponent } from './components/extendable_option_manager/extendable-option-manager.component';
@@ -37,6 +39,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     ObjectSelectorComponent,
     LocationTreeSelectComponent,
     LocationTreePickerModalComponent,
+    LocationTreeOrganizerModalComponent,
     WarningAlertComponent,
     ExtendableOptionManagerComponent,
     FormInputComponent,
@@ -66,7 +69,8 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     FullscreenDirective,
     PremiumFeatureDirective,
     PremiumGateDirective,
-    PremiumLockedComponent
+    PremiumLockedComponent,
+    DgModalComponent
   ],
   exports: [
     LoadingPopupComponent,
@@ -94,7 +98,8 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     PremiumFeatureDirective,
     PremiumGateDirective,
     PremiumLockedComponent,
-    CompactNumberPipe
+    CompactNumberPipe,
+    DgModalComponent
   ]
 })
 export class CoreModule { }

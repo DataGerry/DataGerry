@@ -18,6 +18,7 @@
 
 /* import bootstrap */
 @import "scss/variables";
+@import "scss/tokens";
 @import "bootstrap/scss/bootstrap";
 
 /* import font-awesome */
@@ -45,6 +46,7 @@
 @import "scss/card";
 @import "scss/gimmick";
 @import "scss/intro";
+@import "scss/modal";
 @import "scss/location-picker";
 @import "scss/sidebar/tree";
 @import "scss/dnd";
