@@ -16,7 +16,8 @@
 """
 Shared helper logic for the ISMS REST routes
 """
-from typing import Any
+from logging import Logger, getLogger
+from typing import Any, Type
 
 from flask import abort
 
@@ -28,6 +29,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_IN_USE_KEY,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 
 def get_item_or_404(
@@ -59,6 +62,76 @@ def get_item_or_404(
         abort(404, not_found_message)
 
     return item
+
+
+def update_multiple_items(
+        manager: GenericManager,
+        model: Type[CmdbDAO],
+        data: Any,
+        item_label: str,
+        log_tag: str) -> list[dict[str, Any]]:
+    """
+    Updates a list of ISMS items, reporting an independent success/failure result per item.
+
+    Shared by the ISMS ``PUT``/``PATCH`` ``/multiple`` bulk-update routes. The set of existing
+    public_ids is resolved in a single batched query rather than one existence read per item, then
+    each item is updated on its own so a single failure does not abort the rest.
+
+    Args:
+        manager (GenericManager): Manager whose items are updated
+        model (Type[CmdbDAO]): Model class used to deserialise each item via ``from_data``
+        data (Any): The parsed request body; must be a list of item dicts
+        item_label (str): Human-readable entity name used in the result messages (e.g. "RiskClass")
+        log_tag (str): Route identifier used as the log prefix
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the body is not a list
+
+    Returns:
+        list[dict[str, Any]]: Per-item results, each {"public_id", "status", and "message" on failure}
+    """
+    if not isinstance(data, list):
+        abort(400, f"The request body must be a list of {item_label}s!")
+
+    # Resolve which requested ids exist in one batched query instead of a per-item existence read
+    requested_ids: list[int] = [
+        item["public_id"] for item in data
+        if isinstance(item, dict) and item.get("public_id") is not None
+    ]
+    existing_ids: set[int] = {
+        doc["public_id"] for doc in manager.find_all(criteria={"public_id": {"$in": requested_ids}})
+    } if requested_ids else set()
+
+    results: list[dict[str, Any]] = []
+
+    for item in data:
+        public_id = item.get("public_id") if isinstance(item, dict) else None
+
+        if public_id is None:
+            results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
+            continue
+
+        if public_id not in existing_ids:
+            results.append({
+                "public_id": public_id,
+                "status": "failed",
+                "message": f"{item_label} ID:{public_id} not found",
+            })
+            continue
+
+        try:
+            manager.update_item(public_id, model.from_data(item))
+            results.append({"public_id": public_id, "status": "success"})
+        except Exception as err:
+            LOGGER.error("[%s] Failed to update %s ID %s: %s. Type: %s",
+                         log_tag, item_label, public_id, err, type(err))
+            results.append({
+                "public_id": public_id,
+                "status": "failed",
+                "message": f"Failed to update {item_label} ID: {public_id}",
+            })
+
+    return results
 
 
 def bulk_delete_reporting_in_use(

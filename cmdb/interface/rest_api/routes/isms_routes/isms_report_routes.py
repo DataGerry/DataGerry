@@ -18,7 +18,7 @@ Implementation of all API routes for Isms Reports
 """
 from logging import Logger, getLogger
 import re
-from flask import abort
+from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager.objects_manager import ObjectsManager
@@ -37,9 +37,13 @@ from cmdb.models.object_group_model.object_reference_type_enum import ObjectRefe
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
+from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
+    build_report_facet_stage,
+    extract_report_page,
     object_reference_lookup_stages,
+    paginate_report_rows,
     risk_matrix_class_lookup_stages,
 )
 
@@ -47,6 +51,11 @@ from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIte
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# SOA rows are ordered by the fixed business rules (sort_key), so the report ignores sort/order/filter.
+# These neutral values are echoed back in the response metadata instead of a client's ignored request.
+SOA_FIXED_ORDER_SORT: str = 'public_id'
+SOA_FIXED_ORDER_DIRECTION: int = 1
 
 isms_report_blueprint = APIBlueprint('isms_report', __name__)
 
@@ -124,17 +133,24 @@ def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
+@isms_report_blueprint.parse_collection_parameters()
+def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Risk Treatment Plan report
 
+    The report is paginated: ``limit``/``page``/``sort``/``order``/``filter`` are read from the query
+    string (see CollectionParameters) and the response is wrapped in a GetMultiResponse envelope.
+
     Args:
+        params (CollectionParameters): Pagination, sort and filter parameters for the report
         request_user (CmdbUser): CmdbUser requesting the Risk Treatment Plan report
 
     Returns:
-        DefaultResponse: The Risk Treatment Plan report as a dictionary
+        GetMultiResponse: The paginated Risk Treatment Plan report
     """
     try:
+        body: bool = request.method == 'HEAD'
+
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
                                                                             ManagerType.RISK_ASSESSMENT,
                                                                             request_user)
@@ -142,9 +158,9 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         query_pipeline = [
-            # Step 0: Get all IsmsRiskAssessments
+            # Step 0: Get all IsmsRiskAssessments matching the filter
             {
-                "$match": {}
+                "$match": params.filter
             },
             # Step 1: Lookup associated Risk
             {
@@ -236,6 +252,8 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
             {
                 "$project": {
                     "_id": 0,
+                    # Kept only as the pagination sort tiebreaker; dropped again after paging
+                    "public_id": 1,
                     "risk_name": "$risk.name",
                     "risk_identifier": "$risk.identifier",
                     "risk_category": "$risk_category.value",
@@ -299,10 +317,15 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
 
                     "control_measures": "$control_measures.title"
                 }
-            }
+            },
+
+            # Step 11: Page the rows and count the full result set in a single pass
+            build_report_facet_stage(params),
         ]
 
-        query_result: list[dict] = list(risk_assessment_manager.aggregate(query_pipeline))
+        # allowDiskUse lets the pagination $sort spill to disk instead of hitting the 100MB in-memory limit
+        aggregation = risk_assessment_manager.aggregate(query_pipeline, allowDiskUse=True)
+        query_result, total = extract_report_page(list(aggregation))
 
         # Replace Object public_ids with their summary lines (batched), then drop the internal ref type
         _replace_object_ids_with_summaries(query_result, "object", objects_manager)
@@ -310,7 +333,7 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
         for item in query_result:
             item.pop("object_id_ref_type", None)
 
-        return DefaultResponse(query_result).make_response()
+        return GetMultiResponse(query_result, total, params, request.url, body).make_response()
     except RiskAssessmentManagerIterationError as err:
         LOGGER.error(
             "[get_isms_risk_treatment_plan_report] RiskAssessmentManagerIterationError: %s. Type: %s", err, type(err)
@@ -325,17 +348,28 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_soa_report(request_user: CmdbUser) -> Response:
+@isms_report_blueprint.parse_collection_parameters()
+def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Statement of Applicability(SOA) report
 
+    The report is paginated (``limit``/``page``) and wrapped in a GetMultiResponse envelope. Its
+    ordering is fixed by the SOA business rules (see ``sort_key``: ISO 27001:2022 source first, then a
+    natural identifier sort), so ``sort``/``order``/``filter`` query params are not applied here.
+
     Args:
+        params (CollectionParameters): Pagination parameters for the report
         request_user (CmdbUser): CmdbUser requesting the SOA report
 
     Returns:
-        DefaultResponse: The SOA report as a dictionary
+        GetMultiResponse: The paginated SOA report
     """
+    # This route resolves two option-label maps and paginates the sorted result, so the local count
+    # legitimately exceeds the default
+    # pylint: disable=too-many-locals
     try:
+        body: bool = request.method == 'HEAD'
+
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(
                                                                             ManagerType.CONTROL_MEASURE,
                                                                             request_user)
@@ -372,10 +406,18 @@ def get_isms_soa_report(request_user: CmdbUser) -> Response:
             if source_id in source_lookup:
                 cm['source'] = source_lookup[source_id]
 
-        # Order all control measures
+        # Order all control measures by the SOA business rules, then slice the requested page. The
+        # sort keys off the resolved source label, so it must run over the full set before paging
         all_control_measures.sort(key=sort_key)
+        page_measures, total = paginate_report_rows(all_control_measures, params)
 
-        return DefaultResponse(all_control_measures).make_response()
+        # SOA honors only limit/page; reset the ignored params so the echoed metadata never reflects a
+        # sort/filter that was not actually applied
+        params.sort = SOA_FIXED_ORDER_SORT
+        params.order = SOA_FIXED_ORDER_DIRECTION
+        params.filter = {}
+
+        return GetMultiResponse(page_measures, total, params, request.url, body).make_response()
     except Exception as err:
         LOGGER.error("[get_isms_soa_report] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the SOA report!")
@@ -385,17 +427,24 @@ def get_isms_soa_report(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_assessments_report(request_user: CmdbUser) -> Response:
+@isms_report_blueprint.parse_collection_parameters()
+def get_isms_risk_assessments_report(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the RiskAssessment report
 
+    The report is paginated: ``limit``/``page``/``sort``/``order``/``filter`` are read from the query
+    string (see CollectionParameters) and the response is wrapped in a GetMultiResponse envelope.
+
     Args:
+        params (CollectionParameters): Pagination, sort and filter parameters for the report
         request_user (CmdbUser): CmdbUser requesting the RiskAssessment report
 
     Returns:
-        DefaultResponse: The RiskAssessment report as a list of dictionaries
+        GetMultiResponse: The paginated RiskAssessment report
     """
     try:
+        body: bool = request.method == 'HEAD'
+
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
                                                                             ManagerType.RISK_ASSESSMENT,
                                                                             request_user)
@@ -403,8 +452,8 @@ def get_isms_risk_assessments_report(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         pipeline = [
-            # Step 1: Get all RiskAssessments
-            {"$match": {}},
+            # Step 1: Get all RiskAssessments matching the filter
+            {"$match": params.filter},
 
             # Step 2: Lookup assigned Risk
             {"$lookup": {
@@ -739,6 +788,8 @@ def get_isms_risk_assessments_report(request_user: CmdbUser) -> Response:
             # Last Step: Project the Fields
             {"$project": {
                 "_id": 0,
+                # Kept only as the pagination sort tiebreaker; dropped again after paging
+                "public_id": 1,
                 "risk_title": "$risk.name",
                 "risk_category": "$risk_category.value",
                 "protection_goals": {
@@ -913,15 +964,21 @@ def get_isms_risk_assessments_report(request_user: CmdbUser) -> Response:
                 "audit_done_date": 1,
                 "audit_result": 1,
                 "object_id_ref_type": 1,
-            }}
+            }},
+
+            # Page the rows and count the full result set in a single pass
+            build_report_facet_stage(params),
         ]
 
-        query_result: list[dict] = list(risk_assessment_manager.aggregate(pipeline))
+        # allowDiskUse lets the pagination $sort and the $group stages spill to disk instead of
+        # hitting the 100MB in-memory limit
+        aggregation = risk_assessment_manager.aggregate(pipeline, allowDiskUse=True)
+        query_result, total = extract_report_page(list(aggregation))
 
         # Replace Object public_ids with their summary lines (batched)
         _replace_object_ids_with_summaries(query_result, "assigned_object", objects_manager)
 
-        return DefaultResponse(query_result).make_response()
+        return GetMultiResponse(query_result, total, params, request.url, body).make_response()
     except Exception as err:
         LOGGER.error("[get_isms_risk_assessments_report] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the RiskAssessment report!")

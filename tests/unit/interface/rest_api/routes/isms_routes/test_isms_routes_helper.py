@@ -14,15 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for cmdb ... isms_routes.isms_routes_helper.bulk_delete_reporting_in_use
+Unit tests for the shared ISMS route helpers in isms_routes_helper.
 
-Pure tests: the shared ISMS bulk-delete orchestration is driven against a MagicMock manager whose
-delete_item returns whether a document was actually removed. Verifies in-use ids are never deleted,
-non-existent ids are not reported as deleted, and both result lists come back sorted.
+Pure tests driven against MagicMock managers: ``bulk_delete_reporting_in_use`` (delete_item reports
+whether a document was removed) and ``update_multiple_items`` (the bulk-update orchestration that
+resolves existing ids in one batched query and reports a per-item result).
 """
 from unittest.mock import MagicMock
 
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import bulk_delete_reporting_in_use
+import pytest
+from werkzeug.exceptions import HTTPException
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    bulk_delete_reporting_in_use,
+    update_multiple_items,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ID_A: int = 11
@@ -74,3 +80,74 @@ class TestBulkDeleteReportingInUse:
         # B (in-use) is never deleted; C (missing) is attempted but not reported; only A lands in successfully
         assert ID_B not in [call.args[0] for call in manager.delete_item.call_args_list]
         assert result == {'successfully': [ID_A], 'in_use': [ID_B]}
+
+
+def _existence_manager(existing_ids: list[int]) -> MagicMock:
+    """Builds a MagicMock manager whose find_all returns docs for the given existing public_ids."""
+    manager = MagicMock()
+    manager.find_all.return_value = [{'public_id': public_id} for public_id in existing_ids]
+    return manager
+
+
+class TestUpdateMultipleItems:
+    """``update_multiple_items`` batches the existence check and reports a per-item result."""
+
+    def test_non_list_body_aborts_400(self) -> None:
+        """A body that is not a list is rejected with HTTP 400."""
+        with pytest.raises(HTTPException) as exc_info:
+            update_multiple_items(MagicMock(), MagicMock(), {'public_id': ID_A}, "RiskClass", "tag")
+
+        assert exc_info.value.code == 400
+
+    def test_resolves_existence_in_one_query_without_per_item_get(self) -> None:
+        """Existence is checked with a single batched find_all and never a per-item get_item (N+1 fix)."""
+        manager = _existence_manager([ID_A, ID_B])
+
+        update_multiple_items(
+            manager, MagicMock(), [{'public_id': ID_A}, {'public_id': ID_B}], "RiskClass", "tag"
+        )
+
+        manager.find_all.assert_called_once_with(criteria={'public_id': {'$in': [ID_A, ID_B]}})
+        manager.get_item.assert_not_called()
+
+    def test_reports_per_item_status(self) -> None:
+        """Existing ids update and succeed; a missing id and an id-less item both fail."""
+        manager = _existence_manager([ID_A])
+        model = MagicMock()
+
+        results = update_multiple_items(
+            manager, model,
+            [{'public_id': ID_A}, {'public_id': MISSING_ID}, {'name': 'no id'}],
+            "RiskClass", "tag",
+        )
+
+        by_id = {entry['public_id']: entry['status'] for entry in results}
+        assert by_id == {ID_A: 'success', MISSING_ID: 'failed', None: 'failed'}
+        # update_item runs only for the existing id
+        manager.update_item.assert_called_once_with(ID_A, model.from_data.return_value)
+
+    def test_no_public_ids_skips_find_all(self) -> None:
+        """When no item carries a public_id, the existence query is skipped entirely."""
+        manager = MagicMock()
+
+        results = update_multiple_items(manager, MagicMock(), [{'name': 'no id'}], "RiskClass", "tag")
+
+        manager.find_all.assert_not_called()
+        assert results == [{'public_id': None, 'status': 'failed', 'message': 'Missing public_id'}]
+
+    def test_update_failure_is_isolated_per_item(self) -> None:
+        """An update_item raising for one id fails only that item; the rest still succeed."""
+        manager = _existence_manager([ID_A, ID_B])
+
+        def _fail_on_a(public_id: int, _data: object) -> None:
+            if public_id == ID_A:
+                raise RuntimeError('boom')
+
+        manager.update_item.side_effect = _fail_on_a
+
+        results = update_multiple_items(
+            manager, MagicMock(), [{'public_id': ID_A}, {'public_id': ID_B}], "RiskClass", "tag"
+        )
+
+        by_id = {entry['public_id']: entry['status'] for entry in results}
+        assert by_id == {ID_A: 'failed', ID_B: 'success'}
