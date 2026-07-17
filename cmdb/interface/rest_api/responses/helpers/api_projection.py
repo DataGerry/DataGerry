@@ -15,6 +15,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of APIProjection
+
+`APIProjection` wraps the client-supplied `projection` query parameter and splits it into the
+set of keys to include and the set to exclude, which `APIProjector` then applies to the response
+document(s). Two input shapes are accepted:
+
+- a **dict** mapping field name -> flag, MongoDB-style: a truthy flag (``1``) marks the key as an
+  *include*, a falsy flag (``0``) marks it as an *exclude*;
+- a **list** of field names, treated as an all-includes projection (equivalent to ``{name: 1}``).
+
+Every key is classified by the truthiness of its flag, so no key is ever silently dropped. The
+include and exclude key sets are derived once at construction; includes and excludes are exposed
+independently and `APIProjector` decides how to combine them.
 """
 from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -26,79 +38,86 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class APIProjection:
     """
-    ApiProjection is a wrapper for the api http parameters under `projection`.
+    Wrapper around the `projection` query parameter, exposing its include and exclude keys
     """
-    def __init__(self, projection: dict | list = None) -> None:
+
+    def __init__(self, projection: dict | list | None = None) -> None:
+        """
+        Normalizes the projection and derives its include/exclude key sets
+
+        Args:
+            projection (dict | list | None): Either a MongoDB-style ``{field: 1|0}`` mapping, a
+                list of field names (treated as an all-includes projection), or None (empty
+                projection). A truthy flag marks an include, a falsy flag marks an exclude
+        """
         if isinstance(projection, list):
             projection = dict.fromkeys(projection, 1)
-        self.projection = projection or {}
-        self.__includes = None
-        self.__has_includes = None
-        self.__excludes = None
-        self.__has_excludes = None
+
+        self.projection: dict = projection or {}
+        self.__includes: list[str] = self.__select_keys(self.projection, include=True)
+        self.__excludes: list[str] = self.__select_keys(self.projection, include=False)
 
 # ---------------------------------------------------- PROPERTIES ---------------------------------------------------- #
 
     @property
     def includes(self) -> list[str]:
         """
-        Get all keys which includes (value set to 1)
-        """
-        if not self.__includes:
-            self.__includes = APIProjection.__validate_inclusion(self.projection)
+        The keys marked for inclusion (those with a truthy projection flag)
 
+        Returns:
+            list[str]: The projection keys to keep
+        """
         return self.__includes
 
 
     @property
     def excludes(self) -> list[str]:
         """
-        Get all keys which excludes (value set to 0)
-        """
-        if not self.__excludes:
-            self.__excludes = APIProjection.__validate_inclusion(self.projection, match=0)
+        The keys marked for exclusion (those with a falsy projection flag)
 
+        Returns:
+            list[str]: The projection keys to drop
+        """
         return self.__excludes
+
+
+    @property
+    def has_includes(self) -> bool:
+        """
+        Whether the projection selects any keys for inclusion
+
+        Returns:
+            bool: True if at least one key is marked for inclusion
+        """
+        return bool(self.__includes)
+
+
+    @property
+    def has_excludes(self) -> bool:
+        """
+        Whether the projection selects any keys for exclusion
+
+        Returns:
+            bool: True if at least one key is marked for exclusion
+        """
+        return bool(self.__excludes)
 
 # -------------------------------------------------- STATIC METHODS -------------------------------------------------- #
 
     @staticmethod
-    def __validate_inclusion(projection: dict, match: int = 1) -> list[str]:
+    def __select_keys(projection: dict, include: bool) -> list[str]:
         """
-        Validation helper function to check the projection inclusion
-        
+        Selects the projection keys on one side of the include/exclude split
+
+        Each key is classified by the truthiness of its flag, so every key lands in exactly one
+        set and none is silently dropped: a truthy flag is an include, a falsy flag is an exclude.
+
         Args:
-            projection (dict): Projection parameters
-            match (int): Matching value in dict or list. Must be 0 or 1
+            projection (dict): The normalized projection mapping (field name -> flag)
+            include (bool): True to return the include keys (truthy flags), False to return the
+                exclude keys (falsy flags)
 
         Returns:
-            list[str]: List of all keys with the matching parameters
-
-        Raises:
-            ValueError: If match is not 0 or 1
+            list[str]: The keys whose flag falls on the requested side of the split
         """
-        if match not in [0, 1]:
-            raise ValueError('Projection parameter must be 0 or 1.')
-
-        return [key for key, value in projection.items() if value == match]
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-    def has_includes(self) -> bool:
-        """
-        Has include values
-        """
-        if not self.__has_includes:
-            self.__has_includes = len(self.includes) > 0
-
-        return self.__has_includes
-
-
-    def has_excludes(self) -> bool:
-        """
-        Has excludes values
-        """
-        if not self.__has_excludes:
-            self.__has_excludes = len(self.excludes) > 0
-
-        return self.__has_excludes
+        return [key for key, value in projection.items() if bool(value) == include]

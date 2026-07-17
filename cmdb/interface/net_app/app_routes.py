@@ -17,7 +17,7 @@
 Flask Blueprint that owns the Angular SPA and the top-level browser-asset routes
 
 Registered by `cmdb.interface.net_app.create_app` at `/` inside the `DispatcherMiddleware`,
-so everything that isn't `/docs/...` or `/rest/...` lands here. The blueprint serves the SPA
+so everything that isn't `/rest/...` lands here. The blueprint serves the SPA
 bundle (`datagerry-app/` as the blueprint's static folder, surfaced at the root because
 `static_url_path=""`) plus two explicit ancillary routes for `/favicon.ico` and
 `/browserconfig.xml` pointing at the package's `_static/` directory. The SPA fallback view

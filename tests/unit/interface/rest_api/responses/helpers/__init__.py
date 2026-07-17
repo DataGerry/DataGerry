@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,17 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-DataGerry is a flexible asset management tool and open-source configurable management database
+Unit tests for the REST API response helpers (api_projection, api_projector, ...)
 """
-import time
-# -------------------------------------------------------------------------------------------------------------------- #
-
-__title__ = 'DataGerry'
-__version__ = '3.3.0'
-__author__ = 'becon GmbH'
-__license__ = 'AGPLv3'
-__copyright__ = 'Copyright 2026 becon GmbH'
-__runtime__: float = time.time()
-__MODE__ = 'INFO'
-__CLOUD_MODE__ = False
-__LOCAL_MODE__ = False
