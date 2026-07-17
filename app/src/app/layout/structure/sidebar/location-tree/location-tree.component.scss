@@ -23,10 +23,18 @@
     flex-shrink: 0;
 }
 
+.search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .search-box {
     position: relative;
     display: flex;
     align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
     height: 36px;
     background: #f9fafb;
     border: 1px solid transparent;
@@ -59,6 +67,7 @@
 
 .search-input {
     flex: 1;
+    min-width: 0;
     height: 100%;
     padding: 0 36px 0 36px;
     border: none;
@@ -95,6 +104,41 @@
 
     &:active {
         transform: scale(0.92);
+    }
+}
+
+.organize-button {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    border-radius: 8px;
+    color: #6b7280;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+        border-color: $dg-primary-color;
+        color: $dg-primary-color;
+        background: rgba($dg-primary-color, 0.06);
+    }
+
+    &:focus-visible {
+        outline: none;
+        border-color: $dg-primary-color;
+        box-shadow: 0 0 0 3px rgba($dg-primary-color, 0.1);
+    }
+
+    &:active {
+        transform: scale(0.94);
     }
 }
 

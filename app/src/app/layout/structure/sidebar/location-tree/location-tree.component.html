@@ -1,15 +1,21 @@
 <div class="location-tree-container">
     <!-- Search Header -->
     <div class="search-section">
-        <div class="search-box">
-            <i class="fas fa-search search-icon"></i>
-            <input id="location-search" class="search-input" type="text" placeholder="Search locations..."
-                [(ngModel)]="searchString" autocomplete="off">
-            @if (searchString) {
-            <button class="clear-button" (click)="handleSearchReset()" type="button" aria-label="Clear search">
-                <i class="fas fa-times"></i>
+        <div class="search-row">
+            <div class="search-box">
+                <i class="fas fa-search search-icon"></i>
+                <input id="location-search" class="search-input" type="text" placeholder="Search locations..."
+                    [(ngModel)]="searchString" autocomplete="off">
+                @if (searchString) {
+                <button class="clear-button" (click)="handleSearchReset()" type="button" aria-label="Clear search">
+                    <i class="fas fa-times"></i>
+                </button>
+                }
+            </div>
+            <button class="organize-button" (click)="openOrganizer()" type="button" aria-label="Organize locations"
+                title="Organize locations">
+                <i class="fas fa-sitemap"></i>
             </button>
-            }
         </div>
     </div>
 
