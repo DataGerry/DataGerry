@@ -182,8 +182,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     user management, ISMS, IPAM, OpenCelium, ...) and registered under stable URL prefixes such
     as ``/objects``, ``/isms/risks`` or ``/ipam/subnet`` that the frontend depends on. Pylint
     rules R0914 (too many locals) and R0915 (too many statements) are disabled because the
-    registration list is intentionally flat for readability. The DEBUG-only ``debug_blueprint``
-    is appended last and is only loaded when ``cmdb.__MODE__`` is DEBUG
+    registration list is intentionally flat for readability
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -408,10 +407,6 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(oc_schedulers_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_licenses_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_connection_log_blueprint, url_prefix='/open_celium')
-
-    if cmdb.__MODE__ == 'DEBUG':
-        from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
-        app.register_blueprint(debug_blueprint)
 
     # LOGGER.debug(f"routes: {app.url_map}")
 

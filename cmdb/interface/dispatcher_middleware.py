@@ -14,11 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-WSGI dispatcher that fronts the three Flask apps DataGerry serves under one origin
+WSGI dispatcher that fronts the Flask apps DataGerry serves under one origin
 
-`WebCmdbService._run` wires this middleware as the outermost WSGI app: requests to `/docs`
-go to the Sphinx documentation app, `/rest/...` to the REST API app, and everything else
-to the SPA host. The class reimplements the algorithm of
+`WebCmdbService._run` wires this middleware as the outermost WSGI app: requests to
+`/rest/...` go to the REST API app and everything else to the SPA host. The class
+reimplements the algorithm of
 `werkzeug.middleware.dispatcher.DispatcherMiddleware` — longest-prefix match on the full
 PATH_INFO segments, with the matched prefix moved from `PATH_INFO` to `SCRIPT_NAME` so the
 sub-app sees URLs relative to its own mount point
@@ -36,8 +36,8 @@ class DispatcherMiddleware:
     """
     Mounts multiple WSGI sub-applications under a single fallback app by URL prefix
 
-    Used once at process startup to compose the SPA host, the Sphinx docs server and the
-    REST API into one WSGI application gunicorn serves. Per request, `__call__` strips path
+    Used once at process startup to compose the SPA host and the REST API into one WSGI
+    application gunicorn serves. Per request, `__call__` strips path
     segments from the right of `PATH_INFO` until what remains matches a mount key; the
     matched portion is appended to `SCRIPT_NAME` and the trailing portion becomes the new
     `PATH_INFO`, so each mounted Flask app sees a path rooted at its own mount point
@@ -63,8 +63,8 @@ class DispatcherMiddleware:
                 connection. The attribute is not read by `__call__`, only by the gunicorn
                 post-fork hook — do not remove it without updating that hook
             mounts (dict[str, WSGIApplication] | None): Map of URL prefix → sub-application.
-                Keys must include a leading slash and no trailing slash (e.g. `'/docs'`,
-                `'/rest'`). Defaults to an empty mapping
+                Keys must include a leading slash and no trailing slash (e.g. `'/rest'`).
+                Defaults to an empty mapping
         """
         self.app = app
         self.mounts = mounts or {}
