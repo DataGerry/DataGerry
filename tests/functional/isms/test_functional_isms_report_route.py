@@ -386,3 +386,25 @@ class TestIsmsReports:
         assert response.status_code == HTTPStatus.OK
         assert captured_kwargs, 'the report did not run an aggregation'
         assert all(kwargs.get('allowDiskUse') is True for kwargs in captured_kwargs)
+
+
+class TestReportErrorMapping:
+    """Report routes map an unexpected aggregation failure to 500."""
+
+    def test_risk_assessments_report_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error during the risk-assessments report aggregation surfaces as 500."""
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError('boom')
+
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _boom)
+
+        assert rest_api.get(f'{ROUTE_URL}/risk_assessments').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_risk_treatment_plan_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error during the risk-treatment-plan report aggregation surfaces as 500."""
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError('boom')
+
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _boom)
+
+        assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

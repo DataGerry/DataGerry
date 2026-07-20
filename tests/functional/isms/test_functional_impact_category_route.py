@@ -103,8 +103,10 @@ class TestPostImpactCategory:
 
     def test_missing_name_returns_400(self, rest_api) -> None:
         """A POST without the required name fails schema validation with 400."""
-        assert rest_api.post(f'{ROUTE_URL}/', json={'impact_descriptions': []}).status_code \
-            == HTTPStatus.BAD_REQUEST
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json={'impact_descriptions': []},
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
 
 class TestGetImpactCategory:
@@ -257,3 +259,83 @@ class TestErrorMapping:
                             _raiser(ImpactCategoryManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ImpactCategoryManager, 'insert_item', lambda *_a, **_k: CATEGORY_ID_FOR_GET)
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_category_payload(CATEGORY_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(ImpactCategoryManager, 'insert_item', lambda *_a, **_k: CATEGORY_ID_FOR_GET)
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', _raiser(ImpactCategoryManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_category_payload(CATEGORY_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ImpactCategoryManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_category_payload(CATEGORY_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ImpactCategoryManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', _raiser(ImpactCategoryManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', json=_category_payload(CATEGORY_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', lambda *_a, **_k: {'public_id': CATEGORY_ID_FOR_UPDATE})
+        monkeypatch.setattr(ImpactCategoryManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', json=_category_payload(CATEGORY_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', _raiser(ImpactCategoryManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ImpactCategoryManager, 'get_item', lambda *_a, **_k: {'public_id': CATEGORY_ID_FOR_DELETE})
+        monkeypatch.setattr(ImpactCategoryManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_multiple_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error in the bulk /multiple update surfaces as 500."""
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.isms_routes.impact_category_routes.update_multiple_items',
+            _raiser(RuntimeError('boom')),
+        )
+
+        assert rest_api.put(f'{ROUTE_URL}/multiple', json=[]).status_code == HTTPStatus.INTERNAL_SERVER_ERROR

@@ -514,8 +514,10 @@ class TestDuplicateRiskAssessment:
         payload = _ra_body(RA_ID_FOR_DUPLICATE)
         payload.pop('public_id')
 
-        assert rest_api.post(f'{ROUTE_URL}/duplicate/risk/{RISK_ID}', json=payload).status_code \
-            == HTTPStatus.BAD_REQUEST
+        response = rest_api.post(
+            f'{ROUTE_URL}/duplicate/risk/{RISK_ID}', json=payload,
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_duplicate_no_valid_target_ids_returns_400(self, rest_api) -> None:
         """A target-id segment with no valid integers is rejected with 400."""
@@ -701,8 +703,10 @@ class TestErrorMapping:
         """An unexpected error on create surfaces as 500."""
         monkeypatch.setattr(RiskAssessmentManager, 'insert_item', _raiser(RuntimeError('boom')))
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET)).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on list surfaces as 500."""
@@ -722,8 +726,10 @@ class TestErrorMapping:
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
         monkeypatch.setattr(RiskAssessmentManager, 'update_item', _raiser(RuntimeError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE)).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch,
                                                database_manager: MongoDatabaseManager, database_name: str) -> None:

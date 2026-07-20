@@ -318,3 +318,85 @@ class TestErrorMapping:
         monkeypatch.setattr(RiskManager, 'delete_with_follow_up', _raiser(RiskManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=_risk_payload(RISK_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_ID_FOR_UPDATE})
+        monkeypatch.setattr(RiskManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=_risk_payload(RISK_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_ID_FOR_DELETE})
+        monkeypatch.setattr(RiskManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_incomplete_data_returns_400(self, rest_api, monkeypatch,
+                                               database_manager: MongoDatabaseManager,
+                                               database_name: str) -> None:
+        """An update whose risk data fails the completeness check surfaces as 400."""
+        _insert_risk(database_manager, database_name, RISK_ID_FOR_UPDATE)
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.isms_routes.risk_routes.is_risk_data_valid',
+            lambda *_a, **_k: False,
+        )
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}',
+                            json=_risk_payload(RISK_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST

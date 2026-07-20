@@ -23,9 +23,11 @@ with the empty default instead of the route failing
 from http import HTTPStatus
 
 import pytest
+from werkzeug.exceptions import BadRequest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
 from cmdb.models.isms_model import IsmsRiskMatrix
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -76,3 +78,25 @@ def test_status_recreates_missing_risk_matrix(
     assert recreated is not None
     assert recreated['risk_matrix'] == []
     assert recreated['matrix_unit'] is None
+
+
+def test_status_unexpected_error_returns_500(rest_api, monkeypatch) -> None:
+    """An unexpected error while computing the configuration status surfaces as 500"""
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(RiskClassManager, 'count_documents', _boom)
+
+    assert rest_api.get(STATUS_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+def test_status_http_error_is_reraised(rest_api, monkeypatch) -> None:
+    """An HTTPException raised while computing the status propagates unchanged (not masked as 500)"""
+    def _bad(*_args, **_kwargs):
+        raise BadRequest()
+
+    monkeypatch.setattr(
+        'cmdb.interface.rest_api.routes.isms_routes.isms_config_routes.build_isms_config_status', _bad,
+    )
+
+    assert rest_api.get(STATUS_URL).status_code == HTTPStatus.BAD_REQUEST

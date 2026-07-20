@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
+from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
 from cmdb.errors.updater import UpdaterException
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 from cmdb.database.updater.versions.updater_20200512 import Update20200512
@@ -37,6 +38,7 @@ from cmdb.database.updater.versions.updater_20260225 import Update20260225
 from cmdb.database.updater.versions.updater_20260226 import Update20260226
 from cmdb.database.updater.versions.updater_20260417 import Update20260417
 from cmdb.database.updater.versions.updater_20260604 import Update20260604
+from cmdb.database.updater.versions.updater_20260720 import Update20260720
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -58,6 +60,7 @@ def _new(updater_cls: type[BaseDatabaseUpdate]) -> BaseDatabaseUpdate:
     (Update20260226, 20260226),
     (Update20260417, 20260417),
     (Update20260604, 20260604),
+    (Update20260720, 20260720),
 ], ids=str)
 def test_creation_date_and_description(updater_cls: type[BaseDatabaseUpdate], expected_date: int) -> None:
     """Each updater reports the date encoded in its name and a non-empty description"""
@@ -128,6 +131,26 @@ def test_20251203_bulk_adds_with_locations_and_bumps_version() -> None:
     )
     settings_manager.write.assert_called_once_with(
         _id='updater', data={'_id': 'updater', 'version': 20251203},
+    )
+
+
+def test_20260720_pulls_clean_right_and_bumps_version() -> None:
+    """20260720 pulls the removed 'base.framework.type.clean' right from every user group"""
+    updater = _new(Update20260720)
+    updater.dbm = dbm = MagicMock()
+    updater.db_name = "testdb"
+    updater.settings_manager = settings_manager = MagicMock()
+
+    updater.start_update()
+
+    dbm.update_many_raw.assert_called_once_with(
+        collection=CmdbUserGroup.COLLECTION,
+        db_name="testdb",
+        filter_query={'rights': 'base.framework.type.clean'},
+        update={'$pull': {'rights': 'base.framework.type.clean'}},
+    )
+    settings_manager.write.assert_called_once_with(
+        _id='updater', data={'_id': 'updater', 'version': 20260720},
     )
 
 

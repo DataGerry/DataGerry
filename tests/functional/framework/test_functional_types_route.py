@@ -293,16 +293,20 @@ class TestDeleteType:
 #                                            READ EXTRAS (happy paths)                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTypeReadExtras:
-    """The clean-status listing, location-field usage and object-count read routes."""
+    """The types overview listing, location-field usage and object-count read routes."""
 
-    def test_with_clean_status_returns_items(self, rest_api, database_manager, database_name) -> None:
-        """GET /with_clean_status returns 200 with a list of clean-status items."""
+    def test_overview_returns_items(self, rest_api, database_manager, database_name) -> None:
+        """GET /overview returns 200 with a list of {type_data, user_data} items."""
         _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_GET, ORIGINAL_LABEL)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/with_clean_status')
+            response = rest_api.get(f'{ROUTE_URL}/overview')
 
             assert response.status_code == HTTPStatus.OK
-            assert isinstance(response.get_json()['results'], list)
+            results = response.get_json()['results']
+            assert isinstance(results, list)
+            item = next(i for i in results if i['type_data']['public_id'] == TYPE_ID_FOR_GET)
+            assert 'user_data' in item
+            assert 'clean_status' not in item
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
 
@@ -445,17 +449,17 @@ class TestTypeErrorMapping:
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_with_clean_status_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManagerIterationError maps the clean-status route to 400."""
+    def test_overview_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerIterationError maps the overview route to 400."""
         monkeypatch.setattr(TypesManager, 'iterate', _raiser(TypesManagerIterationError('boom')))
 
-        assert rest_api.get(f'{ROUTE_URL}/with_clean_status').status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.get(f'{ROUTE_URL}/overview').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_with_clean_status_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error maps the clean-status route to 500."""
+    def test_overview_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the overview route to 500."""
         monkeypatch.setattr(TypesManager, 'iterate', _raiser(RuntimeError('boom')))
 
-        assert rest_api.get(f'{ROUTE_URL}/with_clean_status').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert rest_api.get(f'{ROUTE_URL}/overview').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_get_single_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError from get_type maps the single-get route to 400."""

@@ -452,8 +452,6 @@ class TestMergeMdsReferencesSortRobustness:
 # -------------------------------------------------------------------------------------------------------------------- #
 SUMMARY_TYPE_ID: int = 9861
 SUMMARY_OBJECT_ID: int = 9862
-FIELDSET_TYPE_ID: int = 9871
-FIELDSET_OBJECT_IDS: list[int] = [9872, 9873]
 GROUP_VALUE_OBJECT_IDS: list[int] = [9882, 9883]
 GROUP_VALUE_TYPE_ID: int = 9884
 REF_TARGET_TYPE_ID: int = 9891
@@ -507,28 +505,6 @@ class TestGroupObjectsByValue:
 
         seeded = next(group for group in groups if group['_id'] == GROUP_VALUE_TYPE_ID)
         assert seeded['count'] == len(GROUP_VALUE_OBJECT_IDS)
-
-
-class TestGetObjectFieldNameSetsByType:
-    """get_object_field_name_sets_by_type returns the distinct field-name signatures per type."""
-
-    @pytest.fixture(autouse=True)
-    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
-        """Seeds two identically-shaped objects of one type, removed after the test."""
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        objects.insert_many([_object_doc(pid, type_id=FIELDSET_TYPE_ID) for pid in FIELDSET_OBJECT_IDS])
-        yield
-        objects.delete_many({'public_id': {'$in': FIELDSET_OBJECT_IDS}})
-
-    def test_identical_objects_collapse_to_one_signature(self, objects_manager: ObjectsManager) -> None:
-        """Two objects with the same fields yield a single field-name set for the type."""
-        result = objects_manager.get_object_field_name_sets_by_type([FIELDSET_TYPE_ID])
-
-        assert result[FIELDSET_TYPE_ID] == [{NAME_FIELD}]
-
-    def test_empty_input_returns_empty(self, objects_manager: ObjectsManager) -> None:
-        """An empty type-id list short-circuits to an empty mapping."""
-        assert objects_manager.get_object_field_name_sets_by_type([]) == {}
 
 
 class TestSummaryLines:

@@ -16,24 +16,22 @@
 """
 Response-shape constants for the CmdbType REST routes
 
-Names the dict keys of the ``/rest/types/with_clean_status`` response items and their nested
-user-data block, so the route helpers build that response from one set of named keys instead of
-repeating the literals.
+Names the dict keys of the ``/rest/types/overview`` response items and their nested user-data block,
+so the route helpers build that response from one set of named keys instead of repeating the literals.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-class TypeCleanStatusKey(BaseStrEnum):
+class TypeOverviewKey(BaseStrEnum):
     """
-    Keys of a single item in the ``/rest/types/with_clean_status`` response
+    Keys of a single item in the ``/rest/types/overview`` response
 
-    TYPE_DATA holds the CmdbType document, USER_DATA the resolved author/editor block (see
-    TypeUserDataKey) and CLEAN_STATUS whether every object of the type matches its field set.
+    TYPE_DATA holds the CmdbType document and USER_DATA the resolved author/editor block (see
+    TypeUserDataKey).
     """
     TYPE_DATA = 'type_data'
     USER_DATA = 'user_data'
-    CLEAN_STATUS = 'clean_status'
 
 
 class TypeUserDataKey(BaseStrEnum):
