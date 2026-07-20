@@ -627,6 +627,23 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
 
     /**
+     * Clamps the current page to the last page that still holds data after a deletion.
+     * Prevents pagination from getting stuck on a now-empty, out-of-range page when a
+     * bulk delete removes every object on the current (or last) page.
+     *
+     * @param deletedCount number of objects removed by the delete operation
+     */
+    private clampPageToRemaining(deletedCount: number): void {
+        const remaining = Math.max(0, this.totalResults - deletedCount);
+        const lastPage = Math.max(this.initPage, Math.ceil(remaining / this.limit));
+
+        if (this.page > lastPage) {
+            this.page = lastPage;
+        }
+    }
+
+
+    /**
      * Creates a regex statement that iterates over all field values and searches for the search term.
      * @param content search term
      * @param field optional, limits the search to a specific field
@@ -1096,8 +1113,10 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
                     this.loaderService.show();
                     this.objectService.deleteManyObjects(this.selectedObjectsIDs.toString())
                         .pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(() => {
-                            this.toastService.success(`Deleted ${this.selectedObjects.length} objects successfully`);
+                            const deletedCount = this.selectedObjects.length;
+                            this.toastService.success(`Deleted ${deletedCount} objects successfully`);
                             this.sidebarService.updateTypeCounter(this.type.public_id);
+                            this.clampPageToRemaining(deletedCount);
                             this.selectedObjects = [];
                             this.objectsTableComponent.selectedItems = [];
                             this.loadObjects();
