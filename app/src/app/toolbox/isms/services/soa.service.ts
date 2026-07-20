@@ -20,6 +20,8 @@ import { Observable } from 'rxjs';
 import { ApiCallService } from 'src/app/services/api-call.service';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
 import { ControlMeasure } from '../models/control-measure.model';
+import { CollectionParameters } from 'src/app/services/models/api-parameter';
+import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 
 import * as Papa from 'papaparse';
 import { saveAs } from 'file-saver';
@@ -35,10 +37,11 @@ export class SoaService extends BaseApiService<ControlMeasure> {
   }
 
   /**
-   * Fetch the full SOA list from the backend.
+   * Get a paginated SOA report.
    */
-  getSoaList(): Observable<ControlMeasure[]> {
-    return this.handleGetRequest<ControlMeasure[]>(`${this.servicePrefix}`);
+  getSoaList(params: CollectionParameters): Observable<APIGetMultiResponse<ControlMeasure>> {
+    const httpParams = this.buildHttpParams(params);
+    return this.handleGetRequest<APIGetMultiResponse<ControlMeasure>>(this.servicePrefix, httpParams);
   }
 
   /**
