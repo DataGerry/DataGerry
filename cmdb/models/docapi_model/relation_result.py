@@ -14,15 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-TODO: document
+This module contains the RelationResult class used to traverse object relations inside DocAPI templates.
 """
 from logging import Logger, getLogger
 
-from cmdb.manager import ObjectsManager
+from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.user_model import CmdbUser
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
+from cmdb.models.docapi_model.docapi_cache_helper import cache_objects_and_types
+from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
+from cmdb.models.docapi_model.relation_side_enum import RelationSide
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -34,20 +38,25 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class RelationResult:
     """
-    Represents a set of objects reached via a relation.
+    Represents a set of objects reached via a relation hop.
+
+    Instances form a fluent, immutable traversal API exposed to DocAPI templates: `type()` and
+    `relation()` each return a new RelationResult, while the `public_id`, `fields` and
+    `relation_fields` properties are the terminals that materialise data for the template.
     """
+    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
         object_ids: list[int],
-        object_cache: dict,
-        type_cache: dict,
+        object_cache: dict[int, dict],
+        type_cache: dict[int, dict],
         object_relations: list[dict],        # scoped (for relation_fields)
         all_object_relations: list[dict],    # global (for traversal)
-        request_user,
-        objects_manager,
-        template_type
+        request_user: CmdbUser,
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager,
+        template_type: DocapiTemplateType,
     ) -> None:
-        # LOGGER.debug("[RelationResult.__init__] object_ids=%s type=%s", object_ids, type(object_ids))
         self.object_ids = object_ids
         self.object_cache = object_cache
         self.type_cache = type_cache
@@ -55,42 +64,56 @@ class RelationResult:
         self.all_object_relations = all_object_relations      # global edges
         self.request_user = request_user
         self.objects_manager: ObjectsManager = objects_manager
+        self.types_manager: TypesManager = types_manager
         self.template_type = template_type
 
 
     def type(self, type_id: int) -> "RelationResult":
         """
-        Filters objects by type but keeps scoped relations intact
-        to preserve relation fields.
+        Filters the current objects down to those of the given type
+
+        The scoped relations are kept intact so `relation_fields` still reflects the edges that led
+        here, even after narrowing the objects by type.
+
+        Args:
+            type_id (int): The public_id of the type to keep
+
+        Returns:
+            RelationResult: A new result containing only the objects of `type_id`
         """
-        # LOGGER.debug(f"[RelationResult] TYPE => type_id: {type_id}")
-        # LOGGER.debug("[RelationResult.type] object_cache keys=%s", list(self.object_cache.keys()))
-
-        filtered_ids = []
-        for oid in self.object_ids:
-            obj = self.object_cache.get(oid)
-            if obj and obj.get("type_id") == type_id:
-                filtered_ids.append(oid)
-
-        # LOGGER.debug("[RelationResult.type] input_ids=%s type_id=%s filtered=%s",
-        #             self.object_ids, type_id, filtered_ids)
+        filtered_ids = [
+            oid for oid in self.object_ids
+            if (obj := self.object_cache.get(oid)) and obj.get("type_id") == type_id
+        ]
 
         return RelationResult(
             filtered_ids,
             self.object_cache,
             self.type_cache,
-            self.object_relations,      # <-- keep scoped edges intact
+            self.object_relations,      # keep scoped edges intact
             self.all_object_relations,  # global edges unchanged
             self.request_user,
             self.objects_manager,
-            self.template_type
+            self.types_manager,
+            self.template_type,
         )
 
 
     def relation(self, relation_id: int, side: str) -> "RelationResult":
-        """TODO: document"""
-        # LOGGER.debug(f"[RelationResult] RELATION => relation_id: {relation_id}, side: {side}")
+        """
+        Traverses one relation hop from the current objects
 
+        Following `relation_id` towards `side`, this collects the objects on the other end of every
+        matching edge and lazily loads them (and their types) into the shared caches so downstream
+        terminals such as `fields` can render them.
+
+        Args:
+            relation_id (int): The public_id of the relation to follow
+            side (str): The side to traverse towards ('parent' or 'child', see RelationSide)
+
+        Returns:
+            RelationResult: A new result for the objects reached by this hop
+        """
         next_ids = []
         next_scoped_relations = []
 
@@ -98,23 +121,21 @@ class RelationResult:
             if rel["relation_id"] != relation_id:
                 continue
 
-            if side == "parent" and rel["relation_child_id"] in self.object_ids:
+            if side == RelationSide.PARENT and rel["relation_child_id"] in self.object_ids:
                 next_ids.append(rel["relation_parent_id"])
                 next_scoped_relations.append(rel)
-
-            elif side == "child" and rel["relation_parent_id"] in self.object_ids:
+            elif side == RelationSide.CHILD and rel["relation_parent_id"] in self.object_ids:
                 next_ids.append(rel["relation_child_id"])
                 next_scoped_relations.append(rel)
 
-        # Ensure all new objects are loaded into the object_cache
-        # Collect IDs that are missing from cache
-        missing_ids = [oid for oid in next_ids if oid not in self.object_cache]
-
-        if missing_ids:
-            # Single DB call to fetch all missing objects
-            cursor = self.objects_manager.find(criteria={"public_id": {"$in": missing_ids}})
-            for obj in cursor:
-                self.object_cache[obj["public_id"]] = obj
+        # Load any newly reached objects (and their types) into the shared caches
+        cache_objects_and_types(
+            next_ids,
+            self.object_cache,
+            self.type_cache,
+            self.objects_manager,
+            self.types_manager,
+        )
 
         return RelationResult(
             next_ids,
@@ -124,14 +145,18 @@ class RelationResult:
             self.all_object_relations,  # global for further traversal
             self.request_user,
             self.objects_manager,
-            self.template_type
+            self.types_manager,
+            self.template_type,
         )
 
     # Terminals
     @property
     def public_id(self) -> list[int]:
         """
-        TODO: document
+        Returns the public_ids of the objects reached by this result
+
+        Returns:
+            list[int]: A copy of the current object public_ids
         """
         return list(self.object_ids)
 
@@ -139,10 +164,15 @@ class RelationResult:
     @property
     def fields(self) -> AggregatedFields:
         """
-        TODO: document
+        Renders the current objects and aggregates their template fields
+
+        Objects whose type is not available in the cache are skipped. All renderable objects are
+        rendered in a single CmdbMultiRender pass (one bulk lookup) rather than one render per object.
+
+        Returns:
+            AggregatedFields: The per-object field dicts, aggregated for template access
         """
-        # LOGGER.debug("[RelationResult] FIELDS => fields")
-        result = []
+        cmdb_objects = []
 
         for oid in self.object_ids:
             obj = self.object_cache.get(oid)
@@ -150,20 +180,25 @@ class RelationResult:
                 continue
 
             cmdb_object = CmdbObject.from_data(obj)
-            obj_type = self.type_cache.get(cmdb_object.get_type_id())
-            if not obj_type:
+            if not self.type_cache.get(cmdb_object.get_type_id()):
                 continue
 
-            render: RenderResult = CmdbMultiRender([cmdb_object], self.request_user).result(single_object=True)
+            cmdb_objects.append(cmdb_object)
 
-            result.append(
-                ObjectTemplateData(
-                    render,
-                    self.objects_manager,
-                    self.request_user,
-                    self.template_type
-                ).get_template_data()["fields"]
-            )
+        if not cmdb_objects:
+            return AggregatedFields([])
+
+        renders: list[RenderResult] = CmdbMultiRender(cmdb_objects, self.request_user).result()
+
+        result = [
+            ObjectTemplateData(
+                render,
+                self.objects_manager,
+                self.request_user,
+                self.template_type,
+            ).get_template_data()["fields"]
+            for render in renders
+        ]
 
         return AggregatedFields(result)
 
@@ -171,26 +206,23 @@ class RelationResult:
     @property
     def relation_fields(self) -> AggregatedFields:
         """
-        Returns relation fields for all edges in the scoped relations
-        of this RelationResult, ignoring object_ids.
+        Aggregates the field values stored on the scoped relations of this hop
+
+        Reads the `field_values` of every scoped edge (ignoring `object_ids`) so a template can
+        access the values carried by the relation itself rather than by the related objects.
+
+        Returns:
+            AggregatedFields: The per-edge relation field dicts, aggregated for template access
         """
-        # LOGGER.debug("[RelationResult] RELATION FIELDS => object_ids=%s", self.object_ids)
         field_dicts = []
 
-        # Iterate only scoped relations for this hop
         for rel in self.object_relations:
             fields = {}
             for fv in rel.get("field_values", []):
                 name = fv.get("name")
-                value = fv.get("value")
                 if name:
-                    fields[name] = value
+                    fields[name] = fv.get("value")
             if fields:
                 field_dicts.append(fields)
-                # LOGGER.debug("[RelationResult] SCAN REL => parent=%s child=%s fields=%s",
-                #             rel.get("relation_parent_id"),
-                #             rel.get("relation_child_id"),
-                #             fields)
 
-        # LOGGER.debug("[RelationResult] DEBUG relation_fields: %s", field_dicts)
         return AggregatedFields(field_dicts)

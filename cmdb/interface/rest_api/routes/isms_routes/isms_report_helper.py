@@ -21,10 +21,43 @@ two identical fragments: resolving the assessed object (object / object group / 
 resolving each risk_calculation matrix cell to its risk class. These builders keep both reports in
 sync from a single definition.
 """
+import re
 from typing import Any
 
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Resolved (post-lookup) display fields the RiskAssessment report free-text search matches against.
+# These are projected field names, so the search stage must run after the report's final $project.
+RA_REPORT_SEARCH_FIELDS: list[str] = ["risk_title", "risk_category", "protection_goals"]
+
+
+def build_ra_report_search_stage(search: str) -> dict[str, Any]:
+    """
+    Builds a $match stage for a free-text search over the RiskAssessment report's display fields.
+
+    The term is matched case-insensitively as a literal substring (it is regex-escaped) against each
+    field in ``RA_REPORT_SEARCH_FIELDS``, OR'd together. ``protection_goals`` is an array of names, so
+    the regex matches when any element contains the term. The stage must be appended after the
+    report's final $project (so the display fields exist) and before the paging facet, so that both
+    the returned page and the reported total reflect the search.
+
+    Args:
+        search (str): The free-text search term (already stripped of surrounding whitespace)
+
+    Returns:
+        dict[str, Any]: The $match stage matching the term across the searchable display fields
+    """
+    pattern: str = re.escape(search)
+
+    return {
+        "$match": {
+            "$or": [
+                {field: {"$regex": pattern, "$options": "i"}}
+                for field in RA_REPORT_SEARCH_FIELDS
+            ]
+        }
+    }
 
 
 def build_report_pagination_stages(params: CollectionParameters) -> list[dict[str, Any]]:
