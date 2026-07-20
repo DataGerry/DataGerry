@@ -393,6 +393,7 @@ export class TypeComponent implements OnInit, OnDestroy {
      */
     public onPageSizeChange(limit: number): void {
         this.limit = limit;
+        this.page = this.initPage;
         this.loadTypesFromAPI();
     }
 
@@ -410,6 +411,7 @@ export class TypeComponent implements OnInit, OnDestroy {
             this.filter = undefined;
         }
 
+        this.page = this.initPage;
         this.loadTypesFromAPI();
     }
 
