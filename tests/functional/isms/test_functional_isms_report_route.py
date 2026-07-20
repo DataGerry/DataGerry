@@ -70,6 +70,43 @@ SORT_RISK_NAMES: list[str] = ['ZzzSortName', 'AaaSortName', 'MmmSortName']
 # (a plain lexicographic sort would wrongly give A.1, A.10, A.2)
 SOA_NATURAL_SORT_IDENTIFIERS: dict[str, int] = {'A.10': 99460, 'A.1': 99461, 'A.2': 99462}
 
+# Risk-assessment report search fixtures: two Risks whose names differ by a distinctive token, each
+# with one RiskAssessment, so the server-side ?search= can be shown to keep the match and drop the miss.
+SEARCH_TERM: str = 'Zxqvv'
+SEARCH_RISK_MATCH_ID: int = 99470
+SEARCH_RISK_MISS_ID: int = 99471
+SEARCH_RA_MATCH_ID: int = 99472
+SEARCH_RA_MISS_ID: int = 99473
+SEARCH_MATCH_RISK_NAME: str = f'{SEARCH_TERM}Alpha Risk'
+SEARCH_MISS_RISK_NAME: str = 'Ordinary Beta Risk'
+
+
+def _seed_search_assessments(
+        database_manager: MongoDatabaseManager,
+        database_name: str) -> tuple[list[int], list[int]]:
+    """
+    Seeds a "match" and a "miss" Risk (distinguished by SEARCH_TERM in the name) plus one
+    RiskAssessment referencing each, so the report's risk-name search can be exercised.
+
+    Returns:
+        tuple[list[int], list[int]]: The seeded (risk public_ids, risk assessment public_ids), for cleanup
+    """
+    risks = database_manager.get_collection(IsmsRisk.COLLECTION, database_name)
+    assessments = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
+
+    risks.insert_many([
+        {'public_id': SEARCH_RISK_MATCH_ID, 'name': SEARCH_MATCH_RISK_NAME},
+        {'public_id': SEARCH_RISK_MISS_ID, 'name': SEARCH_MISS_RISK_NAME},
+    ])
+    assessments.insert_many([
+        {'public_id': SEARCH_RA_MATCH_ID, 'risk_id': SEARCH_RISK_MATCH_ID,
+         'object_id_ref_type': 'OBJECT', 'object_id': 0},
+        {'public_id': SEARCH_RA_MISS_ID, 'risk_id': SEARCH_RISK_MISS_ID,
+         'object_id_ref_type': 'OBJECT', 'object_id': 0},
+    ])
+
+    return [SEARCH_RISK_MATCH_ID, SEARCH_RISK_MISS_ID], [SEARCH_RA_MATCH_ID, SEARCH_RA_MISS_ID]
+
 
 def _seed_named_assessments(
         database_manager: MongoDatabaseManager,
@@ -274,6 +311,62 @@ class TestIsmsReports:
         assert parameters['sort'] == 'public_id'
         assert parameters['order'] == 1
         assert parameters['filter'] == {}
+
+    def test_risk_assessments_search_filters_by_risk_name(self, rest_api,
+                                                          database_manager: MongoDatabaseManager,
+                                                          database_name: str) -> None:
+        """?search= keeps only assessments whose resolved display fields match, and totals the filtered set."""
+        risk_ids, ra_ids = _seed_search_assessments(database_manager, database_name)
+        try:
+            payload = rest_api.get(f'{ROUTE_URL}/risk_assessments?limit=0&search={SEARCH_TERM}').get_json()
+
+            titles = [row['risk_title'] for row in payload['results']]
+            # the matching risk is kept, the non-matching one is dropped
+            assert SEARCH_MATCH_RISK_NAME in titles
+            assert SEARCH_MISS_RISK_NAME not in titles
+            # every returned row actually matches the term (the search filters, not just reorders)
+            assert all(SEARCH_TERM.lower() in (title or '').lower() for title in titles)
+            # with limit=0 the whole filtered set is returned, so total equals the row count
+            assert payload['total'] == len(payload['results'])
+        finally:
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': ra_ids}})
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': risk_ids}})
+
+    def test_risk_assessments_search_is_case_insensitive(self, rest_api,
+                                                         database_manager: MongoDatabaseManager,
+                                                         database_name: str) -> None:
+        """A lowercase search term matches a mixed-case risk name."""
+        risk_ids, ra_ids = _seed_search_assessments(database_manager, database_name)
+        try:
+            payload = rest_api.get(
+                f'{ROUTE_URL}/risk_assessments?limit=0&search={SEARCH_TERM.lower()}'
+            ).get_json()
+
+            assert SEARCH_MATCH_RISK_NAME in [row['risk_title'] for row in payload['results']]
+        finally:
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': ra_ids}})
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': risk_ids}})
+
+    def test_risk_assessments_without_search_returns_both(self, rest_api,
+                                                          database_manager: MongoDatabaseManager,
+                                                          database_name: str) -> None:
+        """Without a search term both seeded assessments are returned (no filtering regression)."""
+        risk_ids, ra_ids = _seed_search_assessments(database_manager, database_name)
+        try:
+            titles = [row['risk_title'] for row in
+                      rest_api.get(f'{ROUTE_URL}/risk_assessments?limit=0').get_json()['results']]
+
+            assert SEARCH_MATCH_RISK_NAME in titles
+            assert SEARCH_MISS_RISK_NAME in titles
+        finally:
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': ra_ids}})
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': risk_ids}})
 
     @pytest.mark.parametrize('report', ['risk_treatment_plan', 'risk_assessments'])
     def test_aggregation_report_allows_disk_use(self, rest_api, monkeypatch: pytest.MonkeyPatch,

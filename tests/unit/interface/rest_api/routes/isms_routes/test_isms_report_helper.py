@@ -22,14 +22,43 @@ names so the two reports stay in sync.
 """
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
+    build_ra_report_search_stage,
     build_report_facet_stage,
     build_report_pagination_stages,
     extract_report_page,
     object_reference_lookup_stages,
     paginate_report_rows,
     risk_matrix_class_lookup_stages,
+    RA_REPORT_SEARCH_FIELDS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class TestBuildRaReportSearchStage:
+    """build_ra_report_search_stage builds a case-insensitive OR regex $match over the display fields."""
+
+    def test_matches_all_search_fields(self) -> None:
+        """The stage ORs a regex clause for every searchable display field."""
+        stage = build_ra_report_search_stage('web')
+
+        matched_fields = [next(iter(clause)) for clause in stage['$match']['$or']]
+        assert matched_fields == RA_REPORT_SEARCH_FIELDS
+        assert RA_REPORT_SEARCH_FIELDS == ['risk_title', 'risk_category', 'protection_goals']
+
+    def test_case_insensitive_regex(self) -> None:
+        """Each clause is a case-insensitive regex on the search term."""
+        stage = build_ra_report_search_stage('web')
+
+        for clause in stage['$match']['$or']:
+            regex = next(iter(clause.values()))
+            assert regex == {'$regex': 'web', '$options': 'i'}
+
+    def test_term_is_regex_escaped(self) -> None:
+        """Regex metacharacters in the term are escaped so it matches as a literal substring."""
+        stage = build_ra_report_search_stage('a.b*c')
+
+        regex = stage['$match']['$or'][0]['risk_title']['$regex']
+        assert regex == r'a\.b\*c'
 
 
 class TestObjectReferenceLookupStages:

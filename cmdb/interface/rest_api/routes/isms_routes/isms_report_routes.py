@@ -40,6 +40,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
+    build_ra_report_search_stage,
     build_report_facet_stage,
     extract_report_page,
     object_reference_lookup_stages,
@@ -965,10 +966,17 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
                 "audit_result": 1,
                 "object_id_ref_type": 1,
             }},
-
-            # Page the rows and count the full result set in a single pass
-            build_report_facet_stage(params),
         ]
+
+        # Optional free-text search over the resolved display fields (risk name / category /
+        # protection goals). Applied after the $project and before the paging facet, so both the
+        # returned page and the total count reflect the search.
+        search: str = request.args.get('search', default='', type=str).strip()
+        if search:
+            pipeline.append(build_ra_report_search_stage(search))
+
+        # Page the rows and count the full result set in a single pass
+        pipeline.append(build_report_facet_stage(params))
 
         # allowDiskUse lets the pagination $sort and the $group stages spill to disk instead of
         # hitting the 100MB in-memory limit
