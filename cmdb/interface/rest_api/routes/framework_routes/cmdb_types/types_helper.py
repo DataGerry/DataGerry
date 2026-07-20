@@ -43,6 +43,7 @@ from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.database.predefined_data.predefined_data_constants import LocationKey
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
@@ -51,9 +52,13 @@ from cmdb.framework.ipam.special_type_wiring import (
 )
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    realign_objects_to_type,
+    clean_type_reports,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     TypeUserDataKey,
-    TypeCleanStatusKey,
+    TypeOverviewKey,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -288,6 +293,48 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
 
     if objects_to_update:
         objects_manager.bulk_update_multi_data_sections(objects_to_update)
+
+
+def realign_type_objects_if_fields_changed(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    updated_type: CmdbType,
+) -> None:
+    """
+    Re-aligns a CmdbType's objects and reports with its field set, only when the field names changed
+
+    A pure metadata edit (label / icon / regex / default value / section reorder) leaves the set of
+    field names unchanged, so the potentially large object sweep is skipped. When a field name was
+    added or removed, every object of the type gains the newly declared fields (seeded with their
+    default ``value``) and loses the fields the type no longer declares, and the removed field names
+    are stripped from the type's reports. The matching MDS-row alignment is handled separately by
+    ``apply_type_changes_to_mds`` (this reconciles the flat ``fields`` list; that reconciles the
+    ``multi_data_sections`` rows)
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        updated_type (CmdbType): The re-read CmdbType after the base update
+    """
+    old_field_names: set[str] = {field[FieldKey.NAME] for field in old_type.fields}
+    new_field_names: set[str] = {field[FieldKey.NAME] for field in updated_type.fields}
+
+    # Gate: only reconcile objects when the set of field names actually changed (add/remove)
+    if old_field_names == new_field_names:
+        return
+
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
+
+    reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
+        CmdbReport.COLLECTION,
+        type_id=updated_type.public_id,
+    )
+
+    # Re-align every object of the type with its current field set, then strip any removed field
+    # from the type's reports once
+    removed_field_names: set[str] = realign_objects_to_type(objects_manager, updated_type)
+    clean_type_reports(reports_manager, reports_for_type, removed_field_names, updated_type)
 
 
 def get_objects_using_location_field(
@@ -572,36 +619,27 @@ def apply_removed_global_template_cleanup(
         )
 
 
-def build_types_clean_status_items(
+def build_types_overview_items(
     types: list[dict[str, Any]],
-    field_name_sets_by_type: dict[int, list[set[str]]],
     user_lookup: dict[int, CmdbUser],
 ) -> list[dict[str, Any]]:
     """
-    Builds the per-type clean-status response items for the with_clean_status listing
+    Builds the per-type response items for the types overview listing
 
-    A CmdbType is 'clean' when every CmdbObject of that type carries exactly the field set the
-    type defines; any divergence marks it unclean. The object field sets are pre-aggregated (and
-    deduplicated) per type by ``ObjectsManager.get_object_field_name_sets_by_type``, so a type with
-    no objects (absent from the mapping) is clean by definition
+    Each item bundles the CmdbType document with its resolved author/editor display block, so the
+    overview can render author/editor names without a per-type user lookup (they are pre-resolved
+    from a single bulk ``get_user_lookup``)
 
     Args:
-        types (list[dict[str, Any]]): The CmdbType documents to evaluate
-        field_name_sets_by_type (dict[int, list[set[str]]]): Distinct object field-name sets per
-            type public_id, as returned by get_object_field_name_sets_by_type
+        types (list[dict[str, Any]]): The CmdbType documents to bundle
         user_lookup (dict[int, CmdbUser]): Lookup of the relevant author / editor CmdbUsers
 
     Returns:
-        list[dict[str, Any]]: One {type_data, user_data, clean_status} item per type
+        list[dict[str, Any]]: One {type_data, user_data} item per type
     """
     response_items: list[dict[str, Any]] = []
 
     for type_data in types:
-        expected_fields: set[str] = {f[FieldKey.NAME] for f in type_data[TypeSchemaKey.FIELDS]}
-        object_field_sets: list[set[str]] = field_name_sets_by_type.get(type_data[TypeSchemaKey.PUBLIC_ID], [])
-
-        clean: bool = all(field_set == expected_fields for field_set in object_field_sets)
-
         types_user_data: dict[str, Any] = get_types_user_data(
             user_lookup,
             type_data.get(TypeSchemaKey.AUTHOR_ID),
@@ -609,9 +647,8 @@ def build_types_clean_status_items(
         )
 
         response_items.append({
-            TypeCleanStatusKey.TYPE_DATA: type_data,
-            TypeCleanStatusKey.USER_DATA: types_user_data,
-            TypeCleanStatusKey.CLEAN_STATUS: clean,
+            TypeOverviewKey.TYPE_DATA: type_data,
+            TypeOverviewKey.USER_DATA: types_user_data,
         })
 
     return response_items
@@ -658,5 +695,9 @@ def apply_type_update_side_effects(
     # Propagate label/icon/selectable changes to the type's CmdbLocations
     apply_type_changes_to_locations(request_user, old_type, updated_type)
 
-    # Apply MDS field add/remove changes to the type's CmdbObjects
+    # Apply MDS field add/remove changes to the type's CmdbObjects (multi_data_sections rows)
     apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))
+
+    # Re-align the objects' flat field set (and the type's reports) when the field names changed -
+    # this replaces the former manual "clean" step, applied automatically and only when needed
+    realign_type_objects_if_fields_changed(request_user, old_type, updated_type)

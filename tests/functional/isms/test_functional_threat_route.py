@@ -284,3 +284,89 @@ class TestErrorMapping:
         monkeypatch.setattr(ThreatManager, 'delete_with_follow_up', _raiser(ThreatManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{THREAT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created threat cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ThreatManager, 'insert_item', lambda *_a, **_k: THREAT_ID_FOR_GET)
+        monkeypatch.setattr(ThreatManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_threat_payload(THREAT_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ThreatManagerGetError while re-reading the created threat surfaces as 400."""
+        monkeypatch.setattr(ThreatManager, 'insert_item', lambda *_a, **_k: THREAT_ID_FOR_GET)
+        monkeypatch.setattr(ThreatManager, 'get_item', _raiser(ThreatManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_threat_payload(THREAT_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ThreatManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_threat_payload(THREAT_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ThreatManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ThreatManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{THREAT_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ThreatManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ThreatManager, 'get_item', _raiser(ThreatManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{THREAT_ID_FOR_UPDATE}',
+                            json=_threat_payload(THREAT_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ThreatManager, 'get_item', lambda *_a, **_k: {'public_id': THREAT_ID_FOR_UPDATE})
+        monkeypatch.setattr(ThreatManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{THREAT_ID_FOR_UPDATE}',
+                            json=_threat_payload(THREAT_ID_FOR_UPDATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ThreatManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ThreatManager, 'get_item', _raiser(ThreatManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{THREAT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ThreatManager, 'get_item', lambda *_a, **_k: {'public_id': THREAT_ID_FOR_DELETE})
+        monkeypatch.setattr(ThreatManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{THREAT_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_bulk_delete_in_use_check_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ThreatManagerGetError while determining in-use ids surfaces as 400."""
+        monkeypatch.setattr(ThreatManager, 'get_used_threat_ids', _raiser(ThreatManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/1,2').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_bulk_delete_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ThreatManagerDeleteError while deleting an unused threat surfaces as 400."""
+        monkeypatch.setattr(ThreatManager, 'get_used_threat_ids', lambda *_a, **_k: set())
+        monkeypatch.setattr(ThreatManager, 'delete_item', _raiser(ThreatManagerDeleteError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/1,2').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_bulk_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error during bulk delete surfaces as 500."""
+        monkeypatch.setattr(ThreatManager, 'get_used_threat_ids', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/1,2').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

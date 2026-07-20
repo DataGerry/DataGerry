@@ -463,14 +463,11 @@ CHILD_LOCATION_ID: int = 9432
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        GAP-FILL: shared helpers + ids                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-EXTRA_FIELD: str = 'extra-field'
 
 RENDERED_GET_ID: int = 9440
 COUNT_DELTA_ID: int = 9441
 COUNT_TYPE_IDS: list[int] = [9442, 9443]
 MDS_REF_ID: int = 9444
-CLEAN_PROBE_CLEAN_ID: int = 9445
-CLEAN_PROBE_DIRTY_ID: int = 9446
 STATE_TOGGLE_ID: int = 9447
 STATE_NOOP_ID: int = 9448
 STATE_NONBOOL_ID: int = 9449
@@ -584,13 +581,6 @@ def _mds_referencing_object_doc(public_id: int, target_id: int) -> dict[str, Any
         }],
         'creation_time': datetime.now(timezone.utc),
     }
-
-
-def _dirty_object_doc(public_id: int) -> dict[str, Any]:
-    """A CmdbObject doc carrying an extra field the type does not declare (structurally dirty)."""
-    doc = _object_doc(public_id, ORIGINAL_VALUE)
-    doc['fields'].append({'type': 'text', 'name': EXTRA_FIELD, 'value': 'x'})
-    return doc
 
 
 def _inactive_object_doc(public_id: int) -> dict[str, Any]:
@@ -715,27 +705,6 @@ class TestMdsReferenceRoutes:
             assert str(MDS_REF_ID) in response.get_json()
         finally:
             _drop_object(database_manager, database_name, MDS_REF_ID)
-
-
-class TestUnstructuredObjectsProbe:
-    """GET /objects/clean/<type_id> reports how many objects no longer match the type fields."""
-
-    def test_probe_counts_only_dirty_objects(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """With one clean and one dirty object, the probe's X-Total-Count is 1."""
-        _insert_object_doc(database_manager, database_name, CLEAN_PROBE_CLEAN_ID, ORIGINAL_VALUE)
-        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(
-            _dirty_object_doc(CLEAN_PROBE_DIRTY_ID)
-        )
-        try:
-            response = rest_api.get(f'{ROUTE_URL}/clean/{TYPE_ID}')
-
-            assert response.status_code == HTTPStatus.OK
-            assert int(response.headers['X-Total-Count']) == 1
-        finally:
-            _drop_object(database_manager, database_name, CLEAN_PROBE_CLEAN_ID)
-            _drop_object(database_manager, database_name, CLEAN_PROBE_DIRTY_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1116,18 +1085,6 @@ class TestErrorMapping:
         monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.BAD_REQUEST
-
-    def test_clean_probe_type_not_found_returns_404(self, rest_api, monkeypatch) -> None:
-        """A missing type on the GET /clean probe returns 404."""
-        monkeypatch.setattr(ObjectsManager, 'get_object_type', lambda *_a, **_k: None)
-
-        assert rest_api.get(f'{ROUTE_URL}/clean/{MISSING_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
-
-    def test_clean_update_type_not_found_returns_500(self, rest_api, monkeypatch) -> None:
-        """A missing type on the PUT /clean re-align returns 500."""
-        monkeypatch.setattr(ObjectsManager, 'get_object_type', lambda *_a, **_k: None)
-
-        assert rest_api.put(f'{ROUTE_URL}/clean/{MISSING_OBJECT_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_many_delete_error_returns_500(self, rest_api, monkeypatch, database_manager, database_name) -> None:
         """An ObjectsManagerDeleteError during a bulk delete maps to 500."""

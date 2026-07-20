@@ -34,14 +34,15 @@ from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.database.predefined_data.predefined_data_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeCleanStatusKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeOverviewKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     guard_location_field_removal,
     guard_selectable_as_parent_change,
     build_location_usage_payload,
     compute_removed_global_templates,
     apply_removed_global_template_cleanup,
-    build_types_clean_status_items,
+    build_types_overview_items,
+    realign_type_objects_if_fields_changed,
     apply_type_update_side_effects,
     verify_type_is_unique,
     verify_type_deletable,
@@ -187,7 +188,7 @@ def test_apply_removed_global_template_cleanup_uses_hints_with_fallback() -> Non
     assert manager.cleanup_global_section_from_type.call_count == 2
 
 
-# ------------------------------------------------- build_types_clean_status_items ----------------------------------- #
+# ------------------------------------------------- build_types_overview_items --------------------------------------- #
 
 def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     """Builds a CmdbType document with the given field names."""
@@ -197,40 +198,69 @@ def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     }
 
 
-def test_build_types_clean_status_items_marks_clean_and_unclean() -> None:
-    """A type is clean only when every object field set matches the type's field set."""
-    clean_type = _type_doc(1, ['a', 'b'])
-    unclean_type = _type_doc(2, ['a', 'b'])
-    field_name_sets_by_type: dict[int, list[set[str]]] = {
-        1: [{'a', 'b'}],
-        2: [{'a'}],  # missing 'b' -> unclean
-    }
+def test_build_types_overview_items_bundles_type_and_user_data() -> None:
+    """Each item bundles the type document with a resolved user-data block (no clean status)."""
+    items = build_types_overview_items([_type_doc(1, ['a', 'b'])], {})
 
-    items = build_types_clean_status_items([clean_type, unclean_type], field_name_sets_by_type, {})
-
-    by_id = {item[TypeCleanStatusKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value]: item for item in items}
-    assert by_id[1][TypeCleanStatusKey.CLEAN_STATUS] is True
-    assert by_id[2][TypeCleanStatusKey.CLEAN_STATUS] is False
+    assert items[0][TypeOverviewKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value] == 1
+    assert isinstance(items[0][TypeOverviewKey.USER_DATA], dict)
+    assert 'clean_status' not in items[0]
 
 
-def test_build_types_clean_status_items_unclean_when_any_signature_diverges() -> None:
-    """Multiple distinct object signatures mark the type unclean if any one diverges."""
-    items = build_types_clean_status_items([_type_doc(1, ['a', 'b'])], {1: [{'a', 'b'}, {'a'}]}, {})
+def test_build_types_overview_items_one_item_per_type() -> None:
+    """One overview item is produced per input type, in order."""
+    items = build_types_overview_items([_type_doc(1, ['a']), _type_doc(2, ['b'])], {})
 
-    assert items[0][TypeCleanStatusKey.CLEAN_STATUS] is False
+    assert [item[TypeOverviewKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value] for item in items] == [1, 2]
 
 
-def test_build_types_clean_status_items_is_clean_with_no_objects() -> None:
-    """A type with no objects (absent from the mapping) is clean (vacuously)."""
-    items = build_types_clean_status_items([_type_doc(1, ['a'])], {}, {})
+# --------------------------------------------- realign_type_objects_if_fields_changed ------------------------------- #
 
-    assert items[0][TypeCleanStatusKey.CLEAN_STATUS] is True
+def _type_with_field_names(public_id: int, field_names: list[str]) -> SimpleNamespace:
+    """A minimal CmdbType stub exposing .fields (name dicts) and .public_id for the realign gate."""
+    return SimpleNamespace(
+        public_id=public_id,
+        fields=[{FieldKey.NAME.value: name} for name in field_names],
+    )
+
+
+def test_realign_skips_when_field_names_unchanged() -> None:
+    """A metadata-only edit (same field names) triggers no object/report reconciliation."""
+    old_type = _type_with_field_names(1, ['a', 'b'])
+    updated_type = _type_with_field_names(1, ['a', 'b'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
+         patch(f'{PATH}.realign_objects_to_type') as mock_realign, \
+         patch(f'{PATH}.clean_type_reports') as mock_reports:
+        realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
+
+    mock_get.assert_not_called()
+    mock_realign.assert_not_called()
+    mock_reports.assert_not_called()
+
+
+@pytest.mark.parametrize('old_names, new_names', [
+    (['a'], ['a', 'b']),        # field added
+    (['a', 'b'], ['a']),        # field removed
+])
+def test_realign_runs_when_field_set_changed(old_names: list[str], new_names: list[str]) -> None:
+    """Adding or removing a field name reconciles the type's objects and reports."""
+    old_type = _type_with_field_names(1, old_names)
+    updated_type = _type_with_field_names(1, new_names)
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), \
+         patch(f'{PATH}.realign_objects_to_type', return_value=set()) as mock_realign, \
+         patch(f'{PATH}.clean_type_reports') as mock_reports:
+        realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
+
+    mock_realign.assert_called_once()
+    mock_reports.assert_called_once()
 
 
 # ------------------------------------------------- apply_type_update_side_effects ----------------------------------- #
 
 def test_apply_type_update_side_effects_skips_special_wiring_without_marker() -> None:
-    """A non-special type runs cleanup + location/MDS propagation but not special-type wiring."""
+    """A non-special type runs cleanup + location/MDS/field-realign propagation but no special wiring."""
     updated_type = SimpleNamespace(public_id=7, special_type=None)
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
@@ -238,12 +268,14 @@ def test_apply_type_update_side_effects_skips_special_wiring_without_marker() ->
          patch(f'{PATH}.handle_special_types') as mock_special, \
          patch(f'{PATH}.apply_type_changes_to_locations') as mock_locations, \
          patch(f'{PATH}.apply_type_changes_to_mds') as mock_mds, \
+         patch(f'{PATH}.realign_type_objects_if_fields_changed') as mock_realign, \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
         apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
 
     mock_cleanup.assert_called_once()
     mock_locations.assert_called_once()
     mock_mds.assert_called_once()
+    mock_realign.assert_called_once()
     mock_special.assert_not_called()
 
 
@@ -256,6 +288,7 @@ def test_apply_type_update_side_effects_runs_special_wiring_with_marker() -> Non
          patch(f'{PATH}.handle_special_types') as mock_special, \
          patch(f'{PATH}.apply_type_changes_to_locations'), \
          patch(f'{PATH}.apply_type_changes_to_mds'), \
+         patch(f'{PATH}.realign_type_objects_if_fields_changed'), \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
         apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
 

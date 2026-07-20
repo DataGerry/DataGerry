@@ -28,7 +28,6 @@ from cmdb.manager import (
     LocationsManager,
     LogsManager,
     ObjectsManager,
-    ReportsManager,
     TypesManager,
 )
 from cmdb.security.acl.permission import AccessControlPermission
@@ -38,7 +37,6 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
@@ -65,8 +63,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     guard_object_write_license,
     guard_object_delete,
     emit_object_state_change_events,
-    realign_objects_to_type,
-    clean_type_reports,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
@@ -80,7 +76,6 @@ from cmdb.framework.ipam.enforcement import (
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
-    GetListResponse,
     UpdateMultiResponse,
     UpdateSingleResponse,
     GetMultiResponse,
@@ -728,61 +723,6 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
         abort(500, f"An internal server error while retrieving the object state of ID:{public_id}!")
 
 
-@objects_blueprint.route('/clean/<int:public_id>', methods=['GET', 'HEAD'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.type.clean')
-def get_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET`/`HEAD` route returning the public_ids of CmdbObjects of the given CmdbType
-    whose 'fields' set no longer matches the type's current field definition
-
-    Used as the dirty-data probe behind the 'clean' admin tool
-
-    Args:
-        public_id (int): public_id of the CmdbType whose CmdbObjects are inspected
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        GetListResponse: List of public_ids of structurally inconsistent CmdbObjects
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        object_type: CmdbType | None = objects_manager.get_object_type(public_id)
-
-        if not object_type:
-            abort(404, f"Type with ID: {public_id} not found!")
-
-        # Only the field names are needed to detect structural drift, so project them server-side
-        # instead of loading every full object document
-        all_type_objects: list[dict[str, Any]] = objects_manager.find_objects(
-            criteria={'type_id': public_id},
-            as_dict=True,
-            projection={'public_id': 1, 'fields.name': 1},
-        )
-
-        type_fields = {field.get('name') for field in object_type.fields}
-
-        unstructured: list[int] = [
-            obj['public_id']
-            for obj in all_type_objects
-            if {f.get('name') for f in obj.get('fields', [])} != type_fields
-        ]
-
-        return GetListResponse(unstructured, body=request.method == 'HEAD').make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[get_unstructured_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the Type of the Object from the database!")
-    except ObjectsManagerIterationError as err:
-        LOGGER.error("[get_unstructured_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Objects from the database!")
-    except Exception as err:
-        LOGGER.error("[get_unstructured_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving unstructured Objects!")
-
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @objects_blueprint.route('/<int:public_id>', methods=['PUT'])
@@ -1024,61 +964,6 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         LOGGER.error("[update_cmdb_object_state] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating Object state of ID:{public_id}!")
 
-
-@objects_blueprint.route('/clean/<int:public_id>', methods=['PUT', 'PATCH'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.type.clean')
-def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `PUT`/`PATCH` route that re-aligns every CmdbObject of the given CmdbType with that
-    type's current field definition: drops fields the type no longer declares and adds fields
-    the type now requires (with empty values)
-
-    Counterpart to GET /clean/<public_id>. Used by the 'clean' admin tool to repair structurally
-    dirty objects after a Type's field set changed
-
-    Args:
-        public_id (int): public_id of the CmdbType whose CmdbObjects should be re-aligned
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        UpdateMultiResponse: One updated payload per CmdbObject that was re-aligned
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
-
-        update_type_instance = objects_manager.get_object_type(public_id)
-
-        if not update_type_instance:
-            abort(500, f"Type with ID:{public_id} not found!")
-
-        reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
-            CmdbReport.COLLECTION,
-            type_id=public_id,
-        )
-
-        # Re-align every object of the Type with its current field set (bulk write), then strip any
-        # removed field from the Type's reports once
-        removed_field_names: set[str] = realign_objects_to_type(objects_manager, update_type_instance)
-        clean_type_reports(reports_manager, reports_for_type, removed_field_names, update_type_instance)
-
-        return UpdateMultiResponse([]).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerIterationError as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Objects from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the requested Object from the database!")
-    except ObjectsManagerUpdateError as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, "Failed to update the Object in the database!")
-    except Exception as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating unstructured Objects!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

@@ -138,3 +138,24 @@ class TestErrorMapping:
         response = rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_ID}', json=_risk_matrix_payload(RISK_MATRIX_ID))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_get_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get surfaces as 500."""
+        monkeypatch.setattr(RiskMatrixManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A RiskMatrixManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(RiskMatrixManager, 'get_item', _raiser(RiskMatrixManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_ID}',
+                            json=_risk_matrix_payload(RISK_MATRIX_ID)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(RiskMatrixManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_MATRIX_ID})
+        monkeypatch.setattr(RiskMatrixManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_ID}',
+                            json=_risk_matrix_payload(RISK_MATRIX_ID)).status_code == HTTPStatus.INTERNAL_SERVER_ERROR

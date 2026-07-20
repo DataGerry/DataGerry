@@ -782,50 +782,6 @@ class ObjectsManager(BaseManager):
         return [field_ref_query, section_ref_query]
 
 
-    def get_object_field_name_sets_by_type(self, type_ids: list[int]) -> dict[int, list[set[str]]]:
-        """
-        Returns the distinct sets of object field-names per CmdbType, deduplicated in the database
-
-        For each given CmdbType public_id, aggregates the field-name lists of its CmdbObjects and
-        returns only the distinct (order-independent) sets - so a type with thousands of identically
-        shaped objects yields a single set. Lets callers evaluate a type's 'clean status' without
-        materializing every object in memory
-
-        Args:
-            type_ids (list[int]): public_ids of the CmdbTypes whose objects should be inspected
-
-        Raises:
-            ObjectsManagerGetError: If the aggregation fails
-
-        Returns:
-            dict[int, list[set[str]]]: Mapping of type public_id to the distinct field-name sets
-                found across its objects (types with no objects are absent from the mapping)
-        """
-        if not type_ids:
-            return {}
-
-        field_names_path: str = f'${CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.NAME.value}'
-
-        pipeline: list[dict[str, Any]] = [
-            {'$match': {CmdbObjectKey.TYPE_ID.value: {'$in': type_ids}}},
-            {'$group': {
-                '_id': f'${CmdbObjectKey.TYPE_ID.value}',
-                # $sortArray makes the signature order-independent so $addToSet dedups (fine on the 7.0 floor)
-                'signatures': {'$addToSet': {
-                    '$sortArray': {'input': {'$ifNull': [field_names_path, []]}, 'sortBy': 1},
-                }},
-            }},
-        ]
-
-        try:
-            result = list(self.aggregate_objects(pipeline))
-
-            return {row['_id']: [set(signature) for signature in row['signatures']] for row in result}
-        except Exception as err:
-            LOGGER.error("[get_object_field_name_sets_by_type] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerGetError(str(err)) from err
-
-
     def get_objects_lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
         """
         Batch-loads the CmdbObjects for the given public_ids and returns them keyed by public_id

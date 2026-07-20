@@ -44,7 +44,7 @@ from cmdb.errors.manager.types_manager import (
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import (
     insert_cmdb_type,
     get_cmdb_types,
-    get_cmdb_types_with_status,
+    get_cmdb_types_overview,
     get_cmdb_type,
     count_objects_of_cmdb_type,
     get_location_field_usage_of_cmdb_type,
@@ -85,7 +85,7 @@ def fixture_flask_app() -> Flask:
 def fixture_mgr() -> MagicMock:
     """A single MagicMock returned for every ManagerType the routes request.
 
-    Not spec'd to a single manager class: some handlers (e.g. get_cmdb_types_with_status) read
+    Not spec'd to a single manager class: some handlers (e.g. get_cmdb_types_overview) read
     methods from the Types, Objects and Users managers, all routed here through ManagerProvider.
     """
     return MagicMock()
@@ -242,28 +242,27 @@ class TestGetCmdbTypes:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             get_cmdb_types_with_status                                               #
+#                                             get_cmdb_types_overview                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestGetCmdbTypesWithStatus:
-    """``get_cmdb_types_with_status`` composes clean-status items from types + object field sets."""
+class TestGetCmdbTypesOverview:
+    """``get_cmdb_types_overview`` composes {type_data, user_data} items from types + user lookup."""
 
     @staticmethod
     def _call(flask_app: Flask) -> Any:
-        with flask_app.test_request_context('/with_clean_status'):
-            return _unwrap(get_cmdb_types_with_status)(params=MagicMock(), request_user=MagicMock())
+        with flask_app.test_request_context('/overview'):
+            return _unwrap(get_cmdb_types_overview)(params=MagicMock(), request_user=MagicMock())
 
-    def test_builds_status_items(
+    def test_builds_overview_items(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """Per-type clean-status items are built and handed to GetMultiResponse."""
+        """Per-type overview items are built and handed to GetMultiResponse."""
         del patched_manager_provider
         mgr.iterate.return_value = SimpleNamespace(results=[SAMPLE_TYPE_DICT], total=1)
-        mgr.get_object_field_name_sets_by_type.return_value = {TYPE_PUBLIC_ID: [{'name'}]}
         sentinel_items = [{'item': 1}]
 
         with patch(f'{ROUTE_PATH}.prepare_builder_parameters'), \
              patch(f'{ROUTE_PATH}.CmdbType') as cmdb_type, \
-             patch(f'{ROUTE_PATH}.build_types_clean_status_items', return_value=sentinel_items) as builder, \
+             patch(f'{ROUTE_PATH}.build_types_overview_items', return_value=sentinel_items) as builder, \
              patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor:
             cmdb_type.to_json.side_effect = lambda row: row
             self._call(flask_app)

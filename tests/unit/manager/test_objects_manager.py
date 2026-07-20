@@ -720,15 +720,6 @@ def test_aggregate_objects_wraps_iteration_error() -> None:
         ObjectsManager.aggregate_objects(mock_self, [])
 
 
-def test_get_object_field_name_sets_by_type_wraps_unexpected_error() -> None:
-    """A failure in the field-name aggregation surfaces as ObjectsManagerGetError."""
-    mock_self = MagicMock()
-    mock_self.aggregate_objects.side_effect = RuntimeError('boom')
-
-    with pytest.raises(ObjectsManagerGetError):
-        ObjectsManager.get_object_field_name_sets_by_type(mock_self, [1])
-
-
 def test_set_location_field_for_objects_wraps_unexpected_error() -> None:
     """A failure writing the mirrored location field surfaces as ObjectsManagerUpdateError."""
     mock_self = MagicMock()
