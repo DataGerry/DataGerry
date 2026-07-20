@@ -34,10 +34,6 @@
 
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
-<ng-template #cleanTemplate let-item="item">
-  <cmdb-clean-button [type]="item" [cleanStatus]="item.clean_status"></cmdb-clean-button>
-</ng-template>
-
 <ng-template #exportTemplate>
   <span class="me-1 ms-1" *permissionLink="'base.export.type.*'">
     <div class="btn-group">
