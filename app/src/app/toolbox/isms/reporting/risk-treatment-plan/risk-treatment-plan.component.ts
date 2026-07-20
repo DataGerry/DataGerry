@@ -6,12 +6,14 @@ import {
   ViewChild,
   TemplateRef,
 } from '@angular/core';
-import { finalize } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+import { finalize, map } from 'rxjs/operators';
 import { Column, Sort, SortDirection }
   from 'src/app/layout/table/table.types';
 
 import { RiskTreatmentPlanService }
   from '../../services/risk-treatment-plan.service';
+import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { FileExportService } from 'src/app/core/services/file-export.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -45,8 +47,7 @@ export class RiskTreatmentPlanComponent implements OnInit {
   @ViewChild('treatmentOptionTpl', { static: true }) treatmentOptionTpl!: TemplateRef<any>;
 
   /* --------- data --------- */
-  rawRows: ViewRow[] = [];   // whole list
-  viewRows: ViewRow[] = [];   // same list (no filtering)
+  viewRows: ViewRow[] = [];   // rows for the current page
   totalItems = 0;
 
   /* --------- UI state --------- */
@@ -133,31 +134,25 @@ export class RiskTreatmentPlanComponent implements OnInit {
     this.loading = true;
     this.loader.show();
 
-    this.api.getRiskTreatmentPlanList()
+    this.api.getRiskTreatmentPlanList(this.buildParams(this.limit))
       .pipe(finalize(() => { this.loading = false; this.loader.hide(); }))
       .subscribe({
-        next: (list: any[]) => {
-          this.rawRows = this.process(list);
-          this.applyView();         // no filter → copy + sort + page
+        next: (resp) => {
+          this.viewRows = this.process(resp?.results ?? []);
+          this.totalItems = resp?.total ?? this.viewRows.length;
         },
         error: err => this.toast.error(err?.error?.message)
       });
   }
 
-  /* copy, sort, page */
-  private applyView(): void {
-    let rows = [...this.rawRows];
-
-    rows.sort((a, b) => {
-      const av = String(a[this.sort.name] ?? '').toLowerCase();
-      const bv = String(b[this.sort.name] ?? '').toLowerCase();
-      return (av < bv ? -1 : av > bv ? 1 : 0) *
-        (this.sort.order === SortDirection.ASCENDING ? 1 : -1);
-    });
-
-    this.totalItems = rows.length;
-    const start = (this.page - 1) * this.limit;
-    this.viewRows = rows.slice(start, start + this.limit);
+  private buildParams(limit: number): CollectionParameters {
+    return {
+      filter: '',
+      limit,
+      page: limit === 0 ? 1 : this.page,
+      sort: this.sort.name,
+      order: this.sort.order
+    };
   }
 
   /* ================================================================
@@ -171,8 +166,8 @@ export class RiskTreatmentPlanComponent implements OnInit {
     'Control Measures'
   ];
 
-  private exportRows() {
-    return this.rawRows.map(r => ({
+  private buildExportRows(rows: ViewRow[]) {
+    return rows.map(r => ({
       'Risk Name': r.risk_name,
       'Identifier': r.risk_identifier ?? '',
       'Category': r.risk_category ?? '',
@@ -189,13 +184,40 @@ export class RiskTreatmentPlanComponent implements OnInit {
     }));
   }
 
-  exportCsv() { this.fileExp.exportCsv(`risk-treatment-plan_${getCurrentDate()}`, this.exportRows(), this.exportCols); }
-  exportXlsx() { this.fileExp.exportXlsx(`risk-treatment-plan_${getCurrentDate()}`, this.exportRows(), this.exportCols); }
+  /** Fetch the complete result set (limit=0) for exports, independent of the current page. */
+  private fetchAllRows(): Observable<ViewRow[]> {
+    return this.api.getRiskTreatmentPlanList(this.buildParams(0))
+      .pipe(map(resp => this.process(resp?.results ?? [])));
+  }
+
+  private runExport(handler: (rows: ViewRow[]) => void): void {
+    this.loader.show();
+    this.fetchAllRows()
+      .pipe(finalize(() => this.loader.hide()))
+      .subscribe({
+        next: rows => handler(rows),
+        error: err => this.toast.error(err?.error?.message)
+      });
+  }
+
+  exportCsv() {
+    this.runExport(rows =>
+      this.fileExp.exportCsv(`risk-treatment-plan_${getCurrentDate()}`, this.buildExportRows(rows), this.exportCols));
+  }
+
+  exportXlsx() {
+    this.runExport(rows =>
+      this.fileExp.exportXlsx(`risk-treatment-plan_${getCurrentDate()}`, this.buildExportRows(rows), this.exportCols));
+  }
 
   exportPdf(): void {
+    this.runExport(rows => this.buildPdf(rows));
+  }
+
+  private buildPdf(sourceRows: ViewRow[]): void {
     const pdf = new jsPDF({ orientation: 'l', unit: 'pt', format: 'a4' });
-    const rows = this.exportRows();
-  
+    const rows = this.buildExportRows(sourceRows);
+
     autoTable(pdf, {
       head: [this.exportCols],
       body: rows.map(r => this.exportCols.map(k => r[k])),
@@ -207,8 +229,8 @@ export class RiskTreatmentPlanComponent implements OnInit {
         if (data.row.section === 'body') {
           const colName = this.exportCols[data.column.index];
           const rowIndex = data.row.index;
-          const rowData = this.rawRows[rowIndex]; // Get raw row
-  
+          const rowData = sourceRows[rowIndex]; // raw processed row (keeps risk colors)
+
           // For 'Risk Before'
           if (colName === 'Risk Before') {
             const riskObj = rowData.risk_before;
@@ -218,7 +240,7 @@ export class RiskTreatmentPlanComponent implements OnInit {
               data.cell.text = [String(riskObj.value)];
             }
           }
-  
+
           // For 'Risk After'
           if (colName === 'Risk After') {
             const riskObj = rowData.risk_after;
@@ -239,18 +261,18 @@ export class RiskTreatmentPlanComponent implements OnInit {
         );
       }
     });
-  
+
     pdf.save(`risk-treatment-plan_${getCurrentDate()}`);
   }
-  
+
 
 
   /* ================================================================
    * table events
    * ============================================================= */
-  onPageChange(p: number) { this.page = p; this.applyView(); }
-  onPageSizeChange(l: number) { this.limit = l; this.page = 1; this.applyView(); }
-  onSortChange(s: Sort) { this.sort = s; this.applyView(); }
+  onPageChange(p: number) { this.page = p; this.loadData(); }
+  onPageSizeChange(l: number) { this.limit = l; this.page = 1; this.loadData(); }
+  onSortChange(s: Sort) { this.sort = s; this.loadData(); }
 
   /* ================================================================
    * Helpers
