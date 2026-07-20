@@ -47,14 +47,12 @@ type TypeListUserData = {
     last_editor_image?: string;
 };
 
-type TypeWithCleanStatus = {
+type TypeOverviewItem = {
     type_data: CmdbType;
-    clean_status: boolean;
     user_data?: TypeListUserData;
 };
 
 type TypeTableItem = CmdbType & {
-    clean_status?: boolean;
     user_data?: TypeListUserData;
 };
 
@@ -74,7 +72,7 @@ export class TypeComponent implements OnInit, OnDestroy {
 
     // Current category collection
     public types: Array<TypeTableItem> = [];
-    public typesAPIResponse: APIGetMultiResponse<TypeWithCleanStatus>;
+    public typesAPIResponse: APIGetMultiResponse<TypeOverviewItem>;
     public totalTypes: number = 0;
 
     // Type selection
@@ -87,8 +85,6 @@ export class TypeComponent implements OnInit, OnDestroy {
     @ViewChild('typeNameTemplate', { static: true }) typeNameTemplate: TemplateRef<any>;
     // Table Template: Type actions column
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
-    // Table Template: Type clean column
-    @ViewChild('cleanTemplate', { static: true }) cleanTemplate: TemplateRef<any>;
     // Table Template: Type date column
     @ViewChild('dateTemplate', { static: true }) dateTemplate: TemplateRef<any>;
     // Table Template: user column
@@ -230,20 +226,6 @@ export class TypeComponent implements OnInit, OnDestroy {
             },
         ] as Array<Column>;
 
-        const cleanRight = 'base.framework.type.clean';
-        if (this.permissionService.hasRight(cleanRight) || this.permissionService.hasExtendedRight(cleanRight)) {
-            this.columns.push({
-                display: 'Clean',
-                name: 'clean',
-                searchable: false,
-                sortable: false,
-                fixed: true,
-                template: this.cleanTemplate,
-                cssClasses: ['text-center'],
-                cellClasses: ['text-center']
-            } as Column);
-        }
-
         const exportRight = 'base.export.type.*';
         if (this.permissionService.hasRight(exportRight) || this.permissionService.hasExtendedRight(exportRight)) {
             this.selectEnabled = true;
@@ -316,14 +298,13 @@ export class TypeComponent implements OnInit, OnDestroy {
             page: this.page
         };
 
-        this.typeService.getTypesWithCleanStatus(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(
+        this.typeService.getTypesOverview(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(
             {
-                next: (apiResponse: APIGetMultiResponse<TypeWithCleanStatus>) => {
+                next: (apiResponse: APIGetMultiResponse<TypeOverviewItem>) => {
                     this.typesAPIResponse = apiResponse;
-                    this.types = (apiResponse?.results || []).map((item: TypeWithCleanStatus) => {
+                    this.types = (apiResponse?.results || []).map((item: TypeOverviewItem) => {
                         return {
                             ...(item.type_data as CmdbType),
-                            clean_status: item.clean_status,
                             user_data: item.user_data
                         } as TypeTableItem;
                     });
@@ -412,6 +393,7 @@ export class TypeComponent implements OnInit, OnDestroy {
      */
     public onPageSizeChange(limit: number): void {
         this.limit = limit;
+        this.page = this.initPage;
         this.loadTypesFromAPI();
     }
 
@@ -429,6 +411,7 @@ export class TypeComponent implements OnInit, OnDestroy {
             this.filter = undefined;
         }
 
+        this.page = this.initPage;
         this.loadTypesFromAPI();
     }
 

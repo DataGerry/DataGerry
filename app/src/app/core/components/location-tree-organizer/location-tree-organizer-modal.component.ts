@@ -25,6 +25,7 @@ import { catchError, debounceTime, distinctUntilChanged, finalize, map, switchMa
 
 import { LocationService, LocationTreeNode, LocationTreeSearchNode } from 'src/app/framework/services/location.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { LocationTreeSelectNode, ROOT_LOCATION } from '../location-tree-select/location-tree-select.model';
 import { DropCheck, evaluateDrop } from './location-move-rules';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -43,6 +44,10 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
     private static readonly CHILDREN_ERROR = "We couldn't load the child locations. Please try again.";
     private static readonly MOVE_ERROR = "We couldn't move the selected location(s). Please try again.";
     private static readonly MOVE_SUCCESS = 'Location hierarchy updated';
+    private static readonly EDIT_RIGHT = 'base.framework.location.edit';
+
+    /** Whether the current user may re-parent locations. Gates the drag/drop and "Move here" affordances. */
+    public canEdit = false;
 
     public readonly root = ROOT_LOCATION;
     public readonly nonSelectableHint = 'This type cannot hold child locations';
@@ -83,10 +88,13 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
     public readonly activeModal = inject(NgbActiveModal);
     private readonly locationService = inject(LocationService);
     private readonly toast = inject(ToastService);
+    private readonly permission = inject(PermissionService);
 
     /* --------------------------------------------------- LIFE CYCLE -------------------------------------------------- */
 
     public ngOnInit(): void {
+        this.canEdit = this.permission.hasRight(LocationTreeOrganizerModalComponent.EDIT_RIGHT)
+            || this.permission.hasExtendedRight(LocationTreeOrganizerModalComponent.EDIT_RIGHT);
         this.listenForSearch();
         this.listenForExpansion();
         this.loadRoots();
@@ -317,6 +325,10 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
      * simply re-run.
      */
     private performMove(ids: Set<number>, targetId: number): void {
+        if (!this.canEdit) {
+            return;
+        }
+
         const movedNodes = [...ids]
             .map((id) => this.nodesById.get(id))
             .filter((node): node is LocationTreeSelectNode => !!node);

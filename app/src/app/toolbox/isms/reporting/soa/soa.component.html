@@ -9,8 +9,9 @@
     </div>
   </div>
 
-  <cmdb-table [columns]="columns" [items]="controls" [loading]="loading" [totalItems]="controls.length"
-    [paginationEnabled]="false" [searchEnabled]="false" [pageSizeEnabled]="false">
+  <cmdb-table [columns]="columns" [items]="controls" [loading]="loading" [page]="page" [pageSize]="limit"
+    [totalItems]="totalItems" [searchEnabled]="false" (pageChange)="onPageChange($event)"
+    (pageSizeChange)="onPageSizeChange($event)">
   </cmdb-table>
 </section>
 

@@ -35,7 +35,7 @@
                 <span class="lto-root-title">{{ root.name }}</span>
                 <span class="lto-root-sub">Top level — drop here to remove the parent location</span>
             </span>
-            @if (canMoveSelectionTo(root.public_id)) {
+            @if (canEdit && canMoveSelectionTo(root.public_id)) {
             <button type="button" class="lto-move-here" (click)="moveSelectionTo(root.public_id)"
                 aria-label="Move selected locations to the top level">
                 <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
@@ -64,8 +64,8 @@
             <mat-nested-tree-node *matTreeNodeDef="let node">
                 <div class="lto-node" [class.is-selected]="isSelected(node)"
                     [class.is-drop-valid]="dropTargetId === node.public_id && dropTargetValid"
-                    [class.is-drop-invalid]="dropTargetId === node.public_id && !dropTargetValid" draggable="true"
-                    (dragstart)="onDragStart($event, node)" (dragend)="onDragEnd()"
+                    [class.is-drop-invalid]="dropTargetId === node.public_id && !dropTargetValid"
+                    [draggable]="canEdit" (dragstart)="onDragStart($event, node)" (dragend)="onDragEnd()"
                     (dragover)="onDragOver($event, node.public_id)" (dragleave)="onDragLeave(node.public_id)"
                     (drop)="onDrop($event, node.public_id)">
                     <input type="checkbox" class="lto-check" [checked]="isSelected(node)" (change)="toggleSelect(node)"
@@ -74,7 +74,7 @@
                     <i class="lto-node-icon" [class]="node.icon" aria-hidden="true"></i>
                     <span class="lto-node-text">{{ node.name }}</span>
                     <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
-                    @if (canMoveSelectionTo(node.public_id)) {
+                    @if (canEdit && canMoveSelectionTo(node.public_id)) {
                     <button type="button" class="lto-move-here" (click)="moveSelectionTo(node.public_id)"
                         [attr.aria-label]="'Move selected locations into ' + node.name">
                         <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
@@ -88,8 +88,9 @@
                 <div class="lto-node" [class.is-selected]="isSelected(node)"
                     [class.is-disabled-target]="!node.selectable"
                     [class.is-drop-valid]="dropTargetId === node.public_id && dropTargetValid"
-                    [class.is-drop-invalid]="dropTargetId === node.public_id && !dropTargetValid" draggable="true"
-                    [attr.title]="!node.selectable ? nonSelectableHint : null" (dragstart)="onDragStart($event, node)"
+                    [class.is-drop-invalid]="dropTargetId === node.public_id && !dropTargetValid"
+                    [draggable]="canEdit" [attr.title]="!node.selectable ? nonSelectableHint : null"
+                    (dragstart)="onDragStart($event, node)"
                     (dragend)="onDragEnd()" (dragover)="onDragOver($event, node.public_id)"
                     (dragleave)="onDragLeave(node.public_id)" (drop)="onDrop($event, node.public_id)">
                     <input type="checkbox" class="lto-check" [checked]="isSelected(node)" (change)="toggleSelect(node)"
@@ -107,7 +108,7 @@
                     <i class="lto-node-icon" [class]="node.icon" aria-hidden="true"></i>
                     <span class="lto-node-text">{{ node.name }}</span>
                     <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
-                    @if (canMoveSelectionTo(node.public_id)) {
+                    @if (canEdit && canMoveSelectionTo(node.public_id)) {
                     <button type="button" class="lto-move-here" (click)="moveSelectionTo(node.public_id)"
                         [attr.aria-label]="'Move selected locations into ' + node.name">
                         <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here

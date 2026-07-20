@@ -12,8 +12,8 @@
                 </button>
                 }
             </div>
-            <button class="organize-button" (click)="openOrganizer()" type="button" aria-label="Organize locations"
-                title="Organize locations">
+            <button *permissionLink="'base.framework.location.edit'" class="organize-button" (click)="openOrganizer()"
+                type="button" aria-label="Organize locations" title="Organize locations">
                 <i class="fas fa-sitemap"></i>
             </button>
         </div>
