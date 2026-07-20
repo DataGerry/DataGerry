@@ -19,6 +19,8 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiCallService } from 'src/app/services/api-call.service';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
+import { CollectionParameters } from 'src/app/services/models/api-parameter';
+import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 
 @Injectable({ providedIn: 'root' })
 export class RiskAssesmentsReportService extends BaseApiService<any> {
@@ -29,10 +31,12 @@ export class RiskAssesmentsReportService extends BaseApiService<any> {
   }
 
   /**
-   * Fetch the full Risk assessments reportlist from the backend.
+   * Get a paginated Risk Assessments report.
+   * Pass `limit: 0` to retrieve the full result set (used for exports).
    */
-  getRiskAssesmentsReportList(): Observable<any[]> {
-    return this.handleGetRequest<any[]>(`${this.servicePrefix}`);
+  getRiskAssesmentsReportList(params: CollectionParameters): Observable<APIGetMultiResponse<any>> {
+    const httpParams = this.buildHttpParams(params);
+    return this.handleGetRequest<APIGetMultiResponse<any>>(this.servicePrefix, httpParams);
   }
 
 }
