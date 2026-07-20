@@ -7,7 +7,6 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { FileExportService } from 'src/app/core/services/file-export.service';
 import { RiskAssesmentsReportService } from '../../services/risk-assessment-report.service';
-import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
@@ -35,7 +34,6 @@ export class RiskAssesmentsComponent implements OnInit {
   private readonly fileExp = inject(FileExportService);
   private readonly loader = inject(LoaderService);
   private readonly toast = inject(ToastService);
-  private readonly fb = inject(FilterBuilderService);
   private readonly ismsValidationService = inject(IsmsValidationService);
 
   /* ───────── templates for coloured boxes ───────── */
@@ -223,16 +221,6 @@ export class RiskAssesmentsComponent implements OnInit {
   private buildBackendFilter(): any {
     const nodes: any[] = [];
 
-    if (this.textSearch) {
-      nodes.push({
-        op: 'or',
-        rhs: this.fb.buildFilter(
-          this.textSearch,
-          [{ name: 'risk_title' }, { name: 'risk_category' }, { name: 'protection_goals' }]
-        )
-      });
-    }
-
     this.activeFilters.forEach((set, prop) => {
       const field = this.filterFieldMap[prop] ?? prop;
       const isRiskClass = prop === 'risk_class_before_id' || prop === 'risk_class_after_id';
@@ -278,7 +266,7 @@ export class RiskAssesmentsComponent implements OnInit {
     this.loading = true;
     this.loader.show();
 
-    this.api.getRiskAssesmentsReportList(this.buildParams(this.limit))
+    this.api.getRiskAssesmentsReportList(this.buildParams(this.limit), this.textSearch)
       .pipe(finalize(() => { this.loading = false; this.loader.hide(); }))
       .subscribe({
         next: (resp) => {
@@ -468,7 +456,7 @@ export class RiskAssesmentsComponent implements OnInit {
 
   /** Fetch the complete result set (limit=0) for exports, independent of the current page. */
   private fetchAllRows(): Observable<ProcRow[]> {
-    return this.api.getRiskAssesmentsReportList(this.buildParams(0))
+    return this.api.getRiskAssesmentsReportList(this.buildParams(0), this.textSearch)
       .pipe(map(resp => {
         const list = resp?.results ?? [];
         return this.processRows(list, this.extractCategories(list));

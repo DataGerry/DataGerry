@@ -32,10 +32,12 @@ export class RiskAssesmentsReportService extends BaseApiService<any> {
 
   /**
    * Get a paginated Risk Assessments report.
-   * Pass `limit: 0` to retrieve the full result set (used for exports).
    */
-  getRiskAssesmentsReportList(params: CollectionParameters): Observable<APIGetMultiResponse<any>> {
-    const httpParams = this.buildHttpParams(params);
+  getRiskAssesmentsReportList(params: CollectionParameters, search?: string): Observable<APIGetMultiResponse<any>> {
+    let httpParams = this.buildHttpParams(params);
+    if (search) {
+      httpParams = httpParams.set('search', search);
+    }
     return this.handleGetRequest<APIGetMultiResponse<any>>(this.servicePrefix, httpParams);
   }
 
