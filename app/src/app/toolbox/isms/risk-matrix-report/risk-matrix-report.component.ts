@@ -159,6 +159,9 @@ export class RiskMatrixReportComponent implements OnInit {
 
         this.loader.show();
         try {
+            /* let the browser paint before the blocking capture */
+            await new Promise<void>(resolve => setTimeout(resolve));
+
             /* snapshot */
             const canvas = await html2canvas(this.reportContent.nativeElement, {
                 backgroundColor: '#ffffff',
