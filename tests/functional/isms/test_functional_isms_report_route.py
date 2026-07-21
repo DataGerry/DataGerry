@@ -22,6 +22,7 @@ parseable body; the report contents are exercised against whatever ISMS data is 
 test additionally checks that the extendable-option ids are resolved to their labels. The routes
 are ISMS-license gated, so the check is stubbed.
 """
+import json
 from http import HTTPStatus
 from urllib.parse import urlencode
 
@@ -106,6 +107,52 @@ def _seed_search_assessments(
     ])
 
     return [SEARCH_RISK_MATCH_ID, SEARCH_RISK_MISS_ID], [SEARCH_RA_MATCH_ID, SEARCH_RA_MISS_ID]
+
+
+# Risk-assessment report column-filter fixtures: two Risks + one RiskAssessment each, differing by the
+# projected `priority` label (3 -> "High", 1 -> "Low") and `risk_treatment_option`, so the server-side
+# MongoDB `filter` query can be shown to filter (OR within a field via $in, AND across fields via $and).
+FILTER_RISK_HIGH_ID: int = 99480
+FILTER_RISK_LOW_ID: int = 99481
+FILTER_RA_HIGH_ID: int = 99482
+FILTER_RA_LOW_ID: int = 99483
+FILTER_HIGH_PRIORITY: int = 3
+FILTER_LOW_PRIORITY: int = 1
+FILTER_HIGH_LABEL: str = 'High'
+FILTER_LOW_LABEL: str = 'Low'
+FILTER_HIGH_TREATMENT: str = 'AVOID'
+FILTER_LOW_TREATMENT: str = 'ACCEPT'
+# The report strips public_id from the response rows (facet tiebreaker), so rows are identified by
+# their resolved risk_title instead.
+FILTER_HIGH_RISK_NAME: str = 'Filter High Risk'
+FILTER_LOW_RISK_NAME: str = 'Filter Low Risk'
+
+
+def _seed_filter_assessments(
+        database_manager: MongoDatabaseManager,
+        database_name: str) -> tuple[list[int], list[int]]:
+    """
+    Seeds a "high" and a "low" RiskAssessment (distinct projected priority + risk_treatment_option),
+    each with a resolvable Risk, so the report's server-side column filter can be exercised.
+
+    Returns:
+        tuple[list[int], list[int]]: The seeded (risk public_ids, risk assessment public_ids), for cleanup
+    """
+    risks = database_manager.get_collection(IsmsRisk.COLLECTION, database_name)
+    assessments = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
+
+    risks.insert_many([
+        {'public_id': FILTER_RISK_HIGH_ID, 'name': FILTER_HIGH_RISK_NAME},
+        {'public_id': FILTER_RISK_LOW_ID, 'name': FILTER_LOW_RISK_NAME},
+    ])
+    assessments.insert_many([
+        {'public_id': FILTER_RA_HIGH_ID, 'risk_id': FILTER_RISK_HIGH_ID, 'object_id_ref_type': 'OBJECT',
+         'object_id': 0, 'priority': FILTER_HIGH_PRIORITY, 'risk_treatment_option': FILTER_HIGH_TREATMENT},
+        {'public_id': FILTER_RA_LOW_ID, 'risk_id': FILTER_RISK_LOW_ID, 'object_id_ref_type': 'OBJECT',
+         'object_id': 0, 'priority': FILTER_LOW_PRIORITY, 'risk_treatment_option': FILTER_LOW_TREATMENT},
+    ])
+
+    return [FILTER_RISK_HIGH_ID, FILTER_RISK_LOW_ID], [FILTER_RA_HIGH_ID, FILTER_RA_LOW_ID]
 
 
 def _seed_named_assessments(
@@ -362,6 +409,66 @@ class TestIsmsReports:
 
             assert SEARCH_MATCH_RISK_NAME in titles
             assert SEARCH_MISS_RISK_NAME in titles
+        finally:
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': ra_ids}})
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': risk_ids}})
+
+    def _get_filtered(self, rest_api, mongo_filter: dict) -> list[dict]:
+        """Runs the risk_assessments report with the given MongoDB filter query (limit=0), returns the rows."""
+        query = urlencode({'limit': 0, 'filter': json.dumps(mongo_filter)})
+        return rest_api.get(f'{ROUTE_URL}/risk_assessments?{query}').get_json()['results']
+
+    def test_risk_assessments_filter_single_value_keeps_only_matches(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A single-value column filter (priority == High) keeps the matching row and drops the other."""
+        risk_ids, ra_ids = _seed_filter_assessments(database_manager, database_name)
+        try:
+            rows = self._get_filtered(rest_api, {'priority': {'$in': [FILTER_HIGH_LABEL]}})
+
+            titles = [row['risk_title'] for row in rows]
+            assert FILTER_HIGH_RISK_NAME in titles
+            assert FILTER_LOW_RISK_NAME not in titles
+            # the filter constrains, not just reorders: every returned row has the requested priority
+            assert all(row['priority'] == FILTER_HIGH_LABEL for row in rows)
+        finally:
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': ra_ids}})
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': risk_ids}})
+
+    def test_risk_assessments_filter_or_within_field(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Multiple values for one field are OR'd via $in: priority in (High, Low) keeps both seeded rows."""
+        risk_ids, ra_ids = _seed_filter_assessments(database_manager, database_name)
+        try:
+            rows = self._get_filtered(
+                rest_api, {'priority': {'$in': [FILTER_HIGH_LABEL, FILTER_LOW_LABEL]}}
+            )
+
+            titles = [row['risk_title'] for row in rows]
+            assert FILTER_HIGH_RISK_NAME in titles
+            assert FILTER_LOW_RISK_NAME in titles
+        finally:
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': ra_ids}})
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+                .delete_many({'public_id': {'$in': risk_ids}})
+
+    def test_risk_assessments_filter_and_across_fields(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Fields are AND'd via $and: (priority in High,Low) AND (risk_treatment_option == AVOID) -> only High."""
+        risk_ids, ra_ids = _seed_filter_assessments(database_manager, database_name)
+        try:
+            rows = self._get_filtered(rest_api, {'$and': [
+                {'priority': {'$in': [FILTER_HIGH_LABEL, FILTER_LOW_LABEL]}},
+                {'risk_treatment_option': {'$in': [FILTER_HIGH_TREATMENT]}},
+            ]})
+
+            titles = [row['risk_title'] for row in rows]
+            assert FILTER_HIGH_RISK_NAME in titles
+            assert FILTER_LOW_RISK_NAME not in titles
         finally:
             database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
                 .delete_many({'public_id': {'$in': ra_ids}})

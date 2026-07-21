@@ -254,6 +254,7 @@ class MongoDatabaseManager:
 
         Args:
             collection_name (str): Name of collection which should be created
+            db_name (str): Name of the database owning the collection
 
         Raises:
             CollectionAlreadyExistsError: If the collection already exists
@@ -306,6 +307,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): collection name
+            db_name (str): Name of the database owning the collection
 
         Raises:
             DeleteCollectionError: When collection can't be deleted
@@ -326,6 +328,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): name of collection
+            db_name (str): Name of the database owning the collection
             indexes (list[IndexModel]): list of IndexModels which should be created
 
         Raises:
@@ -347,6 +350,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): name of collection
+            db_name (str): Name of the database owning the collection
 
         Raises:
             GetIndexesError: When the index information could not be retrieved
@@ -381,6 +385,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection.
+            db_name (str): Name of the database owning the collection
             data (dict): Data to be inserted.
             skip_public (bool): If True, skips public ID creation and counter increment; the
                                 document is inserted as-is and may legitimately carry no public_id
@@ -429,6 +434,12 @@ class MongoDatabaseManager:
                 f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
             )
 
+        # Let the already-typed errors raised inside the loop propagate unchanged - otherwise the
+        # generic ``except Exception`` below would re-wrap a DocumentLockTimeoutError as a plain
+        # DocumentInsertError, hiding the lock-timeout type from callers
+        except (DocumentLockTimeoutError, DocumentNetworkError, DocumentInsertError):
+            raise
+
         except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure, PyMongoError) as net_err:
             LOGGER.debug("Network exception: %s", net_err, exc_info=True)
             raise DocumentNetworkError(f"Network/timeout error while inserting document: {net_err}") from net_err
@@ -452,6 +463,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the collection.
+            db_name (str): Name of the database owning the collection
             data (list[dict]): Documents to insert.
             skip_public (bool): If True, assumes public_id is already assigned.
 
@@ -491,6 +503,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection.
+            db_name (str): Name of the database owning the collection
             operations (list): List of pymongo operations (e.g., UpdateOne, DeleteOne, etc.)
 
         Raises:
@@ -511,6 +524,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the collection for which the counter is initialised
+            db_name (str): Name of the database owning the collection
 
         Raises:
             PublicIdCounterInitError: When the public_id counter could not be initialised
@@ -623,6 +637,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): The name of the database collection.
+            db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match the document to be updated
             data (dict): The update data to apply
             add_to_set (bool): If True, wraps `data` in '$set' unless it already contains update operators. 
@@ -662,6 +677,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): The name of the MongoDB collection where the upsert operation 
+            db_name (str): Name of the database owning the collection
                             will be performed.
             data (dict): A dictionary containing the data to be inserted or updated. 
                         The dictionary should contain at least the 'public_id' field 
@@ -741,6 +757,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): The name of the database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match documents for updating
             field (str): The field to remove from the matched documents
             *args: Additional positional arguments for the update operation
@@ -781,6 +798,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match the documents for updating
             update (dict | list): The modifications to apply
             add_to_set(bool): If True, uses '$addToSet' to add values to an array without duplicates.
@@ -891,6 +909,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the collection.
+            db_name (str): Name of the database owning the collection
             value (int | None): The new value to set for the counter.
                 Ignored if `increment` is True.
             increment (bool): If True, increments the counter by 1.
@@ -967,6 +986,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): The name of the collection to search in
+            db_name (str): Name of the database owning the collection
             *args: Positional arguments for the search operation
             **kwargs: Keyword arguments for filtering, sorting, etc
 
@@ -992,6 +1012,7 @@ class MongoDatabaseManager:
         
         Args:
             collection (str): The name of the collection to search in.
+            db_name (str): Name of the database owning the collection
             *args: Positional arguments for the find operation (e.g., query filter).
             **kwargs: Keyword arguments for filtering, sorting, limiting, etc.
                     Automatically adds 'projection' to exclude _id if not provided
@@ -1018,6 +1039,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             *args: Positional arguments for the find operation (e.g., query filter)
             **kwargs: Keyword arguments for filtering, sorting, limiting, etc
 
@@ -1051,6 +1073,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection.
+            db_name (str): Name of the database owning the collection
             public_id (int): The public_id of the document to retrieve
             *args: Additional arguments for the find operation
             **kwargs: Additional keyword arguments for the find operation
@@ -1079,6 +1102,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): Document count requirements (default is empty criteria)
 
         Raises:
@@ -1105,6 +1129,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             *args: Additional arguments for the aggregation pipeline
             **kwargs: Additional keyword arguments for the aggregation operation
         Raises:
@@ -1126,6 +1151,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of database collection
+            db_name (str): Name of the database owning the collection
 
         Raises:
             DocumentGetError: When documents could not be retrieved
@@ -1159,6 +1185,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): Filter query to identify the document to delete
 
         Raises:
@@ -1182,6 +1209,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             requirements (Any): Specifies the deletion criteria using query operators
 
         Raises:

@@ -44,7 +44,7 @@ from cmdb.interface.route_utils import (
     check_db_exists,
     init_db_routine,
     set_admin_user,
-    retrive_user,
+    retrieve_user,
     check_user_in_service_portal,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
@@ -175,7 +175,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
             LOGGER.error("[cloud_login] Error: Invalid data. No subscriptions!")
             abort(401, "The user has no assigned subscription!")
 
-        user: CmdbUser | None = retrive_user(user_data, user_database)
+        user: CmdbUser | None = retrieve_user(user_data, user_database)
 
         # User does not exist
         if not user:

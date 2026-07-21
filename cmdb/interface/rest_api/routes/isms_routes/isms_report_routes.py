@@ -453,8 +453,11 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         pipeline = [
-            # Step 1: Get all RiskAssessments matching the filter
-            {"$match": params.filter},
+            # Step 1: Start from all RiskAssessments. Column filters target the report's RESOLVED display
+            # fields (risk_category, protection_goals, priority label, risk-class ids, ...) which do not
+            # exist yet on the raw document, so params.filter is applied after the final $project below,
+            # not here.
+            {"$match": {}},
 
             # Step 2: Lookup assigned Risk
             {"$lookup": {
@@ -974,6 +977,13 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
         search: str = request.args.get('search', default='', type=str).strip()
         if search:
             pipeline.append(build_ra_report_search_stage(search))
+
+        # Optional column filters. params.filter is a standard MongoDB query (the general filter
+        # convention used across the backend / by the sibling reports), applied as a $match. It runs
+        # after the $project - like the search - so it can target the resolved display fields, and so
+        # both the returned page and the total reflect it; it composes with the search as an implicit AND.
+        if params.filter:
+            pipeline.append({"$match": params.filter})
 
         # Page the rows and count the full result set in a single pass
         pipeline.append(build_report_facet_stage(params))
