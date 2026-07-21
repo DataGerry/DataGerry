@@ -1,5 +1,5 @@
 
-import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, ElementRef, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Observable } from 'rxjs';
 import { finalize, map } from 'rxjs/operators';
 import { Column, Sort, SortDirection } from 'src/app/layout/table/table.types';
@@ -26,7 +26,11 @@ const slug = (s: string) =>
     selector: 'app-assesments',
     templateUrl: './risk-assesments.component.html',
     styleUrls: ['./risk-assesments.component.scss'],
-    standalone: false
+    standalone: false,
+    host: {
+      '(document:mousedown)': 'onDocumentMouseDown($event)',
+      '(document:keydown.escape)': 'onEscape()'
+    }
 })
 export class RiskAssesmentsComponent implements OnInit {
   private readonly api = inject(RiskAssesmentsReportService);
@@ -35,6 +39,7 @@ export class RiskAssesmentsComponent implements OnInit {
   private readonly loader = inject(LoaderService);
   private readonly toast = inject(ToastService);
   private readonly ismsValidationService = inject(IsmsValidationService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /* ───────── templates for coloured boxes ───────── */
   @ViewChild('riskBeforeTpl', { static: true }) riskBeforeTpl!: TemplateRef<any>;
@@ -71,6 +76,10 @@ export class RiskAssesmentsComponent implements OnInit {
 
   /* ───────── chip-filters (unchanged) ───────── */
   ui = { selectedProperty: '', selectedValues: [] as string[] };
+  /* value options for the currently selected criterion (fed to app-form-select) */
+  valueOptions: { label: string; value: string }[] = [];
+  /* add-filter popover visibility */
+  filterMenuOpen = false;
   private activeFilters = new Map<string, Set<string>>();
   filterDefs = [
     { label: 'Affected protection goals', key: 'prot_goals_arr' },
@@ -225,12 +234,12 @@ export class RiskAssesmentsComponent implements OnInit {
       const field = this.filterFieldMap[prop] ?? prop;
       const isRiskClass = prop === 'risk_class_before_id' || prop === 'risk_class_after_id';
       const values = isRiskClass ? Array.from(set).map(Number) : Array.from(set);
-      nodes.push({ op: 'in', lhs: field, rhs: values });
+      nodes.push({ [field]: { $in: values } });
     });
 
     if (!nodes.length) return '';
     if (nodes.length === 1) return nodes[0];
-    return { op: 'and', rhs: nodes };
+    return { $and: nodes };
   }
 
   private buildParams(limit: number): CollectionParameters {
@@ -377,6 +386,57 @@ export class RiskAssesmentsComponent implements OnInit {
       });
     });
     return out;
+  }
+
+
+  /** Rebuild the value options and reset the current selection when the criterion changes. */
+  onCriterionChange() {
+    this.ui.selectedValues = [];
+    this.valueOptions = this.getValues(this.ui.selectedProperty)
+      .map(v => ({ label: v, value: v }));
+  }
+
+  /* ── add-filter popover ── */
+  toggleFilterMenu() {
+    this.filterMenuOpen ? this.closeFilterMenu() : this.openFilterMenu();
+  }
+
+  closeFilterMenu() {
+    this.filterMenuOpen = false;
+    this.resetDraftFilter();
+  }
+
+  /** Commit the drafted criterion/values as a chip, then close the popover. */
+  confirmAddFilter() {
+    this.applyFilter();
+    this.filterMenuOpen = false;
+  }
+
+  /**
+   * Close the popover when the press starts outside it. Using mousedown (not click)
+   * is intentional: ng-select removes the clicked option from the DOM on selection,
+   * which would make a click-target read as "outside" and close the popover prematurely.
+   */
+  onDocumentMouseDown(event: MouseEvent) {
+    if (!this.filterMenuOpen) return;
+    if (!this.host.nativeElement.contains(event.target as Node)) {
+      this.closeFilterMenu();
+    }
+  }
+
+  onEscape() {
+    if (this.filterMenuOpen) this.closeFilterMenu();
+  }
+
+  private openFilterMenu() {
+    this.resetDraftFilter();
+    this.filterMenuOpen = true;
+  }
+
+  private resetDraftFilter() {
+    this.ui.selectedProperty = '';
+    this.ui.selectedValues = [];
+    this.valueOptions = [];
   }
 
 
