@@ -18,7 +18,7 @@ Implementation of APIBlueprint
 """
 from functools import wraps
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable
 from cerberus import Validator #type: ignore
 from flask import Blueprint, abort, request, current_app
 from werkzeug.exceptions import HTTPException
@@ -47,14 +47,69 @@ class APIBlueprint(Blueprint):
         super().__init__(*args, **kwargs)
 
     @staticmethod
-    def protect(auth: bool = True, right: str = None, excepted: dict = None):
+    def _user_matches_excepted(excepted: dict, user_dict: dict, route_kwargs: dict, right: str) -> bool:
         """
-        Active auth and right protection for flask routes
+        Check whether a user qualifies for an `excepted` carve-out from a required right
+
+        For each entry in `excepted` (mapping a user-attribute key to a route-parameter name), the user
+        is granted access when the value of that user attribute equals the corresponding route parameter
+        (e.g. `{'public_id': 'public_id'}` lets a user act on their own record without holding the right)
+
+        Args:
+            excepted (dict): Mapping of user-attribute key -> route-parameter name to compare against
+            user_dict (dict): Serialized user (`CmdbUser.to_json`) to read the attribute values from
+            route_kwargs (dict): Keyword arguments passed to the decorated route (holds the route parameters)
+            right (str): The required right, used only for the abort message
+
+        Returns:
+            bool: True if the user matches any excepted rule, False if no rule matched
+
+        Raises:
+            403 Forbidden: If a referenced route parameter is missing, or the user lacks the compared attribute
+        """
+        for exe_key, exe_value in excepted.items():
+            try:
+                route_parameter = route_kwargs[exe_value]
+            except KeyError:
+                abort(403, f'User has not the required right {right}')
+
+            if exe_key not in user_dict:
+                abort(403, f'User has not the required right {right}')
+
+            if user_dict[exe_key] == route_parameter:
+                return True
+
+        return False
+
+
+    @staticmethod
+    def protect(auth: bool = True, right: str | None = None, excepted: dict | None = None) -> Callable:
+        """
+        Decorator enforcing authentication and right-based authorization on a Flask route
+
+        Enforcement only runs when both `auth` is True and a `right` is given. The user is resolved either
+        from an injected `request_user` (cloud `x-api-key` requests) or from the request's Authorization
+        token. If the user lacks `right`, an optional `excepted` carve-out is consulted (see
+        `_user_matches_excepted`) before access is denied.
+
+        Args:
+            auth (bool): Whether to enforce protection (combined with `right`). Defaults to True
+            right (str | None): The required right. If None, the decorator performs no enforcement
+            excepted (dict | None): Optional mapping of user-attribute key -> route-parameter name that
+                                    grants access even without `right` when the values match
+
+        Returns:
+            Callable: A decorator that wraps the route with the auth/right check
+
+        Raises:
+            401 Unauthorized: If the Authorization header is missing or the token is invalid
+            403 Forbidden: If the user lacks the required right and matches no excepted rule
         """
         def _protect(f):
             @wraps(f)
             def _decorate(*args, **kwargs):
-                if auth and right:
+                # The cloud/non-cloud + excepted-carve-out branches are inherently nested here
+                if auth and right:  # pylint: disable=too-many-nested-blocks
                     request_user = None
 
                     if current_app.cloud_mode and "x-api-key" in request.headers:
@@ -65,23 +120,15 @@ class APIBlueprint(Blueprint):
                             if request_user:
                                 user_dict = CmdbUser.to_json(request_user)
 
-                                for exe_key, exe_value in excepted.items():
-                                    try:
-                                        route_parameter = kwargs[exe_value]
-                                    except KeyError:
-                                        abort(403, f'User has not the required right {right}')
-
-                                    if exe_key not in user_dict:
-                                        abort(403, f'User has not the required right {right}')
-
-                                    if user_dict[exe_key] == route_parameter:
-                                        return f(*args, **kwargs)
-
+                                if APIBlueprint._user_matches_excepted(excepted, user_dict, kwargs, right):
+                                    return f(*args, **kwargs)
                             else:
-                                with current_app.app_context():
-                                    users_manager = UsersManager(current_app.database_manager)
+                                auth_header = request.headers.get('Authorization')
 
-                                token = parse_authorization_header(request.headers['Authorization'])
+                                if not auth_header:
+                                    abort(401, "No Authorization header provided!")
+
+                                token = parse_authorization_header(auth_header)
 
                                 try:
                                     decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
@@ -94,20 +141,13 @@ class APIBlueprint(Blueprint):
                                     if current_app.cloud_mode:
                                         database = decrypted_token['DATAGERRY']['value']['user']['database']
                                         users_manager = UsersManager(current_app.database_manager, database)
+                                    else:
+                                        users_manager = UsersManager(current_app.database_manager)
 
                                     user_dict: dict = CmdbUser.to_json(users_manager.get_user(user_id))
 
-                                    for exe_key, exe_value in excepted.items():
-                                        try:
-                                            route_parameter = kwargs[exe_value]
-                                        except KeyError:
-                                            abort(403, f'User has not the required right {right}')
-
-                                        if exe_key not in user_dict:
-                                            abort(403, f'User has not the required right {right}')
-
-                                        if user_dict[exe_key] == route_parameter:
-                                            return f(*args, **kwargs)
+                                    if APIBlueprint._user_matches_excepted(excepted, user_dict, kwargs, right):
+                                        return f(*args, **kwargs)
                                 except HTTPException as http_err:
                                     raise http_err
                                 except Exception:
@@ -197,7 +237,8 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_request_parameters(cls, **optional):
+    def parse_request_parameters(cls, **optional):  # pylint: disable=unused-argument
+        # '**optional' is an extensibility placeholder, matching the other parameter decorators
         """
         Decorator to extract raw HTTP request query parameters and pass them to the decorated function
 
@@ -227,7 +268,8 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_request_body(cls, **optional):
+    def parse_request_body(cls, **optional):  # pylint: disable=unused-argument
+        # '**optional' is an extensibility placeholder, matching the other parameter decorators
         """
         Decorator to extract the JSON request body and pass it to the decorated function
 
@@ -259,14 +301,17 @@ class APIBlueprint(Blueprint):
     @classmethod
     def parse_collection_parameters(cls, **optional):
         """
-        Wrapper function for the flask routes.
-        Auto parses the collection based parameters to the route.
-
-        TODO:
-            Move to global method like up.
+        Decorator to parse and validate HTTP request query parameters into a CollectionParameters instance
 
         Args:
-            **optional: dict of optional collection parameters for given route function.
+            **optional: Additional optional keyword arguments (e.g. default sort/limit) merged into the
+                        parsed collection parameters
+
+        Returns:
+            function: A decorator that injects the parsed CollectionParameters into the decorated function
+
+        Raises:
+            400 Bad Request: If parameter parsing or validation fails
         """
         def _parse(f):
             @wraps(f)
