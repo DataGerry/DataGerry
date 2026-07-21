@@ -193,7 +193,7 @@
             (ngModelChange)="onRefInputChange($event, 'value')"
         >
             <option></option>
-            @for (obj of objectList; track obj; let i = $index) {
+            @for (obj of objectList; track trackByObjectId($index, obj)) {
 <option
                
                 [value]="changeDefault(obj.object_information.object_id)"
