@@ -379,6 +379,7 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
         }
 
         this.attachChildren(targetId, movedNodes);
+        this.refreshTreeRendering();
     }
 
     /** Removes the given nodes from a parent's child list (or the root level), collapsing it if empty. */
@@ -438,6 +439,15 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
                 this.expandAll(node.children$.value);
             }
         }
+    }
+
+    /**
+     * Re-renders the tree by clearing and restoring the data source.
+     */
+    private refreshTreeRendering(): void {
+        const data = this.dataSource.data;
+        this.dataSource.data = [];
+        this.dataSource.data = data;
     }
 
     private clearDropTarget(): void {
