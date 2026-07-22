@@ -2,7 +2,6 @@ import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-templ
 import { CmdbTypeSection } from 'src/app/framework/models/cmdb-type';
 
 export interface BuilderInteractionPolicyContext {
-    globalSectionTemplates: Array<CmdbSectionTemplate>;
     selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
     globalTemplateIds: Array<string>;
     globalFieldNames: Array<string>;
@@ -88,14 +87,11 @@ export class BuilderInteractionPolicy {
 
         const context = this.context();
 
-        // The type persistently records which global templates it uses (globalTemplateIds); this is
-        // stable regardless of the transient palette/selected arrays, so it is the primary source of truth.
         if (context.globalTemplateIds?.includes(sectionName)) {
             return true;
         }
 
-        return context.globalSectionTemplates.some(template => template?.name === sectionName)
-            || context.selectedGlobalSectionTemplates.some(template => template?.name === sectionName);
+        return context.selectedGlobalSectionTemplates.some(template => template?.name === sectionName);
     }
 
     public isGlobalField(fieldName: string): boolean {

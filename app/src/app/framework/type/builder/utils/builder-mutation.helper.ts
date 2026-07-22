@@ -432,6 +432,13 @@ export class BuilderMutationHelper {
 
         const fieldData = event?.data;
 
+        // The Location special control must never live inside a multi-data-section. The sidebar and the
+        // in-section dnd types already prevent this, but a location field can be dragged out of a normal
+        // section, so guard the drop itself as the single, authoritative choke point.
+        if (section?.type === 'multi-data-section' && fieldData?.type === 'location') {
+            return;
+        }
+
         if (section && (event?.dropEffect === 'copy' || event?.dropEffect === 'move')) {
             let index = event?.index;
 

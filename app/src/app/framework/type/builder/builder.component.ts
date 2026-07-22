@@ -486,13 +486,14 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
     }
 
     private buildPolicyContext(): BuilderInteractionPolicyContext {
-        const templates = [...(this.globalSectionTemplates ?? []), ...(this.selectedGlobalSectionTemplates ?? [])];
+        // Only APPLIED global templates make a section/field "global". Templates still available in the
+        // palette must not lock or hijack a user-created section/field that shares their identifier.
+        const appliedTemplates = this.selectedGlobalSectionTemplates ?? [];
 
         return {
-            globalSectionTemplates: this.globalSectionTemplates ?? [],
-            selectedGlobalSectionTemplates: this.selectedGlobalSectionTemplates ?? [],
+            selectedGlobalSectionTemplates: appliedTemplates,
             globalTemplateIds: this.typeInstance?.global_template_ids ?? [],
-            globalFieldNames: templates.flatMap(template => (template?.fields ?? []).map(field => field?.name)),
+            globalFieldNames: appliedTemplates.flatMap(template => (template?.fields ?? []).map(field => field?.name)),
             schemaLockedSectionNames: this.lockedSectionNames ?? [],
             schemaLockedFieldNames: this.lockedFieldNames ?? []
         };

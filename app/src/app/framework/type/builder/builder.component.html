@@ -237,9 +237,9 @@
                                         Drop field here
                                     </div>
                                     <ng-container *ngFor="let field of section.fields; let y = index">
-                                        <div 
+                                        <div
                                             [dndEffectAllowed]="getDnDEffectAllowedForField(field, section)"
-                                            dndType="inputs"
+                                            [dndType]="field?.type === 'location' ? 'location' : 'inputs'"
                                             [dndDraggable]="field"
                                             (dndStart)="onFieldDragStart(field, section, y)"
                                         >
