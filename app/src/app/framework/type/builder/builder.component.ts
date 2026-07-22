@@ -274,7 +274,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
      * Prevents drag events only for sections that are not allowed to move.
      */
     public preventSectionDrag(event: DragEvent, section: CmdbTypeSection): void {
-        if (!this.policy.canMoveSection(section)) {
+        if (!this.policy.canMoveSection(section) || this.isAnySectionHighlighted() || this.disableFields) {
             event?.stopPropagation(); // Stops event from affecting other elements
             event?.preventDefault();  // Prevent dragging behavior
         }

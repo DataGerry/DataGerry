@@ -197,9 +197,9 @@
                                 </color-chrome>
                             </div> -->
                             
-                            <button class="btn btn-link me-1" type="button" dndHandle 
+                            <button class="btn btn-link me-1" type="button" dndHandle
                             (dragstart)="preventSectionDrag($event, section)"
-                            [class.disabled]="!canMoveSection(section)">
+                            [class.disabled]="!canMoveSection(section) || isAnySectionHighlighted() || disableFields">
                                 <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                             </button>
                             <button class="btn btn-link" type="button"
@@ -264,7 +264,7 @@
                                                         </button>
                                                         <button class="btn btn-link me-1" type="button" dndHandle
                                                         (dragstart)="preventDragForAllFields($event, section)"
-                                                        [class.disabled]="isLocked() || disableFields || !canMoveField(field)"
+                                                        [class.disabled]="isLocked() || disableFields || isAnySectionHighlighted() || !canMoveField(field)"
                                                          >    
                                                             <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                                                         </button>

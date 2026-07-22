@@ -121,16 +121,10 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
      * @param type - The type of the input field being changed.
      */
     onInputChange(event: any, type: string) {
-        if (type === 'name') {
-            if (this.isDuplicateSectionIdentifier(event)) {
-                this.setDuplicateIdentifierState(true);
-                this.validationService.setSectionHighlightState(true);
-                this.fieldChanges$.next({ isDuplicate: true, elementType: 'section' });
-                return;
-            }
+        const isDuplicateName = type === 'name' && this.isDuplicateSectionIdentifier(event);
 
-            this.setDuplicateIdentifierState(false);
-            this.fieldChanges$.next({ isDuplicate: false, elementType: 'section' });
+        if (type === 'name') {
+            this.setDuplicateIdentifierState(isDuplicateName);
         }
 
         this.fieldChanges$.next({
@@ -142,8 +136,12 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
         });
 
         if (type === "name") {
-            const newName = this.nameControl.value;
-            this.initialValue = newName;
+            this.initialValue = this.nameControl.value;
+
+            if (isDuplicateName) {
+                this.validationService.setSectionHighlightState(true);
+            }
+            this.fieldChanges$.next({ isDuplicate: isDuplicateName, elementType: 'section' });
         }
 
         setTimeout(() => {

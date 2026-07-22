@@ -265,7 +265,7 @@ export class BuilderMutationHelper {
     /**
      * Redirects changes to field properties
      */
-    public onFieldChange(data: any, sectionIndex: number, fieldIndex: number) {
+    public onFieldChange(data: any, sectionIndex?: number, fieldIndex?: number) {
         if (data.hasOwnProperty("isDuplicate")) {
             if (data?.isDuplicate) {
                 this.ctx.activeDuplicateField = { sectionIndex, fieldIndex };
@@ -571,6 +571,7 @@ export class BuilderMutationHelper {
             this.refreshFieldIdentifiers()
 
             this.deps.validationService.setSectionValid(item?.name, true);
+            this.releaseDuplicateLockIfResolved();
         }
     }
 
@@ -619,5 +620,42 @@ export class BuilderMutationHelper {
 
         this.highlight.updateHighlightState()
         this.refreshFieldIdentifiers()
+        this.releaseDuplicateLockIfResolved();
+    }
+
+    /* ------------------------------------------------- DUPLICATE LOCK ------------------------------------------------- */
+
+    /**
+     * A duplicate section/field identifier latches `disableFields` (locking the whole builder) via the
+     * config-edit `isDuplicate` event. Renaming back clears it, but removing the conflicting section/field
+     * never routed through that event, leaving the builder stuck. After a removal we therefore re-check the
+     * whole model and release the lock once no duplicate identifiers remain anywhere.
+     */
+    private releaseDuplicateLockIfResolved(): void {
+        if (this.ctx.disableFields && !this.hasAnyDuplicateIdentifier()) {
+            this.ctx.activeDuplicateField = null;
+            this.setDisableFields(false);
+        }
+    }
+
+    private hasAnyDuplicateIdentifier(): boolean {
+        return this.hasDuplicateNames((this.ctx.sections ?? []).map(section => section?.name))
+            || this.hasDuplicateNames((this.ctx.typeInstance?.fields ?? []).map(field => field?.name));
+    }
+
+    private hasDuplicateNames(names: Array<string | undefined>): boolean {
+        const seen = new Set<string>();
+
+        for (const name of names) {
+            if (!name) {
+                continue;
+            }
+            if (seen.has(name)) {
+                return true;
+            }
+            seen.add(name);
+        }
+
+        return false;
     }
 }

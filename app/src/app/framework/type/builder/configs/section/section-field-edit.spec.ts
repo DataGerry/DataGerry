@@ -16,7 +16,7 @@ describe('SectionFieldEditComponent', () => {
 
 
     beforeEach(async () => {
-        const validationServiceSpy = jasmine.createSpyObj('ValidationService', ['setIsValid', 'updateFieldValidityOnDeletion']);
+        const validationServiceSpy = jasmine.createSpyObj('ValidationService', ['setIsValid', 'updateFieldValidityOnDeletion', 'setSectionHighlightState']);
         activeIndexSubject = new Subject<number | null>();
         const sectionIdentifierSpy = jasmine.createSpyObj('SectionIdentifierService', {
             getActiveIndex: activeIndexSubject.asObservable(),
@@ -72,5 +72,34 @@ describe('SectionFieldEditComponent', () => {
 
         // Ensure any remaining timers are flushed at the end
         flush();
+    }));
+
+
+    it('commits a duplicate identifier to the model instead of dropping it', fakeAsync(() => {
+        component.data = { name: 'me', label: 'Me', type: 'section' };
+        component.sections = [{ name: 'taken', type: 'section' }, component.data];
+        (component as any).currentValue = 'me';
+        (component as any).initialValue = 'me';
+        // The real identifier service rejects a duplicate (returns false); reflect that here.
+        sectionIdentifier.updateSection.and.returnValue(false);
+
+        const events: any[] = [];
+        component.fieldChanges$.subscribe(event => events.push(event));
+
+        component.nameControl.setValue('taken', { emitEvent: false });
+        component.onInputChange('taken', 'name');
+        tick(300);
+        flush();
+
+        const nameCommit = events.find(event => event.inputName === 'name' && event.newValue === 'taken');
+        const duplicateFlag = events.find(event => event.isDuplicate === true);
+
+        expect(nameCommit)
+            .withContext('the typed identifier must still be committed to the model even when duplicate')
+            .toBeTruthy();
+        expect(duplicateFlag)
+            .withContext('the duplicate must still be flagged so the builder locks')
+            .toBeTruthy();
+        expect(component.isIdentifierValid).toBeFalse();
     }));
 });

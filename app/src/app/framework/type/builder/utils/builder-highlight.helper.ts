@@ -252,7 +252,7 @@ export class BuilderHighlightHelper {
         const isAnyFieldHighlighted = section?.fields?.some(field => this.isFieldHighlighted(field, section));
         const isAnyFieldEmpty = this.checkEmptyFields()?.length > 0;
 
-        if (isAnyFieldHighlighted || isAnyFieldEmpty || this.ctx.disableFields) {
+        if (isAnyFieldHighlighted || isAnyFieldEmpty || this.ctx.disableFields || this.isAnySectionHighlighted()) {
             event?.stopPropagation();  // Stops event from affecting other elements
             event?.preventDefault();   // Prevent dragging behavior
         }
