@@ -4,6 +4,7 @@ import { CmdbTypeSection } from 'src/app/framework/models/cmdb-type';
 export interface BuilderInteractionPolicyContext {
     globalSectionTemplates: Array<CmdbSectionTemplate>;
     selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
+    globalTemplateIds: Array<string>;
     globalFieldNames: Array<string>;
     schemaLockedSectionNames: Array<string>;
     schemaLockedFieldNames: Array<string>;
@@ -80,20 +81,29 @@ export class BuilderInteractionPolicy {
     }
 
     public isGlobalSection(section: CmdbTypeSection): boolean {
-        const sectionName = section?.name ?? '';
+        const sectionName = section?.name;
         if (!sectionName) {
             return false;
         }
 
-        const currentGlobalTemplates = this.context().globalSectionTemplates;
-        const selectedGlobalTemplates = this.context().selectedGlobalSectionTemplates;
+        const context = this.context();
 
-        return currentGlobalTemplates.some(template => template?.name === sectionName)
-            || selectedGlobalTemplates.some(template => template?.name === sectionName);
+        // The type persistently records which global templates it uses (globalTemplateIds); this is
+        // stable regardless of the transient palette/selected arrays, so it is the primary source of truth.
+        if (context.globalTemplateIds?.includes(sectionName)) {
+            return true;
+        }
+
+        return context.globalSectionTemplates.some(template => template?.name === sectionName)
+            || context.selectedGlobalSectionTemplates.some(template => template?.name === sectionName);
     }
 
     public isGlobalField(fieldName: string): boolean {
-        return this.context().globalFieldNames.includes(fieldName ?? '');
+        if (!fieldName) {
+            return false;
+        }
+
+        return this.context().globalFieldNames.includes(fieldName);
     }
 
     private isSystemSection(section: CmdbTypeSection): boolean {

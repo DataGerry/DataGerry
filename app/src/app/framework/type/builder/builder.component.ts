@@ -32,7 +32,6 @@ import {
 
 import { ReplaySubject } from 'rxjs';
 
-import { v4 as uuidv4 } from 'uuid';
 import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -53,15 +52,19 @@ import { CheckboxControl } from './controls/choice/checkbox.control';
 import { CmdbMode } from '../../modes.enum';
 import { DateControl } from './controls/date-time/date.control';
 import { RefSectionControl } from './controls/ref-section.common';
-import { CmdbMultiDataSection, CmdbType, CmdbTypeSection } from '../../models/cmdb-type';
+import { CmdbType, CmdbTypeSection } from '../../models/cmdb-type';
 import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
 import { MultiSectionControl } from './controls/multi-section.control';
 import { SectionIdentifierService } from '../services/SectionIdentifierService.service';
 import { FieldIdentifierValidationService } from '../services/field-identifier-validation.service';
-import { isReservedIdentifier } from '../../../layout/validators/reserved-identifier-prefix-validator';
 import { BuilderUtils } from './utils/builder-utils';
 import { NumberControl } from './controls/number/number.control';
 import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
+import { BuilderContext } from './utils/builder-context';
+import { BuilderInteractionPolicy, BuilderInteractionPolicyContext } from './utils/builder-interaction-policy';
+import { BuilderHighlightHelper } from './utils/builder-highlight.helper';
+import { BuilderTemplateManager } from './utils/builder-template.manager';
+import { BuilderMutationHelper } from './utils/builder-mutation.helper';
 /* ------------------------------------------------------------------------------------------------------------------ */
 declare var $: any;
 
@@ -72,14 +75,14 @@ declare var $: any;
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked, DoCheck {
+export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked, DoCheck, BuilderContext {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
     public MODES: typeof CmdbMode = CmdbMode;
 
-    private activeIndex: number | null = null;
-    private draggedSectionIndex: number | null = null;
-    private pendingSectionDropIndex: number | null = null;
-    private draggedField: { field: any; section: CmdbTypeSection; index: number } | null = null;
+    public activeIndex: number | null = null;
+    public draggedSectionIndex: number | null = null;
+    public pendingSectionDropIndex: number | null = null;
+    public draggedField: { field: any; section: CmdbTypeSection; index: number } | null = null;
 
     public sections: Array<any> = [];
     public typeInstance: CmdbType;
@@ -88,14 +91,14 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
     public newSections: Array<CmdbTypeSection> = [];
     public newFields: Array<CmdbTypeSection> = [];
 
-    private activeDuplicateField: { sectionIndex: number; fieldIndex: number } | null = null;
+    public activeDuplicateField: { sectionIndex: number; fieldIndex: number } | null = null;
     public disableFields: boolean = false;
 
     // Flags to store previous highlight states
-    private prevSectionHighlighted: boolean = false;
-    private prevFieldHighlighted: boolean = false;
-    private sectionReference: Array<any> | null = null;
-    private initialFieldNames: Set<string> | null = null;
+    public prevSectionHighlighted: boolean = false;
+    public prevFieldHighlighted: boolean = false;
+    public sectionReference: Array<any> | null = null;
+    public initialFieldNames: Set<string> | null = null;
 
     @Input() public sectionTemplates: Array<CmdbSectionTemplate> = [];
     @Input() public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
@@ -123,7 +126,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
 
         if (instance?.render_meta?.sections) {
             this.sectionReference = instance.render_meta.sections;
-            this.syncSectionsFromTypeInstance();
+            this.mutation.syncSectionsFromTypeInstance();
         }
     }
 
@@ -154,6 +157,10 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         new Controller('location', new LocationControl())
     ];
 
+    private readonly policy: BuilderInteractionPolicy;
+    private readonly highlight: BuilderHighlightHelper;
+    private readonly templateManager: BuilderTemplateManager;
+    private readonly mutation: BuilderMutationHelper;
 
 
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -167,19 +174,37 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         private locationFieldDeletion: LocationFieldDeletionService,
     ) {
         this.typeInstance = new CmdbType();
+
+        this.policy = new BuilderInteractionPolicy(() => this.buildPolicyContext());
+        this.highlight = new BuilderHighlightHelper(this, this.policy, this.validationService);
+        this.templateManager = new BuilderTemplateManager(this, this.policy);
+        this.mutation = new BuilderMutationHelper(
+            this,
+            {
+                validationService: this.validationService,
+                sectionIdentifierService: this.sectionIdentifierService,
+                fieldIdentifierValidation: this.fieldIdentifierValidation,
+                locationFieldDeletion: this.locationFieldDeletion,
+                renderer: this.renderer,
+                el: this.el
+            },
+            this.policy,
+            this.highlight,
+            this.templateManager
+        );
     }
 
 
     ngOnInit(): void {
-        this.refreshFieldIdentifiers();
-        this.updateHighlightState();
+        this.mutation.refreshFieldIdentifiers();
+        this.highlight.updateHighlightState();
     }
 
 
     ngOnChanges(changes: SimpleChanges): void {
         if (this.globalSectionTemplates?.length > 0 && !this.selectedGlobalTemplatesInitialized) {
             this.selectedGlobalTemplatesInitialized = true;
-            this.setSelectedGlobalTemplates();
+            this.templateManager.setSelectedGlobalTemplates();
         }
     }
 
@@ -194,7 +219,7 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
 
 
     ngAfterViewChecked(): void {
-        this.checkAndUpdateHighlightState()
+        this.highlight.checkAndUpdateHighlightState()
     }
 
 
@@ -206,1184 +231,72 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
 
         if (sections !== this.sectionReference) {
             this.sectionReference = sections;
-            this.syncSectionsFromTypeInstance();
+            this.mutation.syncSectionsFromTypeInstance();
         }
     }
 
 
-    /* ------------------------------------------------ FIELD ITERACTIONS ----------------------------------------------- */
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    private syncSectionsFromTypeInstance(): void {
-        const preSectionList: Array<any> = [];
-
-        for (const section of this.typeInstance?.render_meta?.sections ?? []) {
-            const fieldBufferList = [];
-
-            for (const field of section?.fields ?? []) {
-                const fieldName = typeof field === 'string' ? field : field?.name;
-                const found = this.typeInstance?.fields?.find(typeField => typeField?.name === fieldName);
-
-                if (found) {
-                    fieldBufferList.push(found);
-                }
-            }
-
-            preSectionList.push({
-                ...section,
-                fields: fieldBufferList
-            });
-        }
-
-        this.sections = preSectionList;
-        this.syncSectionIdentifiers();
+    public onDragStart(index: number): void {
+        this.mutation.onDragStart(index);
     }
 
-
-    private syncSectionIdentifiers(): void {
-        const sectionNames = this.sections
-            .map(section => section?.name)
-            .filter(Boolean);
-
-        this.sectionIdentifierService.syncSections(sectionNames);
-    }
-
-
-    private addRefSectionSelectionField(refSection: CmdbTypeSection): void {
-        refSection.fields = [];
-        refSection?.fields?.push(`${refSection?.name}-field`);
-
-        this.typeInstance?.fields?.push({
-            type: 'ref-section-field',
-            name: `${refSection?.name}-field`,
-            label: refSection?.label
-        });
-
-        this.typeInstance.fields = [...this.typeInstance?.fields];
-    }
-
-
-    private removeRefSectionSelectionField(refSection: CmdbTypeSection): void {
-        const index = this.typeInstance?.fields?.map(x => x?.name).indexOf(`${refSection?.name}-field`);
-        this.typeInstance?.fields?.splice(index, 1);
-        this.typeInstance.fields = [...this.typeInstance?.fields];
-    }
-
-
-    onDragStart(index: number): void {
-        this.activeIndex = null
-        this.draggedSectionIndex = index;
-        this.pendingSectionDropIndex = null;
-    }
-
-    /**
-     * Handels dropping any kind of section in the drop area
-     * 
-     * @param event DropEvent containing the section as data
-     */
     public onSectionDrop(event: DndDropEvent): void {
-
-        event.event?.preventDefault();
-        let sectionData = event?.data;
-
-        //check if it is a section template
-        if ('is_global' in sectionData) {
-
-            if (sectionData.is_global) {
-                this.selectedGlobalSectionTemplates?.push(sectionData);
-
-                let index = 0;
-                for (let sectionIndex in this.globalSectionTemplates) {
-                    const aTemplate = this.globalSectionTemplates[sectionIndex];
-
-                    if (aTemplate?.name == sectionData?.name) {
-                        index = parseInt(sectionIndex);
-                        break;
-                    }
-                }
-
-                this.globalSectionTemplates?.splice(index, 1);
-                this.typeInstance?.global_template_ids?.push(sectionData?.name);
-            }
-
-            sectionData = this.extractSectionData(event?.data);
-        }
-
-        if (this.sections && (event?.dropEffect === 'copy' || event?.dropEffect === 'move')) {
-
-            let index = event?.index;
-            if (typeof index === 'undefined') {
-                index = this.sections?.length;
-            }
-
-            for (const el of this.sections) {
-                if (el.name && el?.name?.trim()) {
-                    const collapseCard = this.el?.nativeElement?.querySelector(`#${el?.name}`);
-                    if (collapseCard) {
-                        this.renderer?.setStyle(collapseCard, 'display', 'none');
-                    }
-                }
-            }
-
-            if (event.dropEffect === 'move') {
-                this.pendingSectionDropIndex = index;
-                return;
-            }
-
-            if (event.dropEffect === 'copy') {
-                this.newSections.push(sectionData);
-            }
-
-            this.sections.splice(index, 0, sectionData);
-            this.typeInstance.render_meta.sections = [...this.sections];
-            this.sectionReference = this.typeInstance.render_meta.sections;
-            this.sectionIdentifierService.getDroppedIndex(index);
-            this.sectionIdentifierService.addSection(sectionData?.name, sectionData?.name, index);
-            this.syncSectionIdentifiers();
-
-            if (sectionData?.type === 'ref-section' && event?.dropEffect === 'copy') {
-                this.addRefSectionSelectionField(sectionData as CmdbTypeSection);
-            }
-
-            //add fields of section template after the section was added
-            if ('is_global' in event?.data) {
-                this.setSectionTemplateFields(event?.data);
-            }
-        }
-
-        this.validationService.setSectionValid(sectionData?.name, sectionData?.fields?.length > 0);
-        this.updateSectionFieldStatus()
-        this.updateHighlightState();
+        this.mutation.onSectionDrop(event);
     }
-
 
     public onSectionMoved(item: CmdbTypeSection, effect: DropEffect): void {
-        if (effect !== 'move' || !this.canMoveSection(item) || this.pendingSectionDropIndex === null) {
-            this.clearPendingSectionMove();
-            return;
-        }
-
-        const fallbackSourceIndex = this.sections.indexOf(item);
-        const sourceIndex = this.draggedSectionIndex ?? fallbackSourceIndex;
-
-        this.moveSection(sourceIndex, this.pendingSectionDropIndex);
-        this.clearPendingSectionMove();
-        this.updateSectionFieldStatus();
-        this.updateHighlightState();
-        this.refreshFieldIdentifiers();
+        this.mutation.onSectionMoved(item, effect);
     }
 
-
-    private moveSection(sourceIndex: number, targetIndex: number): void {
-        if (sourceIndex < 0 || sourceIndex >= this.sections.length) {
-            return;
-        }
-
-        const [movedSection] = this.sections.splice(sourceIndex, 1);
-        const nextIndex = Math.max(0, Math.min(targetIndex, this.sections.length));
-
-        this.sections.splice(nextIndex, 0, movedSection);
-        this.typeInstance.render_meta.sections = [...this.sections];
-        this.sectionReference = this.typeInstance.render_meta.sections;
-        this.syncSectionIdentifiers();
+    public onFieldChange(data: any, sectionIndex?: number, fieldIndex?: number): void {
+        this.mutation.onFieldChange(data, sectionIndex, fieldIndex);
     }
 
-
-    private clearPendingSectionMove(): void {
-        this.draggedSectionIndex = null;
-        this.pendingSectionDropIndex = null;
+    public onFieldDrop(event: DndDropEvent, section: CmdbTypeSection): void {
+        this.mutation.onFieldDrop(event, section);
     }
-
-
-    /**
-     * This method checks if the field is used for an external link.
-     * @param field
-     */
-    public externalField(field) {
-        const include = { links: [], total: 0 };
-
-        for (const external of this.typeInstance?.render_meta?.externals) {
-            const fields = external?.hasOwnProperty('fields') ? Array.isArray(external?.fields) ? external?.fields : [] : [];
-            const found = fields?.find(f => f === field?.name);
-
-            if (found) {
-                if (include?.total < 10) {
-                    include?.links?.push(external);
-                }
-
-                include.total = include?.total + 1;
-            }
-        }
-
-        return include;
-    }
-
-
-    /**
-     * Redirects changes to field properties
-     * @param data new data for field
-     */
-    public onFieldChange(data: any, sectionIndex: number, fieldIndex: number) {
-        if (data.hasOwnProperty("isDuplicate")) {
-            if (data?.isDuplicate) {
-                this.activeDuplicateField = { sectionIndex, fieldIndex };
-                this.setDisableFields(true);
-            } else {
-                this.activeDuplicateField = null;
-                this.setDisableFields(false);
-            }
-
-            return;
-        }
-
-        this.activeDuplicateField = null;
-        this.setDisableFields(false);
-        this.handleFieldChanges(data);
-    }
-
-
-    private setDisableFields(value: boolean): void {
-        if (this.disableFields === value) {
-            return;
-        }
-        this.disableFields = value;
-        this.validationService?.setDisableFields(value);
-    }
-
-
-    /**
-     * Sets and unsets a hidden field in the -ulti-data-ssection property 'hidden_fields'
-     * 
-     * @param data the new values which need to be processed
-     */
-    private handleHideFields(data: any) {
-        let sectionIndex: number = this.getSectionOfField(data?.fieldName);
-        let section: CmdbMultiDataSection = this.typeInstance?.render_meta?.sections[sectionIndex];
-
-        if (!("hidden_fields" in section)) {
-            section.hidden_fields = [];
-        }
-
-        if (data.newValue == true) {
-            section.hidden_fields.push(data?.fieldName);
-        } else {
-            section.hidden_fields = section.hidden_fields.filter(hiddenField => hiddenField != data?.fieldName);
-        }
-
-        this.typeInstance.render_meta.sections[sectionIndex] = section;
-    }
-
-
-    /**
-     * Updates the hidden_fields array of a section if the identifier was changed during the CREATE mode
-     * 
-     * @param previousName the identifier before the new value
-     * @param newName the new value of the identifier
-     */
-    private updateHiddenFields(previousName: string, newName: string) {
-        let sectionIndex: number = this.getSectionOfField(previousName);
-        let section: CmdbMultiDataSection = this.typeInstance?.render_meta?.sections[sectionIndex];
-
-        if (section?.hidden_fields?.includes(previousName)) {
-            section.hidden_fields = section?.hidden_fields?.filter(hiddenField => hiddenField != previousName);
-            section?.hidden_fields?.push(newName);
-            this.typeInstance.render_meta.sections[sectionIndex] = section;
-        }
-    }
-
-
-    public getFieldHiddenState(section: CmdbTypeSection | CmdbMultiDataSection, field: any): boolean {
-        if (section.type == "multi-data-section") {
-            if ((section as CmdbMultiDataSection)?.hidden_fields?.includes(field?.name)) {
-                return true;
-            } else {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    private getSectionOfField(fieldName: string) {
-        let index = 0;
-
-        for (let aSection of this.typeInstance?.render_meta?.sections) {
-            for (let aField of aSection?.fields) {
-                if (aField.name == fieldName) {
-                    return index;
-                }
-            }
-
-            index++;
-        }
-
-        //no section found for field
-        return -1;
-    }
-
-
-    /**
-     * Handles changes to field properties and updates them
-     * @param data new data for field
-     */
-    private handleFieldChanges(data: any) {
-
-        if (data.inputName === 'selectable_as_parent') {
-            this.typeInstance.selectable_as_parent = !!data.newValue;
-            this.updateHighlightState();
-            return;
-        }
-
-        if (data.elementType == 'section') {
-            this.validationService.updateSectionKey(data?.previousName, data?.fieldName)
-        }
-        if (data.inputName == "hideField") {
-            this.handleHideFields(data);
-            return;
-        }
-
-        const newValue: any = data?.newValue;
-        const inputName: string = data?.inputName;
-        let fieldName: string = data?.fieldName;
-
-        if (data.inputName === "name") {
-            fieldName = data?.previousName;
-        }
-
-        let index = -1;
-
-        if (data.elementType == "section" || data?.elementType == "multi-data-section") {
-            index = this.getSectionIndexForName(fieldName);
-            const sectionIndex = this.activeIndex !== null ? this.activeIndex : index;
-
-            if (sectionIndex >= 0) {
-                this.typeInstance.render_meta.sections[sectionIndex][inputName] = newValue;
-                if (this.sections[sectionIndex]) {
-                    this.sections[sectionIndex][inputName] = newValue;
-                }
-            }
-
-            this.syncSectionIdentifiers();
-        } else {
-            if (data.inputName == "name") {
-                this.updateHiddenFields(data?.previousName, data?.newValue);
-            }
-
-            index = this.getFieldIndexForName(fieldName);
-
-            if (index >= 0) {
-                this.typeInstance.fields[index][inputName] = newValue;
-            }
-        }
-
-        this.refreshFieldIdentifiers();
-        this.updateHighlightState();
-    }
-
-
-    /**
-     * Retrieves the index of a field in the typeinstance
-     * 
-     * @param targetName name of the field which is searched
-     * @returns (int): Index of the field. -1 of no field with this name is found
-     */
-    private getFieldIndexForName(targetName: string): number {
-        return BuilderUtils?.getFieldIndexForName(this.typeInstance, targetName);
-    }
-
-
-    /**
-     * Retrieves the index of a section in the typeinstance
-     * 
-     * @param targetName name of the field which is searched
-     * @returns (int): Index of the field. -1 of no field with this name is found
-     */
-    private getSectionIndexForName(targetName: string): number {
-        return BuilderUtils?.getSectionIndexForName(this.typeInstance, targetName);
-    }
-
-    /**
-     * Handles the event when a field is dropped into a section. 
-     * Updates the section field status, checks if the section is global, and processes the drop event.
-     * Adds the dropped field data into the section and updates the type instance metadata.
-     * @param event - The drop event, containing field data and drop effect.
-     * @param section - The section where the field is dropped.
-     */
-    public onFieldDrop(event: DndDropEvent, section: CmdbTypeSection) {
-        this.updateSectionFieldStatus()
-        if (!this.canDropFieldsIntoSection(section)) {
-            return;
-        }
-
-        const fieldData = event?.data;
-
-        if (section && (event?.dropEffect === 'copy' || event?.dropEffect === 'move')) {
-            let index = event?.index;
-
-            this.initialIdentifier = section?.name;
-            if (typeof index === 'undefined') {
-                index = section?.fields?.length;
-            }
-
-            if (this.isExistingField(fieldData)) {
-                this.moveField(fieldData, section, index);
-                this.draggedField = null;
-                this.validationService?.setSectionValid(section?.name, true);
-                this.refreshFieldIdentifiers();
-                this.updateHighlightState();
-                return;
-            }
-
-            this.newFields?.push(fieldData);
-            this.typeInstance.fields.push(fieldData);
-            this.typeInstance.fields = [...this.typeInstance?.fields];
-
-            section?.fields?.splice(index, 0, fieldData);
-            this.typeInstance.render_meta.sections = [...this.sections];
-            this.sectionReference = this.typeInstance.render_meta.sections;
-            this.validationService?.setSectionValid(section?.name, true);
-
-            // Recompute status now
-            this.refreshFieldIdentifiers();
-            this.updateHighlightState();
-        }
-    }
-
 
     public onFieldDragStart(field: any, section: CmdbTypeSection, index: number): void {
-        this.draggedField = { field, section, index };
+        this.mutation.onFieldDragStart(field, section, index);
     }
 
-
-    private isExistingField(field: any): boolean {
-        if (!field?.name) {
-            return false;
-        }
-
-        return (this.typeInstance?.fields ?? []).some(typeField => typeField === field || typeField?.name === field.name);
+    public removeSection(item: CmdbTypeSection, sectionIndex: number): void {
+        this.mutation.removeSection(item, sectionIndex);
     }
 
-
-    private moveField(field: any, targetSection: CmdbTypeSection, targetIndex: number): void {
-        const sourceSection = this.draggedField?.field?.name === field?.name
-            ? this.draggedField.section
-            : this.findSectionContainingField(field);
-
-        if (!sourceSection || !this.canDropFieldsIntoSection(sourceSection)) {
-            return;
-        }
-
-        const sourceIndex = sourceSection.fields?.findIndex(sourceField => sourceField === field || sourceField?.name === field?.name) ?? -1;
-        if (sourceIndex < 0) {
-            return;
-        }
-
-        const [movedField] = sourceSection.fields.splice(sourceIndex, 1);
-
-        const nextIndex = sourceSection === targetSection && targetIndex > sourceIndex
-            ? targetIndex - 1
-            : targetIndex;
-
-        targetSection.fields.splice(nextIndex, 0, movedField);
-        this.typeInstance.render_meta.sections = [...this.sections];
-        this.sectionReference = this.typeInstance.render_meta.sections;
+    public removeField(item: any, section: CmdbTypeSection): void {
+        this.mutation.removeField(item, section);
     }
-
-
-    private findSectionContainingField(field: any): CmdbTypeSection | null {
-        return this.sections.find(section =>
-            section?.fields?.some(sectionField => sectionField === field || sectionField?.name === field?.name)
-        ) ?? null;
-    }
-
-    /**
-     * Removes a section from the typeInstance and updates the relevant metadata and fields.
-     *
-     * @param item The section item to be removed.
-     * @param sectionIndex The index of the section to be removed.
-     */
-    public removeSection(item: CmdbTypeSection, sectionIndex: number) {
-        if (!this.canRemoveSection(item)) {
-            return;
-        }
-
-        if (this.mode === CmdbMode.Edit
-            && this.locationFieldDeletion.sectionContainsLocationField(item, this.typeInstance)
-            && !this.locationFieldDeletion.canDelete('section')) {
-            return;
-        }
-
-        this.performSectionRemoval(item, sectionIndex);
-    }
-
-
-    private performSectionRemoval(item: CmdbTypeSection, sectionIndex: number): void {
-        if (this.activeIndex === sectionIndex) {
-            this.activeIndex = null
-        }
-
-        this.handleGlobalTemplates(item);
-        this.sectionIdentifierService?.removeSection(sectionIndex);
-
-        const index = sectionIndex >= 0
-            ? sectionIndex
-            : this.typeInstance?.render_meta?.sections?.indexOf(item);
-
-        if (index !== -1) {
-            if (item.type === 'section') {
-                const fields = this.typeInstance?.render_meta?.sections[index]?.fields ?? [];
-                for (const field of fields) {
-                    const fieldName = typeof field === 'string' ? field : field['name'];
-                    const fieldIdx = this.typeInstance?.fields.map(x => x?.name).indexOf(fieldName);
-                    if (fieldIdx !== -1) {
-                        this.typeInstance?.fields.splice(fieldIdx, 1);
-                    }
-                }
-
-                this.typeInstance.fields = [...this.typeInstance?.fields];
-
-            } else if (item.type === 'ref-section') {
-                this.removeRefSectionSelectionField(item);
-            }
-
-            this.sections.splice(index, 1);
-            this.typeInstance.render_meta.sections.splice(index, 1);
-            this.typeInstance.render_meta.sections = [...this.typeInstance?.render_meta?.sections];
-            this.syncSectionIdentifiers();
-
-            this.updateHighlightState()
-            this.refreshFieldIdentifiers()
-
-            this.validationService.setSectionValid(item?.name, true);
-        }
-    }
-
-
-    /**
-     * Removes a field from the type instance and section, updates the validation state, and refreshes the UI.
-     * @param item - The field item to be removed.
-     * @param section - The section from which the field will be removed.
-     */
-    public removeField(item: any, section: CmdbTypeSection) {
-        if (!this.canRemoveField(item) || !this.canDropFieldsIntoSection(section)) {
-            return;
-        }
-
-        if (this.mode === CmdbMode.Edit
-            && this.locationFieldDeletion.isLocationField(item)
-            && !this.locationFieldDeletion.canDelete('field')) {
-            return;
-        }
-
-        this.performFieldRemoval(item, section);
-    }
-
-
-    private performFieldRemoval(item: any, section: CmdbTypeSection): void {
-        const indexField: number = this.typeInstance?.fields?.indexOf(item);
-
-        if (indexField > -1) {
-            let removedFieldName = this.typeInstance?.fields[indexField]?.name;
-            this.typeInstance?.fields?.splice(indexField, 1);
-            this.typeInstance.fields = [...this.typeInstance?.fields];
-            this.validationService?.updateFieldValidityOnDeletion(removedFieldName);
-        }
-
-        const sectionFieldIndex = section?.fields?.indexOf(item);
-
-        if (sectionFieldIndex > -1) {
-            section?.fields?.splice(sectionFieldIndex, 1);
-        }
-
-        this.typeInstance.render_meta.sections = [...this.typeInstance?.render_meta.sections];
-
-        let numberOfFields = section?.fields?.length > 0;
-
-        if (!numberOfFields) {
-            this.validationService?.setSectionValid(section?.name, false);
-        }
-
-        this.updateHighlightState()
-        this.refreshFieldIdentifiers()
-    }
-
-
-    /**
-     * Determines if a cmdb-config-edit component should be disabled based on the section and field indices.
-     * @param sectionIndex - The index of the section.
-     * @param fieldIndex - The index of the field within the section.
-     * @returns A boolean indicating whether the component should be disabled.
-     */
-    public isConfigEditDisabled(sectionIndex: number, fieldIndex: number): boolean {
-        if (!this.disableFields) {
-            return false;
-        }
-
-        return !(
-            this.activeDuplicateField?.sectionIndex === sectionIndex &&
-            this.activeDuplicateField?.fieldIndex === fieldIndex
-        );
-    }
-
-
-    /**
-     * Checks if a section has fields.
-     * @param section - The section to check.
-     * @returns - True if the section has fields, otherwise false.
-     */
-    isSectionHasField(section: any): boolean {
-        // this.updateHighlightState()
-        return section?.fields?.length > 0;
-    }
-
-
-    /**
-     * Checks if any section lacks fields and updates the save button status.
-     */
-    updateSectionFieldStatus(): void {
-        const allSectionsHaveFields = this.sections?.every(section => section?.fields?.length > 0);
-
-        // Set the save button disabled state based on section status
-        this.validationService.setSectionWithoutFieldState(allSectionsHaveFields);
-    }
-
-
-    /**
-     * Determines if a section should be highlighted based on various conditions.
-     * A section is highlighted if it has a duplicate name, missing name or label,
-     * or if any of its fields are highlighted (missing name, label, or are duplicates).
-     * @param section - The section to be checked.
-     * @returns boolean - Returns true if the section or any of its fields are highlighted, false otherwise.
-     */
-    public isSectionHighlighted(section: any): boolean {
-        // Predefined / non-editable sections (global templates, special-type, system) are defined by us
-        // and trusted, so they and their fields are never flagged.
-        if (!this.canEditSection(section)) {
-            return false;
-        }
-
-        const isDuplicateIdentifier = this.sections?.filter(s => s?.name === section?.name).length > 1;
-        const isRefSection = section?.type === "ref-section";
-        const hasInvalidFields = section?.fields?.some(field => this.isFieldHighlighted(field, section));
-        const usesReservedName = isReservedIdentifier(section?.name);
-
-        // Check for section-level issues (name, label, duplicates)
-        const hasSectionIssues = !section?.name || isDuplicateIdentifier || !section?.label || usesReservedName;
-
-        if (isRefSection) {
-            const isInvalidReference = !section?.reference?.type_id || !section?.reference?.section_name;
-            return isInvalidReference || hasSectionIssues;
-        }
-
-        // If the section has issues or any of its fields are invalid, highlight the section
-        return hasSectionIssues || hasInvalidFields;
-    }
-
-
-    /**
-     * Determines if a field should be highlighted based on its properties.
-     * Checks for invalid identifiers, missing labels, and reference fields with invalid reference types.
-     * @param field - The field to check for highlighting.
-     * @returns boolean - Returns true if the field should be highlighted, false otherwise.
-     */
-    public isFieldHighlighted(field: any, section?: any): boolean {
-        // Ensure field is a valid object (not null, undefined, or a primitive)
-        if (!field || typeof field !== 'object') {
-            return false;
-        }
-
-        // A field inside a predefined / non-editable section (global template, special-type, system) is
-        // defined by us and is never flagged - not even for duplicates, since the user cannot change it.
-        if (section && !this.canEditSection(section)) {
-            return false;
-        }
-
-        const hasDuplicateIdentifier = this.hasDuplicateFieldIdentifier(field);
-        // Locked fields (special-type schema or global template fields) are not user-editable, so only a
-        // real duplicate identifier matters for them.
-        if (this.isLockedField(field)) {
-            return hasDuplicateIdentifier;
-        }
-
-        const isRefField = field?.type === "ref";
-        // The reserved "dg-"/"dg_" prefix rule only targets user-created identifiers. The location
-        // special control ships with the system-owned "dg_location" name, which the user cannot edit,
-        // so it legitimately uses the reserved namespace and must not be flagged.
-        const isSystemReservedField = field?.type === 'location';
-        const usesReservedName = !isSystemReservedField && isReservedIdentifier(field?.name);
-        const hasInvalidIdentifier = !field?.name || hasDuplicateIdentifier || usesReservedName;
-        const hasValidRefTypes = field && 'ref_types' in field && Array.isArray(field?.ref_types) && field?.ref_types?.length > 0;
-
-        if (hasInvalidIdentifier || isRefField || !field?.label) {
-            if (isRefField) {
-
-                const hasSummaries = field.summaries?.every(
-                    ({ type_id, line }) => type_id != null && line?.trim() !== "" && line !== null
-                );
-
-                return !hasValidRefTypes || hasInvalidIdentifier || !field?.label || !hasSummaries;
-            }
-            return true;
-        }
-
-        return false;
-    }
-
-
-    private hasDuplicateFieldIdentifier(field: any): boolean {
-        if (!field?.name) {
-            return false;
-        }
-
-        return (this.typeInstance?.fields ?? []).filter(typeField => typeField?.name === field.name).length > 1;
-    }
-
 
     /**
      * Prevents drag events only for sections that are not allowed to move.
-     * @param event - The drag event to be checked and possibly prevented.
-     * @param section - The section being dragged.
      */
     public preventSectionDrag(event: DragEvent, section: CmdbTypeSection): void {
-        if (!this.canMoveSection(section)) {
+        if (!this.policy.canMoveSection(section)) {
             event?.stopPropagation(); // Stops event from affecting other elements
             event?.preventDefault();  // Prevent dragging behavior
         }
     }
 
-
     /**
      * Prevents drag events for all fields within a section if any field in the section is highlighted.
-     * @param event - The drag event to be checked and possibly prevented.
-     * @param section - The section that contains the fields.
      */
     public preventDragForAllFields(event: DragEvent, section: any): void {
-        // Check if any field in the section is highlighted (has an error)
-        const isAnyFieldHighlighted = section?.fields?.some(field => this.isFieldHighlighted(field, section));
-        const isAnyFieldEmpty = this.checkEmptyFields()?.length > 0;
-
-        if (isAnyFieldHighlighted || isAnyFieldEmpty || this.disableFields) {
-            event?.stopPropagation();  // Stops event from affecting other elements
-            event?.preventDefault();   // Prevent dragging behavior
-        }
+        this.highlight.preventDragForAllFields(event, section);
     }
-
-
-    /**
-     * Updates the highlight state of sections and fields based on their current highlight status.
-     * Checks if any section or field is highlighted and sets their respective states
-     * in the validation service.
-     */
-    updateHighlightState(): void {
-        const isSectionHighlighted = this.isAnySectionHighlighted();
-        const isFieldHighlighted = this.isAnyFieldHighlighted();
-
-        this.updateSectionFieldStatus()
-        this.validationService?.setSectionHighlightState(isSectionHighlighted);
-        this.validationService?.setFieldHighlightState(isFieldHighlighted);
-    }
-
-
-    /**
-     * Checks if any section is highlighted by evaluating the sections array.
-     * @returns A boolean indicating if any section is currently highlighted.
-     */
-    isAnySectionHighlighted(): boolean {
-        return this.sections?.some(section =>
-            this.isSectionHighlighted(section)
-        );
-    }
-
-
-    /**
-     * Checks if any field within the sections is highlighted.
-     * Iterates through all sections and their fields to determine if a field is highlighted.
-     * @returns true if any field is highlighted, false otherwise.
-     */
-    isAnyFieldHighlighted(): boolean {
-        return this.sections.some(section =>
-            section?.fields?.some(field => this.isFieldHighlighted(field, section))
-        );
-    }
-
-
-    /**
-     * Checks for empty field names in each section and returns an array of objects 
-     * containing the indices of sections and fields with empty or missing names.
-     * @returns An array of objects with `sectionIndex` and `fieldIndex` for each field with an empty name.
-     */
-    checkEmptyFields(): Array<{ sectionIndex: number, fieldIndex: number }> {
-        return this.sections?.flatMap((section, sectionIndex) =>
-            section?.fields
-                .map((field, fieldIndex) => {
-                    if (!field?.name || field?.name?.trim() === '') {
-                        if (field.hasOwnProperty('name')) {
-                            return { sectionIndex, fieldIndex };
-                        }
-                    }
-                    return null;
-                })
-                .filter((result) => result !== null)
-        );
-    }
-
-
-    /**
-     * Optimized method to check if any section or field is highlighted
-     * and call `updateHighlightState` only when necessary.
-     */
-    checkAndUpdateHighlightState(): void {
-        // Check current highlight states
-        const isSectionHighlighted = this.isAnySectionHighlighted();
-        const isFieldHighlighted = this.isAnyFieldHighlighted();
-
-        // Only update if the highlight state has changed
-        if (isSectionHighlighted !== this.prevSectionHighlighted || isFieldHighlighted !== this.prevFieldHighlighted) {
-            this.updateHighlightState();
-
-            // Store the current states as the new previous states
-            this.prevSectionHighlighted = isSectionHighlighted;
-            this.prevFieldHighlighted = isFieldHighlighted;
-        }
-    }
-
-
-    /**
-     * Checks if any empty fields exist for a specific section and field index.
-     * @param sectionIndex - The index of the section to check.
-     * @param fieldIndex - The index of the field within the section to check.
-     * @returns A boolean indicating whether empty fields exist at the given section and field index.
-     */
-
-    isEmptyFielsExist(sectionIndex: number, fieldIndex: number): boolean {
-        const emptyFields = this.checkEmptyFields();
-        if (emptyFields?.length === 0) {
-            return false;
-        }
-        return !emptyFields?.some(emptyField => emptyField?.sectionIndex === sectionIndex && emptyField?.fieldIndex === fieldIndex);
-    }
-
-
-    /**
-     * Refreshes the list of field identifiers by clearing existing field names
-     * and adding the current field names from the type instance.
-     */
-    refreshFieldIdentifiers(): void {
-        // this.fieldIdentifierValidation.clearFieldNames();
-        // const fieldNames = this.typeInstance.fields.map(field => field.name);
-        // this.fieldIdentifierValidation.addFieldNames(fieldNames);
-        BuilderUtils.refreshFieldIdentifiers(this.typeInstance, this.fieldIdentifierValidation);
-
-    }
-
-
-    /**
-     * Checks if the current section is locked based on empty fields.
-     * If there are any empty fields, interactions are locked.
-     * @returns {boolean} - Returns true if any fields are empty, otherwise false.
-     */
-    isLocked(): boolean {
-        // Lock all interactions if there are any empty fields
-        return this.checkEmptyFields()?.length > 0;
-    }
-
-    /* -------------------------------------------- SECTION TEMPLATE HANDLING ------------------------------------------- */
-
-    public getDnDEffectAllowedForField(field: any) {
-        return this.canMoveField(field) ? "move" : "none";
-    }
-
-
-    public getSectionMode(section: CmdbTypeSection, mode: CmdbMode) {
-        if (!this.canEditSection(section)) {
-            return CmdbMode.Global
-        }
-
-        if (this.isNewSection(section)) {
-            return CmdbMode.Create
-        }
-
-        return mode;
-    }
-
-
-    /**
-     * This prevents the special control "Location" to be placed inside an multi-data-section
-     * 
-     * @param sectionType 
-     * @returns allowed types for a section
-     */
-    public getInputType(sectionType: string) {
-        if (sectionType == "multi-data-section") {
-            return ['inputs'];
-        }
-
-        return ['inputs', 'location'];
-
-    }
-
-
-    public getSectionCollapseIcon(section: CmdbTypeSection) {
-        return this.canEditSection(section) ? ['far', 'edit'] : ['far', 'eye'];
-    }
-
-
-    public isSchemaLockedSection(section: CmdbTypeSection): boolean {
-        return this.lockedSectionNames.includes(section?.name ?? '');
-    }
-
-
-    public isSchemaLockedField(field: any): boolean {
-        return this.lockedFieldNames.includes(field?.name ?? '');
-    }
-
-
-    public isLockedSection(section: CmdbTypeSection): boolean {
-        return !this.canEditSection(section);
-    }
-
-
-    public isLockedField(field: any): boolean {
-        return this.isGlobalField(field?.name) || this.isSchemaLockedField(field);
-    }
-
-
-    public canEditSection(section: CmdbTypeSection): boolean {
-        return !this.isGlobalSection(section) && !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
-    }
-
-
-    public canRemoveSection(section: CmdbTypeSection): boolean {
-        if (this.isGlobalSection(section)) {
-            return true;
-        }
-
-        if (this.isSchemaLockedSection(section)) {
-            return false;
-        }
-
-        return !this.isSystemSection(section);
-    }
-
-
-    public canMoveSection(section: CmdbTypeSection): boolean {
-        if (this.isGlobalSection(section)) {
-            return true;
-        }
-
-        return !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
-    }
-
-
-    public canDropFieldsIntoSection(section: CmdbTypeSection): boolean {
-        return !this.isGlobalSection(section) && !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
-    }
-
-
-    public canMoveField(field: any): boolean {
-        return !this.isLockedField(field);
-    }
-
-
-    public canRemoveField(field: any): boolean {
-        return !this.isLockedField(field);
-    }
-
-
-    private isSystemSection(section: CmdbTypeSection): boolean {
-        const sectionName = section?.name ?? '';
-        return sectionName.startsWith('dg_gst-');
-    }
-
-
-    public isGlobalSection(section: CmdbTypeSection) {
-        const name = section?.name;
-        if (!name) {
-            return false;
-        }
-
-        // The type persistently records which global templates it uses (global_template_ids); this is
-        // stable regardless of the transient palette/selected arrays, so it is the primary source of truth.
-        if (this.typeInstance?.global_template_ids?.includes(name)) {
-            return true;
-        }
-
-        return [...(this.globalSectionTemplates ?? []), ...(this.selectedGlobalSectionTemplates ?? [])]
-            .some(template => template?.name === name);
-    }
-
-
-    public setSelectedGlobalTemplates() {
-        if (this.typeInstance?.global_template_ids?.length > 0) {
-            // iterate global_template_ids
-            this.typeInstance?.global_template_ids?.forEach((globalTemplateName) => {
-
-                let index: number = -1;
-
-                for (let templateIndex in this.globalSectionTemplates) {
-                    let aTemplate = this.globalSectionTemplates[templateIndex];
-
-                    if (aTemplate?.name == globalTemplateName) {
-                        this.selectedGlobalSectionTemplates?.push(aTemplate);
-                        index = Number(templateIndex);
-                    }
-                }
-
-                this.globalSectionTemplates?.splice(index, 1);
-            })
-        }
-    }
-
-
-    /**
-     * Checks if the fieldName belongs to any global section template (available or already dropped).
-     * Scans the live template arrays so detection stays correct regardless of load/drop timing,
-     * mirroring isGlobalSection.
-     *
-     * @param fieldName Name of the field which should be checked
-     * @returns True if the field originates from a global section template
-     */
-    public isGlobalField(fieldName: string): boolean {
-        if (!fieldName) {
-            return false;
-        }
-
-        return [...(this.globalSectionTemplates ?? []), ...(this.selectedGlobalSectionTemplates ?? [])]
-            .some(template => template?.fields?.some(field => field?.name === fieldName));
-    }
-
-
-    private handleGlobalTemplates(sectionData: CmdbTypeSection) {
-        let isGlobalTemplate = false;
-        let globalTemplateIndex: number = -1;
-
-        for (let index in this.selectedGlobalSectionTemplates) {
-            const aSection = this.selectedGlobalSectionTemplates[index];
-            if (aSection?.name == sectionData?.name) {
-                isGlobalTemplate = true;
-                globalTemplateIndex = parseInt(index);
-                this.globalSectionTemplates?.push(aSection);
-                this.globalSectionTemplates?.sort((a, b) => a?.public_id - b?.public_id);
-            }
-        }
-
-        if (isGlobalTemplate) {
-            const nameIndex = this.typeInstance?.global_template_ids?.indexOf(sectionData?.name, 0);
-            this.typeInstance?.global_template_ids?.splice(nameIndex, 1);
-            this.selectedGlobalSectionTemplates?.splice(globalTemplateIndex, 1);
-        }
-    }
-
-
-    /**
-     * 
-     * @param data Extracts the section properties from the section template
-     * @returns section properties
-     */
-    public extractSectionData(data: CmdbSectionTemplate) {
-        let sectionName: string = data?.name;
-
-        if (!data?.is_global && !this.isUniqueID(sectionName)) {
-            sectionName = this.createUniqueID('section_template');
-        }
-
-        return {
-            'name': sectionName,
-            'label': data.label,
-            'type': data.type,
-            'fields': data.fields,
-            'bg_color': '#ffffff'
-        }
-    }
-
-
-    /**
-     * Sets the fields from the section template to the type instance
-     * @param sectionTemplateFields 
-     */
-    public setSectionTemplateFields(sectionTemplate: CmdbSectionTemplate) {
-        let sectionTemplateFields = sectionTemplate?.fields;
-
-        for (let fieldIndex in sectionTemplateFields) {
-            let aField = sectionTemplateFields[fieldIndex];
-
-            if (!this.isGlobalField(aField?.name) && !this.isUniqueID(aField?.name)) {
-                aField.name = this.createUniqueID(aField?.type);
-            }
-
-            this.newFields?.push(aField);
-            this.typeInstance?.fields?.push(aField);
-        }
-
-        this.typeInstance.fields = [...this.typeInstance.fields];
-    }
-
-
-    /**
-     * Creates a unique name for section templates and fields if a section template is added more than once
-     * @param name (string): The typ of the field or 'section_template'
-     */
-    public getUniqueName(name: string) {
-        return this.createUniqueID(name);
-    }
-
-
-    /**
-     * Creates a unique ID for a field or section
-     * @param name (string): The name will be placed at the front of the ID
-     */
-    private createUniqueID(name: string) {
-        const uniqueID = `${name}-${uuidv4()}`;
-
-        // if ID is already used then create a new one
-        if (this.isUniqueID(uniqueID)) {
-            return uniqueID;
-        } else {
-            return this.createUniqueID(name);
-        }
-    }
-
-
-    /**
-     * Checks if the given ID already exists for a field or section
-     * @param uniqueID THe given ID
-     * @returns True if this ID is not used, else False
-     */
-    private isUniqueID(uniqueID: string) {
-        //first check all field names
-        for (let fieldIndex in this.typeInstance?.fields) {
-            let currentField = this.typeInstance?.fields[fieldIndex];
-
-            if (currentField?.name == uniqueID) {
-                return false;
-            }
-        }
-
-        //check all section names 
-        for (let sectionIndex in this.typeInstance?.render_meta?.sections) {
-            let currentSection = this.typeInstance?.render_meta?.sections[sectionIndex];
-
-            if (currentSection?.name == uniqueID) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
 
     /**
      * Sets the active index for the current section and updates the section identifier service.
-     * @param index - The new active index to set.
      */
-    setActiveIndex(index: number) {
+    public setActiveIndex(index: number): void {
         this.activeIndex = index;
         this.sectionIdentifierService?.setActiveIndex(index);
     }
 
-
     /**
      * Toggles the visibility of the color picker for the specified section.
-     * @param section - The section for which the color picker visibility is toggled.
      */
     public toggleColorPicker(section: CmdbTypeSection): void {
         if (this.showColorPickerForSection === section?.name) {
@@ -1393,11 +306,8 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         }
     }
 
-
     /**
      * Updates the background color of a specified section and applies it to the type instance metadata.
-     * @param section - The section whose background color is to be updated.
-     * @param color - The new color to set for the section.
      */
     public updateSectionColor(section: CmdbTypeSection, color: string): void {
         if (this.mode === this.MODES.View) {
@@ -1421,86 +331,170 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
         // this.showColorPickerForSection = null;
     }
 
-    /* ----------------------------------------------- CSS CLASS HANDLERS ------------------------------------------------ */
 
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /**
-     * Returns the CSS classes for a section header based on its state.
-     * Applies styles for global sections and highlighted headers.
-     * @param section - The section to evaluate.
+     * This method checks if the field is used for an external link.
      */
-    getSectionHeaderClass(section: any): any {
-        return {
-            'global-section-item': this.isGlobalSection(section),
-            'highlight-section-header': this.isSectionHighlighted(section) || !this.isSectionHasField(section)
-        };
+    public externalField(field) {
+        return this.mutation.externalField(field);
+    }
+
+    public getFieldHiddenState(section: CmdbTypeSection, field: any): boolean {
+        return this.mutation.getFieldHiddenState(section, field);
+    }
+
+    /* --------------------------------------------- INTERACTION / PERMISSIONS ------------------------------------------ */
+
+    public getSectionCollapseIcon(section: CmdbTypeSection): [string, string] {
+        return this.policy.getSectionCollapseIcon(section);
+    }
+
+    public isLockedField(field: any): boolean {
+        return this.policy.isLockedField(field);
+    }
+
+    public canRemoveSection(section: CmdbTypeSection): boolean {
+        return this.policy.canRemoveSection(section);
+    }
+
+    public canMoveSection(section: CmdbTypeSection): boolean {
+        return this.policy.canMoveSection(section);
+    }
+
+    public canDropFieldsIntoSection(section: CmdbTypeSection): boolean {
+        return this.policy.canDropFieldsIntoSection(section);
+    }
+
+    public canMoveField(field: any): boolean {
+        return this.policy.canMoveField(field);
+    }
+
+    public canRemoveField(field: any): boolean {
+        return this.policy.canRemoveField(field);
+    }
+
+    public getDnDEffectAllowedForField(field: any): string {
+        return this.policy.canMoveField(field) ? "move" : "none";
+    }
+
+    public getSectionMode(section: CmdbTypeSection, mode: CmdbMode): CmdbMode {
+        if (!this.policy.canEditSection(section)) {
+            return CmdbMode.Global
+        }
+
+        if (this.isNewSection(section)) {
+            return CmdbMode.Create
+        }
+
+        return mode;
     }
 
     /**
-     * Returns the CSS classes for a draggable item based on section state.
-     * Applies 'disabled' class if any section is highlighted or fields are disabled.
+     * This prevents the special control "Location" to be placed inside an multi-data-section
      */
-    getDraggableItemClass(): any {
-        return {
-            'disabled': this.isAnySectionHighlighted() || this.disableFields
-        };
+    public getInputType(sectionType: string) {
+        if (sectionType == "multi-data-section") {
+            return ['inputs'];
+        }
+
+        return ['inputs', 'location'];
+    }
+
+    /* ------------------------------------------------ HIGHLIGHT / STATE ----------------------------------------------- */
+
+    public isSectionHighlighted(section: any): boolean {
+        return this.highlight.isSectionHighlighted(section);
+    }
+
+    public isFieldHighlighted(field: any, section?: any): boolean {
+        return this.highlight.isFieldHighlighted(field, section);
+    }
+
+    public isAnySectionHighlighted(): boolean {
+        return this.highlight.isAnySectionHighlighted();
+    }
+
+    public isEmptyFielsExist(sectionIndex: number, fieldIndex: number): boolean {
+        return this.highlight.isEmptyFielsExist(sectionIndex, fieldIndex);
+    }
+
+    public isConfigEditDisabled(sectionIndex: number, fieldIndex: number): boolean {
+        return this.highlight.isConfigEditDisabled(sectionIndex, fieldIndex);
+    }
+
+    public isLocked(): boolean {
+        return this.highlight.isLocked();
+    }
+
+    public getSectionHeaderClass(section: any): any {
+        return this.highlight.getSectionHeaderClass(section);
+    }
+
+    public getDraggableItemClass(): any {
+        return this.highlight.getDraggableItemClass();
+    }
+
+    /* ------------------------------------------------- PREVIEW / MISC ------------------------------------------------- */
+
+    /**
+     * Opens a preview modal for the current sections.
+     */
+    public openPreview(): void {
+        BuilderUtils?.openPreview(this.modalService, this.sections);
+    }
+
+    /**
+     * Opens a diagnostic modal for the current sections.
+     */
+    public openDiagnostic(): void {
+        BuilderUtils?.openDiagnostic(this.modalService, this.sections);
+    }
+
+    /**
+     * Matches a given value to a corresponding type string.
+     */
+    public matchedType(value: string): string {
+        return BuilderUtils?.matchedType(value);
     }
 
 
-    /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     /**
      * Checks if the given section is new by comparing it to the list of new sections.
-     * @param section - The section to check.
-     * @returns `true` if the section is new, otherwise `false`.
      */
-    isNewSection(section: CmdbTypeSection): boolean {
+    public isNewSection(section: CmdbTypeSection): boolean {
         return BuilderUtils?.isNewSection(section, this.newSections);
     }
 
-
     /**
      * Checks if the given field is new by comparing it to the list of new fields.
-     * @param field - The field to check.
-     * @returns `true` if the field is new, otherwise `false`.
      */
-    isNewField(field: any): boolean {
+    public isNewField(field: any): boolean {
         return BuilderUtils?.isNewField(field, this.newFields)
             || this.isFieldAddedDuringEdit(field);
     }
-
 
     private isFieldAddedDuringEdit(field: any): boolean {
         if (this.mode !== CmdbMode.Edit || !field?.name || !this.initialFieldNames) {
             return false;
         }
 
-        return !this.initialFieldNames.has(field.name) && !this.isSchemaLockedField(field);
+        return !this.initialFieldNames.has(field.name) && !this.policy.isSchemaLockedField(field);
     }
 
+    private buildPolicyContext(): BuilderInteractionPolicyContext {
+        const templates = [...(this.globalSectionTemplates ?? []), ...(this.selectedGlobalSectionTemplates ?? [])];
 
-    /**
-     * Opens a preview modal for the current sections.
-     */
-    openPreview(): void {
-        BuilderUtils?.openPreview(this.modalService, this.sections);
-    }
-
-
-    /**
-     * Opens a diagnostic modal for the current sections.
-     */
-    openDiagnostic(): void {
-        BuilderUtils?.openDiagnostic(this.modalService, this.sections);
-    }
-
-
-    /**
-     * Matches a given value to a corresponding type string.
-     * @param value - The value to match.
-     * @returns The matched type as a string.
-     */
-    matchedType(value: string): string {
-        return BuilderUtils?.matchedType(value);
+        return {
+            globalSectionTemplates: this.globalSectionTemplates ?? [],
+            selectedGlobalSectionTemplates: this.selectedGlobalSectionTemplates ?? [],
+            globalTemplateIds: this.typeInstance?.global_template_ids ?? [],
+            globalFieldNames: templates.flatMap(template => (template?.fields ?? []).map(field => field?.name)),
+            schemaLockedSectionNames: this.lockedSectionNames ?? [],
+            schemaLockedFieldNames: this.lockedFieldNames ?? []
+        };
     }
 }
