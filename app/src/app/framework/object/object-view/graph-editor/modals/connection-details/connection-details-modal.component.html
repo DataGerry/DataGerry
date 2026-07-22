@@ -7,10 +7,12 @@
       </div>
       <div class="header-info">
         <h4 class="modal-title">{{ getDirectionLabel() }}</h4>
-        <p class="connection-summary" *ngIf="hasConnections()">
+        @if (hasConnections()) {
+        <p class="connection-summary">
           {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
           between nodes
         </p>
+        }
       </div>
     </div>
     <button type="button" class="btn-close" (click)="close()" aria-label="Close">
@@ -21,7 +23,8 @@
   <!-- Modal Body -->
   <div class="modal-body">
     <!-- Node Connection Overview -->
-    <div class="connection-overview" *ngIf="hasValidNodes()">
+    @if (hasValidNodes()) {
+    <div class="connection-overview">
       <div class="node-card source-node">
         <div class="node-header" [style.background-color]="sourceNode.color">
           <span class="node-type" [style.color]="getTextColor(sourceNode.color)">
@@ -47,9 +50,11 @@
         <div class="flow-icon">
           <span class="material-icons">{{ getDirectionIcon() }}</span>
         </div>
-        <div class="connection-count" *ngIf="hasConnections()">
+        @if (hasConnections()) {
+        <div class="connection-count">
           {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
         </div>
+        }
       </div>
 
       <div class="node-card target-node">
@@ -73,9 +78,11 @@
         </div>
       </div>
     </div>
+    }
 
     <!-- Connections Table -->
-    <div class="connections-section" *ngIf="hasConnections()">
+    @if (hasConnections()) {
+    <div class="connections-section">
       <div class="section-header">
         <h5>
           <span class="material-icons">list</span>
@@ -93,67 +100,99 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let connection of connections; trackBy: trackByConnectionId" class="connection-row">
+            @for (connection of connections; track trackByConnectionId($index, connection)) {
+            <tr class="connection-row">
               <td class="relation-id">
-                <span class="id-badge">{{ connection.metadata?.relation_id || 'N/A' }}</span>
+                <span class="id-badge">{{ connection.metadata?.relation_id || 'Dynamic' }}</span>
               </td>
 
               <td class="relation-name">
+                @if(connection.metadata?.relation_label === 'Location')
+                {
+                {{'Location'}}
+                }
+                @else {
                 {{ connection.metadata?.relation_name || 'Unknown' }}
+                }
               </td>
 
               <td class="relation-label">
                 <!-- Check if this is a location-based connection -->
-                <span *ngIf="connection.metadata?.relation_label === 'Location'" class="label-chip location-chip">
+                @if (connection.metadata?.relation_label === 'Location') {
+                <span class="label-chip location-chip">
                   <span class="material-icons">location_on</span>
-                  Location
+                  Located
                 </span>
+                }
 
                 <!-- Normal relation label -->
-                <span *ngIf="connection.metadata?.relation_label !== 'Location'" class="label-chip"
-                  [style.background-color]="connection.metadata?.relation_color || '#666'"
+                @if (connection.metadata?.relation_label !== 'Location') {
+                <span class="label-chip" [style.background-color]="connection.metadata?.relation_color || '#666'"
                   [style.color]="getTextColor(connection.metadata?.relation_color || '#666')">
-                  <i *ngIf="connection.metadata?.relation_icon" [ngClass]="connection.metadata.relation_icon"
-                    [title]="connection.metadata.relation_icon"></i>
+                  @if (connection.metadata?.relation_icon) {
+                  <i [ngClass]="connection.metadata.relation_icon" [title]="connection.metadata.relation_icon"></i>
+                  }
+                  @if(connection.metadata?.relation_label === 'Location')
+                  {
+                  {{'Located'}}
+                  }
+                  @else {
                   {{ connection.metadata?.relation_label || 'Unknown' }}
+                  }
                 </span>
+                }
               </td>
             </tr>
+            }
           </tbody>
         </table>
       </div>
     </div>
+    }
 
     <!-- Empty State -->
-    <div *ngIf="!hasConnections()" class="empty-state">
+    @if (!hasConnections()) {
+    <div class="empty-state">
       <div class="empty-icon">
         <span class="material-icons">link_off</span>
       </div>
       <p>No connections found between these nodes.</p>
     </div>
+    }
 
     <!-- Error State -->
-    <div *ngIf="!hasValidNodes()" class="error-state">
+    @if (!hasValidNodes()) {
+    <div class="error-state">
       <div class="error-icon">
         <span class="material-icons">error</span>
       </div>
       <p>Invalid node data provided to modal.</p>
     </div>
+    }
   </div>
 
   <!-- Modal Footer -->
   <div class="modal-footer">
     <div class="footer-info">
       <span class="material-icons">info</span>
-      <span *ngIf="hasConnections()">
+      @if (hasConnections()) {
+      <span>
         Showing {{ connections.length }} connection{{ connections.length !== 1 ? 's' : '' }}
       </span>
-      <span *ngIf="!hasConnections()">
+      }
+      @if (!hasConnections()) {
+      <span>
         No connections available
       </span>
+      }
     </div>
+<<<<<<< HEAD
     <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
     (clicked)="close()">
   </app-button>
+=======
+    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="close()">
+    </app-button>
+>>>>>>> origin/version-3.2
   </div>
 </div>

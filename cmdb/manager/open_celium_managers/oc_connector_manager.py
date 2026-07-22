@@ -147,7 +147,7 @@ class OcConnectorManager(OcBaseManager):
         raise OcConnectorGetError("Failed to check if master password exists!")
 
 
-    def get_connectors_by_ids(self, connector_ids: list[int]) -> dict[str, Any]:
+    def get_connectors_by_ids(self, connector_ids: list[int]) -> list[dict[str, Any]]:
         """
         Retrieves a list of OcConnectors with the provided 'connector_ids'
 
@@ -159,10 +159,10 @@ class OcConnectorManager(OcBaseManager):
             OcConnectorGetError: When the OcConnectors could not be retrieved
 
         Returns:
-            dict[str, Any]: The OcConnectors with the given connector_ids
+            list[dict[str, Any]]: The OcConnectors with the given connector_ids
         """
         if not connector_ids:
-            raise OcConnectorGetError("No schedulerIds for Connectors provided!")
+            raise OcConnectorGetError("No connectorIds for Connectors provided!")
 
         params: dict[str, Any] = {
             "identifiers": connector_ids
@@ -221,7 +221,7 @@ class OcConnectorManager(OcBaseManager):
             dict[str, Any]: The retrieved OcConnector
         """
         if not title:
-            raise OcConnectorGetError("No connectorId for Connector provided!")
+            raise OcConnectorGetError("No title for Connector provided!")
 
         target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_URL}?title={title}", password)
 
@@ -242,13 +242,13 @@ class OcConnectorManager(OcBaseManager):
             bool: True if it exists, else False
         """
         if not title:
-            raise OcConnectorGetError("No connectorId for Connector provided!")
+            raise OcConnectorGetError("No title for Connector provided!")
 
         target_connector_response: Response = self.oc_connector.oc_get(f"{CONNECTOR_EXISTS_URL}/{title}")
 
         if self.is_valid_response(target_connector_response):
             conn_resp: dict[str, Any] = json.loads(target_connector_response.text)
-            return conn_resp['result']
+            return conn_resp.get('result')
 
         raise OcConnectorGetError(f"Failed to check if Connector with title: {title} exists!")
 

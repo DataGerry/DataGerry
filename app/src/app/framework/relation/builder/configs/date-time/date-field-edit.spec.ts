@@ -16,7 +16,8 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ComponentFixture, TestBed } from "@angular/core/testing";
+import { ComponentFixture, TestBed, fakeAsync, tick } from "@angular/core/testing";
+import { NO_ERRORS_SCHEMA } from "@angular/core";
 import { DateFieldEditComponent } from "./date-field-edit.component";
 import { ReactiveFormsModule, UntypedFormControl } from "@angular/forms";
 
@@ -53,7 +54,8 @@ describe('DateFieldEditComponent', () => {
                 { provide: ValidationService, useClass: MockValidationService },
                 { provide: NgbDateAdapter, useClass: NgbStringAdapter },
                 { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-            ]
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();
     });
 
@@ -95,11 +97,10 @@ describe('DateFieldEditComponent', () => {
     });
 
     it('should handle boolean changes in onInputChange', () => {
-        const event = true;
-        component.requiredControl.setValue(false);
-        component.onInputChange(event, 'required');
+        const handleFieldChangeSpy = spyOn<any>(component, 'handleFieldChange');
+        component.onInputChange(true, 'required');
 
-        expect(component.requiredControl.value).toBe(event);
+        expect(handleFieldChangeSpy).toHaveBeenCalledWith(true, 'required');
     });
 
     it('should update initialValue when handleFieldChange is called with a new name', () => {
@@ -109,13 +110,14 @@ describe('DateFieldEditComponent', () => {
         expect(component['initialValue']).toBe(component.nameControl.value);
     });
 
-    it('should toggle input type to text on double click', () => {
+    it('should toggle input type to text on double click', fakeAsync(() => {
         const event = { target: { type: 'date', select: jasmine.createSpy('select') } } as any;
         component.onDblClick(event as MouseEvent);
 
         expect(event.target.type).toBe('text');
+        tick();
         expect(event.target.select).toHaveBeenCalled();
-    });
+    }));
 
     it('should change input type back to date on focus out if type is text', () => {
         const event = { target: { type: 'text' } } as any;

@@ -16,7 +16,10 @@
 """
 Implementation of all API routes for CmdbUsers
 """
+<<<<<<< HEAD
 import json
+=======
+>>>>>>> origin/version-3.2
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
@@ -35,6 +38,10 @@ from cmdb.manager import (
 from cmdb.framework.results import IterationResult
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
+    apply_registration_time,
+    prepare_cloud_user,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -76,7 +83,6 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     Returns:
         InsertSingleResponse: Insert response with the new CmdbUser and the corresponding public_id
     """
-    #TODO: REFATOR-FIX (reduce complexity)
     try:
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
         security_manager: SecurityManager = ManagerProvider.get_manager(ManagerType.SECURITY, request_user)
@@ -85,49 +91,15 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         data['password'] = security_manager.generate_hmac(data['password'])
         data['registration_time'] = datetime.now(timezone.utc)
 
-        try:
-            if current_app.cloud_mode:
-                # Confirm database is available from the request
-                data['database'] = request_user.database
-        except KeyError:
-            abort(400, "The database of the user could not be retrieved!")
-
-        if current_app.cloud_mode:
-            # Confirm an email was provided when creating the user
-            user_email = data.get('email')
-
-            if not user_email:
-                LOGGER.error("[insert_user] No email was provided!")
-                abort(400, "The email is mandatory to create a new user!")
-
-        # Check if email already exists
-        try:
-            if current_app.cloud_mode:
-                user_with_given_email = users_manager.get_user_by({'email': user_email})
-
-                if user_with_given_email:
-                    abort(400, "The email is already in use!")
-        except UsersManagerGetError:
-            abort(400, "Failed to retrieve User from database!")
-
-        if current_app.cloud_mode and current_app.local_mode:
-            # Open file and check if user exists
-            with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
-                users_data = json.load(users_file)
-
-                if user_email in users_data:
-                    abort(400, "A user with this email already exists!")
-
-            # Create the user in the dict
-            users_data[user_email] = {
-                "user_name": data["user_name"],
-                "password": user_password,
-                "email": data["email"],
-                "database": data["database"]
-            }
-
-            with open('etc/test_users.json', 'w', encoding='utf-8') as cur_users_file:
-                json.dump(users_data, cur_users_file, ensure_ascii=False, indent=4)
+        # Cloud-mode-only preparation (database binding, unique email, local users file). No-op otherwise
+        prepare_cloud_user(
+            data,
+            user_password,
+            request_user,
+            users_manager,
+            current_app.cloud_mode,
+            current_app.local_mode,
+        )
 
         result_id = users_manager.insert_user(data)
 
@@ -229,7 +201,7 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.edit', excepted={'public_id': 'public_id'})
 @users_blueprint.validate(CmdbUser.SCHEMA)
-def update_cmdb_user(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser
 
@@ -244,18 +216,13 @@ def update_cmdb_user(public_id: int, data: dict, request_user: CmdbUser) -> Resp
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
         to_update_user = users_manager.get_user(public_id)
-        rt = data.get('registration_time')
-        if isinstance(rt, dict) and '$date' in rt:
-            date_val = rt['$date']
-            if isinstance(date_val, str):
-                data['registration_time'] = datetime.fromisoformat(date_val.replace('Z', '+00:00'))
-            elif isinstance(date_val, int):  # assuming milliseconds since epoch
-                data['registration_time'] = datetime.fromtimestamp(date_val / 1000, tz=timezone.utc)
-        elif isinstance(rt, str):
-            data['registration_time'] = datetime.fromisoformat(rt.replace('Z', '+00:00'))
 
         if not to_update_user:
             abort(404, f"The User with ID:{public_id} was not found!")
+
+        # Pin the public_id from the URL so the body cannot overwrite or drop it
+        data['public_id'] = public_id
+        apply_registration_time(data)
 
         user = CmdbUser.from_data(data=data)
         users_manager.update_user(public_id, user)
@@ -294,8 +261,12 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         if not to_update_user:
             abort(404, f"The User with ID:{public_id} was not found!")
 
-        password = security_manager.generate_hmac(request.json.get('password'))
-        to_update_user.password = password
+        new_password = (request.json or {}).get('password')
+
+        if not new_password:
+            abort(400, "A new password is required to change the password!")
+
+        to_update_user.password = security_manager.generate_hmac(new_password)
         users_manager.update_user(public_id, to_update_user)
 
         return UpdateSingleResponse(CmdbUser.to_json(to_update_user)).make_response()

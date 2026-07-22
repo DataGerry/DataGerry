@@ -10,7 +10,12 @@
       <div class="card">
         <div class="card-header">LICENSE DETAILS</div>
         <div class="card-body">
+<<<<<<< HEAD
           <section class="license-card" *ngIf="license as lic">
+=======
+          @if (license; as lic) {
+          <section class="license-card">
+>>>>>>> origin/version-3.2
             <div class="grid">
               <div class="cell">
                 <div class="key">Type</div>
@@ -20,7 +25,11 @@
                   </span>
                 </div>
               </div>
+<<<<<<< HEAD
          
+=======
+
+>>>>>>> origin/version-3.2
               <div class="cell">
                 <div class="key">Status</div>
                 <div class="val">
@@ -28,21 +37,34 @@
                   {{ lic.active ? 'Active' : 'Inactive' }}
                 </div>
               </div>
+<<<<<<< HEAD
          
+=======
+
+>>>>>>> origin/version-3.2
               <div class="cell">
                 <div class="key">Start</div>
                 <div class="val">{{ lic.startDate | date:'dd MMM yyyy' }}</div>
               </div>
+<<<<<<< HEAD
          
+=======
+
+>>>>>>> origin/version-3.2
               <!-- <div class="cell">
                 <div class="key">End</div>
                 <div class="val">{{ lic.endDate ? (lic.endDate | date:'dd MMM yyyy') : '—' }}</div>
               </div> -->
+<<<<<<< HEAD
          
+=======
+
+>>>>>>> origin/version-3.2
 
               <div class="cell">
                 <div class="key">Expiration Date</div>
                 <div class="val">
+<<<<<<< HEAD
                   <ng-container *ngIf="lic.duration === '-' || lic.duration === '–'; else durationText">
                     <span class="infinity-symbol" title="Unlimited Duration">∞</span>
                   </ng-container>
@@ -53,12 +75,34 @@
               
          
               <div class="cell" *ngIf="lic.monthPeriod">
+=======
+                  @if (lic.duration === '-' || lic.duration === '–') {
+
+                  <span class="infinity-symbol" title="Unlimited Duration">∞</span>
+
+                  } @else {
+                  {{ lic.duration || '—' }}
+                  }
+
+                </div>
+              </div>
+
+
+
+              @if (lic.monthPeriod) {
+              <div class="cell">
+>>>>>>> origin/version-3.2
                 <div class="key">Monthly Period</div>
                 <div class="val">
                   {{ lic.monthPeriod?.startDate | date:'dd MMM' }} – {{ lic.monthPeriod?.endDate | date:'dd MMM' }}
                 </div>
               </div>
+<<<<<<< HEAD
          
+=======
+              }
+
+>>>>>>> origin/version-3.2
               <div class="cell">
                 <div class="key">Usage (ops)</div>
                 <div class="val strong">
@@ -66,6 +110,7 @@
                 </div>
               </div>
             </div>
+<<<<<<< HEAD
          
             <div class="bar mt-2">
               <app-usage-bar
@@ -77,10 +122,20 @@
                 [height]="12"
                 ariaLabel="Operations usage"
                 colorStart="#3b82f6"
+=======
+
+            <div class="bar mt-2">
+              <app-usage-bar [min]="0" [max]="lic.totalOperationUsage" [value]="lic.currentOperationUsage"
+                [tickCount]="10" [showTicks]="true" [height]="12" ariaLabel="Operations usage" colorStart="#3b82f6"
+>>>>>>> origin/version-3.2
                 colorEnd="#22c55e">
               </app-usage-bar>
             </div>
           </section>
+<<<<<<< HEAD
+=======
+          }
+>>>>>>> origin/version-3.2
         </div>
       </div>
     </div>
@@ -90,6 +145,7 @@
       <div class="card">
         <div class="card-header">USAGE BY CONNECTION</div>
         <div class="card-body usage-table">
+<<<<<<< HEAD
           <cmdb-table
             [items]="items"
             [columns]="columns"
@@ -100,6 +156,10 @@
             [paginationEnabled]="false"
             [pageSizeEnabled]="false"
             [searchEnabled]="false"
+=======
+          <cmdb-table [items]="items" [columns]="columns" [totalItems]="totalItems" [pageSize]="size" [page]="page"
+            [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false"
+>>>>>>> origin/version-3.2
             (pageChange)="onPageChange($event)">
           </cmdb-table>
         </div>
@@ -108,7 +168,11 @@
   </div>
 </div>
 
+<<<<<<< HEAD
 <app-loading-popup 
 [isVisible]="isLoading$ | async"
 message="We're Processing the Data..."
 ></app-loading-popup>
+=======
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+>>>>>>> origin/version-3.2

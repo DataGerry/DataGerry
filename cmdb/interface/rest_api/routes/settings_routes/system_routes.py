@@ -82,8 +82,9 @@ def get_datagerry_information(request_user: CmdbUser) -> Response:
 @system_blueprint.route('/config/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+# request_user is injected for auth/permission checks; the body reads SystemConfigReader directly
 @right_required('base.system.view')
-def get_config_information(request_user: CmdbUser) -> Response:
+def get_config_information(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     Retrieves and returns the configuration information, including path and properties,
     of the system configuration file
@@ -97,8 +98,9 @@ def get_config_information(request_user: CmdbUser) -> Response:
     try:
         ssc = SystemConfigReader()
 
+        # 'config_file' is only set when a config file is loaded; in config-less mode it is absent
         config_dict: dict[str, Any] = {
-            'path': ssc.config_file,
+            'path': getattr(ssc, 'config_file', None),
             'properties': []
         }
 
@@ -110,12 +112,7 @@ def get_config_information(request_user: CmdbUser) -> Response:
 
             config_dict['properties'].append([section, section_values])
 
-        api_response = DefaultResponse(config_dict)
-
-        if len(config_dict) < 1:
-            return api_response.make_response(204)
-
-        return api_response.make_response()
+        return DefaultResponse(config_dict).make_response()
     except Exception as err:
         LOGGER.error("[get_config_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while gathering DataGerry config information!")

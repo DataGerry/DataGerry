@@ -19,8 +19,7 @@
 import { Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { CmdbCategory, CmdbCategoryNode } from '../../../models/cmdb-category';
 import { CmdbMode } from '../../../modes.enum';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { NgbModalRef } from '@ng-bootstrap/ng-bootstrap/modal/modal-ref';
+import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { CategoryService } from '../../../services/category.service';
 import { Router } from '@angular/router';
 import { DeleteCategoryModalComponent } from '../modals/delete-category-modal/delete-category-modal.component';

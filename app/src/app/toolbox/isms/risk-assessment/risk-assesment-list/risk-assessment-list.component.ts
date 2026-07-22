@@ -16,8 +16,15 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
-    Component, OnInit, OnChanges, SimpleChanges, Input,
-    TemplateRef, ViewChild, DestroyRef
+    Component,
+    inject,
+    OnInit,
+    OnChanges,
+    SimpleChanges,
+    Input,
+    TemplateRef,
+    ViewChild,
+    DestroyRef,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { finalize, map } from 'rxjs/operators';
@@ -55,6 +62,21 @@ const GREY = '#f5f5f5';
     standalone: false
 })
 export class RiskAssessmentListComponent implements OnInit, OnChanges {
+    private readonly route = inject(ActivatedRoute);
+    private readonly router = inject(Router);
+    private readonly destroyRef = inject(DestroyRef);
+    private readonly riskAssessmentService = inject(RiskAssessmentService);
+    private readonly personService = inject(PersonService);
+    private readonly personGroupService = inject(PersonGroupService);
+    private readonly optionService = inject(ExtendableOptionService);
+    private readonly riskMatrixService = inject(RiskMatrixService);
+    private readonly riskClassService = inject(RiskClassService);
+    private readonly filterBuilder = inject(FilterBuilderService);
+    private readonly ismsValidationService = inject(IsmsValidationService);
+    private readonly loader = inject(LoaderService);
+    private readonly toast = inject(ToastService);
+    private readonly modal = inject(NgbModal);
+    public readonly activeModal = inject(NgbActiveModal);
 
     /* ────────── incoming filters (embedding) ────────── */
     @Input() riskId?: number;
@@ -96,6 +118,7 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
     private riskMatrixFlat: any[] = [];
     private riskClassMap = new Map<number, RiskClass>();
 
+<<<<<<< HEAD
     constructor(
         private readonly route: ActivatedRoute,
         private readonly router: Router,
@@ -118,6 +141,8 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
 
     ) { }
 
+=======
+>>>>>>> origin/version-3.2
     /* ══════════════════ life-cycle ══════════════════ */
     ngOnInit(): void {
 

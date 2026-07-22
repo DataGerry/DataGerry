@@ -16,10 +16,10 @@
 """
 Implementation of ObjectReferenceType enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ObjectReferenceType(str, Enum):
+class ObjectReferenceType(BaseStrEnum):
     """
     Enumeration of available reference types for CmdbObjects.
 
@@ -32,17 +32,3 @@ class ObjectReferenceType(str, Enum):
     """
     OBJECT = 'OBJECT'
     OBJECT_GROUP = 'OBJECT_GROUP'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid ObjectReferenceType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing ObjectReferenceType, False otherwise
-        """
-        return value in ObjectReferenceType.__members__

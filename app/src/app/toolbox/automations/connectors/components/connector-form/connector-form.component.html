@@ -1,10 +1,20 @@
 <div class="page-title">
+<<<<<<< HEAD
   {{ mode === 'internal' ? 'Setup your DataGerry credentials' : (mode === 'create' ? 'Add Connector' : 'Edit Connector') }}
+=======
+  {{ mode === 'internal' ? 'Setup your DataGerry credentials' : (mode === 'create' ? 'Add Connector' : 'Edit Connector')
+  }}
+>>>>>>> origin/version-3.2
 </div>
 
 <div class="row g-3">
   <!-- Left: General Data -->
+<<<<<<< HEAD
   <div class="col-12 col-lg-6" *ngIf="mode !== 'internal'">
+=======
+  @if (mode !== 'internal') {
+  <div class="col-12 col-lg-6">
+>>>>>>> origin/version-3.2
     <div class="card">
       <div class="card-header">GENERAL DATA</div>
       <div class="card-body">
@@ -12,9 +22,17 @@
           <!-- Title -->
           <app-form-input formControlName="title" label="Title" [required]="true">
           </app-form-input>
+<<<<<<< HEAD
           <small class="text-danger" *ngIf="hasErr('title','required')">
             Title is required
           </small>
+=======
+          @if (hasErr('title','required')) {
+          <small class="text-danger">
+            Title is required
+          </small>
+          }
+>>>>>>> origin/version-3.2
 
           <!-- Description -->
           <app-form-textarea formControlName="description" label="Description" [rows]="3">
@@ -26,21 +44,42 @@
               placeholder="Select Invoker" [required]="true" label="Invoker">
             </app-form-select>
           </div>
+<<<<<<< HEAD
           <small class="text-danger" *ngIf="hasErr('invoker.name','required')">
             Invoker is required
           </small>
+=======
+          @if (hasErr('invoker.name','required')) {
+          <small class="text-danger">
+            Invoker is required
+          </small>
+          }
+>>>>>>> origin/version-3.2
 
           <!-- Timeout and SSL -->
           <div class="row mt-3" style="align-items: center;">
             <div class="col-6">
               <app-form-input formControlName="timeout" label="Timeout (ms)" type="number" [required]="true">
               </app-form-input>
+<<<<<<< HEAD
               <small class="text-danger" *ngIf="hasErr('timeout','required')">
                 Timeout is required
               </small>
               <small class="text-danger" *ngIf="hasErr('timeout','min')">
                 Timeout must be at least 0
               </small>
+=======
+              @if (hasErr('timeout','required')) {
+              <small class="text-danger">
+                Timeout is required
+              </small>
+              }
+              @if (hasErr('timeout','min')) {
+              <small class="text-danger">
+                Timeout must be at least 0
+              </small>
+              }
+>>>>>>> origin/version-3.2
             </div>
             <div class="col-6 d-flex align-items-end mt-1">
               <div class="form-check">
@@ -55,10 +94,15 @@
       </div>
     </div>
   </div>
+<<<<<<< HEAD
+=======
+  }
+>>>>>>> origin/version-3.2
 
   <!-- Right: Credentials -->
   <div [ngClass]="{'col-12': mode === 'internal', 'col-12 col-lg-6': mode !== 'internal'}">
     <div class="card">
+<<<<<<< HEAD
       <div class="card-header">{{mode === 'internal'?  'Auth Data' : 'CREDENTIALS'}}</div>
 
       <div class="card-body">
@@ -67,23 +111,53 @@
           autocomplete="off">
           <!-- Master Password Overlay -->
           <div class="master-password-overlay" *ngIf="showMasterPassword">
+=======
+      <div class="card-header">{{mode === 'internal'? 'Auth Data' : 'CREDENTIALS'}}</div>
+
+      <div class="card-body">
+        <!-- Credentials Form -->
+        @if (!inlineLoading && !testing) {
+        <form [formGroup]="form" class="credentials-form-container" autocomplete="off">
+          <!-- Master Password Overlay -->
+          @if (showMasterPassword) {
+          <div class="master-password-overlay">
+>>>>>>> origin/version-3.2
             <div class="master-password-content">
               <div class="text-center">
                 <div class="mb-3">
                   <i class="bi bi-shield-lock text-primary" style="font-size: 2.5rem;"></i>
                 </div>
+<<<<<<< HEAD
                 <p class="text-muted mb-3" *ngIf="mode !== 'internal'">
                   Enter the master password to access the credentials.
                 </p>
                 <p class="text-muted mb-3" *ngIf="mode === 'internal' && isCloudMode">
+=======
+                @if (mode !== 'internal') {
+                <p class="text-muted mb-3">
+                  Enter the master password to access the credentials.
+                </p>
+                }
+                @if (mode === 'internal' && isCloudMode) {
+                <p class="text-muted mb-3">
+>>>>>>> origin/version-3.2
                   Get your master password from the
                   <a href="https://service.datagerry.com/login" target="_blank" rel="noopener noreferrer">
                     DataGerry Service Portal
                   </a>.
                 </p>
+<<<<<<< HEAD
                 <p class="text-muted mb-3" *ngIf="mode === 'internal' && !isCloudMode">
                   Get your master password from the Opencelium Service Portal.
                 </p>
+=======
+                }
+                @if (mode === 'internal' && !isCloudMode) {
+                <p class="text-muted mb-3">
+                  Get your master password from the Opencelium Service Portal.
+                </p>
+                }
+>>>>>>> origin/version-3.2
 
                 <div class="mb-3">
                   <label for="masterPassword" class="form-label">Master Password</label>
@@ -102,12 +176,19 @@
                 </div>
                 <button class="btn btn-primary w-100" (click)="verifyMasterPassword()"
                   [disabled]="!form.get('masterPassword')?.value || verifyingPassword">
+<<<<<<< HEAD
                   <span *ngIf="verifyingPassword" class="spinner-border spinner-border-sm me-2" role="status"></span>
+=======
+                  @if (verifyingPassword) {
+                  <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  }
+>>>>>>> origin/version-3.2
                   {{ verifyingPassword ? 'Verifying...' : 'Verify Password' }}
                 </button>
               </div>
             </div>
           </div>
+<<<<<<< HEAD
           <!-- Show message when no invoker selected (only for non-internal modes) -->
           <div class="alert alert-info" *ngIf="!selectedInvoker && mode !== 'internal'">
             <i class="bi bi-info-circle"></i>
@@ -186,6 +267,109 @@
             </div>
           </div>
         </form>
+=======
+          }
+          <!-- Show message when no invoker selected (only for non-internal modes) -->
+          @if (!selectedInvoker && mode !== 'internal') {
+          <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            Select an invoker to configure its credentials
+          </div>
+          }
+
+          <!-- Show credentials fields when invoker is selected and ready, OR in internal mode -->
+          @if ((selectedInvoker || mode === 'internal') && credentialsReady) {
+
+          <!-- Show invoker hint if available -->
+          @if (selectedInvoker?.hint && mode !== 'internal') {
+          <div class="alert alert-light small mb-3">
+            <strong>Configuration Help:</strong><br>
+            {{ selectedInvoker.hint }}
+          </div>
+          }
+
+          <!-- Dynamic credential fields with blur effect -->
+          <div formGroupName="requestData" [class.credentials-blurred]="credentialsBlurred">
+            @for (fieldName of getDisplayedRequestDataControlNames(); track trackByName($index, fieldName)) {
+
+            <div class="mb-3">
+              @if (mode === 'internal' && fieldName === 'password') {
+
+              <label class="form-label mb-1 mt-1">
+                {{ fieldName | titlecase }}
+                <span class="required">*</span>
+              </label>
+              <div class="input-group">
+                <input class="form-control" [type]="showDataGerryPassword ? 'text' : 'password'"
+                  [formControl]="getRequestControl(fieldName)" placeholder="Password" />
+                <button class="btn btn-outline-secondary" type="button" (click)="toggleDataGerryPasswordVisibility()">
+                  <i class="fas" [ngClass]="{
+                        'fa-eye': !showDataGerryPassword,
+                        'fa-eye-slash': showDataGerryPassword
+                      }"></i>
+                </button>
+              </div>
+
+              } @else {
+
+              <app-form-input [formControl]="getRequestControl(fieldName)" [label]="fieldName | titlecase"
+                [required]="true">
+              </app-form-input>
+
+              }
+
+              <!-- Hints for internal mode -->
+              @if (mode === 'internal' && fieldName === 'username') {
+              <small class="form-text text-muted mt-1">
+                Your DataGerry username
+              </small>
+              }
+              @if (mode === 'internal' && fieldName === 'password') {
+              <small class="form-text text-muted mt-1">
+                Your DataGerry password
+              </small>
+              }
+              @if (mode === 'internal' && fieldName === 'x-api-key') {
+              <small class="form-text text-muted mt-1">
+                Get your API key from the
+                <a href="https://service.datagerry.com/login" target="_blank" rel="noopener noreferrer">
+                  DataGerry Service Portal
+                </a>
+              </small>
+              }
+              @if (getRequestControl(fieldName)?.touched &&
+              getRequestControl(fieldName)?.hasError('required')) {
+              <small class="text-danger">
+                {{ fieldName | titlecase }} is required
+              </small>
+              }
+            </div>
+
+            }
+          </div>
+
+          }
+
+          <!-- Test Status -->
+          @if (selectedInvoker && credentialsReady) {
+          <div class="mt-3">
+            @if (isValidCredentials) {
+            <div class="alert alert-success d-flex align-items-center">
+              <i class="bi bi-check-circle-fill me-2"></i>
+              Connection test passed. Ready to save.
+            </div>
+            }
+            @if (!isValidCredentials && form.get('invoker.name')?.value) {
+            <div class="alert alert-warning d-flex align-items-center">
+              <i class="bi bi-exclamation-triangle-fill me-2"></i>
+              Please test the connection before saving.
+            </div>
+            }
+          </div>
+          }
+        </form>
+        }
+>>>>>>> origin/version-3.2
 
         <!-- Action Buttons -->
         <div class="d-flex justify-content-end gap-2 mt-4">
@@ -193,6 +377,7 @@
           </app-button>
 
           <!-- Show Test Connection button until successful test, then show Create/Update -->
+<<<<<<< HEAD
           <app-button 
             *ngIf="!isValidCredentials"
             [bootstrapClass]="'btn-primary'" 
@@ -208,13 +393,30 @@
             [disabled]="form.invalid || !credentialsReady" 
             (clicked)="save()">
           </app-button>
+=======
+          @if (!isValidCredentials) {
+          <app-button [bootstrapClass]="'btn-primary'" label="Test Connection"
+            [disabled]="testing || form.invalid || !credentialsReady" (clicked)="test()">
+          </app-button>
+          }
+
+          @if (isValidCredentials) {
+          <app-button [bootstrapClass]="'btn-success'" [label]="saveButtonLabel"
+            [disabled]="form.invalid || !credentialsReady" (clicked)="save()">
+          </app-button>
+          }
+>>>>>>> origin/version-3.2
         </div>
       </div>
     </div>
   </div>
 </div>
 
+<<<<<<< HEAD
 <app-loading-popup 
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>
+=======
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+>>>>>>> origin/version-3.2

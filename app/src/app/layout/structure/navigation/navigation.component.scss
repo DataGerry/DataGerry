@@ -119,10 +119,27 @@ cmdb-search-bar {
     width: 225px !important;
     min-width: 225px !important;
     max-width: 240px !important;
+<<<<<<< HEAD
   }
 
   .navbar-brand {
     width: 100%;
+=======
+    display: flex;
+    align-items: center;
+  }
+
+  .brand-lockup {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding-left: 24px;
+  }
+
+  .navbar-brand {
+    width: auto;
+>>>>>>> origin/version-3.2
     font-weight: 300;
     display: flex;
     align-items: center;
@@ -186,6 +203,16 @@ cmdb-search-bar {
         transition: $transition-smooth;
         text-decoration: none;
 
+<<<<<<< HEAD
+=======
+        // Center the "Pro" pill on the right of the row (the global default sits in the top-right corner).
+        .dg-premium-badge {
+          top: 50%;
+          right: 8px;
+          transform: translateY(-50%);
+        }
+
+>>>>>>> origin/version-3.2
         &:hover {
           background: $brand-primary-light;
           color: $brand-primary;
@@ -349,12 +376,67 @@ cmdb-search-bar {
     }
   }
 
+<<<<<<< HEAD
+  // --- Right Menu & Toolbox Grid ---
+  .navbar-right-menu {
+    li {
+      max-height: 70px;
+=======
+  // --- Current Edition Indicator ---
+  .brand-edition {
+    line-height: 0;
+    margin-right: 20px !important;
+    margin-bottom: 2px;
+  }
+
+  .edition-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 18px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid rgba($brand-primary, 0.28);
+    background: linear-gradient(180deg, rgba($brand-primary, 0.14) 0%, rgba($brand-primary, 0.07) 100%);
+    color: color.adjust($brand-primary, $lightness: -16%);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    user-select: none;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+
+    // Leading status dot echoes the tag color
+    &::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.85;
+      flex: none;
+    }
+
+    // Free: neutral and low-emphasis — the base edition stays quietest.
+    &--free {
+      border-color: rgba($text-dark, 0.14);
+      background: linear-gradient(180deg, #f8fafc 0%, #eef1f4 100%);
+      color: $text-muted;
+>>>>>>> origin/version-3.2
+    }
+  }
+
+<<<<<<< HEAD
+=======
   // --- Right Menu & Toolbox Grid ---
   .navbar-right-menu {
     li {
       max-height: 70px;
     }
 
+>>>>>>> origin/version-3.2
     .nav-link {
       min-width: 40px;
       display: block;
@@ -395,6 +477,7 @@ cmdb-search-bar {
         gap: 6px;
         margin: 0;
       }
+<<<<<<< HEAD
 
       .col {
         padding: 0;
@@ -408,6 +491,22 @@ cmdb-search-bar {
     }
 
     .dropdown-icon-item {
+=======
+
+      .col {
+        padding: 0;
+        flex: unset;
+        max-width: unset;
+
+        &:empty {
+          display: none;
+        }
+      }
+    }
+
+    .dropdown-icon-item {
+      position: relative;
+>>>>>>> origin/version-3.2
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -441,7 +540,11 @@ cmdb-search-bar {
         transition: $transition-smooth;
       }
 
+<<<<<<< HEAD
       span {
+=======
+      span:not(.dg-premium-badge) {
+>>>>>>> origin/version-3.2
         display: block;
         font-size: 10.5px;
         font-weight: 600;
@@ -451,6 +554,10 @@ cmdb-search-bar {
       }
 
       &:hover {
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/version-3.2
         cursor: pointer;
         background: $brand-primary-hover;
         border-color: rgba($brand-primary, 0.2);
@@ -469,7 +576,11 @@ cmdb-search-bar {
           transform: scale(1.1);
         }
 
+<<<<<<< HEAD
         span {
+=======
+        span:not(.dg-premium-badge) {
+>>>>>>> origin/version-3.2
           color: $brand-primary;
         }
       }
@@ -487,21 +598,38 @@ cmdb-search-bar {
   flex-direction: column;
   align-items: center;
   width: 100%;
+<<<<<<< HEAD
+=======
+  min-width: 160px; // Ensures the entire block doesn't get crushed on zoom
+>>>>>>> origin/version-3.2
   padding: 0 4px;
 
   .progress-label {
     display: flex;
     justify-content: space-between;
+<<<<<<< HEAD
     align-items: baseline;
     width: 100%;
     margin-bottom: 6px;
 
     .label-text {
       font-size: 0.65rem;
+=======
+    align-items: center;
+    width: 100%;
+    margin-bottom: 6px;
+    gap: 8px; // Keeps a safe minimum distance between text and percentage
+
+    .label-text {
+      // Fluidly scales down the font size if the container gets tight, 
+      // maxing out at 0.65rem and shrinking no smaller than 0.5rem.
+      font-size: clamp(0.5rem, 1.5vw, 0.65rem); 
+>>>>>>> origin/version-3.2
       color: $text-muted;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+<<<<<<< HEAD
     }
 
     .label-percent {
@@ -509,12 +637,31 @@ cmdb-search-bar {
       font-weight: 800;
       color: $text-dark;
       letter-spacing: 0px;
+=======
+      
+      white-space: nowrap; // Forces the text to stay on exactly one line
+    }
+
+    .label-percent {
+      // Scales down slightly on tight screens to prevent overflow
+      font-size: clamp(0.65rem, 1.8vw, 0.8rem);
+      font-weight: 800;
+      color: $text-dark;
+      letter-spacing: 0px;
+      line-height: 1;
+      
+      white-space: nowrap; // Prevents the percentage from wrapping
+>>>>>>> origin/version-3.2
     }
   }
 
   .progress.track-modern {
     height: 12px;
     width: 100%;
+<<<<<<< HEAD
+=======
+    min-width: 100px; // Guarantees the gray/green bar itself always stays visible
+>>>>>>> origin/version-3.2
     background-color: rgba($text-dark, 0.08);
     border-radius: 999px;
     overflow: hidden;

@@ -20,9 +20,17 @@
       <div class="status-container">
         <h3 class="status-message">{{ message }}</h3>
         <div class="stage-indicator">
+<<<<<<< HEAD
           <span class="stage" *ngFor="let stage of stages" [class.active]="stage.active">
             {{ stage.label }}
           </span>
+=======
+          @for (stage of stages; track stage) {
+<span class="stage" [class.active]="stage.active">
+            {{ stage.label }}
+          </span>
+}
+>>>>>>> origin/version-3.2
         </div>
       </div>
 

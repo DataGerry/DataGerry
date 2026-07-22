@@ -20,7 +20,13 @@ import { CoreDeleteConfirmationModalComponent } from './components/dialog/delete
 import { CoreWarningModalComponent } from './components/dialog/core-warning-modal/core-warning-modal.component';
 import { AppUsageBarComponent } from './components/usage-bar/app-usage-bar.component';
 import { CoreConfirmationModalComponent } from './components/dialog/confirmation/core-confirmation-modal.component';
+import { PremiumFeatureModalComponent } from './components/dialog/premium-feature-modal/premium-feature-modal.component';
 import { HorizontalResizeDirective } from './directives/horizontal-resize.directive';
+import { FullscreenDirective } from './directives/fullscreen.directive';
+import { PremiumFeatureDirective } from './directives/premium-feature.directive';
+import { PremiumGateDirective } from './directives/premium-gate.directive';
+import { PremiumLockedComponent } from './components/premium-locked/premium-locked.component';
+import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
 @NgModule({
   declarations: [
@@ -41,14 +47,24 @@ import { HorizontalResizeDirective } from './directives/horizontal-resize.direct
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
-    CoreConfirmationModalComponent
+    CoreConfirmationModalComponent,
+    PremiumFeatureModalComponent,
+    CompactNumberPipe
   ],
   imports: [
     CommonModule,
     NgSelectModule,
     FormsModule,
     ReactiveFormsModule,
+<<<<<<< HEAD
     HorizontalResizeDirective
+=======
+    HorizontalResizeDirective,
+    FullscreenDirective,
+    PremiumFeatureDirective,
+    PremiumGateDirective,
+    PremiumLockedComponent
+>>>>>>> origin/version-3.2
   ],
   exports: [
     LoadingPopupComponent,
@@ -69,7 +85,13 @@ import { HorizontalResizeDirective } from './directives/horizontal-resize.direct
     CoreWarningModalComponent,
     AppUsageBarComponent,
     CoreConfirmationModalComponent,
-    HorizontalResizeDirective
+    PremiumFeatureModalComponent,
+    HorizontalResizeDirective,
+    FullscreenDirective,
+    PremiumFeatureDirective,
+    PremiumGateDirective,
+    PremiumLockedComponent,
+    CompactNumberPipe
   ]
 })
 export class CoreModule { }

@@ -36,6 +36,7 @@
     </ul>
 
     <div [formGroup]="form">
+<<<<<<< HEAD
         <cmdb-docapi-page-margins-options *ngIf="activeTab === 'margins'" [marginsForm]="form" />
 
         <cmdb-docapi-page-cover-options *ngIf="activeTab === 'cover'" [coverForm]="form"
@@ -57,6 +58,37 @@
         <div *ngIf="validationError" class="validation-error">
             {{ validationError }}
         </div>
+=======
+        @if (activeTab === 'margins') {
+        <cmdb-docapi-page-margins-options [marginsForm]="form" />
+        }
+
+        @if (activeTab === 'cover') {
+        <cmdb-docapi-page-cover-options [coverForm]="form" [editorConfig]="coverEditorConfig" />
+        }
+
+        @if (activeTab === 'header') {
+        <cmdb-docapi-page-header-options [headerForm]="form" [editorConfig]="headerEditorConfig"
+            [activationToggleId]="'headerActivatedInput'" [contentHelpText]="pageSectionHeightConstraintHint" />
+        }
+
+        @if (activeTab === 'footer') {
+        <cmdb-docapi-page-header-options [headerForm]="form" [editorConfig]="footerEditorConfig"
+            [activatedControlName]="'footer_activated'" [activationToggleId]="'footerActivatedInput'"
+            [contentControlName]="'footer_content'" [activationLabel]="'Activate footer'"
+            [contentLabel]="'Footer Content'" [contentHelpText]="pageSectionHeightConstraintHint" />
+        }
+
+        @if (activeTab === 'toc') {
+        <cmdb-docapi-page-toc-options [tocForm]="form" />
+        }
+
+        @if (validationError) {
+        <div class="validation-error">
+            {{ validationError }}
+        </div>
+        }
+>>>>>>> origin/version-3.2
     </div>
 </div>
 
@@ -65,6 +97,13 @@
     <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
     </app-button>
 
+<<<<<<< HEAD
     <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled" (clicked)="apply()">
     </app-button>
 </div>
+=======
+    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled"
+        (clicked)="apply()">
+    </app-button>
+</div>
+>>>>>>> origin/version-3.2

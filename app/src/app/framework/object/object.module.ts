@@ -22,7 +22,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatIconModule } from '@angular/material/icon';
 
 import { NgSelectModule } from '@ng-select/ng-select';
-import { NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
+import { NgbDropdownModule, NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { ArchwizardModule } from '@rg-software/angular-archwizard';
 import { QRCodeComponent } from 'angularx-qrcode';
@@ -43,6 +43,14 @@ import { ObjectSummaryComponent } from './components/object-summary/object-summa
 import { ObjectExternalsComponent } from './components/object-externals/object-externals.component';
 import { ObjectAddComponent } from './object-add/object-add.component';
 import { ObjectFooterComponent } from './object-view/object-footer/object-footer.component';
+import { IpamSupernetOverviewComponent } from './object-view/ipam-overview/ipam-supernet-overview/ipam-supernet-overview.component';
+import { IpamSubnetOverviewComponent } from './object-view/ipam-overview/ipam-subnet-overview/ipam-subnet-overview.component';
+import { IpamIpTableComponent } from './object-view/ipam-overview/components/ipam-ip-table/ipam-ip-table.component';
+import { IpamIpDistributionComponent } from './object-view/ipam-overview/components/ipam-ip-distribution/ipam-ip-distribution.component';
+import { IpamTypeDistributionComponent } from './object-view/ipam-overview/components/ipam-type-distribution/ipam-type-distribution.component';
+import { IpamSupernetSubnetTableComponent } from './object-view/ipam-overview/components/ipam-supernet-subnet-table/ipam-supernet-subnet-table.component';
+import { IpamUnassignIpModalComponent } from './object-view/ipam-overview/components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
+import { IpamAssignIpModalComponent } from './object-view/ipam-overview/components/ipam-assign-ip-modal/ipam-assign-ip-modal.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
 import { ObjectEditComponent } from './object-edit/object-edit.component';
@@ -71,6 +79,9 @@ import { ObjectBulkChangeFailedComponent } from './object-bulk-change/object-bul
 import { ObjectBulkChangeCompleteComponent } from './object-bulk-change/object-bulk-change-complete/object-bulk-change-complete.component';
 import { CoreModule } from 'src/app/core/core.module';
 import { RelationRoleDialogComponent } from './object-view/relation-role-dialog/relation-role-dialog.component';
+import { ObjectRelationsComponent } from './object-view/object-relations/object-relations.component';
+import { ObjectRelationTabContentComponent } from './object-view/object-relations/object-relation-tab-content/object-relation-tab-content.component';
+import { ObjectRelationSelectModalComponent } from './object-view/object-relations/object-relation-select-modal/object-relation-select-modal.component';
 import { RelationLogListComponent } from './components/object-relation-log-list/relation-log-list.component';
 import { ChangesModalComponent } from './modals/object-relation-changes-modal/changes-modal.component';
 import { RiskAssessmentModule } from 'src/app/toolbox/isms/risk-assessment/risk-assesment.module';
@@ -90,6 +101,14 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectExternalsComponent,
         ObjectAddComponent,
         ObjectFooterComponent,
+        IpamSupernetOverviewComponent,
+        IpamSubnetOverviewComponent,
+        IpamIpTableComponent,
+        IpamIpDistributionComponent,
+        IpamTypeDistributionComponent,
+        IpamSupernetSubnetTableComponent,
+        IpamUnassignIpModalComponent,
+        IpamAssignIpModalComponent,
         ObjectActionsComponent,
         ObjectViewRenderComponent,
         ObjectViewMetaComponent,
@@ -119,6 +138,9 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectBulkChangeFailedComponent,
         ObjectBulkChangeCompleteComponent,
         RelationRoleDialogComponent,
+        ObjectRelationsComponent,
+        ObjectRelationTabContentComponent,
+        ObjectRelationSelectModalComponent,
         RelationLogListComponent,
         ChangesModalComponent,
         GraphEditorComponent,
@@ -136,6 +158,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ReactiveFormsModule,
         NgSelectModule,
         NgbTooltipModule,
+        NgbDropdownModule,
         FontAwesomeModule,
         ArchwizardModule,
         RenderModule,

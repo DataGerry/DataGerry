@@ -73,8 +73,6 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         params: dict[str, Any] = request.json
         conn_title: str = params["title"]
@@ -101,6 +99,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         # Cloud mode: invalidate cache + save ID in Service Portal
         # ------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             cached_user_manager.delete_cached_user(request_user.email)
 
             dg_sp_manager.save_connection_id(
@@ -182,7 +183,7 @@ def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
         return DefaultResponse(remote_api_response).make_response()
     except HTTPException as http_err:
         raise http_err
-    except OcConnectionTestError as err:
+    except OcConnectionCreateError as err:
         LOGGER.error("[oc_send_to_remote_api] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to send payload to remote API!")
 
@@ -215,13 +216,14 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         # ---------------------------
         # Cloud mode: validate connection exists in subscription
         # ---------------------------
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
             if cached_user:
@@ -281,15 +283,20 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         params: dict[str, Any] = request.json
+
+        # Cloud-only collaborators; left None on-premise where the cloud branches are skipped
+        dg_sp_manager = None
+        cached_user_manager = None
 
         # ------------------------------------------------------
         # Cloud mode: validate connection exists
         # ------------------------------------------------------
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
             if cached_user:
@@ -320,6 +327,8 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
 
         # Invalidate cache after update
         if current_app.cloud_mode and not current_app.local_mode:
+            cached_user_manager.delete_cached_user(request_user.email)
+
             # Unmap title for frontend
             if "title" in updated_oc_connection:
                 updated_oc_connection["title"] = unmap_oc_name(updated_oc_connection["title"])

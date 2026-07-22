@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 <div class="toc-pane" *ngIf="tocForm" [formGroup]="tocForm">
+=======
+@if (tocForm) {
+<div class="toc-pane" [formGroup]="tocForm">
+>>>>>>> origin/version-3.2
 
     <div class="mb-3">
         <app-toggle [id]="'tocActivatedInput'" [formControlName]="'table_of_contents_activated'"
@@ -18,11 +23,20 @@
                     </div>
                     <div class="preview-contents-label">Contents</div>
                     <div class="toc-entries">
+<<<<<<< HEAD
                         <div class="toc-row" *ngFor="let item of previewItems" [ngStyle]="getPreviewStyle(item)">
+=======
+                        @for (item of previewItems; track item) {
+                        <div class="toc-row" [ngStyle]="getPreviewStyle(item)">
+>>>>>>> origin/version-3.2
                             <span class="toc-text">{{ item.title }}</span>
                             <span class="toc-leaders"></span>
                             <span class="toc-pg">{{ item.page }}</span>
                         </div>
+<<<<<<< HEAD
+=======
+                        }
+>>>>>>> origin/version-3.2
                     </div>
                 </div>
             </div>
@@ -61,10 +75,19 @@
                 <div class="field mt-3">
                     <label class="field-label mb-2">Select a heading level to customize its style</label>
                     <div class="level-tabs">
+<<<<<<< HEAD
                         <button type="button" class="level-tab" *ngFor="let level of levels"
                             [class.is-active]="selectedLevel === level" (click)="selectLevel(level)">
                             H{{ level + 1 }}
                         </button>
+=======
+                        @for (level of levels; track level) {
+                        <button type="button" class="level-tab" [class.is-active]="selectedLevel === level"
+                            (click)="selectLevel(level)">
+                            H{{ level + 1 }}
+                        </button>
+                        }
+>>>>>>> origin/version-3.2
                     </div>
                     <small class="field-hint">
                         Each heading level can have its own style and indent.
@@ -72,7 +95,12 @@
                 </div>
             </div>
 
+<<<<<<< HEAD
             <div class="config-card config-card--accent" *ngIf="selectedLevelForm" [formGroup]="selectedLevelForm">
+=======
+            @if (selectedLevelForm) {
+            <div class="config-card config-card--accent" [formGroup]="selectedLevelForm">
+>>>>>>> origin/version-3.2
 
                 <div class="config-title">
                     <span class="config-title__badge">{{ selectedLevel + 1 }}</span>
@@ -152,7 +180,12 @@
                     Advanced spacing
                 </button>
 
+<<<<<<< HEAD
                 <div class="adv-grid" *ngIf="showAdvancedSpacing">
+=======
+                @if (showAdvancedSpacing) {
+                <div class="adv-grid">
+>>>>>>> origin/version-3.2
                     <div class="field">
                         <label class="field-label" [for]="'tocLevel' + selectedLevel + 'MarginTop'">Space above</label>
                         <div class="stepper">
@@ -179,8 +212,19 @@
                     </div>
 
                 </div>
+<<<<<<< HEAD
 
             </div>
         </section>
     </div>
 </div>
+=======
+                }
+
+            </div>
+            }
+        </section>
+    </div>
+</div>
+}
+>>>>>>> origin/version-3.2

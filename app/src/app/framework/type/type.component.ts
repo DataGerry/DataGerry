@@ -35,7 +35,6 @@ import { CmdbType } from '../models/cmdb-type';
 import { Column, Sort, SortDirection, TableState, TableStatePayload } from '../../layout/table/table.types';
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { UserSetting } from '../../management/user-settings/models/user-setting';
-import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { User } from '../../management/models/user';
@@ -135,7 +134,6 @@ export class TypeComponent implements OnInit, OnDestroy {
         private router: Router,
         private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
         private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
-        private sideBarService: SidebarService,
         private loaderService: LoaderService,
         private toastService: ToastService
     ) {
@@ -177,13 +175,13 @@ export class TypeComponent implements OnInit, OnDestroy {
                 display: 'Public ID',
                 name: 'public_id',
                 data: 'public_id',
-                searchable: true,
+                searchable: false,
                 sortable: true
             },
             {
                 display: 'Type',
                 name: 'name',
-                data: 'name',
+                data: 'label',
                 searchable: true,
                 sortable: true,
                 template: this.typeNameTemplate,
@@ -192,7 +190,7 @@ export class TypeComponent implements OnInit, OnDestroy {
                 display: 'Author',
                 name: 'author_id',
                 data: 'author_id',
-                searchable: true,
+                searchable: false,
                 sortable: true,
                 template: this.userTemplate
             },
@@ -209,7 +207,7 @@ export class TypeComponent implements OnInit, OnDestroy {
                 name: 'editor_id',
                 data: 'editor_id',
                 sortable: true,
-                searchable: true,
+                searchable: false,
                 template: this.userTemplate
             },
             {
@@ -300,29 +298,12 @@ export class TypeComponent implements OnInit, OnDestroy {
             // Searchable Columns
             for (const column of searchableColumns) {
                 const regex: any = {};
-                regex[column.name] = {
+                regex[column.data] = {
                     $regex: String(this.filter),
-                    $options: 'ismx'
+                    $options: 'ims'
                 };
                 or.push(regex);
             }
-
-            query.push({
-                $addFields: {
-                    public_id: { $toString: '$public_id' }
-                }
-            });
-
-            or.push({
-                public_id: {
-                    $elemMatch: {
-                        value: {
-                            $regex: String(this.filter),
-                            $options: 'ismx'
-                        }
-                    }
-                }
-            });
 
             query.push({ $match: { $or: or } });
         }
@@ -348,8 +329,6 @@ export class TypeComponent implements OnInit, OnDestroy {
                     });
                     this.totalTypes = apiResponse?.total;
                     this.loading = false;
-                    this.sideBarService?.loadCategoryTree();
-
                 },
                 error: (error) => {
                     this.loading = false;

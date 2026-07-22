@@ -17,7 +17,11 @@
 Implementation of RightsManager
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
 from multiprocessing.managers import BaseManager
+=======
+from typing import Any
+>>>>>>> origin/version-3.2
 
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.all_rights import ALL_RIGHTS
@@ -35,27 +39,27 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RightsManager - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-class RightsManager(BaseManager):
+class RightsManager:
     """
-    Manages a collection of rights organized in a tree structure.
-    Provides functionalities to flatten the tree, retrieve rights,
-    and iterate over them with pagination and sorting.
+    Manages the static collection of DataGerry rights defined in the `ALL_RIGHTS` tree.
+
+    Unlike the other managers, `RightsManager` is not database-backed: the rights are a
+    compile-time tree, so this class only flattens that tree once and serves it in-memory.
+    It deliberately does not extend `BaseManager` (there is no collection or `MongoDatabaseManager`)
+    and is not registered with `ManagerProvider`. It provides functionality to flatten the tree,
+    retrieve a single right, iterate over the rights with pagination/sorting, and serialize the
+    tree to JSON.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
-        Initializes the RightsManager with a flattened version of the provided rights tree
-
-        Args:
-            right_tree : A nested structure of rights
+        Initializes the RightsManager with a flattened version of the `ALL_RIGHTS` tree
 
         Raises:
             RightsManagerInitError: If the RightsManager could not be initialised
         """
         try:
-            self.rights = RightsManager.flat_tree(ALL_RIGHTS)
-
-            super().__init__()
+            self.rights: list[BaseRight] = RightsManager.flat_tree(ALL_RIGHTS)
         except Exception as err:
             raise RightsManagerInitError(err) from err
 
@@ -64,6 +68,10 @@ class RightsManager(BaseManager):
     def iterate_rights(self, limit: int, skip: int, sort: str, order: int) -> IterationResult[BaseRight]:
         """
         Iterates over the rights with optional pagination and sorting.
+
+        Sorting is applied first, then a single `skip`/`limit` window is sliced out. A `skip`
+        beyond the end yields an empty page rather than raising. The reported total is always
+        the full number of rights, independent of the page size.
 
         Args:
             limit (int): Maximum number of rights to return in one page. If <= 0, returns all
@@ -78,22 +86,18 @@ class RightsManager(BaseManager):
             RightsManagerIterationError: If retrieving the rights failed
         """
         try:
-            sorted_rights = sorted(self.rights, key=lambda right: right[sort], reverse=order == -1)
+            sorted_rights: list[BaseRight] = sorted(self.rights,
+                                                    key=lambda right: right[sort],
+                                                    reverse=order == -1)
 
-            if limit > 0:
-                spliced_rights = [sorted_rights[i:i + limit] for i in range(0, len(sorted_rights),
-                                  limit)][int(skip / limit)]
-            else:
-                spliced_rights = sorted_rights
+            spliced_rights: list[BaseRight] = sorted_rights[skip:skip + limit] if limit > 0 else sorted_rights
 
-            result: IterationResult[BaseRight] = IterationResult(spliced_rights, len(self.rights))
-
-            return result
+            return IterationResult(spliced_rights, len(self.rights))
         except Exception as err:
             raise RightsManagerIterationError(err) from err
 
 
-    def get_right(self, name: str) -> BaseRight:
+    def get_right(self, name: str) -> BaseRight | None:
         """
         Retrieves a right by its name
 
@@ -101,25 +105,28 @@ class RightsManager(BaseManager):
             name (str): Name of the right to retrieve
 
         Returns:
-            BaseRight: The right object matching the given name
+            BaseRight | None: The right matching the given name, or None when no right matches
 
         Raises:
-            BaseManagerGetError: If no matching right is found or retrieval fails
+            RightsManagerGetError: If retrieval fails unexpectedly
         """
         try:
-            return next(right for right in self.rights if right.name == name)
+            return next((right for right in self.rights if right.name == name), None)
         except Exception as err:
             raise RightsManagerGetError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
     @staticmethod
-    def flat_tree(right_tree: tuple) -> list[BaseRight]:
+    def flat_tree(right_tree: tuple | list) -> list[BaseRight]:
         """
         Flattens a nested right tree into a flat list of rights
 
+        Recurses into nested tuples/lists and collects every leaf `BaseRight` into a single
+        flat list, discarding the grouping structure.
+
         Args:
-            right_tree: A nested structure containing rights
+            right_tree (tuple | list): A nested structure containing rights
 
         Returns:
             list[BaseRight]: A flat list containing all rights
@@ -135,19 +142,22 @@ class RightsManager(BaseManager):
         return rights
 
 
-    #TODO: ANNOTATION-FIX (get type of right_tree)
     @staticmethod
-    def tree_to_json(right_tree) -> list:
+    def tree_to_json(right_tree: tuple | list) -> list[Any]:
         """
         Converts a nested rights tree into a JSON-serializable structure
 
+        Preserves the nesting: each branch becomes a nested list and each leaf `BaseRight`
+        becomes its `to_dict` representation.
+
         Args:
-            right_tree: A nested structure containing rights
+            right_tree (tuple | list): A nested structure containing rights
 
         Returns:
-            list[dict]: A JSON-serializable list representing the rights tree
+            list[Any]: A JSON-serializable, nesting-preserving representation of the rights tree
+                (each element is either a right dict or a nested list of the same shape)
         """
-        raw_tree = []
+        raw_tree: list[Any] = []
 
         for node in right_tree:
             if isinstance(node, (tuple, list)):

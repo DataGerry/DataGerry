@@ -21,6 +21,7 @@ from .cmdb_location_errors import (
     CmdbLocationInitError,
     CmdbLocationInitFromDataError,
     CmdbLocationToJsonError,
+    LocationNodeInitError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -29,4 +30,5 @@ __all__: list[str] = [
     'CmdbLocationInitError',
     'CmdbLocationInitFromDataError',
     'CmdbLocationToJsonError',
+    'LocationNodeInitError',
 ]

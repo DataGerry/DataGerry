@@ -16,10 +16,10 @@
 """
 This module contains the DocapiTemplateType Enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class DocapiTemplateType(str, Enum):
+class DocapiTemplateType(BaseStrEnum):
     """
     The different Types for which the DocapiTemplate is created for
     """

@@ -1,0 +1,255 @@
+# DATAGERRY - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Value-contract tripwire for the project's string enums
+
+The string *values* of these (str, Enum) classes are data contracts: they are persisted in
+MongoDB (e.g. a CmdbType field's 'type', an extendable option's 'option_type', a log's action)
+or used as REST / wire tokens (e.g. the CI Explorer 'target_type', auth scheme, report mds_mode).
+Renaming a member or editing a literal would silently desynchronise stored documents and clients,
+and nothing else fails loudly when that happens - this module does.
+
+Each enum's full name -> value map is pinned here. Comparing the whole map (not just individual
+values) also catches an added, removed or renamed member. The is_valid mechanics are deliberately
+NOT retested - they are inherited behaviour covered once in tests/unit/utils/test_base_str_enum.py.
+
+Pure tests: no Mongo, no Flask, no fixtures
+"""
+from enum import Enum
+
+import pytest
+
+from cmdb.framework.docapi.docapi_template.docgen_header_footer import PageValue, HeaderValue, FooterValue
+from cmdb.framework.datagerry_assistant.profile_name import ProfileName
+from cmdb.interface.rest_api.auth_method_enum import AuthMethod
+from cmdb.models.reports_model.mds_mode_enum import MdsMode
+from cmdb.models.log_model.log_interaction_enum import LogInteraction
+from cmdb.models.extendable_option_model.option_type_enum import OptionType
+from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
+from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.models.group_model.group_delete_mode_enum import GroupDeleteMode
+from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
+from cmdb.models.isms_model.risk_type_enum import RiskType
+from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
+from cmdb.models.isms_model.isms_import_type_enum import IsmsImportType
+from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
+from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
+from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.models.ci_explorer_model.node_type_enum import NodeType
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
+    RenderMetaKey,
+    CategoryBodyKey,
+    CategoryMetaKey,
+)
+from cmdb.security.license.license_constants import (
+    LicenseTier,
+    LicenseFeature,
+    ActivationRequestStatus,
+    ActivationRequestKey,
+    LicenseEntitlementKey,
+    LicenseVerificationStatus,
+    PlatformName,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+# Pinned member-name -> string-value contract for every string enum whose value crosses a
+# persistence or API boundary. Update a row here only as a deliberate, reviewed contract change.
+VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
+    (PageValue, {
+        'MARGIN_TOP': 'margin-top',
+        'MARGIN_BOTTOM': 'margin-bottom',
+        'MARGIN_LEFT': 'margin-left',
+        'MARGIN_RIGHT': 'margin-right',
+        'MAX_WIDTH': 'width',
+    }),
+    (HeaderValue, {'HEIGHT': 'height'}),
+    (FooterValue, {'HEIGHT': 'height'}),
+    (ProfileName, {
+        'USER_MANAGEMENT': 'user-management-profile',
+        'LOCATION': 'location-profile',
+        'IPAM': 'ipam-profile',
+        'CLIENT_MANAGEMENT': 'client-management-profile',
+        'SERVER_MANAGEMENT': 'server-management-profile',
+        'NETWORK_INFRASTRUCTURE': 'network-infrastructure-profile',
+    }),
+    (AuthMethod, {'BASIC': 'Basic', 'JWT': 'JWT'}),
+    (MdsMode, {'ROWS': 'ROWS', 'COLUMNS': 'COLUMNS'}),
+    (LogInteraction, {'CREATE': 'CREATE', 'EDIT': 'EDIT', 'DELETE': 'DELETE'}),
+    (OptionType, {
+        'OBJECT_GROUP': 'OBJECT_GROUP',
+        'THREAT_VULNERABILITY': 'THREAT_VULNERABILITY',
+        'IMPLEMENTATION_STATE': 'IMPLEMENTATION_STATE',
+        'CONTROL_MEASURE': 'CONTROL_MEASURE',
+        'RISK': 'RISK',
+    }),
+    (ObjectGroupMode, {'STATIC': 'STATIC', 'DYNAMIC': 'DYNAMIC'}),
+    (ObjectReferenceType, {'OBJECT': 'OBJECT', 'OBJECT_GROUP': 'OBJECT_GROUP'}),
+    (GroupDeleteMode, {'MOVE': 'MOVE', 'DELETE': 'DELETE'}),
+    (ControlMeasureType, {'CONTROL': 'CONTROL', 'REQUIREMENT': 'REQUIREMENT', 'MEASURE': 'MEASURE'}),
+    (RiskType, {'THREAT_X_VULNERABILITY': 'THREAT_X_VULNERABILITY', 'THREAT': 'THREAT', 'EVENT': 'EVENT'}),
+    (TreatmentOption, {
+        'AVOID': 'AVOID',
+        'ACCEPT': 'ACCEPT',
+        'REDUCE': 'REDUCE',
+        'TRANSFER_SHARE': 'TRANSFER_SHARE',
+    }),
+    (IsmsImportType, {
+        'RISK': 'risk',
+        'CONTROL_MEASURE': 'control_measure',
+        'THREAT': 'threat',
+        'VULNERABILITY': 'vulnerability',
+    }),
+    # IsmsRiskAssessment risk-calculation matrix keys: persisted MongoDB document keys used by the
+    # ImpactManager / ImpactCategoryManager recompute paths and the ISMS report aggregations.
+    (RiskCalculationKey, {
+        'BEFORE': 'risk_calculation_before',
+        'AFTER': 'risk_calculation_after',
+        'IMPACTS': 'impacts',
+        'IMPACT_ID': 'impact_id',
+        'IMPACT_CATEGORY_ID': 'impact_category_id',
+        'MAXIMUM_IMPACT_ID': 'maximum_impact_id',
+        'MAXIMUM_IMPACT_VALUE': 'maximum_impact_value',
+        'LIKELIHOOD_ID': 'likelihood_id',
+        'LIKELIHOOD_VALUE': 'likelihood_value',
+    }),
+    (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
+    (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),
+    (PersonReferenceType, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP'}),
+    (NodeType, {'CHILD': 'CHILD', 'PARENT': 'PARENT', 'BOTH': 'BOTH'}),
+    (SectionKey, {'TYPE': 'type', 'NAME': 'name', 'LABEL': 'label', 'FIELDS': 'fields',
+                  'HIDDEN_FIELDS': 'hidden_fields'}),
+    (FieldKey, {
+        'TYPE': 'type',
+        'NAME': 'name',
+        'LABEL': 'label',
+        'DESCRIPTION': 'description',
+        'REQUIRED': 'required',
+        'REGEX': 'regex',
+        'REF_TYPES': 'ref_types',
+        'OPTIONS': 'options',
+        'VALUE': 'value',
+    }),
+    (FieldType, {
+        'TEXT': 'text',
+        'NUMBER': 'number',
+        'PASSWORD': 'password',
+        'TEXTAREA': 'textarea',
+        'CHECKBOX': 'checkbox',
+        'RADIO': 'radio',
+        'SELECT': 'select',
+        'DATE': 'date',
+        'REFERENCE': 'ref',
+        'LOCATION': 'location',
+        'REF_SECTION': 'ref-section-field',
+    }),
+    (SectionType, {'SECTION': 'section', 'MDS_SECTION': 'multi-data-section', 'REF_SECTION': 'ref-section'}),
+    (TypeSchemaKey, {
+        'SPECIAL_TYPE': 'special_type',
+        'SECTIONS': 'sections',
+        'FIELDS': 'fields',
+        'RENDER_META': 'render_meta',
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'LABEL': 'label',
+        'ACTIVE': 'active',
+        'AUTHOR_ID': 'author_id',
+        'EDITOR_ID': 'editor_id',
+        'CREATION_TIME': 'creation_time',
+        'LAST_EDIT_TIME': 'last_edit_time',
+        'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
+        'SELECTABLE_AS_PARENT': 'selectable_as_parent',
+        'VERSION': 'version',
+        'DESCRIPTION': 'description',
+        'CI_EXPLORER_LABEL': 'ci_explorer_label',
+        'CI_EXPLORER_COLOR': 'ci_explorer_color',
+        'ACL': 'acl',
+    }),
+    # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
+    # documents (the assistant uses them as dict keys when building those documents)
+    (RenderMetaKey, {
+        'ICON': 'icon',
+        'SECTIONS': 'sections',
+        'EXTERNALS': 'externals',
+        'SUMMARY': 'summary',
+        'FIELDS': 'fields',
+    }),
+    (CategoryBodyKey, {
+        'NAME': 'name',
+        'LABEL': 'label',
+        'META': 'meta',
+        'PARENT': 'parent',
+        'TYPES': 'types',
+        'CREATION_TIME': 'creation_time',
+    }),
+    (CategoryMetaKey, {'ICON': 'icon', 'ORDER': 'order'}),
+    # License feature enums: the tier 'type' discriminator and the activation-request /
+    # entitlement keys are OpenCelium wire-format contracts (must match byte-for-byte); the
+    # platform tokens mirror platform.system() output the fingerprint resolvers branch on.
+    (LicenseTier, {'FREE': 'free', 'CORE': 'core', 'BUSINESS': 'business', 'CORPORATE': 'corporate'}),
+    (LicenseFeature, {
+        'REST_API': 'rest_api',
+        'IPAM': 'ipam',
+        'ISMS': 'isms',
+        'DOCUMENT_GENERATOR': 'document_generator',
+        'AUTOMATIONS': 'automations',
+    }),
+    (ActivationRequestStatus, {'PENDING': 'PENDING', 'PROCESSED': 'PROCESSED', 'EXPIRED': 'EXPIRED'}),
+    (LicenseVerificationStatus, {
+        'VALID': 'valid',
+        'DECRYPT_FAILED': 'decrypt_failed',
+        'SCHEMA_INVALID': 'schema_invalid',
+        'NO_ACTIVATION_REQUEST': 'no_activation_request',
+        'BINDING_MISMATCH': 'binding_mismatch',
+        'ACTIVATION_REQUEST_EXPIRED': 'activation_request_expired',
+        'NOT_YET_VALID': 'not_yet_valid',
+        'EXPIRED': 'expired',
+    }),
+    (ActivationRequestKey, {
+        'ID': 'id',
+        'HMAC': 'hmac',
+        'TTL': 'ttl',
+        'STATUS': 'status',
+        'MACHINE_UUID': 'machineUuid',
+        'MAC_ADDRESS': 'macAddress',
+        'SYSTEM_UUID': 'systemUUID',
+        'COMPUTER_NAME': 'computerName',
+    }),
+    (LicenseEntitlementKey, {
+        'HMAC': 'hmac',
+        'START_DATE': 'startDate',
+        'END_DATE': 'endDate',
+        'SUB_ID': 'subId',
+        'LICENSE_ID': 'licenseId',
+        'TYPE': 'type',
+        'FEATURES': 'features',
+    }),
+    (PlatformName, {'WINDOWS': 'Windows', 'LINUX': 'Linux', 'DARWIN': 'Darwin'}),
+]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              value-contract tripwire                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('enum_cls,expected', VALUE_CONTRACTS, ids=[cls.__name__ for cls, _ in VALUE_CONTRACTS])
+def test_string_enum_value_contract_is_pinned(enum_cls: type[Enum], expected: dict[str, str]) -> None:
+    """The enum's member name -> value map matches its pinned contract (any drift fails loudly)"""
+    assert {member.name: member.value for member in enum_cls} == expected

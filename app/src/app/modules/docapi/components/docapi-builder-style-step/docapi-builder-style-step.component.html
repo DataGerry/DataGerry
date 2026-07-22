@@ -8,8 +8,14 @@
                         Show CSS compatibility details
                     </button>
 
+<<<<<<< HEAD
                     <div *ngIf="showCssSupportDetails" class="alert alert-info mt-2 mb-0" id="docCustomCssSupportDetails"
                         role="note" aria-label="CSS compatibility information">
+=======
+                    @if (showCssSupportDetails) {
+                    <div class="alert alert-info mt-2 mb-0" id="docCustomCssSupportDetails" role="note"
+                        aria-label="CSS compatibility information">
+>>>>>>> origin/version-3.2
                         <h6 class="mb-2">CSS compatibility for PDF rendering</h6>
                         <p class="mb-2">Only a limited CSS subset is supported.</p>
 
@@ -17,28 +23,39 @@
                             <div class="col-12 col-lg-6">
                                 <p class="mb-1 fw-semibold">Supported properties</p>
                                 <ul class="mb-0 ps-3">
+<<<<<<< HEAD
                                     <li *ngFor="let property of supportedCssProperties">{{ property }}</li>
+=======
+                                    @for (property of supportedCssProperties; track property) {
+                                    <li>{{ property }}</li>
+                                    }
+>>>>>>> origin/version-3.2
                                 </ul>
                             </div>
                             <div class="col-12 col-lg-6">
                                 <p class="mb-1 fw-semibold">Not supported</p>
                                 <ul class="mb-0 ps-3">
+<<<<<<< HEAD
                                     <li *ngFor="let property of unsupportedCssProperties">{{ property }}</li>
+=======
+                                    @for (property of unsupportedCssProperties; track property) {
+                                    <li>{{ property }}</li>
+                                    }
+>>>>>>> origin/version-3.2
                                 </ul>
                             </div>
                         </div>
                     </div>
+<<<<<<< HEAD
+=======
+                    }
+>>>>>>> origin/version-3.2
                 </div>
 
                 <div class="mb-3">
                     <label class="mb-2" for="docCustomCssInput">(Optional) Custom CSS:</label>
-                    <textarea
-                        class="form-control"
-                        formControlName="template_style"
-                        id="docCustomCssInput"
-                        rows="20"
-                        aria-describedby="docCustomCssInputHelp"
-                    ></textarea>
+                    <textarea class="form-control" formControlName="template_style" id="docCustomCssInput" rows="20"
+                        aria-describedby="docCustomCssInputHelp"></textarea>
                     <small id="docCustomCssInputHelp" class="form-text text-muted">
                         Enter Custom CSS styling here
                     </small>

@@ -17,6 +17,10 @@
 Implementation of SettingsManager
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
+=======
+from typing import Any
+>>>>>>> origin/version-3.2
 
 from pymongo.results import UpdateResult
 
@@ -40,9 +44,11 @@ class SettingsManager(SystemReader):
 
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
-        init system settings reader
+        Initializes the SettingsManager
+
         Args:
-            database_manager: database managers
+            dbm (MongoDatabaseManager): The database manager used to read/write settings
+            database (str | None): The target database name; None resolves to the default database
         """
         self.db_name: str | None = database
         self.dbm: MongoDatabaseManager = dbm
@@ -50,23 +56,30 @@ class SettingsManager(SystemReader):
         super().__init__()
 
 
-    def get_value(self, name, section) -> dict:
+    def get_value(self, name: str, section: str) -> Any:
         """
-        Retrieve a value from a given section
+        Retrieve a single value by key from a settings section
+
         Args:
-            name: key of value
-            section: section of the value
+            name (str): The key of the value within the section
+            section (str): The identifier ('_id') of the settings section
 
         Returns:
-            value
+            Any: The stored value, or None if the section or the key does not exist
         """
-        return self.dbm.find_one_by(
-                            collection=SettingsManager.COLLECTION,
-                            db_name=self.db_name,
-                            filter={'_id': section})[name]
+        section_values = self.dbm.find_one_by(
+                                    collection=SettingsManager.COLLECTION,
+                                    db_name=self.db_name,
+                                    filter={'_id': section}
+                                )
+
+        if not section_values:
+            return None
+
+        return section_values.get(name)
 
 
-    def get_section(self, section_name: str) -> dict:
+    def get_section(self, section_name: str) -> dict[str, Any] | None:
         """
         Retrieves a specific configuration section from the settings collection
 
@@ -74,7 +87,7 @@ class SettingsManager(SystemReader):
             section_name (str): The name of the configuration section to retrieve
 
         Returns:
-            dict: The configuration section as a dictionary if found, otherwise None
+            dict[str, Any] | None: The configuration section as a dictionary if found, otherwise None
         """
         query_filter = {'_id': section_name}
 
@@ -85,12 +98,12 @@ class SettingsManager(SystemReader):
                         )
 
 
-    def get_sections(self) -> list:
+    def get_sections(self) -> list[dict[str, Any]]:
         """
-        Retrieves all section names from the settings collection.
+        Retrieves all section identifiers from the settings collection
 
         Returns:
-            list: A list of section names (as dictionaries containing '_id' keys).
+            list[dict[str, Any]]: A list of documents each containing only the section '_id' key
         """
         return self.dbm.find_all(
                             collection=SettingsManager.COLLECTION,
@@ -99,19 +112,24 @@ class SettingsManager(SystemReader):
                         )
 
 
-    def get_all_values_from_section(self, section: str, default=None) -> dict:
+    def get_all_values_from_section(
+            self,
+            section: str,
+            default: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Retrieve all key-value pairs from a specific configuration section
 
         Args:
             section (str): The name of the section to retrieve
-            default (dict | None): The default dictionary to return if the section does not exist
+            default (dict[str, Any] | None): The default dictionary to return if the section does not
+                                             exist. An empty dictionary is a valid default and is
+                                             returned as-is (only None means "no default").
 
         Raises:
             SectionError: If the section does not exist and no default is provided
 
         Returns:
-            dict: A dictionary containing all key-value pairs from the specified section
+            dict[str, Any]: A dictionary containing all key-value pairs from the specified section
         """
 
         section_values = self.dbm.find_one_by(
@@ -121,7 +139,7 @@ class SettingsManager(SystemReader):
                                 )
 
         if not section_values:
-            if default:
+            if default is not None:
                 return default
 
             raise SectionError(f"The section '{section}' does not exist!")
@@ -129,7 +147,7 @@ class SettingsManager(SystemReader):
         return section_values
 
 
-    def write(self, _id: str, data: dict) -> UpdateResult:
+    def write(self, _id: str, data: dict[str, Any]) -> UpdateResult:
         """
         Write or update a setting value in the database
 

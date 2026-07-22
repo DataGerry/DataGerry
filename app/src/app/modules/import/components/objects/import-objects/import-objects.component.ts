@@ -17,10 +17,11 @@
 */
 import { Component, OnDestroy, OnInit } from '@angular/core';
 
-import { Subscription } from 'rxjs';
+import { Subscription, finalize } from 'rxjs';
 
 import { ImportService } from 'src/app/modules/import/services/import.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 import { CmdbType } from 'src/app/framework/models/cmdb-type';
 import { ImporterConfig, ImporterFile, ImportResponse } from '../../../models/import-object.models';
@@ -56,11 +57,15 @@ export class ImportObjectsComponent implements OnInit, OnDestroy {
     // Import Response
     public importResponse: ImportResponse = undefined;
 
+    public isImporting = false;
+    public isLoading$ = this.loaderService.isLoading$;
+
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private importService: ImportService, public sidebarService: SidebarService, private toastService: ToastService) {
+    public constructor(private importService: ImportService, public sidebarService: SidebarService,
+        private toastService: ToastService, private loaderService: LoaderService) {
         this.fileReader = new FileReader();
         this.importerSubscription = new Subscription();
         this.parseDataSubscription = new Subscription();
@@ -147,14 +152,25 @@ export class ImportObjectsComponent implements OnInit, OnDestroy {
 
 
     public startImport() {
+        if (this.isImporting) {
+            return;
+        }
+
         const runtimeConfig = this.importerConfig;
 
         if (this.defaultImporterConfig.manually_mapping) {
             runtimeConfig.mapping = this.mapping;
         }
 
-        this.importService.importObjects(this.importerFile.file, this.importerFile.fileFormat,
+        this.isImporting = true;
+        this.loaderService.show();
+
+        this.importerSubscription = this.importService.importObjects(this.importerFile.file, this.importerFile.fileFormat,
             this.parserConfig, runtimeConfig)
+            .pipe(finalize(() => {
+                this.isImporting = false;
+                this.loaderService.hide();
+            }))
             .subscribe({
                 next: (importResponse) => {
                     this.importResponse = importResponse;

@@ -16,10 +16,17 @@
 """
 Enumeration of all available FieldTypes for CmdbTypes
 """
+<<<<<<< HEAD
 from enum import Enum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class FieldType(str, Enum):
+=======
+from cmdb.utils import BaseStrEnum
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class FieldType(BaseStrEnum):
+>>>>>>> origin/version-3.2
     """
     Enumeration of field types in CmdbTypes
     """
@@ -34,6 +41,7 @@ class FieldType(str, Enum):
     REFERENCE = 'ref'
     LOCATION = 'location'
     REF_SECTION = 'ref-section-field'
+<<<<<<< HEAD
 
 
 
@@ -49,3 +57,5 @@ class FieldType(str, Enum):
             bool: True if the string matches an existing SectionType, False otherwise
         """
         return value in cls._value2member_map_
+=======
+>>>>>>> origin/version-3.2

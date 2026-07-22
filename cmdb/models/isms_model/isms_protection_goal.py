@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.isms_model.isms_protection_goal_schema import get_isms_protection_goal_schema
+
 from cmdb.errors.models.isms_protection_goal import (
     IsmsProtectionGoalInitError,
     IsmsProtectionGoalInitFromDataError,
@@ -39,24 +41,8 @@ class IsmsProtectionGoal(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.protectionGoal"
-    MODEL = 'ProtectionGoal'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'predefined': {
-            'type': 'boolean',
-            'required': True,
-            'empty': False
-        }
-    }
+    SCHEMA: dict = get_isms_protection_goal_schema()
 
 
     def __init__(self, public_id: int, name: str, predefined: bool = False):

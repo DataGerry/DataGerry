@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { Component, Input, OnInit } from '@angular/core';
+=======
+import { Component, inject, Input, OnInit } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs';
@@ -30,18 +34,29 @@ import { ReportCategoryService } from '../../../services/report-category.service
     standalone: false
 })
 export class AddCategoryModalComponent implements OnInit {
+<<<<<<< HEAD
+=======
+    public readonly modal = inject(NgbActiveModal);
+    private readonly categoryService = inject(ReportCategoryService);
+    private readonly toast = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+
+>>>>>>> origin/version-3.2
     @Input() mode: 'add' | 'edit' | 'delete';
     @Input() categoryData: any = { name: '', predefined: false };
 
     public addCategoryForm: UntypedFormGroup;
     public isLoading$ = this.loaderService.isLoading$;
 
+<<<<<<< HEAD
     constructor(public modal: NgbActiveModal, 
         private categoryService: ReportCategoryService,
         private toast: ToastService,
         private loaderService: LoaderService
     ) { }
 
+=======
+>>>>>>> origin/version-3.2
     ngOnInit(): void {
         this.addCategoryForm = new UntypedFormGroup({
             name: new UntypedFormControl(this.categoryData.name, [Validators.required, Validators.minLength(3)])

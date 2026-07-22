@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 export interface ConnectionDetailsData {
@@ -26,11 +26,12 @@ export interface ConnectionDetailsData {
   fromUid: string;
   toUid: string;
   metadata: {
-    relation_id: number;
+    relation_id: number | null;
     relation_name: string;
     relation_label: string;
     relation_color: string;
     relation_icon?: string;
+    source?: string;
   } | null;
 }
 
@@ -54,7 +55,7 @@ export class ConnectionDetailsModalComponent implements OnInit {
   connections: ConnectionDetailsData[] = [];
   direction: 'incoming' | 'outgoing' | 'bidirectional' = 'outgoing';
 
-  constructor(public activeModal: NgbActiveModal) {}
+  public readonly activeModal = inject(NgbActiveModal);
 
   ngOnInit(): void {    
     if (this.connections && this.connections.length > 0) {

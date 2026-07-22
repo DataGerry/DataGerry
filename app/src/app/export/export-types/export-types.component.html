@@ -26,9 +26,11 @@
         </ng-select>
 
         <!-- error block -->
-        <div class="cross-validation-error-message alert alert-danger" *ngIf="isSubmitted && type.errors?.required">
+        @if (isSubmitted && type.errors?.required) {
+        <div class="cross-validation-error-message alert alert-danger">
           Please enter type
         </div>
+        }
       </div>
 
       <div class="mb-3">
@@ -49,9 +51,11 @@
           </ng-template>
         </ng-select>
         <!-- error block -->
-        <div class="cross-validation-error-message alert alert-danger" *ngIf="isSubmitted && format.errors?.required">
+        @if (isSubmitted && format.errors?.required) {
+        <div class="cross-validation-error-message alert alert-danger">
           Please enter format
         </div>
+        }
       </div>
 
       <button type="button" class="btn btn-success text-end"

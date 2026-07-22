@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { FileElement } from '../../model/file-element';
 import { FileService } from '../../service/file.service';
@@ -42,8 +42,7 @@ export class FolderPathViewerComponent implements OnInit {
     return this.selectedFileElement;
   }
 
-  constructor(private fileService: FileService) {
-  }
+  private readonly fileService = inject(FileService);
 
   public ngOnInit(): void {
     this.selectedFileFolder.subscribe(folder => {

@@ -1,0 +1,232 @@
+.ipam-overview {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem 0;
+}
+
+.ipam-overview:fullscreen {
+    background-color: #ffffff;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.ipam-overview__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.ipam-overview__heading {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.ipam-overview__controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.ipam-overview__search {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 16rem;
+}
+
+.ipam-overview__search-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.ipam-overview__search-icon {
+    position: absolute;
+    left: 0.75rem;
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.ipam-overview__search-input {
+    width: 100%;
+    padding: 0.4375rem 0.75rem 0.4375rem 2rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    color: #1f2937;
+    background-color: #ffffff;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+
+    &::placeholder {
+        color: #9ca3af;
+    }
+
+    &:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+}
+
+.ipam-overview__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.ipam-overview__subtitle {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.ipam-overview__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1rem;
+}
+
+.ipam-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #ffffff;
+}
+
+button.ipam-card {
+    appearance: none;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+}
+
+.ipam-card--clickable {
+    cursor: pointer;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+
+    &:hover {
+        border-color: #2563eb;
+    }
+
+    &:focus-visible {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+}
+
+.ipam-card--clickable.ipam-card--active {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.ipam-card--invalid.ipam-card--clickable {
+    &:hover {
+        border-color: #dc3545;
+    }
+
+    &:focus-visible {
+        border-color: #dc3545;
+        box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
+    }
+}
+
+.ipam-card--invalid.ipam-card--clickable.ipam-card--active {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15);
+}
+
+.ipam-card__label {
+    font-size: 0.8125rem;
+    color: #6b7280;
+}
+
+.ipam-card__value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.2;
+}
+
+.ipam-card__suffix {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: inherit;
+    opacity: 0.75;
+    margin-left: 0.25rem;
+}
+
+.ipam-card__range {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.375rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.ipam-card__range-ip {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #1f2937;
+    line-height: 1.25;
+    word-break: break-all;
+}
+
+.ipam-card__range-dash {
+    color: #9ca3af;
+}
+
+.ipam-card--used .ipam-card__value {
+    color: #198754;
+}
+
+.ipam-card--free .ipam-card__value {
+    color: #0d6efd;
+}
+
+.ipam-card--invalid .ipam-card__value {
+    color: #dc3545;
+}
+
+.ipam-card__utilization {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ipam-card__progress {
+    display: block;
+    width: 100%;
+}
+
+.ipam-overview__state {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+}
+
+.ipam-overview__state--error {
+    color: #842029;
+    background-color: #f8d7da;
+    border: 1px solid #f5c2c7;
+}
+
+.ipam-overview__state--empty {
+    color: #6b7280;
+    background-color: #f9fafb;
+    border: 1px dashed #d1d5db;
+}

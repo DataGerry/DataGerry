@@ -73,14 +73,20 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
                 <small id="typeNameInputHelp" class="form-text text-muted">
                     Type in the name of the type to confirm the deletion.
                 </small>
-                <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="text-end" *ngIf="name.errors?.required">
+                @if (name.invalid && (name.dirty || name.touched)) {
+                        <div class="invalid-feedback">
+                    @if (name.errors?.required) {
+                        <div class="text-end">
                         Name is required
                     </div>
-                    <div class="text-end" *ngIf="name.errors?.notequal">
+                }
+                    @if (name.errors?.notequal) {
+                        <div class="text-end">
                         Your answer is not equal!
                     </div>
+                }
                 </div>
+            }
                 <div class="clearfix"></div>
             </div>
         </form>
@@ -199,9 +205,14 @@ export class TypeDeleteComponent implements OnInit {
 
         deleteModal.result.then((result) => {
             if (result === 'delete') {
-                this.typeService.deleteType(this.typeID).subscribe(() => {
-                    this.router.navigate(['/framework/type/']);
-                    this.toast.success(`Type was successfully Deleted: TypeID: ${this.typeID}`);
+                this.typeService.deleteType(this.typeID).subscribe({
+                    next: () => {
+                        this.router.navigate(['/framework/type/']);
+                        this.toast.success(`Type was successfully Deleted: TypeID: ${this.typeID}`);
+                    },
+                    error: (error) => {
+                        this.toast.error(error?.error?.message );
+                    }
                 });
             }
         },

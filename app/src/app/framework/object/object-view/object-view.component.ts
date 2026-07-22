@@ -16,117 +16,65 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
-  AfterViewInit,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  HostListener,
   OnDestroy,
-  OnInit,
-  TemplateRef,
-  ViewChild
+  OnInit
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { BehaviorSubject, Subject, takeUntil, forkJoin, switchMap, map, finalize } from 'rxjs';
+import { BehaviorSubject, Subject, finalize, takeUntil } from 'rxjs';
+
 import { CmdbMode } from 'src/app/framework/modes.enum';
-import { ObjectService } from 'src/app/framework/services/object.service';
-import { ObjectRelationService } from 'src/app/framework/services/object-relation.service';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
-import { CmdbRelation } from 'src/app/framework/models/relation.model';
-import { RelationService } from '../../services/relaion.service';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
-import { CmdbObject } from '../../models/cmdb-object';
-import { ExtendedRelation, RelationGroup, ExtendedObjectRelationInstance, ObjectRelationInstance } from '../../models/object.model';
-import { LoaderService } from 'src/app/core/services/loader.service';
-
-
+import { SpecialType } from 'src/app/framework/models/special-type';
 
 @Component({
-    selector: 'cmdb-object-view',
-    templateUrl: './object-view.component.html',
-    styleUrls: ['./object-view.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    standalone: false
+  selector: 'cmdb-object-view',
+  templateUrl: './object-view.component.html',
+  styleUrls: ['./object-view.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: false,
+  host: {
+    '(window:scroll)': 'onWindowScroll()'
+  }
 })
-export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
+export class ObjectViewComponent implements OnInit, OnDestroy {
 
-  /* --------------------------------------------------- MEMBER FIELDS -------------------------------------------------- */
-
-  // Table templates
-  @ViewChild('counterpartIdTemplate', { static: true }) counterpartIdTemplate: TemplateRef<any>;
-  @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
-  @ViewChild('counterpartTypeTemplate', { static: true }) counterpartTypeTemplate: TemplateRef<any>;
+  /* --------------------------------------------------- PUBLIC STATE --------------------------------------------------- */
 
   public mode: CmdbMode = CmdbMode.View;
   public renderResult: RenderResult;
   public currentObjectID: number;
-  private unsubscribe = new Subject<void>();
-  private objectViewSubject = new BehaviorSubject<RenderResult>(undefined);
+  public isGraphView = false;
 
-  // Modal and loading states
-  public showRelationModal = false;
-  public loadingRelations = false;
-  public showRelationRoleDialog = false;
-  isGraphView: boolean = false;
-
-
-  // Relation selection
-  public availableRelations: CmdbRelation[] = [];
-  public extendedRelations: ExtendedRelation[] = [];
-  public chosenRelation: ExtendedRelation = null;
-  public chosenRole: 'parent' | 'child' = null;
-  public roleParentTypeIDs: number[] = [];
-  public roleChildTypeIDs: number[] = [];
-
-  // Tab management
-  public relationGroups: RelationGroup[] = [];
-  public activeRelationTabIndex = 0;
-  public activeNestedRelationTabIndex = 0; // Tracks the active tab within Object Relations
-
-  private currentActiveRelationTabIndex: number = 0;
-  private shouldPreserveTabState: boolean = false;
-
-  // Action properties
-  public dialogMode: CmdbMode = CmdbMode.Create;
-  public selectedRelationInstance: ExtendedObjectRelationInstance | null = null;
+  // Graph header object selector
+  public allTypeIds: number[] = [];
+  public typesLoaded = false;
+  public selectedObjectIdForSelector: number | null = null;
   public isHeaderSelectorLoading = false;
 
-  // Tracks whether a relation is already used as parent/child by this object
-  private usedRolesMap = new Map<number, { parentUsed: boolean; childUsed: boolean }>();
+  public get isSupernet(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.SUPERNET;
+  }
 
-  // Summaries of related objects
-  private relatedObjectsMap: { [id: number]: RenderResult | CmdbObject } = {};
+  public get isSubnet(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
+  }
 
-  // Pagination & Sorting
-  public totalRelations: number = 0;
-  public relationPage: number = 1;
-  public relationPageSize: number = 10;
-  public relationSort: string = '';
-  public relationOrder: number = 1;
-
-  public isLoading$ = this.loaderService.isLoading$;
-
-  // Selector for Graph header
-  public allTypeIds: number[] = [];
-  public typesLoaded: boolean = false;
-  public selectedObjectIdForSelector: number | null = null;
   private pendingSelectedId: number | null = null;
+  private readonly unsubscribe = new Subject<void>();
+  private readonly objectViewSubject = new BehaviorSubject<RenderResult>(undefined);
 
-  /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
+  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
   constructor(
-    public objectService: ObjectService,
-    private relationService: RelationService,
-    private objectRelationService: ObjectRelationService,
-    public typeService: TypeService,
+    private typeService: TypeService,
     private activateRoute: ActivatedRoute,
     private toastService: ToastService,
     private changesRef: ChangeDetectorRef,
-    private modalService: NgbModal,
-    private loaderService: LoaderService,
     private router: Router
   ) {
     this.activateRoute.data.subscribe({
@@ -136,36 +84,31 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnInit(): void {
-
-    // Auto-switch to graph view when query param view=graph
+    // Auto-switch to graph view when the query param view=graph is present
     this.activateRoute.queryParamMap
       .pipe(takeUntil(this.unsubscribe))
       .subscribe(params => {
-        const view = params.get('view');
-        if (view === 'graph') this.isGraphView = true;
+        if (params.get('view') === 'graph') {
+          this.isGraphView = true;
+        }
       });
 
     this.objectViewSubject.pipe(takeUntil(this.unsubscribe)).subscribe({
       next: (result) => {
         this.renderResult = result;
-
         this.currentObjectID = result?.object_information?.object_id;
-        this.activeRelationTabIndex = 0;
-        if (this.currentObjectID) {
-          this.loadObjectRelationInstances(this.currentObjectID);
-        }
         this.changesRef.markForCheck();
       },
-      error: (e) => this.toastService.error(e?.error?.message)
+      error: (err) => this.toastService.error(err?.error?.message)
     });
 
-    // Load all type IDs for object selector
+    // Load all type IDs for the graph object selector
     const params = { filter: '', limit: 0, sort: 'public_id', order: 1, page: 1 } as any;
     this.typeService.getTypes(params)
       .pipe(takeUntil(this.unsubscribe), finalize(() => this.changesRef.markForCheck()))
       .subscribe({
         next: (resp: any) => {
-          this.allTypeIds = (resp?.results || []).map((t: any) => t.public_id);
+          this.allTypeIds = (resp?.results || []).map((type: any) => type.public_id);
           this.typesLoaded = true;
         },
         error: () => {
@@ -174,101 +117,24 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
       });
   }
 
-  ngAfterViewInit(): void {
-    this.changesRef.detectChanges();
-  }
-
   ngOnDestroy(): void {
-    this.unsubscribe?.next();
-    this.unsubscribe?.complete();
+    this.unsubscribe.next();
+    this.unsubscribe.complete();
   }
 
-  @HostListener('window:scroll')
-  onWindowScroll(): void {
-    const dialog = document.getElementsByClassName('object-view-navbar') as HTMLCollectionOf<Element>;
-    if (!dialog[0]) return;
-    dialog[0].id = document.body.scrollTop > 20 ? 'object-form-action' : '';
-    dialog[0].classList.toggle('shadow', document.body.scrollTop > 20);
-  }
+  /* --------------------------------------------------- EVENTS --------------------------------------------------- */
 
-  /* --------------------------------------------------- UI / EVENT HANDLERS -------------------------------------------------- */
-
-  /** Sets the active tab index */
-  public setActiveTab(tabIndex: number): void {
-    this.activeRelationTabIndex = tabIndex;
-    if (tabIndex !== 1) {
-      this.activeNestedRelationTabIndex = 0; // Reset nested tab when switching away from Object Relations
-    }
-
-    if (tabIndex > 0) {
-      const groupIndex = tabIndex - 1;
-      const group = this.relationGroups[groupIndex];
-      // if there are more than 10 items in the a rel table then execute this for the pagination stuff
-      group?.total > 10 ? this.loadGroupInstances(group?.relationId, group?.isParent, 1, 10) : null
-    }
-    this.changesRef.markForCheck();
-  }
-
-
-  /** Handles clicking the "+" tab to add a new relation */
-  public onClickAddRelationTab(): void {
-    this.openRelationModal();
-    this.setActiveTab(1); // Ensure Object Relations is active
-    this.setNestedRelationTab(this.relationGroups.length); // Highlight the "+" tab
-  }
-
-
-  /**
- * Creates a new relation for an existing relation group.
- * @param group The relation group to create a new instance for
- */
-  public createNewRelationForGroup(group: RelationGroup): void {
-    // Try to get the definition from the first instance in the group.
-    // let definition = group?.instances.length > 0 ? group?.instances[0]?.definition : null;
-    // TODO: undo it because of inactive relations
-    let definition = group.instances[0]?.definition ?? (group as any).definition;
-
-    // If not found, look for the definition in extendedRelations.
-    if (!definition) {
-      definition = this.extendedRelations.find(rel => rel?.public_id === group?.relationId);
-    }
-    if (!definition) {
-      this.toastService.error('Relation definition is missing.');
+  public onWindowScroll(): void {
+    const navbar = document.getElementsByClassName('object-view-navbar') as HTMLCollectionOf<Element>;
+    if (!navbar[0]) {
       return;
     }
-
-    const safeDefinition = {
-      ...definition,
-      parent_type_ids: Array.isArray(definition?.parent_type_ids) ? definition?.parent_type_ids : [],
-      child_type_ids: Array.isArray(definition?.child_type_ids) ? definition?.child_type_ids : [],
-      canBeParent: group.isParent,
-      canBeChild: !group?.isParent
-    };
-
-    this.chosenRelation = safeDefinition;
-    this.chosenRole = group?.isParent ? 'parent' : 'child';
-    this.roleParentTypeIDs = this.chosenRole === 'parent' ? [] : safeDefinition?.parent_type_ids;
-    this.roleChildTypeIDs = this.chosenRole === 'child' ? [] : safeDefinition?.child_type_ids;
-
-    if (this.chosenRole === 'parent' && this.roleChildTypeIDs.length === 0) {
-      this.toastService.warning('No child types defined for this relation.');
-      return;
-    }
-    if (this.chosenRole === 'child' && this.roleParentTypeIDs.length === 0) {
-      this.toastService.warning('No parent types defined for this relation.');
-      return;
-    }
-
-    // Preserve the current tab state
-    this.currentActiveRelationTabIndex = this.activeRelationTabIndex;
-    this.shouldPreserveTabState = true;
-
-    this.showRelationRoleDialog = true;
-    this.dialogMode = CmdbMode.Create; // Set mode to Create
-    this.selectedRelationInstance = null; // Clear any selected instance
-    this.changesRef.markForCheck();
+    const scrolled = document.body.scrollTop > 20;
+    navbar[0].id = scrolled ? 'object-form-action' : '';
+    navbar[0].classList.toggle('shadow', scrolled);
   }
 
+<<<<<<< HEAD
   private setChosenRelationAndRole(
     instance: ExtendedObjectRelationInstance,
     mode: CmdbMode
@@ -939,6 +805,9 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
 
   toggleView(showGraph: boolean): void {
+=======
+  public toggleView(showGraph: boolean): void {
+>>>>>>> origin/version-3.2
     this.isGraphView = showGraph;
   }
 
@@ -949,17 +818,20 @@ export class ObjectViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   public openSelectedObject(): void {
     const targetId = this.pendingSelectedId ?? this.currentObjectID;
-    if (!targetId || targetId === this.currentObjectID) return;
+    if (!targetId || targetId === this.currentObjectID) {
+      return;
+    }
     this.router.navigate([`/framework/object/view/${targetId}`], { queryParams: { view: 'graph' } });
   }
 
   /**
-   * Handles root node selection from the graph editor
-   * Navigates to the new object's view page while preserving graph mode
-   * @param objectId The ID of the selected root node
+   * Handles root node selection from the graph editor and navigates to the new
+   * object's view page while preserving graph mode.
    */
   public onRootNodeSelected(objectId: number): void {
-    if (!objectId || objectId === this.currentObjectID) return;
+    if (!objectId || objectId === this.currentObjectID) {
+      return;
+    }
     this.router.navigate([`/framework/object/view/${objectId}`], { queryParams: { view: 'graph' } });
   }
 }

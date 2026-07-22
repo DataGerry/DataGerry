@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable } from '@angular/core';
+import { Injectable, Injector } from '@angular/core';
 import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Router } from '@angular/router';
 
@@ -37,6 +37,7 @@ import { Token } from '../models/token';
 import { BranchInfoModalComponent } from 'src/app/layout/intro/branch-info-modal/branch-info-modal.component';
 import { ProfileInfoModalComponent } from 'src/app/layout/intro/profile-info-modal/profile-info-modal.component';
 import { SubscriptionItem } from '../models/SubscriptionItem';
+import { SidebarService } from '../../../layout/services/sidebar.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const httpOptions = {
@@ -90,7 +91,8 @@ export class AuthService<T = any> implements ApiServicePrefix {
         private router: Router,
         private introService: NgbModal,
         private specialService: SpecialService,
-        private indexDB: NgxIndexedDBService) {
+        private indexDB: NgxIndexedDBService,
+        private injector: Injector) {
 
         this.http = new HttpClient(backend);
         this.currentUserSubject = new BehaviorSubject<User>(JSON.parse(localStorage.getItem('current-user')));
@@ -284,6 +286,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
 
                 this.specialService.createProfiles(selectedProfiles).subscribe({
                     next: () => {
+                        this.injector.get(SidebarService).loadCategoryTree();
                         this.router.navigate(['/framework/type/']);
                     },
                     error: (error) => {
@@ -314,6 +317,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
             backdrop: 'static',
             keyboard: true,
             windowClass: 'intro-tour',
+            backdropClass: 'intro-tour-backdrop',
             size: 'lg'
         };
     }

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import {Component} from '@angular/core';
+import {Component, inject} from '@angular/core';
 import {animate, state, style, transition, trigger} from '@angular/animations';
 
 import {ToastService} from '../toast.service';
@@ -39,7 +39,5 @@ import {ToastService} from '../toast.service';
 })
 export class ToastContainerComponent {
 
-  constructor(public toastService: ToastService) {
-
-  }
+  public readonly toastService = inject(ToastService);
 }

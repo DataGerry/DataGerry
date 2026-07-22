@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -31,9 +31,7 @@ export class SectionTemplateAddComponent implements OnInit {
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(private activeRoute: ActivatedRoute){
-
-    }
+    private readonly activeRoute = inject(ActivatedRoute);
 
 
     ngOnInit(): void {

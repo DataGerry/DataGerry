@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
@@ -43,15 +43,12 @@ export class LikelihoodModalComponent implements OnInit {
   public isSubmitting = false;
   public isEditMode = false;
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private fb: FormBuilder,
-    private likelihoodService: LikelihoodService,
-    private toast: ToastService,
-    private ismsService: ISMSService,
-    private modalService: NgbModal,
-    
-  ) { }
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fb = inject(FormBuilder);
+  private readonly likelihoodService = inject(LikelihoodService);
+  private readonly toast = inject(ToastService);
+  private readonly ismsService = inject(ISMSService);
+  private readonly modalService = inject(NgbModal);
 
   ngOnInit(): void {
     this.isEditMode = !!this.likelihood;

@@ -6,11 +6,13 @@
       <label class="d-block mb-1">
         Treatment Option
       </label>
-      <ng-container *ngFor="let opt of riskTreatmentOptions">
-        <app-radio [label]="opt.label" [value]="opt.value" name="treatOptGrp" [id]="'treat_'+opt.value"
-          [formControl]="parentForm.get('risk_treatment_option')">
-        </app-radio>
-      </ng-container>
+      @for (opt of riskTreatmentOptions; track opt) {
+
+      <app-radio [label]="opt.label" [value]="opt.value" name="treatOptGrp" [id]="'treat_'+opt.value"
+        [formControl]="parentForm.get('risk_treatment_option')">
+      </app-radio>
+
+      }
     </div>
 
     <!-- ───────── Responsible Persons ───────── -->
@@ -79,8 +81,8 @@
 
     <hr>
     <ra-cm-assignment-inline #cmInline [parentForm]="parentForm" [allControlMeasures]="allControlMeasures"
-      [implementationStates]="implementationStates" [allPersons]="allPersons" [allPersonGroups]="allPersonGroups" [riskAssessmentId]="riskAssessmentId"
-      [createMode]="createMode">
+      [implementationStates]="implementationStates" [allPersons]="allPersons" [allPersonGroups]="allPersonGroups"
+      [riskAssessmentId]="riskAssessmentId" [createMode]="createMode">
     </ra-cm-assignment-inline>
   </div><!-- /.mt-3 -->
 </div><!-- /.accordion-item -->

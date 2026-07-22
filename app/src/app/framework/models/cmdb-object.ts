@@ -17,6 +17,7 @@
 */
 /* ------------------------------------------------------------------------------------------------------------------ */
 import { CmdbDao } from './cmdb-dao';
+import { SpecialType } from './special-type';
 
 
 export interface MultiDataSectionFieldValue {
@@ -50,6 +51,7 @@ export class CmdbObject implements CmdbDao {
     public active: boolean;
     public fields: any[];
     public multi_data_sections: MultiDataSectionEntry[] = [];
+    public special_type?: SpecialType;
     public creation_time: any;
     public last_edit_time: any;
     public author_name?: string;

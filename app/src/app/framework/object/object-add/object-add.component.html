@@ -5,7 +5,8 @@
                 Add new object: <strong>{{typeInstance?.label}}</strong>
             </h1>
         </div>
-        <div class="col-sm-2 text-end" *ngIf="typeInstance">
+        @if (typeInstance) {
+<div class="col-sm-2 text-end">
             <div class="btn-group p-1" role="group">
                 <button
                 type="button"
@@ -21,12 +22,14 @@
                 >Save</button>
             </div>
         </div>
+}
     </div>
 </div>
 
 <hr/>
 
-<ng-template [ngIf]="!typeInstance" [ngIfElse]="renderTemplate">
+@if (!typeInstance) {
+
     <form [formGroup]="typeIDForm" novalidate>
         <div class="form-group row">
             <label class="col-sm-2 col-form-label">
@@ -53,9 +56,9 @@
             </div>
         </div>
     </form>
-</ng-template>
 
-<ng-template #renderTemplate>
+} @else {
+
     <form
         [formGroup]="renderForm"
         class="renderForm needs-validation"
@@ -90,7 +93,10 @@
             </div>
         </div>
     </form>
-</ng-template>
+
+}
+
+
 
 <app-loading-popup 
   [isVisible]="isLoading$ | async"

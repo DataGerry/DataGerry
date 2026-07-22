@@ -1,5 +1,6 @@
 <div class="object-select-wrapper">
   <!-- inline loader -->
+<<<<<<< HEAD
   <div *ngIf="useInlineLoader && (isLoading$ | async)" class="inline-loader text-warning"
     aria-label="Object is loading">
     <div class="spinner-border" role="status" aria-hidden="true"></div>
@@ -9,6 +10,19 @@
     <ng-select [style.display]="(useInlineLoader && (isLoading$ | async)) ? 'none' : 'block'" [items]="objectList"
       [(ngModel)]="selectedObjects" (ngModelChange)="onSelectionChange($event)" (scrollToEnd)="onScrollToEnd()"
       (search)="onSearch($event.term)" [multiple]="multiple" [groupBy]="groupByFn" [groupValue]="groupValueFn"
+=======
+  @if (useInlineLoader && (isLoading$ | async)) {
+  <div class="inline-loader text-warning" aria-label="Object is loading">
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <small>Loading objects…</small>
+  </div>
+  }
+  <ng-container>
+    <ng-select [style.display]="(useInlineLoader && (isLoading$ | async)) ? 'none' : 'block'" [items]="objectList"
+      [(ngModel)]="selectedObjects" (ngModelChange)="onSelectionChange($event)" (scrollToEnd)="onScrollToEnd()"
+      (search)="onSearch($event.term)" [multiple]="multiple" [compareWith]="compareObjects" [groupBy]="groupByFn"
+      [groupValue]="groupValueFn"
+>>>>>>> origin/version-3.2
       placeholder="Select objects..." [closeOnSelect]="closeOnSelect" [searchable]="true" [clearable]="true"
       [disabled]="isViewMode" [loading]="isLoading$ | async" [typeahead]="searchSubject" class="w-100">
       <ng-template ng-optgroup-tmp let-item="item">
@@ -16,6 +30,7 @@
       </ng-template>
 
       <ng-template ng-label-tmp let-item="item" let-clear="clear">
+<<<<<<< HEAD
         <ng-container *ngIf="item?.object_information; else noItem">
           <i class="{{ item.type_information.icon }}" aria-hidden="true"></i>
           {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
@@ -25,6 +40,21 @@
           [object not found]
           <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
         </ng-template>
+=======
+        @if (item?.object_information) {
+
+        <i class="{{ item.type_information.icon }}" aria-hidden="true"></i>
+        {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
+        <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
+
+        } @else {
+
+        [object not found]
+        <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
+
+        }
+
+>>>>>>> origin/version-3.2
       </ng-template>
 
       <ng-template ng-option-tmp let-item="item" let-index="index" let-search="searchTerm">
@@ -35,5 +65,11 @@
   </ng-container>
 </div>
 
+<<<<<<< HEAD
 <app-loading-popup *ngIf="!useInlineLoader" [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."></app-loading-popup>
+=======
+@if (!useInlineLoader) {
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+}
+>>>>>>> origin/version-3.2

@@ -46,14 +46,16 @@ export class GraphExpansionService {
         connections: Connection[],
         typesFilter: number[],
         relationsFilter: number[],
-        nodeTypeConfigs: Map<string, { icon: string; gradient: string }>
+        nodeTypeConfigs: Map<string, { icon: string; gradient: string }>,
+        withLocations: boolean = true,
+        withIpamRelations: boolean = true
     ): Promise<void> {
         ui.isLoading = true;
         ui.expanded = true;
         const nodeCountBefore = nodes.length;
 
         try {
-            await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs);
+            await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs, withLocations, withIpamRelations);
             this.trackExpansionConnections(ui, nodeCountBefore, nodes);
 
         } finally {
@@ -80,7 +82,9 @@ export class GraphExpansionService {
         connections: Connection[],
         typesFilter: number[],
         relationsFilter: number[],
-        nodeTypeConfigs: Map<string, { icon: string; gradient: string }>
+        nodeTypeConfigs: Map<string, { icon: string; gradient: string }>,
+        withLocations: boolean = true,
+        withIpamRelations: boolean = true
     ): Promise<void> {
         const id = cn?.linked_object?.public_id;
         this.graphData?.setSkipBackendEdges(true);
@@ -103,7 +107,7 @@ export class GraphExpansionService {
                 // ).toPromise();
 
                 const res: GraphRespParents = await firstValueFrom(
-                    this.graphData?.expandParent(id, typesFilter, relationsFilter)
+                    this.graphData?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
                 );
                 const rawParents = this.graphData?.getNodes(res, 'parent') ?? [];
                 if (rawParents.length >= CI_EXPLORER_ITEM_LIMIT) {
@@ -144,7 +148,7 @@ export class GraphExpansionService {
                 // ).toPromise();
 
                 const res: GraphRespChildren = await firstValueFrom(
-                    this.graphData?.expandChild(id, typesFilter, relationsFilter)
+                    this.graphData?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
                 );
 
                 const rawKids = this.graphData?.getNodes(res, 'child') ?? [];

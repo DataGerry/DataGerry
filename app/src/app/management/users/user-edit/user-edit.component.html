@@ -4,16 +4,13 @@
 <hr />
 
 <div id="user-add-form">
-    <cmdb-user-form
-        [providers]="providers"
-        [groups]="groups"
-        [user]="user"
-        (submit)="save($event)"
-    />
+    <cmdb-user-form [providers]="providers" [groups]="groups" [user]="user" (submit)="save($event)" />
 </div>
 
-<ng-container *ngIf="typeEditRight">
-    <h2>Object ACL of {{userGroup?.label}}</h2>
-    <hr/>
-    <cmdb-acl-objects-table [group]="userGroup"/>
-</ng-container>
+@if (typeEditRight) {
+
+<h2>Object ACL of {{userGroup?.label}}</h2>
+<hr />
+<cmdb-acl-objects-table [group]="userGroup" />
+
+}

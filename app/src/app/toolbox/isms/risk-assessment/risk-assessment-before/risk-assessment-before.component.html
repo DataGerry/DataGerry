@@ -1,10 +1,9 @@
 <div>
   <!-- Impact sliders -->
-  <div class="slider-row" *ngFor="
-      let catCtrl of impactsArray.controls;
-      let i = index;
-      trackBy: trackByIndex
-    ">
+  @for (
+  catCtrl of impactsArray.controls; track trackByIndex(i,
+  catCtrl); let i = $index) {
+  <div class="slider-row">
     <label class="cat-name">{{ impactCategories[i]?.name }}</label>
 
     <app-form-slider [items]="impacts" [allowNotRated]="true" [selectedId]="catCtrl.get('impact_id')?.value"
@@ -12,6 +11,7 @@
       [showLabels]="i === 0">
     </app-form-slider>
   </div>
+  }
 
   <hr>
 

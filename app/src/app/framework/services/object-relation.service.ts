@@ -10,6 +10,11 @@ import {
   APIDeleteSingleResponse
 } from '../../services/models/api-response';
 import { CollectionParameters } from '../../services/models/api-parameter';
+import {
+  ObjectRelationInstancesQuery,
+  ObjectRelationInstancesResponse,
+  ObjectRelationTab
+} from '../models/object-relation.model';
 
 export interface CmdbObjectRelationCreateDto {
   relation_id: number;
@@ -65,7 +70,43 @@ export class ObjectRelationService implements ApiServicePrefix {
     );
   }
 
-  
+  /**
+   * Loads the relation tabs for an object.
+   */
+  public getRelationTabs(objectID: number): Observable<ObjectRelationTab[]> {
+    const options = { ...this.options, params: new HttpParams() };
+    return this.api.callGet<any>(`${this.servicePrefix}/tabs/${objectID}`, options).pipe(
+      map((apiResponse: HttpResponse<{ results: ObjectRelationTab[] }>) => apiResponse.body?.results ?? [])
+    );
+  }
+
+
+  /**
+   * Loads a single, paginated relation tab. 
+   */
+  public getRelationTabInstances(
+    objectID: number,
+    query: ObjectRelationInstancesQuery
+  ): Observable<ObjectRelationInstancesResponse> {
+    const httpParams = new HttpParams()
+      .set('relation_id', query.relationId.toString())
+      .set('role', query.role)
+      .set('page', query.page.toString())
+      .set('limit', query.limit.toString())
+      .set('sort', query.sort)
+      .set('order', query.order.toString());
+
+    const options = { ...this.options, params: httpParams };
+    return this.api.callGet<any>(`${this.servicePrefix}/tabs/${objectID}/instances`, options).pipe(
+      map((apiResponse: HttpResponse<ObjectRelationInstancesResponse>) => ({
+        total: apiResponse.body?.total ?? 0,
+        count: apiResponse.body?.count ?? 0,
+        results: apiResponse.body?.results ?? []
+      }))
+    );
+  }
+
+
   // Get single object relation by ID
   public getObjectRelation(publicID: number): Observable<any> {
     const options = { ...this.options, params: new HttpParams() };

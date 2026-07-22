@@ -1,24 +1,27 @@
-<div class="dropdown" >
-<button mat-button [matMenuTriggerFor]="externalLinksMenu" class="custom-button">
-  <div class="dropdown-toggle total-title d-flex justify-object-view-items" aria-haspopup="true" aria-expanded="false">
-    <div class="icon"><i class="fa fa-link"></i></div>
-    <div class="name"><strong class="text-uppercase">External links</strong> <span>Total {{renderResult?.externals.length}}</span></div>
-</div>
-</button>
+<div class="dropdown">
+  <button mat-button [matMenuTriggerFor]="externalLinksMenu" class="custom-button">
+    <div class="dropdown-toggle total-title d-flex justify-object-view-items" aria-haspopup="true"
+      aria-expanded="false">
+      <div class="icon"><i class="fa fa-link"></i></div>
+      <div class="name"><strong class="text-uppercase">External links</strong> <span>Total
+          {{renderResult?.externals.length}}</span></div>
+    </div>
+  </button>
 </div>
 
 <mat-menu #externalLinksMenu="matMenu">
-  <ng-container *ngIf="renderResult?.externals.length > 0; else noLinks">
-    <div class="overflow-auto" style="max-height:20vh">
-      <a mat-menu-item *ngFor="let ext of renderResult?.externals" [href]="getSantizeUrl(ext.href)" target="_blank">
-        <i [class]="ext.icon" class="mr-2"></i>
-        <span>{{ ext.label }}</span>
-      </a>
-    </div>
-  </ng-container>
-  <ng-template #noLinks>
-    <button mat-menu-item disabled>No external links available.</button>
-  </ng-template>
+  @if (renderResult?.externals.length > 0) {
+
+  <div class="overflow-auto" style="max-height:20vh">
+    @for (ext of renderResult?.externals; track ext) {
+    <a mat-menu-item [href]="getSantizeUrl(ext.href)" target="_blank">
+      <i [class]="ext.icon" class="mr-2"></i>
+      <span>{{ ext.label }}</span>
+    </a>
+    }
+  </div>
+
+  } @else {
+  <button mat-menu-item disabled>No external links available.</button>
+  }
 </mat-menu>
-
-

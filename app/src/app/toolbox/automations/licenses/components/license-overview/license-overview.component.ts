@@ -1,9 +1,18 @@
 import {
+<<<<<<< HEAD
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   OnDestroy,
   OnInit
+=======
+  Component,
+  inject,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  OnDestroy,
+  OnInit,
+>>>>>>> origin/version-3.2
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { Subject } from 'rxjs';
@@ -36,6 +45,15 @@ export enum SubscriptionType {
   standalone: false
 })
 export class LicenseOverviewComponent implements OnInit, OnDestroy {
+<<<<<<< HEAD
+=======
+  private readonly svc = inject(LicenseService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly route = inject(ActivatedRoute);
+
+>>>>>>> origin/version-3.2
   loading = false;
   license?: License;
   columns: any[];
@@ -49,6 +67,7 @@ export class LicenseOverviewComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
   public isLoading$ = this.loaderService.isLoading$;
   
+<<<<<<< HEAD
   constructor(
     private svc: LicenseService,
     private loaderService: LoaderService,
@@ -56,6 +75,8 @@ export class LicenseOverviewComponent implements OnInit, OnDestroy {
     private cdr: ChangeDetectorRef,
     private route: ActivatedRoute
   ) {}
+=======
+>>>>>>> origin/version-3.2
 
   ngOnInit(): void {
     // Use the pre-loaded data from the resolver

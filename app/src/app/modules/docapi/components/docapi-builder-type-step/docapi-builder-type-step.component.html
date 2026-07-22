@@ -4,13 +4,8 @@
             <form [formGroup]="typeForm" id="typeForm" class="needs-validation" novalidate autocomplete="off">
                 <div class="mb-3">
                     <label class="mb-2" for="docTypeInput">Template Type: <span class="required">*</span></label>
-                    <ng-select
-                        id="docTypeInput"
-                        [items]="docTypeSelect"
-                        bindLabel="label"
-                        bindValue="content"
-                        formControlName="template_type"
-                    >
+                    <ng-select id="docTypeInput" [items]="docTypeSelect" bindLabel="label" bindValue="content"
+                        formControlName="template_type">
                         <ng-template ng-option-tmp let-item="item" let-index="index">
                             {{ item.label }}{{ item.description ? ' : ' + item.description : '' }}
                         </ng-template>
@@ -21,6 +16,7 @@
                 </div>
             </form>
 
+<<<<<<< HEAD
             <ng-container [ngSwitch]="typeForm.get('template_type')?.value">
                 <cmdb-docapi-builder-type-step-object
                     *ngSwitchCase="'OBJECT'"
@@ -37,6 +33,20 @@
                     (formValidationEmitter)="onTypeParamValidationChange($event)"
                 />
             </ng-container>
+=======
+
+            @switch (typeForm.get('template_type')?.value) {
+            @case ('OBJECT') {
+            <cmdb-docapi-builder-type-step-object [preData]="typeParamPreData" [mode]="mode" #typeparam
+                (formValidationEmitter)="onTypeParamValidationChange($event)" />
+            }
+            @case ('DEFAULT') {
+            <cmdb-docapi-builder-type-step-object [preData]="typeParamPreData" [mode]="mode" #typeparam
+                (formValidationEmitter)="onTypeParamValidationChange($event)" />
+            }
+            }
+
+>>>>>>> origin/version-3.2
         </div>
     </div>
 </div>

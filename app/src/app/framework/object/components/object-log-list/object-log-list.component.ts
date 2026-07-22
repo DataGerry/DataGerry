@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { CmdbLog } from '../../../models/cmdb-log';
 import { Column, Sort, SortDirection } from '../../../../layout/table/table.types';
 import { APIGetMultiResponse } from '../../../../services/models/api-response';
@@ -74,8 +74,7 @@ export class ObjectLogListComponent implements OnInit {
 
   public apiParameters: CollectionParameters;
 
-  constructor(private logService: LogService) {
-  }
+  private readonly logService = inject(LogService);
 
   private loadLogList() {
     this.apiParameters = { filter: this.filterBuilder(),

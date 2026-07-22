@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { Right } from '../../../models/right';
 
@@ -30,7 +30,6 @@ export class RightGroupsModalComponent {
 
   @Input() public right: Right;
 
-  constructor(public activeModal: NgbActiveModal) {
-  }
+  public readonly activeModal = inject(NgbActiveModal);
 
 }

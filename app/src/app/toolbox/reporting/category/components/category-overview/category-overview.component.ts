@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { Component, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
+=======
+import { Component, inject, OnInit, OnDestroy, TemplateRef, ViewChild } from '@angular/core';
+>>>>>>> origin/version-3.2
 
 import { ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
@@ -36,6 +40,15 @@ import { ReportCategoryService } from '../../../services/report-category.service
     standalone: false
 })
 export class CategoryOverviewComponent implements OnInit, OnDestroy {
+<<<<<<< HEAD
+=======
+    private readonly categoryService = inject(ReportCategoryService);
+    private readonly modalService = inject(NgbModal);
+    private readonly location = inject(Location);
+    private readonly toast = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+
+>>>>>>> origin/version-3.2
     private unsubscribe$ = new ReplaySubject<void>(1);
     public categories: Array<any> = [];
     public totalCategories: number = 0;
@@ -51,6 +64,7 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
+<<<<<<< HEAD
     constructor(
         private categoryService: ReportCategoryService,
         private modalService: NgbModal, 
@@ -59,6 +73,8 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
         private loaderService: LoaderService) { }
 
 
+=======
+>>>>>>> origin/version-3.2
     ngOnInit(): void {
         this.columns = [
             { display: 'Public ID', name: 'public_id', data: 'public_id', searchable: true, sortable: true, style: { width: '120px', 'text-align': 'center' } },

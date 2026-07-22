@@ -19,14 +19,17 @@ import {
     Component,
     ComponentFactoryResolver,
     ComponentRef,
+    Inject,
     Input,
     OnInit,
+    Optional,
     ViewChild,
     ViewContainerRef
 } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { fieldComponents } from '../fields/fields.list';
+import { FIELD_COMPONENT_OVERRIDES, FieldComponentOverride } from '../fields/field-component-overrides';
 import { simpleComponents } from '../simple/simple.list';
 import { RenderFieldComponent } from '../fields/components.fields';
 import { CmdbMode } from '../../modes.enum';
@@ -54,7 +57,9 @@ export class RenderElementComponent extends RenderFieldComponent implements OnIn
 
     constructor(
         private resolver: ComponentFactoryResolver,
-        public toast: ToastService
+        public toast: ToastService,
+        @Optional() @Inject(FIELD_COMPONENT_OVERRIDES)
+        private fieldOverrides: ReadonlyArray<FieldComponentOverride> | null
     ) {
         super();
     }
@@ -68,7 +73,7 @@ export class RenderElementComponent extends RenderFieldComponent implements OnIn
             case CmdbMode.Edit:
             case CmdbMode.Bulk: {
                 this.simpleRender = false;
-                this.component = fieldComponents[this.data.type];
+                this.component = this.resolveFieldComponent();
                 const factory = this.resolver.resolveComponentFactory(this.component);
                 this.componentRef = this.containerField.createComponent(factory);
                 this.componentRef.instance.parentFormGroup = this.parentFormGroup;
@@ -138,5 +143,21 @@ export class RenderElementComponent extends RenderFieldComponent implements OnIn
                 break;
             }
         }
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /**
+     * A registered {@link FieldComponentOverride} (matched by field name and the current mode)
+     * wins over the type-default field component, letting a feature swap one field's renderer
+     * without the dispatcher knowing about that feature.
+     */
+    private resolveFieldComponent(): any {
+        const override = (this.fieldOverrides ?? []).find(entry =>
+            entry.fieldName === this.data?.name &&
+            (!entry.modes || entry.modes.includes(this.mode))
+        );
+
+        return override?.component ?? fieldComponents[this.data.type];
     }
 }

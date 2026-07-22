@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 <div class="cover-pane" *ngIf="coverForm" [formGroup]="coverForm">
+=======
+@if (coverForm) {
+<div class="cover-pane" [formGroup]="coverForm">
+>>>>>>> origin/version-3.2
     <div class="mb-3">
         <app-toggle [id]="'coverActivatedInput'" [formControlName]="'cover_activated'"
             [label]="'Activate cover page'" />
@@ -15,3 +20,7 @@
         Design the dedicated cover page content.
     </small>
 </div>
+<<<<<<< HEAD
+=======
+}
+>>>>>>> origin/version-3.2

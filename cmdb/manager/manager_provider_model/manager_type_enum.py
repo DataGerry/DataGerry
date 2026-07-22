@@ -65,3 +65,8 @@ class ManagerType(Enum):
 
     # System Managers
     CACHED_USER = 'CachedUserManager'
+
+    # License Managers
+    LICENSE_ACTIVATION_REQUESTS = 'LicenseActivationRequestsManager'
+    ACTIVE_LICENSE = 'ActiveLicenseManager'
+    LICENSE_SERVICE = 'LicenseService'

@@ -1,8 +1,10 @@
 @if(permissions.length > 0) {
-    <span *ngFor="let permission of permissions" class="badge bg-secondary me-1">
-        {{permission}}
-    </span>
+@for (permission of permissions; track permission) {
+<span class="badge bg-secondary me-1">
+    {{permission}}
+</span>
+}
 }
 @else {
-    No permissions set for this group
+No permissions set for this group
 }

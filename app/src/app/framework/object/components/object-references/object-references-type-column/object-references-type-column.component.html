@@ -1,5 +1,11 @@
 <div class="text-center">
-    <span class="badge bg-success" *ngIf="isFieldRef">Field</span>
-    <span class="badge bg-primary" *ngIf="isSectionRef">Section</span>
-    <span class="badge bg-secondary" *ngIf="isMdsRef">MultiDataSection</span>
+    @if (isFieldRef) {
+    <span class="badge bg-success">Field</span>
+    }
+    @if (isSectionRef) {
+    <span class="badge bg-primary">Section</span>
+    }
+    @if (isMdsRef) {
+    <span class="badge bg-secondary">MultiDataSection</span>
+    }
 </div>

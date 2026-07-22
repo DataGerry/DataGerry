@@ -5,12 +5,16 @@
                 Unassigned types
             </div>
             <div class="card-body">
-                <div class="alert alert-warning alert-dismissible fade show mb-0" role="alert" *ngIf="unAssignedTypes.length == 0">
+                @if (unAssignedTypes.length == 0) {
+<div class="alert alert-warning alert-dismissible fade show mb-0" role="alert">
                     <strong>No types!</strong> All existing types are assigned.
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
-                <div *ngIf="unAssignedTypes.length > 0" class="list-group">
-                    <ng-container *ngFor="let type of unAssignedTypes">
+}
+                @if (unAssignedTypes.length > 0) {
+<div class="list-group">
+                    @for (type of unAssignedTypes; track type) {
+
                         <div
                             *permissionLink="'base.framework.type.view',acl:type?.acl;requirements:'READ'"
                             class="list-group-item list-group-item-action mt-2"
@@ -25,8 +29,10 @@
                                 <span class="dnd-handle" dndHandle><i class="fa fa-arrows-alt"></i></span>
                             </div>
                         </div>
-                    </ng-container>
+                    
+}
                 </div>
+}
             </div>
             <div class="card-footer">
                 <small>A type can only be assigned to one category.</small>
@@ -54,14 +60,20 @@
                                         'is-invalid': name.invalid && (name.dirty || name.touched)}"
                             >
                             <small class="form-text text-muted text-start">Unique identifier for the category</small>
-                            <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                                <div class="text-end" *ngIf="name.errors.required">
+                            @if (name.invalid && (name.dirty || name.touched)) {
+<div class="invalid-feedback">
+                                @if (name.errors.required) {
+<div class="text-end">
                                     This field is required
                                 </div>
-                                <div class="text-end" *ngIf="name.errors.categoryExists">
+}
+                                @if (name.errors.categoryExists) {
+<div class="text-end">
                                     A category with this name already exists
                                 </div>
+}
                             </div>
+}
                             <div class="clearfix"></div>
                         </div>
                     </div>
@@ -130,9 +142,11 @@
                                             'is-invalid': parent.invalid && (parent.dirty || parent.touched)}"
                             >
                                 <ng-template ng-header-tmp>
-                                    <small class="form-text text-muted" *ngIf="totalCategories">
+                                    @if (totalCategories) {
+<small class="form-text text-muted">
                                         Loaded {{categories.length}} of {{totalCategories}}
                                     </small>
+}
                                 </ng-template>
                             </ng-select>
                         </div>
@@ -151,7 +165,8 @@
                         >
                             <div class="drop-zone" dndPlaceholderRef data-content="Drop types here">
                             </div>
-                            <ng-container *ngFor="let type of assignedTypes">
+                            @for (type of assignedTypes; track type) {
+
                                 <li
                                     *permissionLink="'base.framework.type.view',acl:type?.acl;requirements:'READ'"
                                     [dndDraggable]="type"
@@ -171,7 +186,8 @@
                                         </div>
                                     </div>
                                 </li>
-                            </ng-container>
+                            
+}
                         </section>
                     </div>
                 </div>

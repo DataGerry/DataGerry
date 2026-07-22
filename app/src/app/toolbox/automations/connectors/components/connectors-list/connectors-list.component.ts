@@ -16,7 +16,11 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+<<<<<<< HEAD
 import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+=======
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { Router } from '@angular/router';
 import { ConnectorsService } from '../../services/connectors.service';
 import { Connector } from '../../models/connector.model';
@@ -41,6 +45,7 @@ export class ConnectorsListComponent implements OnInit {
   columns: any[];
   totalConnectors = 0;
 
+<<<<<<< HEAD
   constructor(
     private svc: ConnectorsService,
     private router: Router,
@@ -49,6 +54,14 @@ export class ConnectorsListComponent implements OnInit {
     private deleteModalService: DeleteModalService,
     private internalConnectorHelper: InternalConnectorHelperService
   ) { }
+=======
+  private readonly svc = inject(ConnectorsService);
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly deleteModalService = inject(DeleteModalService);
+  private readonly internalConnectorHelper = inject(InternalConnectorHelperService);
+>>>>>>> origin/version-3.2
 
   ngOnInit(): void {
     this.columns = [

@@ -32,11 +32,19 @@
         </button>
 
         <button class="control-btn" [class.active]="isFullscreen" (click)="toggleFullscreen()"
+<<<<<<< HEAD
         [title]="isFullscreen ? 'Exit Fullscreen' : 'Maximize to Fullscreen'">
         <span class="material-icons">
           {{ isFullscreen ? 'close_fullscreen' : 'open_in_full' }}
         </span>
       </button>
+=======
+          [title]="isFullscreen ? 'Exit Fullscreen' : 'Maximize to Fullscreen'">
+          <span class="material-icons">
+            {{ isFullscreen ? 'close_fullscreen' : 'open_in_full' }}
+          </span>
+        </button>
+>>>>>>> origin/version-3.2
       </div>
     </div>
   </div>
@@ -60,9 +68,10 @@
         </div>
       </div>
 
-      <div *ngIf="filterMode === 'manual'" class="enhanced-filter-content">
+      @if (filterMode === 'manual') {
+      <div class="enhanced-filter-content">
         <form [formGroup]="filterForm">
-          <div class="manual-filter-selector" style="align-items: center !important;">
+          <div class="manual-filter-selector" style="align-items: start !important;">
             <div class="filter-inputs-section">
               <div class="filter-group">
                 <label class="filter-label">
@@ -70,7 +79,8 @@
                   CI Types
                 </label>
                 <app-form-select formControlName="types" [items]="typeOptionList" bindLabel="display_name"
-                  bindValue="public_id" [multiple]="true" placeholder="Select CI type(s)" class="filter-select">
+                  bindValue="public_id" [multiple]="true" [enableSelectAll]="true" placeholder="Select CI type(s)"
+                  class="filter-select">
                 </app-form-select>
               </div>
 
@@ -87,8 +97,7 @@
 
             <div class="filter-actions">
               <div>
-                <label class="filter-label" style="height: 7px !important">
-                </label>
+                <label class="filter-label">&nbsp;</label>
                 <div>
                   <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" (clicked)="applyFilters()">
                   </app-button>
@@ -101,11 +110,23 @@
                 </div>
               </div>
             </div>
+
+            <div style="grid-column: 1 / -1; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+              <app-checkbox id="graph-editor-with-locations-manual" label="Include locations" [checked]="withLocations"
+                (checkedChange)="onWithLocationsChange($event)">
+              </app-checkbox>
+
+              <app-checkbox id="graph-editor-with-ipam-relations-manual" label="Include IPAM relations"
+                [checked]="withIpamRelations" (checkedChange)="onWithIpamRelationsChange($event)">
+              </app-checkbox>
+            </div>
           </div>
         </form>
       </div>
+      }
 
-      <div *ngIf="filterMode === 'profile'" class="enhanced-filter-content">
+      @if (filterMode === 'profile') {
+      <div class="enhanced-filter-content">
         <div class="profile-selector">
           <div class="filter-group flex-grow">
             <label class="filter-label">
@@ -132,9 +153,20 @@
                 </app-button>
               </div>
             </div>
+
+            <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+              <app-checkbox id="graph-editor-with-locations" label="Include locations" [checked]="withLocations"
+                (checkedChange)="onWithLocationsChange($event)">
+              </app-checkbox>
+
+              <app-checkbox id="graph-editor-with-ipam-relations" label="Include IPAM relations"
+                [checked]="withIpamRelations" (checkedChange)="onWithIpamRelationsChange($event)">
+              </app-checkbox>
+            </div>
           </div>
         </div>
       </div>
+      }
     </div>
   </div>
 
@@ -191,29 +223,34 @@
         <!-- Connection Paths -->
         <g class="connections-group">
           <!-- Invisible wider paths for easier hovering -->
-          <path *ngFor="let conn of getVisibleConnections(); trackBy: trackByConnKey" [attr.d]="calculatePath(conn)"
-            stroke="transparent" stroke-width="20" fill="none" pointer-events="stroke"
-            (click)="onConnectionClick(conn, $event)" (mouseenter)="hoveredConnection = conn"
+          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
+          <path [attr.d]="calculatePath(conn)" stroke="transparent" stroke-width="20" fill="none"
+            pointer-events="stroke" (click)="onConnectionClick(conn, $event)" (mouseenter)="hoveredConnection = conn"
             (mouseleave)="hoveredConnection = null" />
+          }
 
           <!-- Visible connection paths with original arrows -->
-          <path *ngFor="let conn of getVisibleConnections(); trackBy: trackByConnKey" [attr.d]="calculatePath(conn)"
-            class="connection-path" [class.valid]="conn.isValid" [class.invalid]="!conn.isValid"
-            [class.highlighted]="isConnectionHighlighted(conn)" [class.hovered]="hoveredConnection === conn"
+          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
+          <path [attr.d]="calculatePath(conn)" class="connection-path" [class.valid]="conn.isValid"
+            [class.invalid]="!conn.isValid" [class.highlighted]="isConnectionHighlighted(conn)"
+            [class.hovered]="hoveredConnection === conn"
             [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
             [attr.stroke-width]="getConnectionStrokeWidth(conn)"
             [attr.marker-end]="conn.isValid ? (conn.dataFlow && showDataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
             fill="none" (click)="onConnectionClick(conn, $event)" pointer-events="none" />
+          }
 
           <!-- Invisible clickable circles at arrow positions -->
-          <circle *ngFor="let conn of getVisibleConnections(); trackBy: trackByConnKey"
-            [attr.cx]="getArrowPosition(conn).x" [attr.cy]="getArrowPosition(conn).y" r="15" fill="transparent"
+          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
+          <circle [attr.cx]="getArrowPosition(conn).x" [attr.cy]="getArrowPosition(conn).y" r="15" fill="transparent"
             stroke="transparent" (click)="onConnectionClick(conn, $event)" style="cursor: pointer;" />
+          }
         </g>
 
         <!-- Connection Labels -->
         <g class="connection-labels">
-          <g *ngFor="let conn of getVisibleConnections()" class="connection-label-group"
+          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
+          <g class="connection-label-group"
             [style.display]="(hoveredConnection === conn || selectedConnection === conn) ? 'block' : 'none'">
             <rect [attr.x]="calculateLabelPosition(conn).x - 60" [attr.y]="calculateLabelPosition(conn).y - 15"
               width="120" height="30" class="connection-label-bg" />
@@ -222,13 +259,14 @@
               {{ conn.relationLabel }}
             </text>
           </g>
+          }
         </g>
       </svg>
 
       <!-- Enhanced Nodes Layer -->
       <div class="nodes-container">
-        <div *ngFor="let node of filteredNodes; trackBy: trackByNodeId" class="ci-node no-select"
-          [class.selected]="selectedNodes.has(node.id)" [class.expanded]="node.expanded"
+        @for (node of filteredNodes; track trackByNodeId($index, node)) {
+        <div class="ci-node no-select" [class.selected]="selectedNodes.has(node.id)" [class.expanded]="node.expanded"
           [class.loading]="node.isLoading" [class.root-node]="node.isRoot" [class.highlighted]="isNodeHighlighted(node)"
           [style.left.px]="node.x" [style.top.px]="node.y" [style.width.px]="LAYOUT_CONFIG.nodeWidth"
           [style.height.px]="LAYOUT_CONFIG.nodeHeight" [style.display]="shouldShowNode(node) ? 'block' : 'none'"
@@ -244,16 +282,18 @@
             <i class="node-icon" [ngClass]="getNodeTypeConfig(node.type).icon"></i>
             <span class="node-type" [style.color]="node?.color ? getTextColor(node) : '#000000'">{{ node?.type }}</span>
             <div class="node-badges">
-              <span class="badge parent-badge" *ngIf="node.connectionCount?.parents > 0"
-                title="{{ node.connectionCount.parents }} parent connection(s)">
+              @if (node.connectionCount?.parents > 0) {
+              <span class="badge parent-badge" title="{{ node.connectionCount.parents }} parent connection(s)">
                 <span class="material-icons tiny">north</span>
                 {{ node.connectionCount.parents }}
               </span>
-              <span class="badge child-badge" *ngIf="node.connectionCount?.children > 0"
-                title="{{ node.connectionCount.children }} child connection(s)">
+              }
+              @if (node.connectionCount?.children > 0) {
+              <span class="badge child-badge" title="{{ node.connectionCount.children }} child connection(s)">
                 <span class="material-icons tiny">south</span>
                 {{ node.connectionCount.children }}
               </span>
+              }
             </div>
           </div>
 
@@ -271,14 +311,14 @@
 
 
           <div class="node-actions">
-            <button class="action-btn expand-btn"
-              *ngIf="(node.hasChildren || node.hasParents) && !node.isLoading && !node.isRoot"
-              (click)="toggleExpand(node, $event); $event.stopPropagation()"
+            @if ((node.hasChildren || node.hasParents) && !node.isLoading && !node.isRoot) {
+            <button class="action-btn expand-btn" (click)="toggleExpand(node, $event); $event.stopPropagation()"
               [title]="node.expanded ? 'Collapse' : 'Expand'">
               <span class="material-icons">
                 {{ node.expanded ? 'unfold_less' : 'unfold_more' }}
               </span>
             </button>
+            }
 
             <button class="action-btn focus-btn" (click)="centerOnNode(node); $event.stopPropagation()"
               title="Focus on this node">
@@ -287,20 +327,25 @@
           </div>
 
           <!-- Loading Overlay -->
-          <div class="loading-overlay" *ngIf="node.isLoading">
+          @if (node.isLoading) {
+          <div class="loading-overlay">
             <div class="spinner"></div>
           </div>
+          }
         </div>
+        }
       </div>
     </div>
   </div>
 
 
   <!-- Enhanced Minimap -->
-  <div class="minimap" *ngIf="showMinimap" (click)="onMinimapClick($event)">
+  @if (showMinimap) {
+  <div class="minimap" (click)="onMinimapClick($event)">
     <div class="minimap-title">Overview</div>
     <svg class="minimap-svg" [attr.viewBox]="getMinimapViewBox()">
-      <g *ngFor="let group of nodeGroups">
+      @for (group of nodeGroups; track group) {
+      <g>
         <rect [attr.x]="group.x" [attr.y]="group.y" [attr.width]="group.nodes.length * LAYOUT_CONFIG.horizontalSpacing"
           [attr.height]="LAYOUT_CONFIG.nodeHeight"
           [attr.fill]="group.level === 0 ? '#4CAF50' : group.level > 0 ? '#2196F3' : '#FF9800'" opacity="0.2" rx="4" />
@@ -309,22 +354,33 @@
           Level {{ group.level }}
         </text>
       </g>
+      }
 
-      <rect *ngFor="let node of nodes" class="minimap-node" [attr.x]="node.x" [attr.y]="node.y"
-        [attr.width]="LAYOUT_CONFIG.nodeWidth" [attr.height]="LAYOUT_CONFIG.nodeHeight"
+      @for (node of nodes; track node) {
+      <rect class="minimap-node" [attr.x]="node.x" [attr.y]="node.y" [attr.width]="LAYOUT_CONFIG.nodeWidth"
+        [attr.height]="LAYOUT_CONFIG.nodeHeight"
         [attr.fill]="node.isRoot ? '#4CAF50' : node.level > 0 ? '#2196F3' : '#FF9800'"
         [attr.stroke]="selectedNodes.has(node.id) ? '#000' : 'none'" stroke-width="3" rx="4"
         [attr.opacity]="selectedNodes.has(node.id) ? 1 : 0.6" />
+      }
 
-      <rect *ngIf="getMinimapViewportRect() as viewport" class="minimap-viewport" [attr.x]="viewport.x"
-        [attr.y]="viewport.y" [attr.width]="viewport.width" [attr.height]="viewport.height" />
+      @if (getMinimapViewportRect(); as viewport) {
+      <rect class="minimap-viewport" [attr.x]="viewport.x" [attr.y]="viewport.y" [attr.width]="viewport.width"
+        [attr.height]="viewport.height" />
+      }
     </svg>
   </div>
+  }
 
 
   <!-- Enhanced Context Menu -->
+<<<<<<< HEAD
   <div class="context-menu modern-menu" *ngIf="contextMenuVisible && selectedNode"
     [style.left.px]="contextMenuX" [style.top.px]="contextMenuY">
+=======
+  @if (contextMenuVisible && selectedNode) {
+  <div class="context-menu modern-menu" [style.left.px]="contextMenuX" [style.top.px]="contextMenuY">
+>>>>>>> origin/version-3.2
     <div class="menu-header">
       <span class="material-icons">settings</span>
       <span>Actions</span>
@@ -332,10 +388,19 @@
 
     <div class="menu-divider"></div>
     <div class="menu-section">
+<<<<<<< HEAD
       <div class="menu-item highlight" *ngIf="!selectedNode?.isRoot" (click)="selectAsRootNode()">
         <span class="material-icons">adjust</span>
         <span class="menu-item-text">Set as Root Node</span>
       </div>
+=======
+      @if (!selectedNode?.isRoot) {
+      <div class="menu-item highlight" (click)="selectAsRootNode()">
+        <span class="material-icons">adjust</span>
+        <span class="menu-item-text">Set as Root Node</span>
+      </div>
+      }
+>>>>>>> origin/version-3.2
       <div class="menu-item" (click)="onContextToggleExpand($event)">
         <span class="material-icons">
           {{ getContextExpandIcon(selectedNode) }}
@@ -353,7 +418,8 @@
 
 
     <!-- Enhanced Connection Info Panel -->
-    <div class="connection-info-panel" *ngIf="selectedConnection">
+    @if (selectedConnection) {
+    <div class="connection-info-panel">
       <div class="panel-header">
         <h3>
           <span class="material-icons">link</span>
@@ -364,8 +430,13 @@
             <span class="material-icons">edit</span>
           </button>
           <app-button [bootstrapClass]="'btn-secondary'" label="close" type="button"
+<<<<<<< HEAD
           (clicked)="selectedConnection = null">
         </app-button>
+=======
+            (clicked)="selectedConnection = null">
+          </app-button>
+>>>>>>> origin/version-3.2
         </div>
       </div>
       <div class="panel-body">
@@ -425,38 +496,48 @@
               <span class="info-label">Strength:</span>
               <span class="info-value">{{ selectedConnection.strength || 1 }}</span>
             </div>
-            <div class="info-row" *ngIf="selectedConnection.dataFlow">
+            @if (selectedConnection.dataFlow) {
+            <div class="info-row">
               <span class="info-label">Data Flow:</span>
               <span class="info-value">
                 <span class="material-icons">timeline</span>
                 Enabled
               </span>
             </div>
+            }
           </div>
         </div>
 
         <!-- Metadata Section -->
-        <div class="info-section metadata-section" *ngIf="selectedConnection.metadata">
+        @if (selectedConnection.metadata) {
+        <div class="info-section metadata-section">
           <div class="section-title">
             <span class="material-icons">code</span>
             Metadata
           </div>
           <div class="metadata-grid">
-            <div *ngFor="let key of Object.keys(selectedConnection.metadata)" class="metadata-item">
+            @for (key of Object.keys(selectedConnection.metadata); track key) {
+            <div class="metadata-item">
               <span class="meta-key">{{ key }}:</span>
               <span class="meta-value">{{ selectedConnection.metadata[key] }}</span>
             </div>
+            }
           </div>
         </div>
+        }
       </div>
     </div>
+    }
 
     <!-- Performance Hints -->
-    <div class="performance-hints" *ngIf="showPerformanceHints" [class.hidden]="!getPerformanceHint()">
+    @if (showPerformanceHints) {
+    <div class="performance-hints" [class.hidden]="!getPerformanceHint()">
       <span class="material-icons">speed</span>
       <span>{{ getPerformanceHint() }}</span>
     </div>
+    }
   </div>
+  }
 
   <app-loading-popup [isVisible]="isLoading$ | async" message="Loading graph data...">
   </app-loading-popup>

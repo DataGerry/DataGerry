@@ -16,7 +16,11 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+<<<<<<< HEAD
 import { Component, OnInit, OnDestroy } from '@angular/core';
+=======
+import { Component, inject, OnInit, OnDestroy } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { ActivatedRoute, Router } from '@angular/router';
 import {
   FormBuilder,
@@ -43,6 +47,16 @@ import { environment } from 'src/environments/environment';
   standalone: false
 })
 export class ConnectorFormComponent implements OnInit, OnDestroy {
+<<<<<<< HEAD
+=======
+  private readonly fb = inject(FormBuilder);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly svc = inject(ConnectorsService);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+
+>>>>>>> origin/version-3.2
   public isLoading$ = this.loaderService.isLoading$;
 
   mode: 'create' | 'edit' | 'internal' = 'create';
@@ -75,6 +89,7 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
   private initializing = false;
 
+<<<<<<< HEAD
   constructor(
     private fb: FormBuilder,
     private route: ActivatedRoute,
@@ -85,6 +100,8 @@ export class ConnectorFormComponent implements OnInit, OnDestroy {
   ) { }
 
 
+=======
+>>>>>>> origin/version-3.2
   ngOnInit(): void {
     // Use state mode if provided, otherwise use route data
     this.mode = history.state?.mode || (this.route.snapshot.data['mode'] || 'create') as any;

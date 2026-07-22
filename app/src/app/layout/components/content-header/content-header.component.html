@@ -1,4 +1,6 @@
 <h1>
     <i class="{{faIcon}}"></i> {{title}}
-    <ng-template [ngIf]="separator"><hr/></ng-template>
+    @if (separator) {
+    <hr />
+    }
 </h1>

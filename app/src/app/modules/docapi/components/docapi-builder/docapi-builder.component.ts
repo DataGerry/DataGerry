@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { AfterViewInit, Component, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+=======
+import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
@@ -45,6 +49,16 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     standalone: false
 })
 export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
+<<<<<<< HEAD
+=======
+    private readonly docapiService = inject(DocapiService);
+    private readonly router = inject(Router);
+    private readonly toast = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+    private readonly fileSaverService = inject(FileSaverService);
+    private readonly loaderService = inject(LoaderService);
+
+>>>>>>> origin/version-3.2
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
     @Output() public labelChanged = new EventEmitter<string>();
@@ -71,12 +85,17 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private warningModalOpen = false;
     private previousTypeState: { templateType: string; parameters: any } | null = null;
     public previewInProgress = false;
+<<<<<<< HEAD
+=======
+    public isSaving = false;
+>>>>>>> origin/version-3.2
     public isLoading$ = this.loaderService.isLoading$;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+<<<<<<< HEAD
     constructor(
         private docapiService: DocapiService,
         private router: Router,
@@ -85,7 +104,16 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         private fileSaverService: FileSaverService,
         private loaderService: LoaderService
     ) {
+=======
+    public ngAfterViewInit(): void {
+        this.registerTypeChangeHandlers();
+        this.registerLabelChangeHandler();
+    }
+>>>>>>> origin/version-3.2
 
+    public ngOnDestroy(): void {
+        this.typeParamSubscription?.unsubscribe();
+        this.labelSubscription?.unsubscribe();
     }
 
     public ngAfterViewInit(): void {
@@ -107,6 +135,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
      * Handles the API call for creating or editing the document.
      */
     public saveDoc(): void {
+        if (this.isSaving) {
+            return;
+        }
+
         if (!this.docInstance && this.mode === CmdbMode.Create) {
             this.docInstance = new DocTemplate();
         }
@@ -114,8 +146,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.updateDocInstance();
 
         if (this.mode === CmdbMode.Create) {
+            this.isSaving = true;
             this.handleCreateMode();
         } else if (this.mode === CmdbMode.Edit) {
+            this.isSaving = true;
             this.handleEditMode();
         }
     }
@@ -478,6 +512,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         this.docapiService.postDocTemplate(this.docInstance).pipe(
             finalize(() => {
+<<<<<<< HEAD
+=======
+                this.isSaving = false;
+>>>>>>> origin/version-3.2
                 this.loaderService.hide();
             })
         ).subscribe({
@@ -501,6 +539,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
         this.docapiService.putDocTemplate(this.docInstance).pipe(
             finalize(() => {
+<<<<<<< HEAD
+=======
+                this.isSaving = false;
+>>>>>>> origin/version-3.2
                 this.loaderService.hide();
             })
         ).subscribe({

@@ -172,6 +172,8 @@ export class ObjectEditComponent implements OnInit {
                         val.section_id = matchedSectionId;
                     }
                     this.handleMultiDataSection(val);
+                    // The mds control is UI-only; its data ships in multi_data_sections, not in fields.
+                    return;
                 }
                 else if (key == 'locationTreeName') {
                     this.locationTreeName = val;

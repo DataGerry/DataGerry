@@ -91,16 +91,32 @@
     margin-top: 10px;
 }
 
-#is-global-label {
-  font-size: 15px;
-  font-family: sans-serif;
-  margin-top: 17px;
-  margin-left: -5px;;
+.section-template-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 16px;
 }
 
-#is-global-checkbox{
-  width: 17px;
-  height: 17px;
+.section-template-option {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  line-height: 1.2;
+  min-height: 32px;
+}
+
+.section-template-option-control {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+}
+
+.section-template-option-label {
+  margin: 0;
+  font-size: 15px;
+  font-family: sans-serif;
+  color: #4b5563;
 }
 
 #global-edit-message{

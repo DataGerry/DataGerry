@@ -72,7 +72,7 @@ def get_element_from_data_request(element, _request: Request) -> dict | None:
     """
     try:
         return json.loads(_request.form.to_dict()[element])
-    except (KeyError, Exception):
+    except Exception:
         return None
 
 

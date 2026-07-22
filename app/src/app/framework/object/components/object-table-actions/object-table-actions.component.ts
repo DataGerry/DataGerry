@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -28,6 +28,8 @@ import { ObjectDeleteModalComponent } from '../../modals/object-delete-modal/obj
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -64,14 +66,11 @@ export class ObjectTableActionsComponent implements OnDestroy {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(
-        private locationService: LocationService, 
-        private objectService: ObjectService, 
-        private modalService: NgbModal,
-        private toastService: ToastService,
-    ) {
-
-    }
+    private readonly locationService = inject(LocationService);
+    private readonly objectService = inject(ObjectService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
+    private readonly premiumFeatureService = inject(PremiumFeatureService);
 
 
     public ngOnDestroy(): void {
@@ -89,12 +88,22 @@ export class ObjectTableActionsComponent implements OnDestroy {
      * Open the preview modal
      */
     public openPreviewModal(): void {
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg' });
+        if (this.isPremiumLocked()) {
+            this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
+            return;
+        }
+
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg', scrollable: true });
         this.modalRef.componentInstance.renderResult = this.result;
     }
 
 
     public handleDelete(publicID: number){
+        if (this.isPremiumLocked()) {
+            this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
+            return;
+        }
+
         // first check if the object has a location which is parent to child locations
         this.locationService.getChildren(publicID).pipe(takeUntil(this.locationSubscription))
         .subscribe({
@@ -121,6 +130,16 @@ export class ObjectTableActionsComponent implements OnDestroy {
               this.deleteEmitter.emit(response);
             }
         });
+    }
+
+
+    /**
+     * A special-type (IPAM) object is locked for preview/delete when IPAM is not part of the edition.
+     * View/edit/copy navigate and are blocked by the route guard, so they are not re-checked here.
+     */
+    private isPremiumLocked(): boolean {
+        return !!this.result?.object_information?.special_type
+            && !this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
     }
 
 

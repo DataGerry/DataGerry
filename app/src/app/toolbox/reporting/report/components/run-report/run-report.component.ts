@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { Component, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
+=======
+import { Component, inject, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { ActivatedRoute } from '@angular/router';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { catchError, Observable, tap, throwError, forkJoin, switchMap, of, finalize } from 'rxjs';
@@ -36,6 +40,18 @@ import { ReportService } from '../../../services/report.service';
     standalone: false
 })
 export class RunReportComponent implements OnInit, OnChanges {
+<<<<<<< HEAD
+=======
+    private readonly route = inject(ActivatedRoute);
+    private readonly reportService = inject(ReportService);
+    private readonly toast = inject(ToastService);
+    private readonly typeService = inject(TypeService);
+    private readonly fileService = inject(FileService);
+    private readonly fileSaverService = inject(FileSaverService);
+    private readonly location = inject(Location);
+    private readonly loaderService = inject(LoaderService);
+
+>>>>>>> origin/version-3.2
     @Input() public reportId: number;
     @Input() public typeId: number;
     @Input() public selectedFields: string[] = [];
@@ -71,6 +87,7 @@ export class RunReportComponent implements OnInit, OnChanges {
     private initializedFromInputs = false;
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
+<<<<<<< HEAD
     constructor(
         private route: ActivatedRoute,
         private reportService: ReportService,
@@ -82,6 +99,8 @@ export class RunReportComponent implements OnInit, OnChanges {
         private loaderService: LoaderService
     ) { }
 
+=======
+>>>>>>> origin/version-3.2
     /**
      * OnInit lifecycle hook.
      * Subscribes to route parameters and query parameters to initialize the component.

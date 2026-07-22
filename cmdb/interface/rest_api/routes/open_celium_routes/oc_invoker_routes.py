@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort, request, current_app
+from werkzeug import Response
+from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcInvokerManager
 
@@ -44,7 +46,7 @@ oc_invokers_blueprint = APIBlueprint('oc_invokers', __name__)
 @handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
+def get_all_oc_invokers(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route for getting multiple OcInvokers
 
@@ -52,10 +54,12 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        list[dict[str, Any]]: All OcInvokers from OpenCelium
+        Response: All OcInvokers from OpenCelium
     """
     try:
-        with_operations: bool = request.args.get("opsIncluded", type=bool, default=True)
+        # request.args type=bool is a footgun (bool('false') is True), so parse the flag explicitly:
+        # operations are included by default and only an explicit 'false' disables them
+        with_operations: bool = request.args.get("opsIncluded", default="true").lower() != "false"
 
         oc_invoker_manager: OcInvokerManager = OcInvokerManager(
             current_app.database_manager,
@@ -64,10 +68,9 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
 
         invokers: list[dict[str, Any]] = oc_invoker_manager.get_all_invokers(with_operations)
 
-        # LOGGER.debug(f"count invokers: {len(invokers)}")
-        # LOGGER.debug(f"all invokers: {invokers}")
-
         return DefaultResponse(invokers).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcInvokerGetError as err:
         LOGGER.error("[get_all_oc_invokers] OcInvokerGetError: %s.", err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium Invokers!")
@@ -77,16 +80,16 @@ def get_all_oc_invokers(request_user: CmdbUser) -> list[dict[str, Any]]:
 @handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, Any]]:
+def get_oc_invoker_by_name(request_user: CmdbUser, name: str) -> Response:
     """
     **GET**/**HEAD** route to retrieve an Invoker by name
 
     Args:
-        name (str): name of the Invoker
         request_user (CmdbUser): User requesting this data
+        name (str): name of the Invoker
 
     Returns:
-        dict[str, Any]: The Invoker with the given name
+        Response: The Invoker with the given name
     """
     try:
         oc_invoker_manager: OcInvokerManager = OcInvokerManager(
@@ -96,11 +99,11 @@ def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, 
 
         invoker: dict[str, Any] = oc_invoker_manager.get_invoker_by_name(name)
 
-        # LOGGER.debug(f"all invoker: {invoker}")
-
         return DefaultResponse(invoker).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcInvokerGetError as err:
-        LOGGER.error("[get_all_oc_invokers] OcInvokerGetError: %s.", err, exc_info=True)
+        LOGGER.error("[get_oc_invoker_by_name] OcInvokerGetError: %s.", err, exc_info=True)
         abort(500, f"Failed to retrieve OpenCelium Invoker with name: {name}!")
 
 
@@ -108,16 +111,16 @@ def get_oc_invoker_by_name(name: str, request_user: CmdbUser) -> list[dict[str, 
 @handle_oc_errors("checking OpenCelium Invoker exists!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def check_oc_invoker_exists(name: str, request_user: CmdbUser) -> list[dict[str, Any]]:
+def check_oc_invoker_exists(request_user: CmdbUser, name: str) -> Response:
     """
     **GET**/**HEAD** route to check if an Invoker with the given name exists
 
     Args:
-        name (str): name of the Invoker
         request_user (CmdbUser): User requesting this data
+        name (str): name of the Invoker
 
     Returns:
-        bool: True if the Invoker exists, else False
+        Response: True if the Invoker exists, else False
     """
     try:
         oc_invoker_manager: OcInvokerManager = OcInvokerManager(
@@ -128,6 +131,8 @@ def check_oc_invoker_exists(name: str, request_user: CmdbUser) -> list[dict[str,
         invoker_exists: bool = oc_invoker_manager.check_invoker_exists(name)
 
         return DefaultResponse(invoker_exists).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcInvokerGetError as err:
         LOGGER.error("[check_oc_invoker_exists] OcInvokerGetError: %s.", err, exc_info=True)
         abort(500, f"Failed to check if the OpenCelium Invoker with name: '{name}' exists!")

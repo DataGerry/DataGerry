@@ -17,9 +17,13 @@
 Implementation of all API routes for CI Explorer
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
 import ast
+=======
+>>>>>>> origin/version-3.2
 from typing import Any
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
@@ -34,9 +38,17 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.ci_explorer_model import NodeType, CmdbCiExplorerProfile
+
+from cmdb.framework.ci_explorer.argparsing import (
+    clamp_item_limit,
+    parse_bool_arg,
+    parse_int_list_filter,
+    validate_node_type,
+    validate_target_id,
+)
+from cmdb.framework.ci_explorer.graph import build_ci_explorer_graph
 
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
@@ -58,12 +70,22 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerDeleteError,
     CiExplorerProfileManagerIterationError,
 )
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
+from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants import (
+    CiExplorerParam,
+    CiExplorerField,
+)
+from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import apply_ci_explorer_field
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+<<<<<<< HEAD
 
 PARENT_LOCATION_REL_COLOR: str = "#A855F7"
 CHILD_LOCATION_REL_COLOR: str = "#C084FC"
+=======
+>>>>>>> origin/version-3.2
 
 ci_explorer_blueprint = APIBlueprint('ci_explorer', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
@@ -72,13 +94,17 @@ ci_explorer_blueprint = APIBlueprint('ci_explorer', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.validate(CmdbCiExplorerProfile.SCHEMA)
-def insert_cmdb_ci_explorer_profile(data: dict, request_user: CmdbUser):
+def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbCiExplorerProfile into the database
 
     Args:
         data (CmdbCiExplorerProfile.SCHEMA): Data of the CmdbCiExplorerProfile which should be inserted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the insert / re-read fails; 404 when the created profile cannot be
+                       re-read; 500 on an unexpected failure
 
     Returns:
         InsertSingleResponse: The new CmdbCiExplorerProfile and its public_id
@@ -97,6 +123,8 @@ def insert_cmdb_ci_explorer_profile(data: dict, request_user: CmdbUser):
             return InsertSingleResponse(created_profile, result_id).make_response()
 
         abort(404, "Could not retrieve the created CiExplorer Profile from the database!")
+    except HTTPException as http_err:
+        raise http_err
     except CiExplorerProfileManagerInsertError as err:
         LOGGER.error("[insert_cmdb_ci_explorer_profile] CiExplorerProfileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new CiExplorer Profile in the database!")
@@ -113,7 +141,7 @@ def insert_cmdb_ci_explorer_profile(data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.parse_collection_parameters()
-def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbCiExplorerProfiles
 
@@ -147,6 +175,8 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
                                         body)
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except CiExplorerProfileManagerIterationError as err:
         LOGGER.error("[get_cmdb_ci_explorer_profiles] CiExplorerProfileManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve CiExplorer Profiles from the database!")
@@ -158,38 +188,53 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
 @ci_explorer_blueprint.route('/items', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_ci_explorer_nodes_edges(request_user: CmdbUser):
+# The locals are the 8 parsed query args + the 5 managers the framework graph builder requires
+def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: disable=too-many-locals
     """
-    HTTP `GET` route to retrieve Nodes and Edges for the CI Explorer
+    HTTP `GET` route returning the CI Explorer node/edge payload
 
-    Expects the following data via request args:
-            "target_id" (int): # public_id of target CmdbObject
-            "target_type" (str): # Enum with PARENT, CHILD or BOTH
-            "with_root" (bool): True # If True then the target Object will be part of the Response
+    Thin orchestrator: parses query-string arguments via cmdb.framework.ci_explorer.argparsing
+    helpers, resolves the five managers required by the framework module, and delegates the
+    actual payload construction to ``cmdb.framework.ci_explorer.graph.build_ci_explorer_graph``.
+    See that function's docstring for the full response shape
+
+    Query args:
+        target_id (int, required): public_id of the focal CmdbObject. 400 when missing
+        target_type (str, default 'BOTH'): one of NodeType values (CHILD / PARENT / BOTH)
+        with_root (bool, default false): include the focal object as ``root_node``
+        with_locations (bool, default false): include the dg_location hierarchy (inverted)
+        with_ipam_relations (bool, default false): include IPAM-hierarchy neighbours
+            (SUPERNET / SUBNET / VLAN / interface carriers) folded into the standard
+            parent/child buckets with metadata.source='ipam' on each edge
+        item_limit (int, default 0=unlimited): cap on neighbour nodes
+        types_filter (JSON list of int, optional): allowed neighbour type_ids
+        relations_filter (JSON list of int, optional): allowed CmdbRelation public_ids
 
     Args:
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        DefaultResponse: The requested nodes and edges
+        DefaultResponse: The CI Explorer node/edge payload
     """
     try:
-        target_id = request.args.get("target_id", type=int)
-        target_type = request.args.get("target_type", default="BOTH").upper()
-        with_root: bool = request.args.get("with_root", default="false").lower() == "true"
-        with_locations: bool = request.args.get("with_locations", default="false").lower() == "true"
-        item_limit: int | None = request.args.get("item_limit", default=0, type=int)
-
-        if not item_limit or item_limit < 0:
-            item_limit = 0
-
-        types_filter = parse_int_list_filter("types_filter")
-        relations_filter = parse_int_list_filter("relations_filter")
+        target_id: int = validate_target_id(request.args.get(CiExplorerParam.TARGET_ID, type=int))
+        target_type: NodeType = validate_node_type(
+            request.args.get(CiExplorerParam.TARGET_TYPE, default=NodeType.BOTH.value).upper(),
+        )
+        with_root: bool = parse_bool_arg(request.args.get(CiExplorerParam.WITH_ROOT), default=False)
+        with_locations: bool = parse_bool_arg(request.args.get(CiExplorerParam.WITH_LOCATIONS), default=False)
+        with_ipam_relations: bool = parse_bool_arg(
+            request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS), default=False,
+        )
+        item_limit: int = clamp_item_limit(request.args.get(CiExplorerParam.ITEM_LIMIT, type=int))
+        types_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.TYPES_FILTER))
+        relations_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.RELATIONS_FILTER))
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
+<<<<<<< HEAD
                                                                             ManagerType.OBJECT_RELATIONS,
                                                                             request_user
                                                                         )
@@ -526,6 +571,29 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
         if target_type in (NodeType.BOTH, NodeType.PARENT):
             response['parent_nodes'] = list(parent_nodes.values())
             response['parent_edges'] = parent_edges
+=======
+            ManagerType.OBJECT_RELATIONS, request_user,
+        )
+        locations_manager: LocationsManager = ManagerProvider.get_manager(
+            ManagerType.LOCATIONS, request_user,
+        )
+
+        response: dict[str, Any] = build_ci_explorer_graph(
+            target_id=target_id,
+            target_type=target_type,
+            with_root=with_root,
+            with_locations=with_locations,
+            with_ipam_relations=with_ipam_relations,
+            item_limit=item_limit,
+            types_filter=types_filter,
+            relations_filter=relations_filter,
+            objects_manager=objects_manager,
+            types_manager=types_manager,
+            relations_manager=relations_manager,
+            object_relations_manager=object_relations_manager,
+            locations_manager=locations_manager,
+        )
+>>>>>>> origin/version-3.2
 
         return DefaultResponse(response).make_response()
     except HTTPException as http_err:
@@ -539,33 +607,42 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser):
 @ci_explorer_blueprint.route('/tooltip/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def update_tooltip(public_id: int, data: dict, request_user: CmdbUser):
+def update_tooltip(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT`/`PATCH` route to update the ci_explorer_tooltip of an CmdbObject from the CI Explorer
+    HTTP `PUT`/`PATCH` route to set the ci_explorer_tooltip of a CmdbObject from the CI Explorer
+
+    Reads ``{'ci_explorer_tooltip': <string>}`` from the request body, sets it on the CmdbObject and
+    returns the persisted value
 
     Args:
         public_id (int): public_id of the CmdbObject which should be updated
-        data (dict): New tooltip data ({'ci_explorer_tooltip': <string>})
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the tooltip is missing from the body or the ObjectsManager fails;
+                       404 when the Object does not exist; 500 on an unexpected failure
+
     Returns:
-        DefaultResponse: The Tooltip which was set for the CmdbObject
+        DefaultResponse: The tooltip which was set for the CmdbObject
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        to_update_object: CmdbObject = objects_manager.get_object(public_id)
+        tooltip = apply_ci_explorer_field(
+            objects_manager.get_object,
+            objects_manager.update_object,
+            public_id,
+            CiExplorerField.TOOLTIP,
+            request.get_json(silent=True),
+            "Object",
+        )
 
-        if not to_update_object:
-            abort(404, f"The Object with ID:{public_id} was not found!")
-
-        to_update_object['ci_explorer_tooltip'] = data.get('ci_explorer_tooltip')
-
-        objects_manager.update_object(public_id, to_update_object)
-
-        return DefaultResponse(data).make_response()
+        return DefaultResponse({CiExplorerField.TOOLTIP.value: tooltip}).make_response()
     except HTTPException as http_err:
         raise http_err
+    except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
+        LOGGER.error("[update_tooltip] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to update the Tooltip for Object-ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_tooltip] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating the Tooltip for Object-ID: {public_id}!")
@@ -574,33 +651,42 @@ def update_tooltip(public_id: int, data: dict, request_user: CmdbUser):
 @ci_explorer_blueprint.route('/type_label/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def update_type_label(public_id: int, data: dict, request_user: CmdbUser):
+def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT`/`PATCH` route to update the ci_explorer_label for a CmdbType
+    HTTP `PUT`/`PATCH` route to set the ci_explorer_label of a CmdbType from the CI Explorer
+
+    Reads ``{'ci_explorer_label': <string>}`` from the request body, sets it on the CmdbType and
+    returns the persisted value
 
     Args:
         public_id (int): public_id of the CmdbType which should be updated
-        data (dict): New label data ({'ci_explorer_label': <string>})
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the label is missing from the body or the TypesManager fails;
+                       404 when the Type does not exist; 500 on an unexpected failure
+
     Returns:
-        DefaultResponse: The Label which was set for the CmdbType
+        DefaultResponse: The label which was set for the CmdbType
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        to_update_type: CmdbType = types_manager.get_type(public_id)
+        label = apply_ci_explorer_field(
+            types_manager.get_type,
+            types_manager.update_type,
+            public_id,
+            CiExplorerField.LABEL,
+            request.get_json(silent=True),
+            "Type",
+        )
 
-        if not to_update_type:
-            abort(404, f"The Type with ID:{public_id} was not found!")
-
-        to_update_type['ci_explorer_label'] = data.get('ci_explorer_label')
-
-        types_manager.update_type(public_id, to_update_type)
-
-        return DefaultResponse(data).make_response()
+        return DefaultResponse({CiExplorerField.LABEL.value: label}).make_response()
     except HTTPException as http_err:
         raise http_err
+    except (TypesManagerGetError, TypesManagerUpdateError) as err:
+        LOGGER.error("[update_type_label] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to update the Label for Type-ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_type_label] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while updating the Label for Type-ID: {public_id}!")
@@ -611,7 +697,7 @@ def update_type_label(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.validate(CmdbCiExplorerProfile.SCHEMA)
-def update_cmdb_ci_explorer_profile(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbCiExplorerProfile
 
@@ -619,6 +705,10 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict, request_user: Cm
         public_id (int): public_id of the CmdbCiExplorerProfile which should be updated
         data (CmdbCiExplorerProfile.SCHEMA): New CmdbCiExplorerProfile data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the lookup / update fails; 404 when the profile does not exist;
+                       500 on an unexpected failure
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbCiExplorerProfile
@@ -629,11 +719,20 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict, request_user: Cm
                                                                             request_user
                                                                          )
 
-        to_update_explorer_profile: CmdbCiExplorerProfile = ci_explorer_profile_manager.get_item(public_id)
+        # Only an existence check is needed here, so fetch the lightweight raw dict (no model build)
+        to_update_explorer_profile: dict[str, Any] | None = ci_explorer_profile_manager.get_item(
+            public_id, as_dict=True
+        )
 
         if not to_update_explorer_profile:
             abort(404, f"The CiExplorer Profile with ID:{public_id} was not found!")
 
+<<<<<<< HEAD
+=======
+        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
+        data[CmdbObjectKey.PUBLIC_ID] = public_id
+
+>>>>>>> origin/version-3.2
         ci_explorer_profile_manager.update_item(public_id, CmdbCiExplorerProfile.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
@@ -654,13 +753,17 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict, request_user: Cm
 @ci_explorer_blueprint.route('/profile/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser):
+def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbCiExplorerProfile
 
     Args:
         public_id (int): public_id of the CmdbCiExplorerProfile which should be deleted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the lookup / delete fails; 404 when the profile does not exist;
+                       500 on an unexpected failure
 
     Returns:
         DeleteSingleResponse: The deleted CmdbCiExplorerProfile data
@@ -678,7 +781,7 @@ def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser):
 
         ci_explorer_profile_manager.delete_item(public_id)
 
-        return DeleteSingleResponse(to_delete_explorer_profile).make_response()
+        return DeleteSingleResponse(CmdbCiExplorerProfile.to_json(to_delete_explorer_profile)).make_response()
     except HTTPException as http_err:
         raise http_err
     except CiExplorerProfileManagerDeleteError as err:
@@ -690,29 +793,3 @@ def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser):
     except Exception as err:
         LOGGER.error("[delete_cmdb_ci_explorer_profile] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the CiExplorer Profile with ID: {public_id}!")
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-def parse_int_list_filter(arg_name: str) -> set[int]:
-    """TODO: document"""
-    raw_value = request.args.get(arg_name)
-    if not raw_value:
-        return set()
-
-    try:
-        parsed = ast.literal_eval(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError
-        return {int(x) for x in parsed}
-    except (SyntaxError, ValueError, TypeError):
-        abort(400, f"Invalid format for '{arg_name}'. Must be a list of integers like [1,2,3].")
-
-
-def item_limit_reached(item_limit: int, current_items: int) -> bool:
-    """TODO: document"""
-    return current_items >= item_limit
-
-
-def remaining_items(item_limit: int, current_items: int) -> int:
-    """TODO: document"""
-    return item_limit - current_items

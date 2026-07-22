@@ -21,6 +21,8 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.risk_type_enum import RiskType
 
+from cmdb.class_schema.isms_model.isms_risk_schema import get_isms_risk_schema
+
 from cmdb.errors.models.isms_risk import (
     IsmsRiskInitError,
     IsmsRiskInitFromDataError,
@@ -40,7 +42,10 @@ class IsmsRisk(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.risk"
+<<<<<<< HEAD
     MODEL = 'Risk'
+=======
+>>>>>>> origin/version-3.2
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('risk_type', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_type', 'unique': False},
@@ -49,6 +54,7 @@ class IsmsRisk(CmdbDAO):
         {'keys': [('identifier', CmdbDAO.DAO_ASCENDING)], 'name': 'identifier', 'unique': False}
     ]
 
+<<<<<<< HEAD
     # pylint: disable=R0801
     SCHEMA: dict = {
         'public_id': {
@@ -90,6 +96,9 @@ class IsmsRisk(CmdbDAO):
             'type': 'string',
         },
     }
+=======
+    SCHEMA: dict = get_isms_risk_schema()
+>>>>>>> origin/version-3.2
 
 
     #pylint: disable=R0913, R0917

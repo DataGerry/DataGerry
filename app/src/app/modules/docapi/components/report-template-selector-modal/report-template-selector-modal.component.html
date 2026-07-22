@@ -6,6 +6,7 @@
 <div class="modal-body">
   <div class="report-modal-grid">
     <aside class="report-sidebar">
+<<<<<<< HEAD
       <app-form-select
         label="Report"
         [items]="reports"
@@ -14,11 +15,16 @@
         [(ngModel)]="selectedReportId"
         (selectedItemChange)="onReportSelected($event)"
         [disabled]="loadingReports"
+=======
+      <app-form-select label="Report" [items]="reports" bindLabel="name" bindValue="public_id"
+        [(ngModel)]="selectedReportId" (selectedItemChange)="onReportSelected($event)" [disabled]="loadingReports"
+>>>>>>> origin/version-3.2
         placeholder="Select a report">
       </app-form-select>
     </aside>
 
     <section class="report-content">
+<<<<<<< HEAD
       <div *ngIf="!selectedReportId" class="empty-state">
         Select a report to preview its results.
       </div>
@@ -45,12 +51,37 @@
         <span class="template-label">Preview generated template:</span>
         <code>{{ previewTemplate }}</code>
       </div>
+=======
+      @if (!selectedReportId) {
+      <div class="empty-state">
+        Select a report to preview its results.
+      </div>
+      }
+      @if (selectedReportId) {
+      <div class="table-scroll-wrapper">
+        <app-run-report [reportId]="selectedReportId" [typeId]="selectedReport?.type_id"
+          [selectedFields]="selectedReport?.selected_fields" [mdsMode]="selectedReport?.mds_mode" [previewMode]="true"
+          [showHeader]="false" [showActions]="false" [showGoBack]="false" [showExport]="false"
+          [enablePagination]="false" [enableSearch]="false" [enableSorting]="false" [enablePageSize]="false"
+          [enableInfo]="false">
+        </app-run-report>
+      </div>
+      }
+
+      @if (previewTemplate) {
+      <div class="template-preview">
+        <span class="template-label">Preview generated template:</span>
+        <code>{{ previewTemplate }}</code>
+      </div>
+      }
+>>>>>>> origin/version-3.2
     </section>
   </div>
 </div>
 
 <div class="modal-footer">
   <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary'" (clicked)="cancel()"></app-button>
+<<<<<<< HEAD
   <app-button label="Insert Template" type="button" [bootstrapClass]="'btn-success'" [disabled]="!previewTemplate" (clicked)="insert()">
   </app-button>
 </div>
@@ -59,3 +90,11 @@
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>
+=======
+  <app-button label="Insert Template" type="button" [bootstrapClass]="'btn-success'" [disabled]="!previewTemplate"
+    (clicked)="insert()">
+  </app-button>
+</div>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+>>>>>>> origin/version-3.2

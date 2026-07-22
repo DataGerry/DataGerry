@@ -1,28 +1,20 @@
-<div id="renderModeWrapper" *ngIf="renderResult; then renderResultTemplate else mergeBlockTemplate"></div>
+<div
+    [cmdbSubnetNetworkRangeValidator]="typeInstance"
+    [cmdbSubnetNetworkRangeValidatorForm]="renderForm"
+    [cmdbSubnetNetworkRangeValidatorObjectId]="renderResult?.object_information?.object_id ?? null"
+    [cmdbSupernetNetworkRangeValidator]="typeInstance"
+    [cmdbSupernetNetworkRangeValidatorForm]="renderForm">
+    @if (renderResult) {
 
-<ng-template #renderResultTemplate>
-    <cmdb-sections-factory
-        [mode]="mode"
-        [form]="renderForm"
-        [changeForm]="changeForm"
-        [objectID]="objectID"
-        [sections]="renderResult.sections"
-        [fields]="renderResult.fields"
-        [values]="renderResult.fields"
-        [typeInstance]="typeInstance"
-        [renderResult]="renderResult"
-    />
-</ng-template>
+    <cmdb-sections-factory [mode]="mode" [form]="renderForm" [changeForm]="changeForm" [objectID]="objectID"
+        [sections]="renderResult.sections" [fields]="renderResult.fields" [values]="renderResult.fields"
+        [typeInstance]="typeInstance" [renderResult]="renderResult" />
 
-<ng-template #mergeBlockTemplate>
-    <cmdb-sections-factory
-        [mode]="mode"
-        [form]="renderForm"
-        [changeForm]="changeForm"
-        [sections]="typeInstance?.render_meta?.sections"
-        [fields]="typeInstance?.fields"
-        [values]="objectInstance?.fields"
-        [typeInstance]="typeInstance"
-        [renderResult]="renderResult"
-    />
-</ng-template>
+    } @else {
+
+    <cmdb-sections-factory [mode]="mode" [form]="renderForm" [changeForm]="changeForm"
+        [sections]="typeInstance?.render_meta?.sections" [fields]="typeInstance?.fields"
+        [values]="objectInstance?.fields" [typeInstance]="typeInstance" [renderResult]="renderResult" />
+
+    }
+</div>

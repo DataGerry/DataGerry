@@ -31,7 +31,7 @@ from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
 
-from cmdb.errors.manager import BaseManagerIterationError, BaseManagerInsertError
+from cmdb.errors.manager import BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -48,10 +48,12 @@ class LogsManager(BaseManager):
 
     def __init__(self, dbm: MongoDatabaseManager, database: str = None):
         """
-        Set the database connection and the queue for sending events
+        Initializes the LogsManager on the logs collection (CmdbMetaLog.COLLECTION)
 
         Args:
-            database_manager (MongoDatabaseManager): Active database managers instance
+            dbm (MongoDatabaseManager): Active database manager instance used for all queries
+            database (str, optional): Target database name. Required in cloud mode to select the
+                                      tenant database; defaults to the manager's configured database
         """
         super().__init__(CmdbMetaLog.COLLECTION, dbm, database)
 
@@ -59,14 +61,21 @@ class LogsManager(BaseManager):
 
     def insert_log(self, action: LogAction, log_type: str, **kwargs) -> int:
         """
-        Creates a new log in the database
+        Creates a new log entry in the database
+
+        Assembles the static log fields (a freshly incremented public_id, the action value and
+        name, the log type and a UTC timestamp), merges in the caller-supplied log payload, builds
+        a CmdbLog from it and persists its serialized form.
 
         Args:
-            action (LogAction): The action of the log
-            log_type (str): The log type
+            action (LogAction): The action the log records (e.g. CREATE, EDIT, DELETE)
+            log_type (str): The log type discriminator (e.g. ``CmdbObjectLog.__name__``)
+            **kwargs: The remaining log-specific fields merged into the document, e.g. ``object_id``,
+                      ``user_id``, ``user_name``, ``version``, ``changes``, ``comment``,
+                      ``render_state``. Keys here override the static fields on collision.
 
         Returns:
-            int: New public_id
+            int: The public_id of the newly inserted log
         """
         log_init = {}
 
@@ -78,11 +87,8 @@ class LogsManager(BaseManager):
         log_init['log_time'] = datetime.now(timezone.utc)
         log_data = {**log_init, **kwargs}
 
-        try:
-            new_log = CmdbLog(**log_data)
-            ack = self.insert(CmdbObjectLog.to_json(new_log))
-        except BaseManagerInsertError as err:
-            raise BaseManagerInsertError(err) from err
+        new_log = CmdbLog(**log_data)
+        ack = self.insert(CmdbObjectLog.to_json(new_log))
 
         return ack
 
@@ -91,23 +97,25 @@ class LogsManager(BaseManager):
     def iterate(self,
                 builder_params: BuilderParameters,
                 user: CmdbUser = None,
-                permission: AccessControlPermission = None) -> IterationResult[CmdbMetaLog]:
+                permission: AccessControlPermission = None) -> IterationResult[CmdbObjectLog]:
         """
-        Performs an aggregation on the database
+        Runs an aggregation over the logs collection and binds the rows to CmdbObjectLog
+
         Args:
-            builder_params (BuilderParameters): Contains input to identify the target of action
-            user (CmdbUser, optional): User requesting this action
-            permission (AccessControlPermission, optional): Permission which should be checked for the user
+            builder_params (BuilderParameters): Match filter / aggregation pipeline plus pagination
+            user (CmdbUser, optional): User requesting this action, used for ACL-aware querying
+            permission (AccessControlPermission, optional): Permission checked for the user when set
+
         Raises:
-            BaseManagerIterationError: Raised when something goes wrong during the aggregate part
-            BaseManagerIterationError: Raised when something goes wrong during the building of the IterationResult
+            BaseManagerIterationError: If the aggregation or the IterationResult assembly fails
+
         Returns:
-            IterationResult[CmdbMetaLog]: Result which matches the Builderparameters
+            IterationResult[CmdbObjectLog]: The matching logs and their total count
         """
         try:
             aggregation_result, total = self.iterate_query(builder_params, user, permission)
 
-            iteration_result: IterationResult[CmdbMetaLog] = IterationResult(aggregation_result, total)
+            iteration_result: IterationResult[CmdbObjectLog] = IterationResult(aggregation_result, total)
             iteration_result.convert_to(CmdbObjectLog)
 
             return iteration_result

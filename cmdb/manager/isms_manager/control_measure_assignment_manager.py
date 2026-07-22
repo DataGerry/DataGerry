@@ -17,12 +17,16 @@
 This module contains the implementation of the ControlMeasureAssignmentManager
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
+=======
+from typing import Any
+>>>>>>> origin/version-3.2
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.isms_model import IsmsControlMeasureAssignment
+from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
 
 from cmdb.errors.manager.control_measure_assignment_manager import CONTROL_MEASURE_ASSIGNMENT_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -34,9 +38,41 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class ControlMeasureAssignmentManager(GenericManager):
     """
-    The ThreatManager manages the interaction between IsmsRiskAssessments and the database
+    The ControlMeasureAssignmentManager manages the interaction between IsmsControlMeasureAssignments
+    and the database
 
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str = None):
         super().__init__(dbm, IsmsControlMeasureAssignment, CONTROL_MEASURE_ASSIGNMENT_MANAGER_ERRORS, database)
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def get_missing_control_measure_ids(self, assignments: list[dict[str, Any]]) -> set[int]:
+        """
+        Returns the control_measure_ids referenced by the given assignments that do not exist.
+
+        Resolves the referenced IsmsControlMeasures in a single query so a RiskAssessment cannot be
+        linked to a non-existent ControlMeasure.
+
+        Args:
+            assignments (list[dict[str, Any]]): ControlMeasureAssignment payloads to check
+
+        Returns:
+            set[int]: The referenced control_measure_ids with no matching IsmsControlMeasure
+                      (empty when every reference resolves)
+        """
+        referenced_ids = {
+            assignment['control_measure_id'] for assignment in assignments
+            if assignment.get('control_measure_id') is not None
+        }
+
+        if not referenced_ids:
+            return set()
+
+        existing_ids = {
+            control_measure['public_id'] for control_measure in self.get_many_from_other_collection(
+                IsmsControlMeasure.COLLECTION, public_id={'$in': list(referenced_ids)})
+        }
+
+        return referenced_ids - existing_ids

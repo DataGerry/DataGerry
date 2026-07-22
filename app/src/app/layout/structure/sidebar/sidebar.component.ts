@@ -30,6 +30,8 @@ import { CmdbType } from '../../../framework/models/cmdb-type';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -71,6 +73,12 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
     flyout: { group: string; top: number } | null = null;
     flyoutHovered = false;
+<<<<<<< HEAD
+=======
+
+    // Whether IPAM is unlocked for the active edition; gates the "Networks" tab and the network tree.
+    public ipamAvailable = false;
+>>>>>>> origin/version-3.2
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -80,7 +88,8 @@ export class SidebarComponent implements OnInit, OnDestroy {
         private renderer: Renderer2,
         private elementRef: ElementRef,
         private userService: UserService,
-        private cdRed: ChangeDetectorRef
+        private cdRed: ChangeDetectorRef,
+        private premiumFeatureService: PremiumFeatureService
     ) {
         this.categoryTreeSubscription = new Subscription();
         this.unCategorizedTypesSubscription = new Subscription();
@@ -114,28 +123,76 @@ export class SidebarComponent implements OnInit, OnDestroy {
         }
 
         this.selectedMenu = this.sidebarService.selectedMenu;
+
+        this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe((available) => {
+                this.ipamAvailable = available;
+                this.cdRed.markForCheck();
+            });
     }
 
 
     public ngOnDestroy(): void {
+        this.clearFlyoutCloseTimeout();
+    
+        this.subscriber?.next();
         this.subscriber?.complete();
+    
         this.categoryTreeSubscription?.unsubscribe();
         this.unCategorizedTypesSubscription?.unsubscribe();
         this.filterTermSubscription?.unsubscribe();
+    
         this.renderer?.removeClass(document?.body, 'sidebar-fixed');
     }
 
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */
 
     /**
-     * Toggles the activated menu tabs (categories and locations)
-     * 
-     * @param selection :string = String representation of the selected menu
+     * Whether the "Navigation View" top tab is active (either of its nested sub-tabs is selected).
      */
-    onSidebarMenuClicked(selection: HTMLDivElement) {
-        let newValue = selection.getAttribute('value');
-        this.selectedMenu = newValue;
-        this.sidebarService.selectedMenu = newValue;
+    get isNavigationView(): boolean {
+        return this.selectedMenu === 'locations' || this.selectedMenu === 'ipam';
+    }
+
+
+    /**
+     * Selects a top-level tab. Entering "Navigation View" defaults to the Locations sub-tab,
+     * but preserves the last-used sub-tab when already inside the navigation view.
+     *
+     * @param tab the top-level tab to activate
+     */
+    selectTopTab(tab: 'categories' | 'navigation'): void {
+        if (tab === 'categories') {
+            this.setMenu('categories');
+            return;
+        }
+
+        if (!this.isNavigationView) {
+            this.setMenu('locations');
+        }
+    }
+
+
+    /**
+     * Selects a nested tab inside the "Navigation View".
+     *
+     * @param tab the nested tab to activate
+     */
+    selectNavTab(tab: 'locations' | 'ipam'): void {
+        this.setMenu(tab);
+    }
+
+
+    /** Opens the IPAM upgrade showcase from the locked network area. */
+    promptIpamUpgrade(): void {
+        this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
+    }
+
+
+    private setMenu(menu: string): void {
+        this.selectedMenu = menu;
+        this.sidebarService.selectedMenu = menu;
     }
 
 
@@ -198,6 +255,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
     toggleSidebar(): void {
         this.isSidebarCollapsed = !this.isSidebarCollapsed;
         this.cdRed.markForCheck();
+<<<<<<< HEAD
         const w = this.isSidebarCollapsed ? '64px' : '240px';
         this.setSidebarWidth(w);
         this.updateDynamicStyles(w);
@@ -212,10 +270,49 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
     onGroupMouseLeave(): void {
         setTimeout(() => {
+=======
+        const w = this.isSidebarCollapsed ? '75px' : '230px';
+        this.setSidebarWidth(w);
+        this.updateDynamicStyles(w);
+    }
+    
+    private flyoutCloseTimeout: ReturnType<typeof setTimeout> | null = null;
+    
+    private clearFlyoutCloseTimeout(): void {
+        if (this.flyoutCloseTimeout) {
+            clearTimeout(this.flyoutCloseTimeout);
+            this.flyoutCloseTimeout = null;
+        }
+    }
+    
+    onGroupMouseEnter(group: string, event: MouseEvent): void {
+        if (!this.isSidebarCollapsed) {
+            return;
+        }
+
+        this.clearFlyoutCloseTimeout();
+        this.flyoutHovered = false;
+    
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    
+        this.flyout = {
+            group,
+            top: rect.top
+        };
+    
+        this.cdRed.markForCheck();
+    }
+    
+    onGroupMouseLeave(): void {
+        this.clearFlyoutCloseTimeout();
+    
+        this.flyoutCloseTimeout = setTimeout(() => {
+>>>>>>> origin/version-3.2
             if (!this.flyoutHovered) {
                 this.flyout = null;
                 this.cdRed.markForCheck();
             }
+<<<<<<< HEAD
         }, 80);
     }
 
@@ -225,5 +322,27 @@ export class SidebarComponent implements OnInit, OnDestroy {
         this.flyoutHovered = false;
         this.flyout = null;
         this.cdRed.markForCheck();
+=======
+    
+            this.flyoutCloseTimeout = null;
+        }, 120);
+    }
+    
+    onFlyoutMouseEnter(): void {
+        this.clearFlyoutCloseTimeout();
+        this.flyoutHovered = true;
+    }
+    
+    onFlyoutMouseLeave(): void {
+        this.flyoutHovered = false;
+    
+        this.clearFlyoutCloseTimeout();
+    
+        this.flyoutCloseTimeout = setTimeout(() => {
+            this.flyout = null;
+            this.cdRed.markForCheck();
+            this.flyoutCloseTimeout = null;
+        }, 80);
+>>>>>>> origin/version-3.2
     }
 }

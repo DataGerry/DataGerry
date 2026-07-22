@@ -20,6 +20,8 @@ a section template in Datagarry.
 from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.section_template_model.cmdb_section_template_schema import get_cmdb_section_template_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -30,64 +32,29 @@ LOGGER: Logger = getLogger(__name__)
 
 class CmdbSectionTemplate(CmdbDAO):
     """
-    The CMDB location is the basic data wrapper for storing and
-    holding locations within the CMDB.
+    Implementation of CmdbSectionTemplate, a reusable section definition that CmdbTypes can include
 
-    Attributes:
-        COLLECTION (str):    Name of the database collection.
-        MODEL (Model):              Name of the DAO.
-        DEFAULT_VERSION (str):      The default "starting" version number.
-        SCHEMA (dict):              The validation schema for this DAO.
-        INDEX_KEYS (list):          List of index keys for the database.
+    Extends: CmdbDAO
     """
     COLLECTION = 'framework.sectionTemplates'
     MODEL = 'Section_Template'
     DEFAULT_VERSION = '1.0.0'
-    REQUIRED_INIT_KEYS = ['name', 'label','type', 'fields']
+    REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'is_global': {
-            'type': 'boolean',
-            'default': False
-        },
-        'predefined': {
-            'type': 'boolean',
-            'default': False
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'label': {
-            'type': 'string',
-            'required': True,
-        },
-        'type': {
-            'type': 'string',
-            'default': 'section'
-        },
-        'fields': {
-            'type': 'list',
-            'required': True,
-            'default': [],
-        }
-    }
-
-    # this is required for compability with existing sections
-    SECTION_TYPE = 'section'
+    SCHEMA: dict = get_cmdb_section_template_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
-    def __init__(self,
-                 name: str,
-                 label: str,
-                 fields: list,
-                 is_global: bool = False,
-                 predefined: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        name: str,
+        label: str,
+        fields: list,
+        type: str,
+        is_global: bool = False,
+        predefined: bool = False,
+        **kwargs
+    ) -> None:
         """
         Initialisation of a section template
 
@@ -101,7 +68,7 @@ class CmdbSectionTemplate(CmdbDAO):
         self.fields: list = fields
         self.is_global: bool = is_global
         self.predefined: bool = predefined
-        self.type: str = self.SECTION_TYPE
+        self.type: str = type
         super().__init__(**kwargs)
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
@@ -122,9 +89,9 @@ class CmdbSectionTemplate(CmdbDAO):
             name = data.get('name'),
             label = data.get('label'),
             fields = data.get('fields'),
-            is_global = data.get('is_global',False),
-            predefined = data.get('predefined',False),
-            type = cls.SECTION_TYPE,
+            is_global = data.get('is_global', False),
+            predefined = data.get('predefined', False),
+            type = data.get('type'),
         )
 
 

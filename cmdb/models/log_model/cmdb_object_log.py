@@ -21,6 +21,8 @@ from datetime import datetime
 
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
+
+from cmdb.class_schema.log_model.cmdb_object_log_schema import get_cmdb_object_log_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -29,56 +31,13 @@ LOGGER: Logger = getLogger(__name__)
 #                                                 CmdbObjectLog - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbObjectLog(CmdbMetaLog):
-    """TODO:document"""
+    """
+    Implementation of CmdbObjectLog, a log entry recording a change made to a CmdbObject
 
-    DEFAULT_VERSION: str = '1.0.0'
-    SCHEMA: dict = {
-        'object_id': {
-            'type': 'integer'
-        },
-        'public_id': {
-            'type': 'integer'
-        },
-        'version': {
-            'type': 'integer',
-            'default': DEFAULT_VERSION
-        },
-        'user_id': {
-            'type': 'integer'
-        },
-        'user_name': {
-            'type': 'string',
-            'required': True,
-            'regex': r'(\w+)-*(\w)([\w-]*)'  # kebab case validation
-        },
-        'render_state': {
-            'type': 'string'
-        },
-        'log_type': {
-            'type': 'string',
-            'required': True,
-        },
-        'log_time': {
-            'type': 'datetime',
-            'required': True,
-        },
-        'changes': {
-            'type': 'list',
-            'empty': True,
-            'default': []
-        },
-        'comment': {
-            'type': 'string'
-        },
-        'action': {
-            'type': 'integer',
-            'required': True,
-        },
-        'action_name': {
-            'type': 'string',
-            'required': True
-        }
-    }
+    Extends: CmdbMetaLog
+    """
+
+    SCHEMA: dict = get_cmdb_object_log_schema()
 
     UNKNOWN_USER_STRING = 'Unknown'
 

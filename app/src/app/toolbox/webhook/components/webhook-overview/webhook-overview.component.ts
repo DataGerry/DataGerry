@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+=======
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { WebhookService } from '../../services/webhook.service';
 import { Webhook } from '../../models/webhook.model';
 import { Router } from '@angular/router';
@@ -33,6 +37,16 @@ import { FilterBuilderService } from 'src/app/core/services/filter-builder.servi
     standalone: false
 })
 export class WebhookOverviewComponent implements OnInit {
+<<<<<<< HEAD
+=======
+    private readonly webhookService = inject(WebhookService);
+    private readonly router = inject(Router);
+    private readonly toast = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+    private readonly loaderService = inject(LoaderService);
+    private readonly filterBuilderService = inject(FilterBuilderService);
+
+>>>>>>> origin/version-3.2
     public webhooks: Webhook[] = [];
     public totalWebhooks: number = 0;
     public page: number = 1;
@@ -57,6 +71,7 @@ export class WebhookOverviewComponent implements OnInit {
 
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
+<<<<<<< HEAD
     constructor(private webhookService: WebhookService,
         private router: Router,
         private toast: ToastService,
@@ -65,6 +80,8 @@ export class WebhookOverviewComponent implements OnInit {
         private filterBuilderService: FilterBuilderService
     ) { }
 
+=======
+>>>>>>> origin/version-3.2
     ngOnInit(): void {
         this.searchSubscription = this.searchSubject.pipe(debounceTime(700)).subscribe(search => {
             this.filter = search || undefined;

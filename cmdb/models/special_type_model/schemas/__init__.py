@@ -13,3 +13,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+<<<<<<< HEAD
+=======
+"""
+Predefined CmdbType schemas for the IPAM SpecialTypes
+
+Each schema module exposes a get_<special_type>_schema() builder returning the ready-to-use
+CmdbType schema dict (sections, fields, the 'special_type' marker) for one SpecialType;
+SchemaProvider maps a SpecialType value to the matching builder for the special-type creation
+route and the DataGerry assistant. cidr_regex holds the coarse field-level IP / CIDR
+validation patterns shared by the SUBNET and SUPERNET schemas and the dg-ipam-interface
+section template
+"""
+>>>>>>> origin/version-3.2
