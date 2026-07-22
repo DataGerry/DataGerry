@@ -35,6 +35,7 @@ and manage any type of asset or configuration data.
     usage/multi_data_sections
     usage/n_m_relations
     usage/ci_explorer
+    usage/ipam
     usage/locations
     usage/reports
     usage/document_generator
@@ -44,6 +45,7 @@ and manage any type of asset or configuration data.
     usage/imports
     usage/exports
     usage/file_explorer
+    usage/license_management
 
 =======================================================================================================================
 
