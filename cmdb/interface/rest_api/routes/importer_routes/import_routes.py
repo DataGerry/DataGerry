@@ -14,7 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Registering import routes for objects and types
+Root blueprint for the CmdbObject and CmdbType import routes
+
+Defines the `/import` root blueprint and mounts the nested `/import/object` and `/import/type` route
+modules. Importing those modules is what performs the wiring: their `NestedBlueprint` delegates every
+`@route(...)` back to `importer_blueprint`, so no explicit sub-registration step is needed.
 """
 from flask import current_app
 
@@ -22,8 +26,8 @@ from cmdb.interface.blueprints import RootBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 importer_blueprint = RootBlueprint('import_rest', __name__, url_prefix='/import')
 
+# Side-effect imports: loading these modules registers their routes on importer_blueprint
 with current_app.app_context():
-    from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import importer_object_blueprint
-    importer_blueprint.register_nested_blueprint(importer_object_blueprint)
-    from cmdb.interface.rest_api.routes.importer_routes.importer_type_routes import importer_type_blueprint
-    importer_blueprint.register_nested_blueprint(importer_type_blueprint)
+    # pylint: disable=unused-import
+    from cmdb.interface.rest_api.routes.importer_routes import importer_object_routes  # noqa: F401
+    from cmdb.interface.rest_api.routes.importer_routes import importer_type_routes  # noqa: F401

@@ -31,6 +31,7 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
+from cmdb.framework.exporter.exporter_constants import EXPORT_FILENAME_TIMESTAMP_FMT
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,9 +39,10 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseExportWriter - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-class  BaseExportWriter:
+class BaseExportWriter:
     """
-    The base class for export writers
+    Drives an object export: fetches + renders the objects from the database, then serializes them
+    through a chosen export format into a downloadable Flask Response
     """
 
     def __init__(self, export_format: BaseExporterFormat, export_config: ExporterConfig):
@@ -64,12 +66,16 @@ class  BaseExportWriter:
             db_name: str | None = None
         ) -> None:
         """
-        Retrieves all objects from the collection and processes them for export
+        Retrieves the objects matching the export filter and renders them for export
+
+        The objects are fetched (honouring the configured filter / sort / order and the user's ACL
+        permission) and rendered into `self.data` ready for the export format to serialize.
 
         Args:
             dbm (MongoDatabaseManager): The database manager instance
             user (CmdbUser): The user requesting the data
-            permission (AccessControlPermission): The user's access permissions
+            permission (AccessControlPermission): The access permission enforced while fetching objects
+            db_name (str | None): Target database name (cloud mode); None uses the default database
         """
         objects_manager = ObjectsManager(dbm, db_name)
         export_params = self.export_config.parameters
@@ -95,16 +101,17 @@ class  BaseExportWriter:
             Response: A Flask Response object containing the exported data
         """
         conf_option = self.export_config.options
-        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
+        timestamp = datetime.datetime.now().strftime(EXPORT_FILENAME_TIMESTAMP_FMT)
 
         # Generate the export content
-        export_content  = self.export_format.export(self.data, conf_option)
+        export_content = self.export_format.export(self.data, conf_option)
 
         file_extension = self.export_format.__class__.FILE_EXTENSION
+        mimetype = self.export_format.__class__.MIME_TYPE
 
         return Response(
             export_content,
-            mimetype="text/" + self.export_format.__class__.FILE_EXTENSION,
+            mimetype=mimetype,
             headers={
                 "Content-Disposition": f"attachment; filename={timestamp}.{file_extension}"
             }

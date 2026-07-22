@@ -940,32 +940,89 @@ class TestLoadLocalTestUser:
 class TestSyncApiCachedUser:
     """``_sync_api_cached_user`` maintains the cache for an external-API login."""
 
-    def test_existing_user_stamps_api_key(self) -> None:
-        """An already-cached user just gets the api_key stamped onto its subscription."""
+    @staticmethod
+    def _security_mgr() -> MagicMock:
+        """A SecurityManager stub whose generate_hmac maps any password to a fixed digest."""
+        security_mgr = MagicMock()
+        security_mgr.generate_hmac.return_value = 'hashed-pw'
+        return security_mgr
+
+    def test_existing_valid_user_stamps_api_key(self) -> None:
+        """A cached user whose password is the current HMAC just gets the api_key stamped."""
         cached_mgr = MagicMock()
+        # Stored password already equals generate_hmac(...) -> entry is current
+        cached_mgr.get_cached_user.return_value = {'password': 'hashed-pw', 'subscriptions': [{'database': 'db'}]}
         user_data = {'subscriptions': [{'database': 'db'}]}
-        ru._sync_api_cached_user(cached_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=True)
+        ru._sync_api_cached_user(
+            cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=True
+        )
         cached_mgr.update_cached_user_api_key.assert_called_once_with('x', 'db', 'the-key')
+        cached_mgr.delete_cached_user.assert_not_called()
         cached_mgr.insert_cached_user.assert_not_called()
+
+    def test_existing_stale_password_user_is_healed(self) -> None:
+        """Self-heal: a cached entry with a stale (e.g. legacy plaintext) password is dropped and rebuilt.
+
+        The old bug stored the password in plaintext, so the cache never validated and every request hit
+        the portal. Such an entry must now be deleted and recreated with a correctly hashed password.
+        """
+        cached_mgr = MagicMock()
+        # Stored plaintext password != generate_hmac(...) -> entry is stale
+        cached_mgr.get_cached_user.return_value = {'password': 'Init1234!', 'subscriptions': [{'database': 'db'}]}
+        user_data = {'subscriptions': [{'database': 'db'}]}
+        full = {'password': 'Init1234!', 'subscriptions': [{'database': 'db'}]}
+        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
+             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
+            ru._sync_api_cached_user(
+                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=True
+            )
+        cached_mgr.delete_cached_user.assert_called_once_with('x')
+        cached_mgr.update_cached_user_api_key.assert_not_called()
+        cached = cached_mgr.insert_cached_user.call_args.args[0]
+        assert cached['password'] == 'hashed-pw'
+        assert cached['subscriptions'][0]['api_key'] == 'the-key'
 
     def test_uncached_user_without_db_does_nothing(self) -> None:
         """An uncached user whose database does not exist is not created."""
         cached_mgr = MagicMock()
         user_data = {'subscriptions': [{'database': 'db'}]}
         with patch(f'{MODULE_PATH}.check_db_exists', return_value=False):
-            ru._sync_api_cached_user(cached_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False)
+            ru._sync_api_cached_user(
+                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
+            )
         cached_mgr.insert_cached_user.assert_not_called()
 
     def test_uncached_user_with_db_inserts_full_data(self) -> None:
         """An uncached user with an existing db is cached from the full subscription list."""
         cached_mgr = MagicMock()
         user_data = {'subscriptions': [{'database': 'db'}]}
-        full = {'subscriptions': [{'database': 'db'}, {'database': 'other'}]}
+        full = {'password': 'plain', 'subscriptions': [{'database': 'db'}, {'database': 'other'}]}
         with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
              patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
-            ru._sync_api_cached_user(cached_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False)
+            ru._sync_api_cached_user(
+                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
+            )
         cached_mgr.insert_cached_user.assert_called_once_with(full)
         assert full['subscriptions'][0]['api_key'] == 'the-key'
+
+    def test_uncached_user_password_is_hashed_before_caching(self) -> None:
+        """Regression: the cached password is the HMAC, not the plaintext the portal returns.
+
+        The plaintext bug meant the cache never validated (the check hashes the login password), so
+        every API request fell back to the service portal despite the user being 'cached'.
+        """
+        cached_mgr = MagicMock()
+        security_mgr = self._security_mgr()
+        user_data = {'subscriptions': [{'database': 'db'}]}
+        full = {'password': 'Init1234!', 'subscriptions': [{'database': 'db'}]}
+        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
+             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
+            ru._sync_api_cached_user(
+                cached_mgr, security_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
+            )
+        security_mgr.generate_hmac.assert_called_once_with('Init1234!')
+        cached = cached_mgr.insert_cached_user.call_args.args[0]
+        assert cached['password'] == 'hashed-pw'
 
     def test_uncached_user_empty_full_refetch_does_not_insert(self) -> None:
         """When the full-subscription re-fetch returns nothing, no cache entry is created."""
@@ -973,19 +1030,54 @@ class TestSyncApiCachedUser:
         user_data = {'subscriptions': [{'database': 'db'}]}
         with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
              patch(f'{MODULE_PATH}.validate_subscription_user', return_value=None):
-            ru._sync_api_cached_user(cached_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False)
+            ru._sync_api_cached_user(
+                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
+            )
         cached_mgr.insert_cached_user.assert_not_called()
 
     def test_uncached_user_with_db_no_matching_subscription(self) -> None:
         """A full list with no subscription matching the target db still caches (no api_key stamped)."""
         cached_mgr = MagicMock()
         user_data = {'subscriptions': [{'database': 'db'}]}
-        full = {'subscriptions': [{'database': 'other'}]}
+        full = {'password': 'plain', 'subscriptions': [{'database': 'other'}]}
         with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
              patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
-            ru._sync_api_cached_user(cached_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False)
+            ru._sync_api_cached_user(
+                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
+            )
         cached_mgr.insert_cached_user.assert_called_once_with(full)
         assert 'api_key' not in full['subscriptions'][0]
+
+
+# ============================================ _cached_password_is_current =========================================== #
+
+class TestCachedPasswordIsCurrent:
+    """``_cached_password_is_current`` compares the stored password to the HMAC of the login password."""
+
+    @staticmethod
+    def _security_mgr() -> MagicMock:
+        """A SecurityManager stub whose generate_hmac maps any password to a fixed digest."""
+        security_mgr = MagicMock()
+        security_mgr.generate_hmac.return_value = 'hashed-pw'
+        return security_mgr
+
+    def test_matching_hash_is_current(self) -> None:
+        """A stored password equal to the HMAC of the login password is current."""
+        cached_mgr = MagicMock()
+        cached_mgr.get_cached_user.return_value = {'password': 'hashed-pw'}
+        assert ru._cached_password_is_current(cached_mgr, self._security_mgr(), 'x', 'p') is True
+
+    def test_plaintext_password_is_not_current(self) -> None:
+        """A stored plaintext password (legacy entry) is not current."""
+        cached_mgr = MagicMock()
+        cached_mgr.get_cached_user.return_value = {'password': 'Init1234!'}
+        assert ru._cached_password_is_current(cached_mgr, self._security_mgr(), 'x', 'p') is False
+
+    def test_absent_cached_user_is_not_current(self) -> None:
+        """A missing cached entry is not current."""
+        cached_mgr = MagicMock()
+        cached_mgr.get_cached_user.return_value = None
+        assert ru._cached_password_is_current(cached_mgr, self._security_mgr(), 'x', 'p') is False
 
 
 # =============================================== _sync_frontend_cached_user ========================================= #

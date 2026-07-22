@@ -17,18 +17,52 @@
 Implementation of SupportedExporterExtension
 """
 from logging import Logger, getLogger
+from functools import lru_cache
 from typing import Any
 
 from cmdb.utils.helpers import load_class
+from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREFIX, ExporterExtensionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+
+@lru_cache(maxsize=None)
+def _build_extension_catalogue(extensions: tuple[str, ...]) -> tuple[dict[str, Any], ...]:
+    """
+    Builds the export-format catalogue for the given format class names
+
+    Each entry carries the format's frontend metadata read from its class attributes. The result is
+    cached per unique `extensions` tuple: the format classes and their metadata are static, so the
+    catalogue only ever has to be built once per distinct set of extensions.
+
+    Args:
+        extensions (tuple[str, ...]): The export format class names to describe
+
+    Returns:
+        tuple[dict[str, Any], ...]: One metadata dict per format (see `ExporterExtensionKey`)
+    """
+    catalogue: list[dict[str, Any]] = []
+
+    for extension in extensions:
+        format_class = load_class(f'{EXPORT_FORMAT_MODULE_PREFIX}{extension}')
+
+        catalogue.append({
+            ExporterExtensionKey.EXTENSION.value: extension,
+            ExporterExtensionKey.LABEL.value: format_class.LABEL,
+            ExporterExtensionKey.ICON.value: format_class.ICON,
+            ExporterExtensionKey.MULTI_TYPE_SUPPORT.value: format_class.MULTITYPE_SUPPORT,
+            ExporterExtensionKey.HELPER_TEXT.value: format_class.DESCRIPTION,
+            ExporterExtensionKey.ACTIVE.value: format_class.ACTIVE,
+        })
+
+    return tuple(catalogue)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          SupportedExporterExtension - CLASS                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class SupportedExporterExtension:
-    """Maintains a list of supported export formats (CSV, JSON, XLSX, XML)."""
+    """Maintains the list of supported export format class names (CSV, JSON, XLSX, XML)."""
 
     DEFAULT_EXTENSIONS: list[str] = [
         "CsvExportFormat",
@@ -37,46 +71,34 @@ class SupportedExporterExtension:
         "XmlExportFormat"
     ]
 
-    def __init__(self, extensions: list | None = None):
+    def __init__(self, extensions: list[str] | None = None):
         """
-        Initializes the SupportedExporterExtension with a default or custom list of extensions.
+        Initializes the SupportedExporterExtension with the default plus any custom extensions
 
         Args:
-            extensions (list): Additional export formats to include
+            extensions (list[str] | None): Additional export format class names to include
         """
-        self.extensions = self.DEFAULT_EXTENSIONS + (extensions or [])
+        self.extensions: list[str] = self.DEFAULT_EXTENSIONS + (extensions or [])
 
 
-    def get_extensions(self) -> list:
+    def get_extensions(self) -> list[str]:
         """
-        Retrieve a list of supported export extensions
+        Retrieves the list of supported export format class names
 
         Returns:
-            list: A list of file extensions supported for export
+            list[str]: The export format class names (e.g. `"CsvExportFormat"`), NOT file extensions
         """
         return self.extensions
 
 
     def convert_to(self) -> list[dict[str, Any]]:
         """
-        Converts the supported export extensions into a list of dictionaries 
-        that includes relevant information about each format
+        Describes the supported export formats as frontend-ready metadata dicts
+
+        Returns a fresh list of dicts (one per format) so callers can safely mutate the result without
+        affecting the cached catalogue built by `_build_extension_catalogue`.
 
         Returns:
-            list[dict[str, Any]]: A list of dictionaries representing supported export formats
+            list[dict[str, Any]]: One metadata dict per supported export format (see `ExporterExtensionKey`)
         """
-        extension_list = []
-
-        for type_element in self.get_extensions():
-            type_element_class = load_class(f'cmdb.framework.exporter.format.{type_element}')
-
-            extension_list.append({
-                'extension': type_element,
-                'label': type_element_class.LABEL,
-                'icon': type_element_class.ICON,
-                'multiTypeSupport': type_element_class.MULTITYPE_SUPPORT,
-                'helperText': type_element_class.DESCRIPTION,
-                'active': type_element_class.ACTIVE
-            })
-
-        return extension_list
+        return [dict(entry) for entry in _build_extension_catalogue(tuple(self.extensions))]

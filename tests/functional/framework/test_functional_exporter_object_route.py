@@ -146,6 +146,43 @@ class TestExportObjects:
         """An unknown export format is rejected with 400 (whitelist guard)."""
         assert rest_api.get(_export_url(classname='Bogus')).status_code == HTTPStatus.BAD_REQUEST
 
+    def test_zip_with_unsupported_inner_format_returns_400(self, rest_api) -> None:
+        """A zip export with an unknown inner classname is rejected 400 (guards the inner load_class)."""
+        assert rest_api.get(_export_url(zip='true', classname='Bogus')).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_empty_type_json_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects yields an empty-but-valid JSON file, not an error."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.data == b'[]'
+
+    def test_empty_type_csv_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects as CSV yields a header-only CSV, not a 500."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter + '&classname=CsvExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_data(as_text=True).startswith('public_id,active')
+
+
+    def test_empty_type_xml_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects as XML yields an empty-but-valid <objects/> document."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter + '&classname=XmlExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+        assert '<objects' in response.get_data(as_text=True)
+
+
+    def test_empty_type_xlsx_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects as XLSX yields a valid header-only workbook, not a 500."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter + '&classname=XlsxExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+
     def test_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An ObjectsManagerIterationError while fetching objects surfaces as 400."""
         monkeypatch.setattr(ObjectsManager, 'iterate', _raiser(ObjectsManagerIterationError('boom')))

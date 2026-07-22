@@ -105,7 +105,6 @@ class ObjectImporter(BaseImporter):
         did_write: bool = False
 
         current_import_index = run_config.start_element
-        importer_counter = 0
         import_objects_length: int = len(import_objects)
 
         while current_import_index < import_objects_length:
@@ -186,7 +185,7 @@ class ObjectImporter(BaseImporter):
             self._sync_config_item_count()
 
         return ImporterObjectResponse(
-            message=f'Import of {importer_counter} objects',
+            message=f'Import of {len(success_imports)} objects',
             success_imports=success_imports,
             failed_imports=failed_imports
         )
