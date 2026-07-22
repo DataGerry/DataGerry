@@ -685,6 +685,13 @@ def check_user_in_service_portal(
                                     sub["api_key"] = x_api_key
                                     break
 
+                            # Store the password as its HMAC - the cache validation hashes the login
+                            # password to compare, so a plaintext value would never match and every
+                            # request would fall back to the service portal
+                            full_user_data["password"] = security_manager.generate_hmac(
+                                full_user_data["password"]
+                            )
+
                             cached_user_manager.insert_cached_user(full_user_data)
             else:
                 # Frontend login → cache all subscriptions
