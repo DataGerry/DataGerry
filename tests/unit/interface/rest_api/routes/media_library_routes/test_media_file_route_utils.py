@@ -16,14 +16,12 @@
 """
 Unit tests for the MediaFile route utilities
 
-Pure request-parsing / filter-building helpers exercised inside a minimal Flask request context and
-against lightweight stub managers: get_file_in_request (returns the file, aborts 400 when absent - the
-fixed guard), get_element_from_data_request, generate_metadata_filter (reference -> $in, plain keys,
-missing -> 400), create_attachment_name (copy-suffixing) and recursive_delete_filter (parent/child
-collection, and that it no longer re-fetches each node's root document).
+Filter-building / naming helpers exercised inside a minimal Flask request context and against
+lightweight stub managers: generate_metadata_filter (reference -> $in, plain keys, missing -> 400),
+create_attachment_name (copy-suffixing) and recursive_delete_filter (parent/child collection, and that
+it no longer re-fetches each node's root document). The shared request-parsing helpers
+(get_file_in_request / get_element_from_data_request) moved to routes_helper and are tested there.
 """
-import json
-from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
 
@@ -32,8 +30,6 @@ from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
-    get_file_in_request,
-    get_element_from_data_request,
     generate_metadata_filter,
     create_attachment_name,
     recursive_delete_filter,
@@ -41,43 +37,6 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 app = Flask(__name__)
-
-
-class TestGetFileInRequest:
-    """get_file_in_request returns the uploaded file or aborts 400 when it is missing."""
-
-    def test_returns_file_when_present(self) -> None:
-        """The uploaded file is returned when present."""
-        with app.test_request_context(
-            '/', method='POST',
-            data={'file': (BytesIO(b'x'), 'pic.png')},
-            content_type='multipart/form-data',
-        ):
-            assert get_file_in_request('file').filename == 'pic.png'
-
-    def test_missing_file_aborts_400(self) -> None:
-        """A missing file aborts with 400 (the guard now works - request.files.get returns None)."""
-        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
-            with pytest.raises(HTTPException) as exc:
-                get_file_in_request('file')
-
-            assert exc.value.code == 400
-
-
-class TestGetElementFromDataRequest:
-    """get_element_from_data_request parses a JSON form field, or returns None on miss / bad JSON."""
-
-    def test_parses_json_field(self) -> None:
-        """A valid JSON form field is parsed."""
-        with app.test_request_context(
-            '/', method='POST', data={'metadata': json.dumps({'a': 1})}, content_type='multipart/form-data'
-        ):
-            assert get_element_from_data_request('metadata', request) == {'a': 1}
-
-    def test_missing_field_returns_none(self) -> None:
-        """A missing field returns None."""
-        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
-            assert get_element_from_data_request('metadata', request) is None
 
 
 class TestGenerateMetadataFilter:

@@ -16,13 +16,62 @@
 """
 Implementation of general API route helpers
 """
+import json
 from logging import Logger, getLogger
 from flask import request, abort
+from werkzeug.datastructures import FileStorage
+from werkzeug.wrappers import Request
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def get_file_in_request(file_name: str) -> FileStorage:
+    """
+    Retrieves an uploaded file from the current multipart request by its field name
+
+    Shared by the object-import and media-library routes so the missing-file guard lives in one place.
+
+    Args:
+        file_name (str): The name of the file field expected in the request
+
+    Raises:
+        HTTPException: 400 if the named file is not present in the request
+
+    Returns:
+        FileStorage: The uploaded file object
+    """
+    # request.files.get returns None (does not raise) for a missing file, so guard explicitly
+    uploaded_file = request.files.get(file_name)
+
+    if uploaded_file is None:
+        LOGGER.error("[get_file_in_request] File with name: %s was not provided!", file_name)
+        abort(400, f"File with name: {file_name} was not provided!")
+
+    return uploaded_file
+
+
+def get_element_from_data_request(element: str, _request: Request) -> dict | None:
+    """
+    Extracts and JSON-parses a single form field from a multipart request
+
+    Returns None when the field is absent or not valid JSON (both are expected for optional fields),
+    so an unexpected error is not silently swallowed.
+
+    Args:
+        element (str): The name of the form field to extract
+        _request (Request): The Flask request object carrying the form data
+
+    Returns:
+        dict | None: The parsed JSON object, or None if the field is missing or not valid JSON
+    """
+    try:
+        return json.loads(_request.form.to_dict()[element])
+    except (KeyError, TypeError, json.JSONDecodeError):
+        LOGGER.debug("[get_element_from_data_request] Field '%s' is absent or not valid JSON", element)
+        return None
+
 
 def fetch_only_active_objects() -> bool:
     """

@@ -15,22 +15,24 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for exporting CmdbTypes
+
+Exposes `POST /export/type/` (all types) and `POST /export/type/<ids>` (a comma-separated selection).
+Both serialize the types into a downloadable JSON attachment via
+`exporter_helper.build_types_json_export_response`. NOTE: type export is JSON-only and lives on its own
+blueprint, separate from the object export engine (tracked as discussion-backlog #65).
 """
-import json
-import datetime
 from logging import Logger, getLogger
 from flask import abort, Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_utils import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import CmdbType
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.blueprints import RootBlueprint
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import build_types_json_export_response
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -57,21 +59,16 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
+
+    Raises:
+        400 Bad Request: If the types cannot be retrieved
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        type_list = [CmdbType.to_json(type_) for type_ in types_manager.get_all_types()]
-        resp = json.dumps(type_list, default=default, indent=2)
-        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-
-        return Response(
-            resp,
-            mimetype="text/json",
-            headers={
-                "Content-Disposition": f"attachment; filename={timestamp}.json"
-            }
-        )
+        return build_types_json_export_response(types_manager.get_all_types())
+    except HTTPException as http_err:
+        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
@@ -97,6 +94,9 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
+
+    Raises:
+        400 Bad Request: If the ids are not a comma-separated list of integers, or the types cannot be retrieved
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -109,19 +109,9 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
                 LOGGER.error("[export_cmdb_types_by_ids] (ValueError, TypeError): %s", err, exc_info=True)
                 abort(400, "IDs provided in an invalid format. They need to be a comma seperated string!")
 
-        type_list_data = json.dumps([CmdbType.to_json(type_) for type_ in
-                                    types_manager.get_types_by(sort="public_id", **{'$or': query_list})],
-                                    default=default, indent=2)
+        types = types_manager.get_types_by(sort="public_id", **{'$or': query_list})
 
-        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-
-        return Response(
-            type_list_data,
-            mimetype="text/json",
-            headers={
-                "Content-Disposition": f"attachment; filename={timestamp}.json"
-            }
-        )
+        return build_types_json_export_response(types)
     except HTTPException as http_err:
         raise http_err
     except TypesManagerGetError as err:

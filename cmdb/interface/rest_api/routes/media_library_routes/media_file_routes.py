@@ -35,12 +35,14 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
-    get_element_from_data_request,
-    get_file_in_request,
     generate_metadata_filter,
     recursive_delete_filter,
     generate_collection_parameters,
     create_attachment_name,
+)
+from cmdb.interface.rest_api.routes.routes_helper import (
+    get_file_in_request,
+    get_element_from_data_request,
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint

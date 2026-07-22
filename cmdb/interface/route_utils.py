@@ -677,7 +677,8 @@ def check_user_in_service_portal(
 
             if api_key_required and x_api_key:
                 _sync_api_cached_user(
-                    cached_user_manager, email, password, x_api_key, user_data, user_exists_in_cache
+                    cached_user_manager, security_manager, email, password, x_api_key,
+                    user_data, user_exists_in_cache
                 )
             else:
                 _sync_frontend_cached_user(cached_user_manager, email, user_data, user_exists_in_cache)
@@ -718,6 +719,7 @@ def _load_local_test_user(email: str, password: str) -> dict[str, Any] | None:
 
 def _sync_api_cached_user(
     cached_user_manager: CachedUserManager,
+    security_manager: SecurityManager,
     email: str,
     password: str,
     x_api_key: str,
@@ -729,10 +731,14 @@ def _sync_api_cached_user(
 
     The portal returns a single subscription for an API login. An already-cached user just gets the
     api_key stamped onto the matching subscription; an uncached user is only created when its database
-    exists, and then from the FULL subscription list (a second portal call) with the api_key applied
+    exists, and then from the FULL subscription list (a second portal call) with the api_key applied.
+    The password of a newly cached user is HMAC-hashed before storage so it matches what
+    `CachedUserManager.get_validated_user_data` compares against (which hashes the login password) -
+    otherwise the cached entry never validates and every request falls back to the portal.
 
     Args:
         cached_user_manager (CachedUserManager): The cached-user store
+        security_manager (SecurityManager): Used to HMAC the password before it is cached
         email (str): The user's email
         password (str): The user's (plain) password, for the full-subscription portal call
         x_api_key (str): The API key to associate with the matching subscription
@@ -742,8 +748,14 @@ def _sync_api_cached_user(
     target_db = user_data['subscriptions'][0]['database']
 
     if user_exists_in_cache:
-        cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
-        return
+        # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
+        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a legacy plaintext
+        # password from before the hashing fix), so drop it and fall through to recreate it correctly.
+        if _cached_password_is_current(cached_user_manager, security_manager, email, password):
+            cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
+            return
+
+        cached_user_manager.delete_cached_user(email)
 
     # Only create if the user's database exists
     if not check_db_exists(target_db):
@@ -753,12 +765,41 @@ def _sync_api_cached_user(
     full_user_data: dict[str, Any] = validate_subscription_user(email, password)
 
     if full_user_data:
+        # Store the password as its HMAC (the cache validation hashes the login password to compare)
+        full_user_data["password"] = security_manager.generate_hmac(full_user_data["password"])
+
         for sub in full_user_data["subscriptions"]:
             if sub["database"] == target_db:
                 sub["api_key"] = x_api_key
                 break
 
         cached_user_manager.insert_cached_user(full_user_data)
+
+
+def _cached_password_is_current(
+    cached_user_manager: CachedUserManager,
+    security_manager: SecurityManager,
+    email: str,
+    password: str,
+) -> bool:
+    """
+    Reports whether the cached user's stored password is the current HMAC of the login password
+
+    Used to distinguish a still-valid cached entry (only missing an api_key) from a stale one that must
+    be rewritten - e.g. a legacy entry stored with a plaintext password before the hashing fix.
+
+    Args:
+        cached_user_manager (CachedUserManager): The cached-user store
+        security_manager (SecurityManager): Used to HMAC the login password for comparison
+        email (str): The user's email
+        password (str): The (plain) login password to hash and compare
+
+    Returns:
+        bool: True if a cached entry exists and its stored password equals the HMAC of the login password
+    """
+    cached_user = cached_user_manager.get_cached_user(email)
+
+    return bool(cached_user) and cached_user.get("password") == security_manager.generate_hmac(password)
 
 
 def _sync_frontend_cached_user(

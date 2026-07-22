@@ -71,6 +71,28 @@ class TestImportSyncsConfigItemCountOncePerBatch:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                          _import response message                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestImportResponseMessage:
+    """The response message reports the real number of successful imports (was hard-coded 0)."""
+
+    def test_message_reports_successful_import_count(self) -> None:
+        """Importing three new objects yields 'Import of 3 objects' and three success entries."""
+        mock_self = MagicMock()
+        mock_self.get_config.return_value = _run_config()
+        mock_self.check_config_item_limit_reached.return_value = False
+        mock_self.objects_manager.get_object.side_effect = ObjectsManagerGetError("not found")
+        mock_self.objects_manager.get_new_object_public_id.side_effect = [101, 102, 103]
+
+        with patch(f'{PATH}.current_app') as current_app:
+            current_app.cloud_mode = False
+            result = ObjectImporter._import(mock_self, [{}, {}, {}])  # pylint: disable=protected-access
+
+        assert len(result.success_imports) == 3
+        assert result.message == 'Import of 3 objects'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                          _sync_config_item_count                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestSyncConfigItemCount:

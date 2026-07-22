@@ -14,20 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all API routes for Settings
+Shared constants for the CmdbObject import REST routes
 """
-from logging import Logger, getLogger
-from flask import current_app
-
-from cmdb.interface.blueprints import RootBlueprint
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
+# Importer/parser kind resolved by the importer helper registry (only 'object' imports exist today)
+IMPORTER_KIND_OBJECT: str = 'object'
 
-settings_blueprint = RootBlueprint('settings_rest', __name__, url_prefix='/settings')
 
-# Side-effect import: loading the system routes module registers its routes on settings_blueprint
-# (its NestedBlueprint delegates every @route(...) back to this parent blueprint)
-with current_app.app_context():
-    # pylint: disable=unused-import
-    from cmdb.interface.rest_api.routes.settings_routes import system_routes  # noqa: F401
+class ImporterFormField(BaseStrEnum):
+    """Multipart form-field names read from an object-import request"""
+    FILE = 'file'
+    FILE_FORMAT = 'file_format'
+    PARSER_CONFIG = 'parser_config'
+    IMPORTER_CONFIG = 'importer_config'
+
+
+class ImporterConfigKey(BaseStrEnum):
+    """Keys read from the importer configuration payload"""
+    TYPE_ID = 'type_id'

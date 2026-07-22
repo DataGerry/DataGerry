@@ -15,6 +15,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbObject exports
+
+Exposes two endpoints under the `/exporter` blueprint: `GET /exporter/extensions` (the catalogue of
+supported export formats) and `GET /exporter/` (the actual object export). The export format is resolved
+and validated by `exporter_helper.resolve_export_format`, then dynamically loaded and driven by
+`BaseExportWriter`, which streams the result back as a file download.
 """
 from logging import Logger, getLogger
 from flask import abort, current_app
@@ -25,11 +30,13 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.writer.base_export_writer import BaseExportWriter
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
+from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREFIX
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import resolve_export_format
 from cmdb.utils.helpers import load_class
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -40,13 +47,6 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 LOGGER: Logger = getLogger(__name__)
 
 exporter_blueprint = APIBlueprint('exporter', __name__)
-
-# The 'zip' export packs an underlying format, so its class is a valid dynamic-load target too
-ZIP_EXPORT_FORMAT: str = 'ZipExportFormat'
-
-# Export format classes that may be dynamically loaded from cmdb.framework.exporter.format - the query
-# supplied 'classname' is validated against this set so an arbitrary class cannot be imported
-SUPPORTED_EXPORT_FORMATS: set[str] = set(SupportedExporterExtension().get_extensions()) | {ZIP_EXPORT_FORMAT}
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -89,19 +89,17 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
 
     Returns:
         Response: The export data in the chosen format (e.g., a JSON or ZIP file)
-    """
-    if params.optional.get('zip', False) in ['True', 'true']:
-        export_format = ZIP_EXPORT_FORMAT
-    else:
-        export_format = params.optional.get('classname', 'JsonExportFormat')
 
-    # Only allow known export formats to be dynamically loaded (guards load_class against arbitrary input)
-    if export_format not in SUPPORTED_EXPORT_FORMATS:
-        abort(400, f"Unsupported export format: {export_format}!")
+    Raises:
+        400 Bad Request: If the requested export format is not supported, or the objects cannot be retrieved
+        403 Forbidden: If the user is not permitted to read the objects being exported
+    """
+    # Resolves + validates the format (aborts 400 on an unsupported one) before any DB work
+    export_format = resolve_export_format(params.optional)
 
     try:
         _config = ExporterConfig(parameters=params, options=params.optional)
-        exporter_class = load_class('cmdb.framework.exporter.format.' + export_format)()
+        exporter_class = load_class(f'{EXPORT_FORMAT_MODULE_PREFIX}{export_format}')()
 
         db_name = None
         if current_app.cloud_mode:

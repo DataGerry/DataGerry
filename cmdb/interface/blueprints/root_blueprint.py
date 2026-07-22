@@ -27,19 +27,14 @@ LOGGER: Logger = getLogger(__name__)
 #                                                 RootBlueprint - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class RootBlueprint(Blueprint):
-    """Wrapper class for Blueprints with nested elements"""
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.nested_blueprints = []
+    """
+    Flask Blueprint used as the parent of nested route blueprints
 
-
-    def register_nested_blueprint(self, nested_blueprint) -> None:
-        """Add a 'sub' blueprint to root element
-        Args:
-            nested_blueprint (NestedBlueprint): Blueprint for sub routes
-        """
-        self.nested_blueprints.append(nested_blueprint)
-
+    A `NestedBlueprint` wraps an instance of this class and delegates each `@route(...)` back to it,
+    so importing the nested route modules registers their routes directly on this blueprint - no
+    explicit sub-registration step is needed. This class additionally provides the
+    `parse_assistant_parameters` request decorator.
+    """
 
     @classmethod
     def parse_assistant_parameters(cls, **optional):  # pylint: disable=unused-argument

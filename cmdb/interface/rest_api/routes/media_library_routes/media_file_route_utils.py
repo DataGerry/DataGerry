@@ -19,13 +19,13 @@ Implementation of MediaFile API Route utility methods
 import json
 from logging import Logger, getLogger
 
-from flask import request, abort
-from werkzeug.datastructures import FileStorage
+from flask import abort
 from werkzeug.wrappers import Request
 
 from cmdb.manager import MediaFilesManager
 from cmdb.manager.query_builder import Builder
 
+from cmdb.interface.rest_api.routes.routes_helper import get_element_from_data_request
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 
 from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
@@ -34,48 +34,6 @@ from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-
-def get_file_in_request(file_name: str) -> FileStorage:
-    """
-    Retrieves a file from the Flask request based on the provided file name
-
-    Args:
-        file_name (str): The name of the file to retrieve from the request
-
-    Raises:
-        HTTPException: 400 if the file is not found in the request
-
-    Returns:
-        FileStorage: The file object retrieved from the request.
-    """
-    # request.files.get returns None (does not raise) for a missing file, so guard explicitly
-    uploaded_file = request.files.get(file_name)
-
-    if uploaded_file is None:
-        LOGGER.error("[get_file_in_request] File with name: %s was not provided!", file_name)
-        abort(400, f"File with name: {file_name} was not provided!")
-
-    return uploaded_file
-
-
-def get_element_from_data_request(element: str, _request: Request) -> dict | None:
-    """
-    Retrieves and parses a specific element (field) from a form-data request into a dictionary
-
-    Args:
-        element (str): The field name to extract from the request form data
-        _request (Request): The Flask Request object
-
-    Returns:
-        dict | None: Parsed dictionary if successful; otherwise, None
-    """
-    try:
-        metadata = json.loads(_request.form.to_dict()[element])
-        return metadata
-    except Exception as err:
-        LOGGER.error("[get_element_from_data_request] Exception:'%s'. Type: %s", err, type(err), exc_info=True)
-        return None
-
 
 def generate_metadata_filter(element: str, _request: Request | None = None, params: dict | None = None) -> dict:
     """

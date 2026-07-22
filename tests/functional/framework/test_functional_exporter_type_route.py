@@ -97,6 +97,13 @@ class TestExportTypesByIds:
         """A non-numeric id in the path is rejected with 400."""
         assert rest_api.post('/export/type/not-a-number').status_code == HTTPStatus.BAD_REQUEST
 
+    def test_unknown_id_yields_empty_export(self, rest_api) -> None:
+        """Exporting a non-existent id succeeds with an empty JSON list, not an error."""
+        response = rest_api.post('/export/type/99999999')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _ids_of(response) == []
+
     def test_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError while fetching the selected types surfaces as 400."""
         monkeypatch.setattr(TypesManager, 'get_types_by', _raiser(TypesManagerGetError('boom')))

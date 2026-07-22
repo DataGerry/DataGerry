@@ -104,6 +104,28 @@ def str_to_bool(s: Any) -> bool:
     raise ValueError("Invalid value for conversion to boolean")
 
 
+def is_truthy_query_arg(value: Any, default: bool = False) -> bool:
+    """
+    Leniently interprets a query-string boolean flag, never raising
+
+    Wraps `str_to_bool` for the REST query-parameter case where an absent or unrecognised value should
+    fall back to a default rather than raise: `"true"` / `"True"` (and native `True`) become `True`,
+    `"false"` / `False` become `False`, and anything else (missing param, `None`, `"1"`, `"yes"`, ...)
+    returns `default`. Replaces the ad-hoc `value in ['True', 'true']` checks scattered across the routes.
+
+    Args:
+        value (Any): The raw query-parameter value (typically `request.args.get(...)`)
+        default (bool): Value returned when `value` is missing or unrecognised. Defaults to False
+
+    Returns:
+        bool: The interpreted boolean flag
+    """
+    try:
+        return str_to_bool(value)
+    except ValueError:
+        return default
+
+
 def process_bar(name: str, total: int, progress: int) -> None:
     """
     Writes (or rewrites) a single-line stdout progress bar

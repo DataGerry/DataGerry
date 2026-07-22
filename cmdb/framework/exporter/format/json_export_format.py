@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C)  becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,12 +20,25 @@ from logging import Logger, getLogger
 import json
 
 from cmdb.database.database_utils import default
-from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
-from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
+from cmdb.models.object_model.cmdb_object_key_enum import (
+    CmdbObjectKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+)
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.framework.exporter.format.base_exporter_format import (
+    BaseExporterFormat,
+    TYPE_INFO_LABEL_KEY,
+    OBJECT_INFO_ID_KEY,
+)
+from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Default identity columns emitted for each object (public_id + active flag + the type's label)
+DEFAULT_HEADER: list[str] = [CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.ACTIVE.value, TYPE_INFO_LABEL_KEY]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               JsonExportFormat - CLASS                                               #
@@ -37,6 +50,7 @@ class JsonExportFormat(BaseExporterFormat):
     Extends: BaseExporterFormat
     """
     FILE_EXTENSION = "json"
+    MIME_TYPE = "application/json"
     LABEL = "JSON"
     MULTITYPE_SUPPORT = True
     ICON = "file-code"
@@ -48,46 +62,41 @@ class JsonExportFormat(BaseExporterFormat):
         """
         Exports a list of RenderResult objects as a JSON-formatted string
 
+        In the RENDER view a supplied `metadata` override selects the header and columns; otherwise the
+        default header and every field are emitted. An empty object list yields `[]`.
+
         Args:
-            data (List[RenderResult]): List of `RenderResult` objects to export
-            *args: arguments including:
-                - 'metadata' (dict or str): Customizes the export (e.g., columns, header)
-                - 'view' (str): Specifies the view format. Defaults to 'native'.
-                                Affects data processing if set to 'RENDER'.
+            data (list[RenderResult]): The objects to export
+            *args: Optional export parameters dict (`view`, `metadata`)
 
         Returns:
-            str: A JSON-formatted string representing the exported data with fields, MDS, and metadata
+            str: A JSON string of the exported objects (identity header, fields and MDS)
         """
-        metadata = None
-        view = 'native'
+        view, metadata = BaseExporterFormat.resolve_export_view(args)
 
-        if args:
-            metadata = args[0].get("metadata")
-            view = args[0].get("view", 'native')
+        header = list(DEFAULT_HEADER)
+        selected_columns = None
 
-        header = ['public_id', 'active', 'type_label']
+        if metadata:
+            header = metadata.get(ExporterMetadataKey.HEADER.value, header)
+            selected_columns = metadata.get(ExporterMetadataKey.COLUMNS.value, [])
+
         output = []
 
         for obj in data:
-            # Initialize columns and multi_data_sections
             columns = obj.fields
-            multi_data_sections = obj.multi_data_sections if obj.multi_data_sections else []
 
-            # If metadata is provided, adjust columns and header
-            if metadata and view.upper() == ExporterConfigType.RENDER.name:
-                metadata = json.loads(metadata)
-                header = metadata.get('header', header)
-                columns = [field for field in columns if field['name'] in metadata.get('columns', [])]
+            # A metadata override restricts the exported fields to the selected column names
+            if selected_columns is not None:
+                columns = [field for field in columns if field[FieldKey.NAME.value] in selected_columns]
 
-            # Prepare the base output element
             output_element = self._create_output_element(obj, header)
+            output_element[CmdbObjectKey.FIELDS.value] = self._get_fields(obj, columns, view)
 
-            # Add fields to the output element
-            output_element['fields'] = self._get_fields(obj, columns, view)
-
-            # Add multi-data sections if available
+            multi_data_sections = obj.multi_data_sections if obj.multi_data_sections else []
             if multi_data_sections:
-                output_element['multi_data_sections'] = self._get_multi_data_sections(multi_data_sections)
+                key = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+                output_element[key] = self._get_multi_data_sections(multi_data_sections)
 
             output.append(output_element)
 
@@ -96,20 +105,22 @@ class JsonExportFormat(BaseExporterFormat):
 
     def _create_output_element(self, obj: RenderResult, header: list[str]) -> dict:
         """
-        Creates the basic structure of an output element based on the header
+        Creates the identity part of an output element from the header
 
         Args:
-            obj (RenderResult): The RenderResult object containing the data to be exported
-            header (list[str]): A list of field names to include in the output element
+            obj (RenderResult): The object being exported
+            header (list[str]): The identity column names to include
 
         Returns:
-            dict: A dictionary representing the output element with the specified header fields
+            dict: The identity fields keyed by header name (`public_id` -> object_id, `type_label` from
+                  the type information, everything else from the object information)
         """
         output_element = {}
+
         for head in header:
-            if head == 'public_id':
-                output_element[head] = obj.object_information.get('object_id')
-            elif head == 'type_label':
+            if head == CmdbObjectKey.PUBLIC_ID.value:
+                output_element[head] = obj.object_information.get(OBJECT_INFO_ID_KEY)
+            elif head == TYPE_INFO_LABEL_KEY:
                 output_element[head] = obj.type_information.get(head)
             else:
                 output_element[head] = obj.object_information.get(head)
@@ -119,22 +130,22 @@ class JsonExportFormat(BaseExporterFormat):
 
     def _get_fields(self, obj: RenderResult, columns: list[dict], view: str) -> list[dict]:
         """
-        Retrieves the fields data for the object based on the view format
+        Serializes the object's fields for the given view
 
         Args:
-            obj (RenderResult): The RenderResult object containing the fields to be retrieved
-            columns (list[dict]): A list of field definitions for the object
-            view (str): The view format that determines how the field data is processed
+            obj (RenderResult): The object being exported
+            columns (list[dict]): The field definitions to serialize
+            view (str): The export view passed to the field summary renderer
 
         Returns:
-            list[dict]: A list of dictionaries representing the field names and their corresponding values
+            list[dict]: One `{name, value}` dict per field
         """
         fields = []
 
         for field in columns:
             fields.append({
-                'name': field.get('name'),
-                'value': BaseExporterFormat.summary_renderer(obj, field, view)
+                FieldKey.NAME.value: field.get(FieldKey.NAME.value),
+                FieldKey.VALUE.value: BaseExporterFormat.summary_renderer(obj, field, view)
             })
 
         return fields
@@ -142,59 +153,61 @@ class JsonExportFormat(BaseExporterFormat):
 
     def _get_multi_data_sections(self, multi_data_sections: list[dict]) -> list[dict]:
         """
-        Processes the multi-data sections for the object
+        Serializes the object's multi-data sections
 
         Args:
-            multi_data_sections (list[dict]): A list of multi-data sections to be processed
+            multi_data_sections (list[dict]): The MDS sections to serialize
 
         Returns:
-            list[dict]: A list of dictionaries representing the multi-data sections and their values
+            list[dict]: One dict per section (`section_id`, `highest_id`, `values`)
         """
         sections = []
 
         for mds in multi_data_sections:
-            section = {
-                'section_id': mds.get('section_id'),
-                'highest_id': mds.get('highest_id'),
-                'values': self._get_multi_data_values(mds.get('values', []))
-            }
-            sections.append(section)
+            sections.append({
+                CmdbObjectMdsKey.SECTION_ID.value: mds.get(CmdbObjectMdsKey.SECTION_ID.value),
+                CmdbObjectMdsKey.HIGHEST_ID.value: mds.get(CmdbObjectMdsKey.HIGHEST_ID.value),
+                CmdbObjectMdsKey.VALUES.value: self._get_multi_data_values(
+                    mds.get(CmdbObjectMdsKey.VALUES.value, [])
+                )
+            })
 
         return sections
 
 
     def _get_multi_data_values(self, values: list[dict]) -> list[dict]:
         """
-        Processes the values within each multi-data section
+        Serializes the rows within one multi-data section
 
         Args:
-            values (list[dict]): A list of values within a multi-data section
+            values (list[dict]): The section's rows
 
         Returns:
-            list[dict]: A list of dictionaries representing the values and their data
-                        within the multi-data sections
+            list[dict]: One dict per row (`multi_data_id`, `data`)
         """
         value_list = []
 
         for value in values:
-            value_data = {
-                'multi_data_id': value.get('multi_data_id'),
-                'data': self._get_data(value.get('data', []))
-            }
-            value_list.append(value_data)
+            value_list.append({
+                CmdbObjectMdsRowKey.MULTI_DATA_ID.value: value.get(CmdbObjectMdsRowKey.MULTI_DATA_ID.value),
+                CmdbObjectMdsRowKey.DATA.value: self._get_data(value.get(CmdbObjectMdsRowKey.DATA.value, []))
+            })
 
         return value_list
 
 
     def _get_data(self, data: list[dict]) -> list[dict]:
         """
-        Processes the individual data elements within each multi-data value
+        Serializes the field entries within one multi-data row
 
         Args:
-            data (list[dict]): A list of data elements to be processed
+            data (list[dict]): The row's field entries
 
         Returns:
-            list[dict]: A list of dictionaries representing the data elements
-                        with their names and values
+            list[dict]: One `{name, value}` dict per field entry
         """
-        return [{'name': data_set.get('name'), 'value': data_set.get('value')} for data_set in data]
+        return [
+            {FieldKey.NAME.value: data_set.get(FieldKey.NAME.value),
+             FieldKey.VALUE.value: data_set.get(FieldKey.VALUE.value)}
+            for data_set in data
+        ]

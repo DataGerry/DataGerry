@@ -18,9 +18,9 @@ Functional coverage for the /import/object routes
 
 Covers the metadata GETs (importers / importer config / parsers / parser config, both trailing-slash
 and no-slash variants, and the bad-type -> 404 after the IndexError->KeyError fix), the /parse
-endpoint (real CSV round-trip + the missing-file / missing-format guards), and the full /import/object
-POST (no-file -> 400, no-config -> 400, a deactivated target type -> 403, and a happy-path CSV import
-into an active type).
+endpoint (real CSV round-trip + the missing-file / missing-format / unknown-format guards, all 400),
+and the full /import/object POST (no-file -> 400, no-config -> 400, unknown type -> 404, a deactivated
+target type -> 403, and a happy-path CSV import into an active type).
 """
 import json
 from http import HTTPStatus
@@ -136,24 +136,24 @@ class TestParseObjects:
 
         assert response.status_code == HTTPStatus.OK
 
-    def test_parse_missing_file_returns_500(self, rest_api) -> None:
-        """A parse request with no file is rejected (no file in request)."""
+    def test_parse_missing_file_returns_400(self, rest_api) -> None:
+        """A parse request with no file is a client error -> 400 (was wrongly 500)."""
         form = {'file_format': 'csv', 'parser_config': json.dumps({})}
 
         response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_parse_missing_file_format_returns_500(self, rest_api) -> None:
-        """A parse request with no file_format is rejected."""
+    def test_parse_missing_file_format_returns_400(self, rest_api) -> None:
+        """A parse request with no file_format is a client error -> 400 (was wrongly 500)."""
         form = {'file': (BytesIO(CSV_BODY), 'import.csv'), 'parser_config': json.dumps({})}
 
         response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_parse_unknown_format_returns_500(self, rest_api) -> None:
-        """A parse request whose format has no parser fails to generate output -> 500."""
+    def test_parse_unknown_format_returns_400(self, rest_api) -> None:
+        """A parse request whose format has no parser is a client error -> 400 (was wrongly 500)."""
         form = {
             'file': (BytesIO(CSV_BODY), 'import.csv'),
             'file_format': 'bogus',
@@ -162,7 +162,7 @@ class TestParseObjects:
 
         response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
 
 class TestImportObjects:
@@ -185,6 +185,14 @@ class TestImportObjects:
         response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_import_unknown_type_returns_404(self, rest_api) -> None:
+        """Importing into a non-existent type is rejected with 404 (guards a missing type_id)."""
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_import_form(987654), content_type='multipart/form-data'
+        )
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_import_into_deactivated_type_returns_403(self, rest_api) -> None:
         """Importing into a deactivated type is rejected with 403."""
@@ -274,6 +282,20 @@ class TestImportObjects:
         )
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_import_succeeds_even_if_logging_fails(self, rest_api, monkeypatch) -> None:
+        """A failure while logging an imported object is best-effort and must not fail the import."""
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError('render exploded')
+
+        # Rendering runs only inside the post-import logging loop
+        monkeypatch.setattr(f'{_OBJECT_ROUTES}.CmdbMultiRender', _boom)
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_import_form(ACTIVE_TYPE_ID), content_type='multipart/form-data'
+        )
+
+        assert response.status_code == HTTPStatus.OK
 
     def test_import_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
         """An AccessDeniedError raised by the importer surfaces as 403."""

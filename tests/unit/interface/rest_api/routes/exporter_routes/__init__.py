@@ -14,15 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of XLSXContent
+Unit tests for the pure helpers of the exporter route modules
 """
-from cmdb.framework.importer.content_types.base_content import BaseContent
-# -------------------------------------------------------------------------------------------------------------------- #
-
-class XLSXContent(BaseContent):
-    """
-    Identifier for Excel files
-    """
-    ICON = 'fas fa-file-excel'
-    CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    FILE_TYPE = 'xlsx'

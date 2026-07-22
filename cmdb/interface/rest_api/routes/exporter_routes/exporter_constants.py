@@ -14,20 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all API routes for Settings
+Shared constants for the CmdbObject export REST routes
 """
-from logging import Logger, getLogger
-from flask import current_app
-
-from cmdb.interface.blueprints import RootBlueprint
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
+# The 'zip' export packs an underlying format, so its class is a valid dynamic-load target too
+ZIP_EXPORT_FORMAT: str = 'ZipExportFormat'
 
-settings_blueprint = RootBlueprint('settings_rest', __name__, url_prefix='/settings')
+# Export format used when the request does not specify a 'classname'
+DEFAULT_EXPORT_FORMAT: str = 'JsonExportFormat'
 
-# Side-effect import: loading the system routes module registers its routes on settings_blueprint
-# (its NestedBlueprint delegates every @route(...) back to this parent blueprint)
-with current_app.app_context():
-    # pylint: disable=unused-import
-    from cmdb.interface.rest_api.routes.settings_routes import system_routes  # noqa: F401
+# Mimetype + file extension of the CmdbType export (JSON only)
+TYPE_EXPORT_MIMETYPE: str = 'application/json'
+TYPE_EXPORT_FILE_EXTENSION: str = 'json'
+
+
+class ExporterQueryParam(BaseStrEnum):
+    """Query-parameter keys consumed by the object-export route"""
+    ZIP = 'zip'
+    CLASSNAME = 'classname'
