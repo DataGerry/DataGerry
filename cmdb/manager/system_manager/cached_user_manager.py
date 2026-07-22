@@ -96,7 +96,13 @@ class CachedUserManager(GenericManager):
             filter={"email": email}
         )
 
+        LOGGER.debug("[AUTH] get_cached_user: DB lookup for email=%s -> found=%s", email, bool(cached_user))
+
         if not cached_user:
+            LOGGER.debug(
+                "[AUTH] get_cached_user: email=%s not in DB cache -> PORTAL CALL get_dg_sp_user_data (seeding)",
+                email
+            )
             user_data = self.dg_sp_manager.get_dg_sp_user_data(email)
 
             if user_data:
@@ -248,15 +254,34 @@ class CachedUserManager(GenericManager):
 
         cached_user: dict[str, Any] | None = self.get_cached_user(email)
 
+        LOGGER.debug("[AUTH] get_validated_user_data: cached user retrieved for email=%s -> %s",
+                     email, bool(cached_user))
+
         if not cached_user:
             return None
 
-        # Check if password matches
-        if cached_user.get('password') != password:
+        # Check if password matches (both values are generated HMACs, never the plain password)
+        stored_password = cached_user.get('password')
+        password_matches: bool = stored_password == password
+        LOGGER.debug(
+            "[AUTH] password check for email=%s: stored=%r generated_hmac=%r match=%s",
+            email, stored_password, password, password_matches
+        )
+
+        if not password_matches:
             return None
 
         # If api_key if required return the subscription with the api_key else None
         if api_key_required:
+            # Log the provided api_key against every subscription's stored api_key
+            LOGGER.debug("[AUTH] api_key check for email=%s: provided_api_key=%r", email, api_key)
+            for sub in cached_user["subscriptions"]:
+                stored_api_key = sub.get("api_key")
+                LOGGER.debug(
+                    "[AUTH]   subscription database=%s is_valid=%s stored_api_key=%r match=%s",
+                    sub.get("database"), sub.get("is_valid"), stored_api_key, stored_api_key == api_key
+                )
+
             # Find single subscription for given api_key
             subscription = next(
                 (
@@ -264,6 +289,18 @@ class CachedUserManager(GenericManager):
                     if sub.get("api_key") == api_key and sub.get("is_valid", False)
                 ),
                 None
+            )
+
+            LOGGER.debug(
+                "[AUTH] subscription lookup for email=%s: matched=%s",
+                email,
+                None if not subscription else {
+                    'database': subscription.get('database'),
+                    'short_id': subscription.get('short_id'),
+                    'api_level': subscription.get('api_level'),
+                    'is_valid': subscription.get('is_valid'),
+                    'stored_api_key': subscription.get('api_key'),
+                }
             )
 
             if not subscription:

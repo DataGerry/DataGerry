@@ -636,14 +636,21 @@ def check_user_in_service_portal(
 
     # Validation through service portal
     try:
+        LOGGER.debug(
+            "[AUTH] check_user_in_service_portal: email=%s api_key_required=%s has_api_key=%s",
+            email, api_key_required, bool(x_api_key)
+        )
+
         # Early out if no api_key is provided when it is required
         if api_key_required and not x_api_key:
+            LOGGER.debug("[AUTH] api_key required but none provided -> None (email=%s)", email)
             return None
 
         cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
         security_manager = SecurityManager(current_app.database_manager)
 
         user_exists_in_cache = cached_user_manager.cached_user_exists(email)
+        LOGGER.debug("[AUTH] cached_user_exists(email=%s) -> %s", email, user_exists_in_cache)
         # 1. Check cache first
         if user_exists_in_cache:
             cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
@@ -654,9 +661,19 @@ def check_user_in_service_portal(
                                                                 )
 
             if cached_user:
+                LOGGER.debug("[AUTH] CACHE HIT for email=%s -> returning cached user (NO portal call)", email)
                 return cached_user
 
+            LOGGER.debug(
+                "[AUTH] cached entry present for email=%s but validation returned None "
+                "-> falling through to the service portal", email
+            )
+
         # 2. Not cached or invalid data → validate against portal
+        LOGGER.debug(
+            "[AUTH] -> PORTAL CALL validate_subscrption_user(email=%s api_key_required=%s)",
+            email, api_key_required
+        )
         user_data: dict[str, Any] = validate_subscrption_user(email, password, x_api_key, api_key_required)
 
         if user_data:
@@ -881,7 +898,9 @@ def validate_subscrption_user(
         raise RequestError("No service portal URL configured")
 
     try:
+        LOGGER.debug("[AUTH] PORTAL REQUEST -> POST %s (email=%s)", target, email)
         response = requests.post(target, headers=headers, json=payload, timeout=3)
+        LOGGER.debug("[AUTH] PORTAL RESPONSE <- POST %s (email=%s) status=%s", target, email, response.status_code)
 
         if response.status_code == 200:
             return response.json()

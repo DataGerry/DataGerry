@@ -473,6 +473,8 @@ class DgServicePortalManager:
 
     def get_dg_sp_user_data(self, email: str) -> dict[str, Any]:
         """TODO: document"""
+        LOGGER.debug("[AUTH] PORTAL REQUEST -> get_dg_sp_user_data(email=%s)", email)
+
         payload: dict[str, Any] = {
                 "email": email,
         }
