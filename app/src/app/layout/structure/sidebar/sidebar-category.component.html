@@ -1,14 +1,13 @@
 @if (categoryNode) {
 
-<a role="button" class="list-group-item collapsed" [attr.data-bs-toggle]="'collapse'"
-  [attr.data-bs-target]="'#' + categoryNode.category.name" [attr.aria-expanded]="isCollapsed"
-  (click)="isCollapsed = !isCollapsed">
+<a role="button" class="list-group-item" [class.collapsed]="!isExpanded" [attr.aria-expanded]="isExpanded"
+  (click)="toggle()">
   <span class="shorten-long-text" data-bs-toggle="tooltip" [attr.title]="categoryNode.category.label">
     <i [ngClass]="categoryNode.category.meta.icon || 'far fa-folder-open'"></i>
     {{ categoryNode.category.label }}
   </span>
 </a>
-<ul class="collapse collapse-element" id="{{categoryNode.category.name}}">
+<ul class="collapse collapse-element" [class.show]="isExpanded" id="{{categoryNode.category.name}}">
   @if (categoryNode.children) {
 
   @for (categoryChild of categoryNode.children; track categoryChild.category.public_id) {
@@ -16,7 +15,7 @@
   }
 
   }
-  @if (isCollapsed) {
+  @if (isExpanded) {
 
   @for (type of categoryNode.types; track type.public_id) {
 

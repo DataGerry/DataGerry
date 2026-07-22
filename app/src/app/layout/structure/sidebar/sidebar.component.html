@@ -33,8 +33,8 @@
 
       @if (isNavigationView && !isSidebarCollapsed) {
       <li class="sb-nav-item sb-subtabs">
-        <button class="sb-subtab" [class.sb-subtab--active]="selectedMenu === 'locations'"
-          (click)="selectNavTab('locations')" type="button">
+        <button *permissionLink="'base.framework.location.view'" class="sb-subtab"
+          [class.sb-subtab--active]="selectedMenu === 'locations'" (click)="selectNavTab('locations')" type="button">
           <fa-icon icon="map-marker-alt"></fa-icon>
           <span>Locations</span>
         </button>
@@ -54,8 +54,8 @@
           <span class="sb-icon"><fa-icon icon="th-large"></fa-icon></span>
         </div>
       </li>
-      <li class="sb-nav-item" data-tip="Locations" (mouseenter)="onGroupMouseEnter('locations', $event)"
-        (mouseleave)="onGroupMouseLeave()">
+      <li *permissionLink="'base.framework.location.view'" class="sb-nav-item" data-tip="Locations"
+        (mouseenter)="onGroupMouseEnter('locations', $event)" (mouseleave)="onGroupMouseLeave()">
         <div class="sb-item" [class.is-active]="selectedMenu === 'locations'">
           <span class="sb-icon"><fa-icon icon="map-marker-alt"></fa-icon></span>
         </div>
@@ -123,7 +123,7 @@
       }
 
       @if (selectedMenu === 'locations' && !isSidebarCollapsed) {
-      <li class="sb-nav-item sb-content-panel">
+      <li *permissionLink="'base.framework.location.view'" class="sb-nav-item sb-content-panel">
         <location-tree [isExpanded]="isExpanded" (expandClicked)="onExpandClicked()">
         </location-tree>
       </li>
@@ -172,7 +172,8 @@
     (mouseleave)="onFlyoutMouseLeave()">
     <div class="sb-flyout__head">Locations</div>
     <div class="sb-flyout__body">
-      <location-tree [isExpanded]="false" [showSidebarExpandButton]="false"></location-tree>
+      <location-tree *permissionLink="'base.framework.location.view'" [isExpanded]="false"
+        [showSidebarExpandButton]="false"></location-tree>
     </div>
   </div>
   }
